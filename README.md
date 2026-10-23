@@ -5,8 +5,8 @@
 CubeLab is a focused, offline-first 3×3 speedcubing timer with a flat,
 csTimer-inspired interface. It combines a precise monotonic timer, official WCA
 random-state scrambles from `cubing.js`, optional WCA inspection, WCA-aware
-session statistics, named local sessions, and JSON backup/restore in a
-responsive layout built around the clock.
+session statistics, named local sessions, JSON backup/restore, and a centralized
+Settings dialog in a responsive layout built around the clock.
 
 ![CubeLab desktop interface](docs/cubelab-desktop.png)
 
@@ -17,6 +17,9 @@ responsive layout built around the clock.
   with a prefetched next scramble.
 - **Keyboard and pointer controls** that work reliably from anywhere on the page.
 - **Optional WCA inspection** with automatic `+2` and DNF penalties.
+- **csTimer-inspired Settings dialog** with Timer, Controls, Data, and About
+  sections. Inspection, local-data status, and backup/restore access live in one
+  place, and changes save automatically.
 - **Named local sessions** with create, switch, rename, and confirmed delete.
   Each session has independent solves and statistics.
 - **Session statistics**: best/latest single, mo3, ao5, and ao12, including full
@@ -41,9 +44,17 @@ timer; and the clock as the dominant element. The flat light theme uses neutral
 panels, a pale green timer surface, and a solid green accent. There are no
 decorative gradients, glows, or background effects. On narrow screens the timer
 comes first, with the session controls, statistics, and history stacked below it.
-At 320 px the inspection switch keeps a visible label, and the desktop history
-rail scrolls internally rather than stretching the page. Offscreen history rows
-are skipped during rendering and memoized, so long sessions remain usable.
+
+The header **Settings** button opens a csTimer-inspired preferences dialog. The
+dialog groups the inspection preference under **Timer**, a keyboard reference
+under **Controls**, local-data status and **Backup & restore** under **Data**, and
+local-first details under **About**. At 320 px the Settings dialog keeps the
+inspection label and its switch touch target visible, and its body scrolls
+independently so the Done button stays reachable. The desktop history rail
+scrolls internally rather than stretching the page. Offscreen history rows are
+skipped during rendering and memoized, so long sessions remain usable.
+
+![CubeLab Settings dialog](docs/cubelab-settings.png)
 
 ### Mobile layout
 
@@ -58,9 +69,11 @@ are skipped during rendering and memoized, so long sessions remain usable.
 | Stop timing | Press <kbd>Space</kbd>, click, or tap once |
 | Cancel a hold or inspection | <kbd>Esc</kbd> |
 | Regenerate the scramble | Use the regenerate button in the scramble panel |
+| Open Settings | Use the **Settings** button in the header; it is unavailable while timing |
+| Change inspection | Open **Settings**, then toggle **Inspection** under **Timer** |
 | Switch session | Choose a name in the session select; use arrow keys and <kbd>Enter</kbd> from the keyboard |
 | Create, rename, or delete a session | Use the buttons beside the session select |
-| Export or import a backup | Use the <strong>Backup</strong> button in the session panel |
+| Export or import a backup | Open **Settings → Data → Backup & restore** |
 | Activate a focused button or switch | <kbd>Enter</kbd> |
 
 <kbd>Space</kbd> is reserved for timing throughout the app and never scrolls the
@@ -85,9 +98,10 @@ synchronized, so use one tab when changing sessions or importing a backup.
 
 ### Backup and restore
 
-**Backup** exports a readable JSON file containing every session, every solve,
-the active session, and the inspection setting. The file is created locally with
-the browser download API; CubeLab never uploads it.
+Open **Settings → Data → Backup & restore**. **Backup** exports a readable JSON
+file containing every session, every solve, the active session, and the
+inspection setting. The file is created locally with the browser download API;
+CubeLab never uploads it.
 
 Import validates the application marker, format version, sessions, solves, and
 settings before changing anything. Valid data replaces the local sessions and
@@ -97,15 +111,16 @@ limited to 10 MB; invalid files produce an inline error and are not applied.
 
 ### Inspection rules
 
-When inspection is enabled, the first press starts the 15-second countdown. The
-solve starts from a second hold:
+When inspection is enabled in **Settings → Timer**, the first press starts the
+15-second countdown. The solve starts from a second hold:
 
 - **0–15 s:** no penalty
 - **15–17 s:** `+2`
 - **Over 17 s:** `DNF`
 
 The penalty is determined at the moment timing starts. `Esc` cancels inspection
-before the solve begins. Inspection cannot be toggled while timing is active.
+before the solve begins. Inspection cannot be changed while timing is active;
+the header Settings button is disabled until the timer returns to idle.
 
 ## Statistics
 
@@ -156,12 +171,13 @@ npm run test:e2e    # Playwright against the production preview
 
 The Playwright suite builds and serves the production output, then verifies
 keyboard timing, penalties, persistence across reloads, delete/undo, confirmed
-clearing, inspection, mobile pointer timing, 320 px touch targets, long-history
+clearing, Settings open/close and focus restoration, inspection persistence,
+mobile pointer timing, 320 px Settings and session touch targets, long-history
 scrolling, legacy single-session migration, named-session create/switch/rename/
-delete, timer locking of session controls, backup export, invalid-file handling,
-import cancellation, confirmed restore of sessions and settings, the
-scramble-failure recovery state, and full offline scramble generation through the
-installed service worker.
+delete, timer locking of session controls and Settings, backup export,
+invalid-file handling, import cancellation, confirmed restore of sessions and
+settings, the scramble-failure recovery state, and full offline scramble
+generation through the installed service worker.
 
 ## Architecture
 
@@ -180,6 +196,7 @@ src/
   lib/storage.ts         Versioned localStorage validation and migration
   lib/format.ts          Display formatting
   components/            Timer, scramble, sessions, stats, history, and dialogs
+  components/SettingsDialog.tsx  Timer, Controls, Data, and About preferences
   App.tsx                Integration, global input, session/backup orchestration
   index.css              Flat csTimer-inspired theme and responsive layout
 e2e/timer.spec.ts        Production browser and offline tests
@@ -228,10 +245,12 @@ data or backups anywhere and has no account or telemetry.
 
 ## Scope
 
-CubeLab Milestone 1 and Phase 2A are complete. Phase 2A adds local named sessions
-and JSON backup/restore. The app covers the 3×3 event only. Google Drive backup,
-multi-device sync, accounts, and additional puzzle events are intentionally
-outside the current scope and have not been started.
+CubeLab Milestone 1, Phase 2A, and the Phase 2A.1 Settings design update are
+complete. Phase 2A adds local named sessions and JSON backup/restore. Phase 2A.1
+adds the csTimer-inspired Settings dialog, centralizing the inspection
+preference and local-data controls. The app covers the 3×3 event only. Google
+Drive backup, multi-device sync, accounts, and additional puzzle events are
+intentionally outside the current scope and have not been started.
 
 For implementation status and handoff details, see
 [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md). Contributors and future agents

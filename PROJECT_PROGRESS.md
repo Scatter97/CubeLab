@@ -1,19 +1,21 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23 19:02 (local)
+**Last verified:** 2026-10-23 19:18 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
+**Phase 2A.1:** Complete — csTimer-inspired Settings dialog
 **Phase 2B:** Not started — 0% (Google Drive backup)
 **Phase 2C:** Not started — 0% (multi-device sync)
-**Repository state:** Phase 2A verified; commit state recorded under “Git status”.
+**Repository state:** Phase 2A.1 verified and committed; working tree clean.
 
 ## Scope delivered
 
 CubeLab Milestone 1 is a flat, csTimer-inspired, offline-first 3×3 speedcubing
 timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
 Phase 2A adds named local sessions and validated JSON backup/restore without
-changing the timer or statistics rules.
+changing the timer or statistics rules. Phase 2A.1 adds a centralized Settings
+dialog without adding a new persisted preference or changing timing behavior.
 
 ### Product
 
@@ -30,14 +32,18 @@ changing the timer or statistics rules.
   `cubing.js` (`randomScrambleForEvent('333')`), with a prefetched next scramble.
 - Optional WCA inspection with 15-second / 17-second boundaries and automatic
   `+2` or DNF penalty at solve start.
+- csTimer-inspired Settings dialog with Timer, Controls, Data, and About
+  sections. It centralizes the inspection preference, keyboard reference,
+  local-storage status, and backup/restore access.
 - Solve penalties (`+2`, DNF), deletion with undo, and confirmed full-session
   clearing.
 - Best and latest single, mo3, ao5, and ao12 with correct DNF handling.
 - Named local sessions with create, switch, rename, and confirmed delete. Each
   session owns independent solves, statistics, and history.
 - Versioned JSON backup/restore covering every session, solve, active session,
-  and setting. Import validates the file and requires explicit confirmation
-  before replacing local data.
+  and setting, reached through **Settings → Data → Backup & restore**. Import
+  validates the file and requires explicit confirmation before replacing local
+  data.
 - Automatic migration from the original single-session storage key into
   **Session 1**.
 - Versioned local persistence for sessions and settings, with corruption
@@ -57,7 +63,10 @@ changing the timer or statistics rules.
 - Pure backup creation/validation in `src/lib/backup.ts`, with file-size limits
   and record-by-record recovery.
 - Shared native modal lifecycle and Tab/Shift+Tab focus containment in
-  `useModalDialog`, used by both confirmation and backup dialogs.
+  `useModalDialog`, used by the Settings, confirmation, and backup dialogs.
+- Settings opens only while the timer is idle, blocks timing while open, and
+  returns focus to the header Settings button on close. The header no longer
+  contains a separate inspection switch.
 - Strict TypeScript, Oxlint, Vitest, and Playwright.
 - Unit, session, storage, backup, statistics, formatting, and real
   scramble-generation coverage.
@@ -70,48 +79,55 @@ changing the timer or statistics rules.
   states, WCAG AA secondary-text contrast, and a bounded desktop history rail.
 - Phase 2A added a compact session panel, inline validated naming, locked session
   controls during timing, migration tests, and confirmed replace-only import.
+- Phase 2A.1 moved inspection and backup entry points into the Settings dialog,
+  added a responsive grouped-sections layout, and covered focus restoration and
+  narrow-width touch targets in production E2E tests.
 
 ## Verification evidence
 
-Run at 2026-10-23 19:02 (local), after the Phase 2A session/backup work:
+Run at 2026-10-23 19:18 (local), after the Phase 2A.1 Settings work:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
 | Unit tests | `npm test` | **84/84 passed**, 7 test files |
-| Production build | `npm run build` | Passed; 73 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,138.77 KiB** |
-| Production E2E | `npm run test:e2e` | **11/11 passed**, Chromium |
-| Visual QA | production preview screenshots | Phase 2A checked 1440×1000, 390×844, and the backup dialog at 320×700; the earlier Phase 1 pass covered 320, 360, 390, 720×500, 768 touch, 1024, 1440, and 1920 widths; no horizontal overflow; desktop and mobile screenshots refreshed |
-| Performance | seeded 2,000-solve production session | Desktop ~1.35 s to queue-ready, mobile ~1.23 s; no long tasks during history scroll; penalty toggle ~282 ms desktop / ~233 ms mobile |
+| Production build | `npm run build` | Passed; 74 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,149.09 KiB** |
+| Production E2E | `npm run test:e2e` | **12/12 passed**, Chromium |
+| Visual QA | production preview screenshots | Phase 2A.1 checked 1440×1000, 390×844, and the Settings dialog at 320×700; no horizontal overflow; desktop/mobile screenshots refreshed and `docs/cubelab-settings.png` added |
+| Performance | seeded 2,000-solve production session | Not re-measured for Phase 2A.1; the Phase 2A profile below remains the latest. The Settings change touches the header and modal UI, not the timer or history data path. |
 
 The Playwright suite runs against the production preview and covers:
 
 1. Keyboard hold/start/stop, exactly one recorded solve, and scramble advancement.
 2. `+2` persistence across reload, delete/undo, and modal focus containment.
-3. Inspection activation, hold-to-time, solve recording, and settings persistence.
-4. Mobile layout plus pointer hold-to-time behavior.
-5. The 320 px layout, visible inspection label, session controls, and 28 px touch
-   targets.
-6. A long desktop session scrolling inside the history rail, including automatic
+3. Settings dialog focus containment and focus restoration to the header button.
+4. Inspection activation, hold-to-time, solve recording, persistence through
+   Settings, and Settings locking while timing is active.
+5. Mobile layout plus pointer hold-to-time behavior.
+6. The 320 px Settings and session layouts, visible inspection label, and 28 px
+   touch targets.
+7. A long desktop session scrolling inside the history rail, including automatic
    migration from the legacy single-session key.
-7. Named-session create/switch/rename/delete, duplicate-name validation, and
+8. Named-session create/switch/rename/delete, duplicate-name validation, and
    persistence of the active session.
-8. Session controls locking while the timer is active.
-9. Backup export, invalid-file handling, import cancellation with focus
-   restoration, and confirmed restoration of sessions and settings.
-10. Scramble failure disabling timing and offering a retry.
-11. Full offline reload with service-worker precache and offline `cubing.js`
+9. Session controls and Settings locking while the timer is active.
+10. Backup export through Settings → Data, invalid-file handling, import
+    cancellation with focus restoration, and confirmed restoration of sessions
+    and settings.
+11. Scramble failure disabling timing and offering a retry.
+12. Full offline reload with service-worker precache and offline `cubing.js`
     scramble generation.
 
-Visual artifacts are checked in at `docs/cubelab-desktop.png` and
-`docs/cubelab-mobile.png`.
+Visual artifacts are checked in at `docs/cubelab-desktop.png`,
+`docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`.
 
 ### Performance evidence
 
 A production session seeded with 2,000 solves was measured in Chromium at
-1440×1000 and 390×844 after Phase 2A:
+1440×1000 and 390×844 after Phase 2A. Phase 2A.1 did not change the timer,
+history rendering, or persistence path, so this profile was not re-measured:
 
 - Desktop: ~1.35 s to queue-ready with all rows present, 28,206 DOM nodes,
   ~20.5 MB JS heap, 86,006 px of history content in a 456 px scroll viewport,
@@ -132,14 +148,16 @@ substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~268.00 kB (~81.93 kB gzip)
-- CSS: ~30.49 kB (~8.83 kB gzip)
+- Main application bundle: ~274.10 kB (~83.02 kB gzip)
+- CSS: ~34.95 kB (~9.45 kB gzip)
 - Cubing.js chunk: ~1.21 MB (~335.13 kB gzip)
-- Precache total: ~2.09 MiB (2,138.77 KiB)
+- Precache total: ~2.10 MiB (2,149.09 KiB)
 - PWA: generated Workbox service worker and web manifest
 
-Vite reports the expected informational warning about the large cubing.js chunk.
-It is a single cached dependency chunk, not duplicated application code.
+Phase 2A.1 added about 6 kB of application JavaScript and 4.5 kB of CSS for the
+Settings dialog. Vite reports the expected informational warning about the large
+cubing.js chunk. It is a single cached dependency chunk, not duplicated
+application code.
 
 ## Key decisions and invariants
 
@@ -149,7 +167,18 @@ It is a single cached dependency chunk, not duplicated application code.
   session rail on the left, scramble above the clock, timer as the dominant
   element, and quick ao5/ao12 values directly beneath it.
 - Phase 2A adds a compact session panel at the top of the rail with a native
-  session select, new/rename/delete actions, and a Backup entry point.
+  session select and new/rename/delete actions. Phase 2A.1 moves the Backup
+  entry point into **Settings → Data** so the session panel stays focused on
+  sessions.
+- The header has one Settings button instead of an inspection switch. Its small
+  secondary label and accessible name expose the current inspection state; the
+  desktop header context also reads “Inspection on/off”.
+- The Settings dialog follows csTimer's grouped-options approach with Timer,
+  Controls, Data, and About sections. It uses the shared native modal, a fixed
+  footer, and an independently scrolling body on short screens.
+- Inspection remains the only persisted preference, so Phase 2A.1 does not change
+  the settings schema or require a migration. The dialog is structured for
+  future options.
 - The palette is flat light gray and white with a pale green timer surface and a
   solid muted green accent. Penalties use amber and red.
 - Decorative gradients, glows, grid/ambient backgrounds, and oversized rounded
@@ -162,8 +191,9 @@ It is a single cached dependency chunk, not duplicated application code.
   28 px.
 - The desktop history rail is bounded to the viewport and scrolls internally
   instead of stretching the page. The shell max-width is 1920 px.
-- At 320 px the inspection label remains visible; it is not collapsed to an
-  unlabeled switch.
+- At 320 px the Settings dialog keeps the inspection label and switch touch
+  target visible; the switch is not collapsed to an unlabeled control. The
+  dialog body scrolls independently so the Done button remains reachable.
 
 ### Sessions and backup
 
@@ -258,19 +288,25 @@ offline Playwright test and must not be undone casually.
   Enter and arrow keys.
 - Timer state changes and solve recording are announced through a live region.
 - Controls have visible focus styles, accessible names, and disabled states.
-- The confirmation and backup dialogs trap Tab/Shift+Tab focus, close on Escape
-  or backdrop click, and return focus to their trigger.
+- The Settings, confirmation, and backup dialogs trap Tab/Shift+Tab focus,
+  close on Escape or backdrop click, and return focus to their trigger. The
+  Settings trigger is the header Settings button.
+- The header Settings button is disabled while the timer is armed, running, or
+  in inspection. Opening Settings blocks timer input while the dialog is open.
 - The inline session-name editor focuses and selects its input, reports
   validation with `role="alert"`, and returns focus to the session select.
 - Touch targets are at least 28 px; the narrow layout, session controls, and
-  inspection label were checked at 320, 360, 390, 768, 1024, 1440, and 1920 px
-  across the Phase 1 and Phase 2A passes.
+  Settings dialog inspection control were checked at 320, 360, 390, 768, 1024,
+  1440, and 1920 px across the Phase 1, Phase 2A, and Phase 2A.1 passes.
 - Key secondary text was darkened to meet WCAG AA contrast (at least 4.5:1 on
   its actual background).
 
 ## Known limitations
 
 - Only the 3×3 event is implemented.
+- The Settings dialog currently exposes only the existing inspection preference.
+  Additional csTimer-style timer, display, or alert options would need a
+  versioned settings-schema migration and focused tests.
 - Phase 2A import is replace-only; there is no merge, conflict resolution,
   Google Drive backup, or multi-device sync yet.
 - Backup files are unencrypted JSON. They contain solve history and settings and
@@ -341,6 +377,22 @@ All requested Milestone 1 functionality is implemented and verified:
 
 **Completion estimate: 100% of authorized Phase 2A scope.**
 
+### Phase 2A.1 — Complete
+
+- [x] Header Settings button replaces the header inspection switch
+- [x] csTimer-inspired Settings dialog with Timer, Controls, Data, and About
+- [x] Inspection on/off preference moved into Settings
+- [x] Backup & restore entry moved from the session panel into Settings → Data
+- [x] Settings locked while the timer is armed, running, or in inspection
+- [x] Native modal focus containment, Escape/backdrop close, and focus restoration
+- [x] Responsive layout with independently scrolling body at 320 px
+- [x] Production E2E coverage for Settings focus, inspection persistence, backup
+  access, timer locking, and narrow-width touch targets
+- [x] Refreshed desktop/mobile screenshots plus a Settings dialog screenshot
+- [x] Full verification chain rerun
+
+**Completion estimate: 100% of authorized Phase 2A.1 scope.**
+
 ### Phase 2B — Not started
 
 Google Drive backup/restore has not been started. No OAuth, Drive API, upload,
@@ -357,9 +409,12 @@ replace-only; no merge or conflict-resolution logic exists yet.
 
 ### Safe next work
 
-- Implement Phase 2B only after an explicit instruction. Start with an OAuth and
-  Drive API design, a versioned remote backup envelope, restore semantics, and
-  failure-path tests before writing cloud code.
+- Phase 2A.1 is complete. Implement Phase 2B only after an explicit instruction.
+  Start with an OAuth and Drive API design, a versioned remote backup envelope,
+  restore semantics, and failure-path tests before writing cloud code.
+- If more timer preferences are requested, extend the Settings dialog and the
+  versioned settings schema together, with migration and E2E coverage. Do not
+  duplicate the inspection control back into the header.
 - Add WebKit/Firefox browser coverage if those engines become available.
 - Profile and virtualize history for extremely large local sessions.
 - Run a formal accessibility and physical-device touch audit.
@@ -371,15 +426,17 @@ replace-only; no merge or conflict-resolution logic exists yet.
 2. Preserve the pure timer machine and WCA statistics semantics.
 3. Preserve the session and backup invariants: at least one session, unique
    names, locked controls during timing, validated replace-only import.
-4. Re-run `npm run check` after logic or build changes.
-5. Re-run the offline E2E test after any Vite, PWA, dependency, or asset change.
-6. Update this file with fresh evidence whenever status changes.
+4. Keep Settings as the single home for inspection and data controls; do not
+   reintroduce a header inspection toggle.
+5. Re-run `npm run check` after logic or build changes.
+6. Re-run the offline E2E test after any Vite, PWA, dependency, or asset change.
+7. Update this file with fresh evidence whenever status changes.
 
 ## Git status
 
-The Phase 2A session/backup work, refreshed screenshots, and documentation update
-are committed. The working tree was clean after the final `npm run check` pass.
-Verify with:
+The Phase 2A.1 Settings work, refreshed screenshots, and documentation update
+are committed as `feat: add Phase 2A.1 settings dialog`. The working tree was
+clean after the final `npm run check` pass. Verify with:
 
 ```bash
 git status --short

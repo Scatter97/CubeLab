@@ -1,20 +1,22 @@
-import { CubeMark, ScanIcon } from './Icons'
+import { CubeMark, SettingsIcon } from './Icons'
 
 interface AppHeaderProps {
   sessionName: string
   inspectionEnabled: boolean
-  onInspectionChange: (enabled: boolean) => void
-  inspectionLocked: boolean
+  onOpenSettings: () => void
+  settingsLocked: boolean
   storageOk: boolean
 }
 
 export function AppHeader({
   sessionName,
   inspectionEnabled,
-  onInspectionChange,
-  inspectionLocked,
+  onOpenSettings,
+  settingsLocked,
   storageOk,
 }: AppHeaderProps) {
+  const inspectionLabel = inspectionEnabled ? 'on' : 'off'
+
   return (
     <header className="app-header">
       <div className="brand">
@@ -35,7 +37,9 @@ export function AppHeader({
           {sessionName}
         </span>
         <span className="context-dot" />
-        <span className="context-meta">3×3 · Random state</span>
+        <span className="context-meta">
+          3×3 · Inspection {inspectionLabel}
+        </span>
       </div>
 
       <div className="header-actions">
@@ -53,29 +57,26 @@ export function AppHeader({
 
         <button
           type="button"
-          role="switch"
-          aria-checked={inspectionEnabled}
-          aria-label="Inspection (WCA 15 seconds)"
-          className={`inspection-toggle ${
-            inspectionLocked ? 'is-locked' : ''
-          }`}
-          disabled={inspectionLocked}
-          onClick={() => onInspectionChange(!inspectionEnabled)}
+          className="settings-button"
+          aria-label={`Settings. Inspection ${inspectionLabel}.`}
+          aria-haspopup="dialog"
+          disabled={settingsLocked}
+          onClick={onOpenSettings}
+          data-testid="settings-button"
           title={
-            inspectionLocked
-              ? 'Finish or reset the current timer before changing inspection'
-              : 'Enable the WCA 15-second inspection period'
+            settingsLocked
+              ? 'Finish or reset the current timer before opening settings'
+              : 'Open timer, data, and app settings'
           }
         >
-          <span className="toggle-icon">
-            <ScanIcon size={17} />
+          <span className="settings-button-icon">
+            <SettingsIcon size={17} />
           </span>
-          <span className="toggle-copy">
-            <span className="toggle-label">Inspection</span>
-            <span className="toggle-hint">WCA · 15 sec</span>
-          </span>
-          <span className="switch-track" aria-hidden="true">
-            <span className="switch-thumb" />
+          <span className="settings-button-copy">
+            <span className="settings-button-label">Settings</span>
+            <span className="settings-button-hint">
+              Inspection {inspectionLabel}
+            </span>
           </span>
         </button>
       </div>

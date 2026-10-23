@@ -15,7 +15,6 @@ interface SessionPanelProps {
   onRename: (id: string, name: string) => boolean
   onSelect: (id: string) => void
   onRequestDelete: () => void
-  onOpenBackup: () => void
 }
 
 type EditMode = 'create' | 'rename'
@@ -28,7 +27,6 @@ export function SessionPanel({
   onRename,
   onSelect,
   onRequestDelete,
-  onOpenBackup,
 }: SessionPanelProps) {
   const [editing, setEditing] = useState<EditMode | null>(null)
   const [draft, setDraft] = useState('')
@@ -107,7 +105,7 @@ export function SessionPanel({
 
   return (
     <section className="panel session-panel" aria-labelledby="session-title">
-      <div className="panel-heading session-heading">
+      <div className="panel-heading">
         <div>
           <span className="eyebrow">
             <span className="eyebrow-index">01</span>
@@ -115,20 +113,6 @@ export function SessionPanel({
           </span>
           <h2 id="session-title">Sessions</h2>
         </div>
-        <button
-          type="button"
-          className="text-button"
-          onClick={onOpenBackup}
-          disabled={locked}
-          data-testid="backup-button"
-          title={
-            locked
-              ? 'Finish or reset the current timer before opening backups'
-              : 'Export or import a local JSON backup'
-          }
-        >
-          Backup
-        </button>
       </div>
 
       {editing ? (

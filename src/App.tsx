@@ -4,6 +4,7 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { DataDialog } from './components/DataDialog'
 import { ScramblePanel } from './components/ScramblePanel'
 import { SessionPanel } from './components/SessionPanel'
+import { SettingsDialog } from './components/SettingsDialog'
 import { SolveHistory } from './components/SolveHistory'
 import { StatsPanel } from './components/StatsPanel'
 import { TimerStage } from './components/TimerStage'
@@ -81,6 +82,7 @@ export default function App() {
   const [clearOpen, setClearOpen] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const scrambleRef = useRef(scramble)
@@ -122,7 +124,11 @@ export default function App() {
 
   const timerActive = timer.state.status !== 'idle'
   const modalOpen =
-    dataOpen || clearOpen || sessionToDelete !== null || pendingImport !== null
+    settingsOpen ||
+    dataOpen ||
+    clearOpen ||
+    sessionToDelete !== null ||
+    pendingImport !== null
   const timerCancel = timer.cancel
   const timerPress = timer.press
   const timerRelease = timer.release
@@ -131,11 +137,16 @@ export default function App() {
 
   const handleInspectionChange = useCallback(
     (enabled: boolean) => {
-      if (timer.state.status !== 'idle' || modalOpen) return
+      if (timer.state.status !== 'idle') return
       setInspectionEnabled(enabled)
     },
-    [modalOpen, setInspectionEnabled, timer.state.status],
+    [setInspectionEnabled, timer.state.status],
   )
+
+  const handleOpenSettings = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSettingsOpen(true)
+  }, [timer.state.status])
 
   const handleRegenerate = useCallback(() => {
     if (timer.state.status !== 'idle' || scrambleLoading) return
@@ -222,6 +233,7 @@ export default function App() {
 
   const handleOpenBackup = useCallback(() => {
     if (timer.state.status !== 'idle') return
+    setSettingsOpen(false)
     setDataOpen(true)
   }, [timer.state.status])
 
@@ -414,8 +426,8 @@ export default function App() {
       <AppHeader
         sessionName={activeSession.name}
         inspectionEnabled={settings.inspectionEnabled}
-        onInspectionChange={handleInspectionChange}
-        inspectionLocked={timerActive || modalOpen}
+        onOpenSettings={handleOpenSettings}
+        settingsLocked={timerActive}
         storageOk={storageHealthy}
       />
 
@@ -487,7 +499,6 @@ export default function App() {
             onRename={handleRenameSession}
             onSelect={handleSelectSession}
             onRequestDelete={requestDeleteSession}
-            onOpenBackup={handleOpenBackup}
           />
 
           <StatsPanel stats={stats} />
@@ -513,6 +524,17 @@ export default function App() {
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
+
+      <SettingsDialog
+        open={settingsOpen}
+        inspectionEnabled={settings.inspectionEnabled}
+        storageOk={storageHealthy}
+        sessionCount={sessions.length}
+        solveCount={countSolves(sessions)}
+        onInspectionChange={handleInspectionChange}
+        onOpenBackup={handleOpenBackup}
+        onClose={() => setSettingsOpen(false)}
+      />
 
       <DataDialog
         open={dataOpen}

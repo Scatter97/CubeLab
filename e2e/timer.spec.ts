@@ -63,9 +63,18 @@ async function selectedSessionName(page: Page): Promise<string> {
   })
 }
 
+async function openSettings(page: Page) {
+  await page.getByTestId('settings-button').click()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
 async function openBackup(page: Page) {
-  await page.getByTestId('backup-button').click()
-  const dialog = page.getByRole('dialog')
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-backup-button').click()
+  await expect(settings).toBeHidden()
+  const dialog = page.getByRole('dialog', { name: 'Your local data' })
   await expect(dialog).toBeVisible()
   return dialog
 }
@@ -165,17 +174,22 @@ test('inspection starts, arms, times a solve, and persists its setting', async (
   await page.goto('/')
   await waitForApp(page)
 
-  const inspectionSwitch = page.getByRole('switch', { name: /Inspection/ })
+  const settings = await openSettings(page)
+  const inspectionSwitch = settings.getByRole('switch', { name: /Inspection/ })
   await expect(inspectionSwitch).toHaveAttribute('aria-checked', 'false')
   await inspectionSwitch.click()
   await expect(inspectionSwitch).toHaveAttribute('aria-checked', 'true')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+  await expect(page.getByTestId('settings-button')).toBeFocused()
 
-  // The switch keeps focus after the click. Space must still control the timer.
+  // The header Settings button keeps focus after closing. Space still controls
+  // the timer, and Settings cannot be reopened while timing is active.
   await page.keyboard.press('Space')
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection', {
     timeout: 3_000,
   })
-  await expect(inspectionSwitch).toBeDisabled()
+  await expect(page.getByTestId('settings-button')).toBeDisabled()
   await expect(page.locator(TIMER)).toContainText('15s + 2s')
 
   await holdSpace(page)
@@ -189,10 +203,31 @@ test('inspection starts, arms, times a solve, and persists its setting', async (
   await page.reload()
   await waitForApp(page)
   await expect(page.getByTestId('solve-count')).toHaveText('1')
-  await expect(page.getByRole('switch', { name: /Inspection/ })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  )
+  const reopenedSettings = await openSettings(page)
+  await expect(
+    reopenedSettings.getByRole('switch', { name: /Inspection/ }),
+  ).toHaveAttribute('aria-checked', 'true')
+})
+
+test('settings dialog contains focus and restores it to the header button', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  const closeButton = settings.getByRole('button', { name: 'Close settings' })
+  const doneButton = settings.getByTestId('settings-done')
+
+  await closeButton.focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(doneButton).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(closeButton).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
+  await expect(page.getByTestId('settings-button')).toBeFocused()
 })
 
 test('mobile layout supports hold-to-time pointer controls', async ({
@@ -235,7 +270,7 @@ test('mobile layout supports hold-to-time pointer controls', async ({
   await context.close()
 })
 
-test('narrow mobile layout keeps the inspection label and touch targets', async ({
+test('narrow mobile layout keeps settings and session touch targets', async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -248,15 +283,45 @@ test('narrow mobile layout keeps the inspection label and touch targets', async 
   await page.goto('/')
   await waitForApp(page)
 
-  const inspectionSwitch = page.getByRole('switch', { name: /Inspection/ })
-  await expect(inspectionSwitch).toBeVisible()
-  await expect(page.locator('.toggle-label')).toBeVisible()
-  await expect(page.locator('.toggle-label')).toHaveText('Inspection')
+  const settingsButton = page.getByTestId('settings-button')
+  await expect(settingsButton).toBeVisible()
+  const settingsButtonBox = await settingsButton.boundingBox()
+  expect(settingsButtonBox).not.toBeNull()
+  if (!settingsButtonBox) throw new Error('Settings button has no bounding box')
+  expect(settingsButtonBox.height).toBeGreaterThanOrEqual(28)
 
+  const settings = await openSettings(page)
+  await expect(settings.getByText('Inspection', { exact: true })).toBeVisible()
+
+  const inspectionSwitch = settings.getByRole('switch', {
+    name: /Inspection/,
+  })
   const switchBox = await inspectionSwitch.boundingBox()
   expect(switchBox).not.toBeNull()
   if (!switchBox) throw new Error('Inspection switch has no bounding box')
   expect(switchBox.height).toBeGreaterThanOrEqual(28)
+
+  const settingsBox = await settings.boundingBox()
+  expect(settingsBox).not.toBeNull()
+  if (!settingsBox) throw new Error('Settings dialog has no bounding box')
+  expect(settingsBox.width).toBeLessThanOrEqual(320)
+
+  const settingsBody = await settings.locator('.settings-body').evaluate(
+    (element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }),
+  )
+  expect(settingsBody.scrollHeight).toBeGreaterThan(settingsBody.clientHeight)
+  await expect(settings.getByTestId('settings-done')).toBeVisible()
+
+  const noHorizontalOverflowWithSettings = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+  )
+  expect(noHorizontalOverflowWithSettings).toBe(true)
+
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
 
   const clearButton = page.getByRole('button', { name: 'Clear session' })
   const clearBox = await clearButton.boundingBox()
@@ -274,11 +339,6 @@ test('narrow mobile layout keeps the inspection label and touch targets', async 
   if (!newSessionBox) throw new Error('New session button has no bounding box')
   expect(newSessionBox.width).toBeGreaterThanOrEqual(28)
   expect(newSessionBox.height).toBeGreaterThanOrEqual(28)
-
-  const backupBox = await page.getByTestId('backup-button').boundingBox()
-  expect(backupBox).not.toBeNull()
-  if (!backupBox) throw new Error('Backup button has no bounding box')
-  expect(backupBox.height).toBeGreaterThanOrEqual(28)
 
   await recordSolve(page, 80)
   const miniButtonBoxes = await page.locator('.mini-button').evaluateAll((buttons) =>
@@ -439,12 +499,12 @@ test('session controls lock while the timer is active', async ({ page }) => {
   await expect(select).toBeDisabled()
   await expect(page.getByTestId('new-session')).toBeDisabled()
   await expect(page.getByTestId('rename-session')).toBeDisabled()
-  await expect(page.getByTestId('backup-button')).toBeDisabled()
+  await expect(page.getByTestId('settings-button')).toBeDisabled()
 
   await stopWithSpace(page)
   await expect(select).toBeEnabled()
   await expect(page.getByTestId('new-session')).toBeEnabled()
-  await expect(page.getByTestId('backup-button')).toBeEnabled()
+  await expect(page.getByTestId('settings-button')).toBeEnabled()
 })
 
 test('backup export and import restore all sessions and settings', async ({
@@ -461,9 +521,12 @@ test('backup export and import restore all sessions and settings', async ({
   await page.getByTestId('save-session-name').click()
   await recordSolve(page, 100)
 
-  const inspectionSwitch = page.getByRole('switch', { name: /Inspection/ })
+  const settings = await openSettings(page)
+  const inspectionSwitch = settings.getByRole('switch', { name: /Inspection/ })
   await inspectionSwitch.click()
   await expect(inspectionSwitch).toHaveAttribute('aria-checked', 'true')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
 
   const dialog = await openBackup(page)
   await expect(dialog.locator('.data-summary')).toContainText('2 sessions')
@@ -480,7 +543,7 @@ test('backup export and import restore all sessions and settings', async ({
   )
   await dialog.getByRole('button', { name: 'Close' }).click()
   await expect(dialog).toBeHidden()
-  await expect(page.getByTestId('backup-button')).toBeFocused()
+  await expect(page.getByTestId('settings-button')).toBeFocused()
 
   const backupDialog = await openBackup(page)
   const downloadPromise = page.waitForEvent('download')
@@ -523,9 +586,12 @@ test('backup export and import restore all sessions and settings', async ({
   await waitForApp(page)
   expect(await selectedSessionName(page)).toBe('Session 1')
   await expect(page.getByTestId('solve-count')).toHaveText('0')
+  const emptySettings = await openSettings(page)
   await expect(
-    page.getByRole('switch', { name: /Inspection/ }),
+    emptySettings.getByRole('switch', { name: /Inspection/ }),
   ).toHaveAttribute('aria-checked', 'false')
+  await emptySettings.getByTestId('settings-done').click()
+  await expect(emptySettings).toBeHidden()
 
   // Importing requires explicit confirmation; cancelling keeps local data.
   await openBackup(page)
@@ -541,7 +607,7 @@ test('backup export and import restore all sessions and settings', async ({
     cancelDialog.getByRole('button', { name: 'Cancel import' }),
   ).toBeFocused()
   await cancelDialog.getByRole('button', { name: 'Cancel import' }).click()
-  await expect(page.getByTestId('backup-button')).toBeFocused()
+  await expect(page.getByTestId('settings-button')).toBeFocused()
   expect(await selectedSessionName(page)).toBe('Session 1')
   await expect(page.getByTestId('solve-count')).toHaveText('0')
   await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
@@ -556,15 +622,18 @@ test('backup export and import restore all sessions and settings', async ({
   ).toBeVisible()
   await importDialog.getByRole('button', { name: 'Import backup' }).click()
   await expect(page.getByRole('status')).toContainText('Backup imported')
-  await expect(page.getByTestId('backup-button')).toBeFocused()
+  await expect(page.getByTestId('settings-button')).toBeFocused()
   expect(await selectedSessionName(page)).toBe('Evening')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
   await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
     2,
   )
+  const importedSettings = await openSettings(page)
   await expect(
-    page.getByRole('switch', { name: /Inspection/ }),
+    importedSettings.getByRole('switch', { name: /Inspection/ }),
   ).toHaveAttribute('aria-checked', 'true')
+  await importedSettings.getByTestId('settings-done').click()
+  await expect(importedSettings).toBeHidden()
 
   await page.getByTestId('session-select').selectOption({ label: 'Session 1' })
   await expect(page.getByTestId('solve-count')).toHaveText('1')
@@ -573,9 +642,12 @@ test('backup export and import restore all sessions and settings', async ({
   await waitForApp(page)
   expect(await selectedSessionName(page)).toBe('Session 1')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
+  const persistedSettings = await openSettings(page)
   await expect(
-    page.getByRole('switch', { name: /Inspection/ }),
+    persistedSettings.getByRole('switch', { name: /Inspection/ }),
   ).toHaveAttribute('aria-checked', 'true')
+  await persistedSettings.getByTestId('settings-done').click()
+  await expect(persistedSettings).toBeHidden()
 })
 
 test('scramble failure disables timing and offers retry', async ({ page }) => {
