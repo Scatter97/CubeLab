@@ -233,11 +233,11 @@ an explicit brief. The README lists several deliberate non-goals for Milestone 1
 
 ## Git status
 
-The repository was initialized for CubeLab and the Milestone 1 implementation,
-tests, documentation, and visual references are committed in the initial commit.
-After the final `npm run check` pass, the working tree is clean. Verify with:
+The csTimer-inspired redesign, refreshed screenshots, and documentation update
+are committed. The working tree was clean after the final `npm run check` pass.
+Verify with:
 
 ```bash
 git status --short
-git log --oneline -1
+git log --oneline -2
 ```
