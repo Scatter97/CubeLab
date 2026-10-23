@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { Solve } from '../types'
 import { formatSolveTime, formatTime } from '../lib/format'
 import {
@@ -10,6 +10,17 @@ import {
 } from '../timer/machine'
 import { ResetIcon } from './Icons'
 
+function splitDecimalTime(value: string): ReactNode {
+  const index = value.lastIndexOf('.')
+  if (index <= 0 || value.length - index < 2) return value
+  return (
+    <>
+      {value.slice(0, index)}
+      <span className="timer-decimal">{value.slice(index)}</span>
+    </>
+  )
+}
+
 interface TimerStageProps {
   state: TimerState
   elapsedMs: number | null
@@ -19,6 +30,7 @@ interface TimerStageProps {
   disabled: boolean
   disabledHint?: string
   inspectionEnabled: boolean
+  showTimerDecimalSmall?: boolean
   onPress: (input: TimerInput) => void
   onRelease: (input: TimerInput) => void
   onCancel: () => void
@@ -83,6 +95,7 @@ export function TimerStage({
   disabled,
   disabledHint = 'Generating scramble…',
   inspectionEnabled,
+  showTimerDecimalSmall = false,
   onPress,
   onRelease,
   onCancel,
@@ -229,6 +242,10 @@ export function TimerStage({
       : 'Timer ready. Hold Space or press and hold the timer to arm, then release.'
   })()
 
+  const readout = showTimerDecimalSmall
+    ? splitDecimalTime(mainValue)
+    : mainValue
+
   const stageClass = [
     'timer-stage',
     `phase-${state.status}`,
@@ -275,7 +292,7 @@ export function TimerStage({
 
         <span className="readout-zone">
           <span className="timer-display" data-testid="timer-display">
-            {mainValue}
+            {readout}
             {suffix ? <span className="timer-suffix">{suffix}</span> : null}
           </span>
           <span className="timer-caption">

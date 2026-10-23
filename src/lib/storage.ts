@@ -25,7 +25,6 @@ export const DEFAULT_SETTINGS: Settings = {
   showTimerDecimalSmall: false,
   uiZoomPercent: 100,
   scrambleAlignment: 'center',
-  scrambleMonospaced: false,
   scrambleLimitHeight: false,
   scrambleAction: 'copy',
   showDifferenceLabels: true,
@@ -182,7 +181,9 @@ export function parseSettingsData(value: unknown): Settings | null {
       : DEFAULT_SETTINGS.timerUpdateMode,
     holdDurationMs:
       typeof value.holdDurationMs === 'number' &&
-      [0, 300, 550, 1000].includes(value.holdDurationMs)
+      Number.isFinite(value.holdDurationMs) &&
+      value.holdDurationMs >= 0 &&
+      value.holdDurationMs <= 10000
         ? value.holdDurationMs
         : DEFAULT_SETTINGS.holdDurationMs,
     showTimerDecimalSmall:
@@ -199,10 +200,6 @@ export function parseSettingsData(value: unknown): Settings | null {
     scrambleAlignment: isValidScrambleAlignment(value.scrambleAlignment)
       ? value.scrambleAlignment
       : DEFAULT_SETTINGS.scrambleAlignment,
-    scrambleMonospaced:
-      typeof value.scrambleMonospaced === 'boolean'
-        ? value.scrambleMonospaced
-        : DEFAULT_SETTINGS.scrambleMonospaced,
     scrambleLimitHeight:
       typeof value.scrambleLimitHeight === 'boolean'
         ? value.scrambleLimitHeight

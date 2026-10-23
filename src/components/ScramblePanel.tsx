@@ -14,7 +14,6 @@ interface ScramblePanelProps {
   onNotify: (message: string) => void
   scrambleAction?: ScrambleAction
   alignment?: ScrambleAlignment
-  monospaced?: boolean
   limitHeight?: boolean
 }
 
@@ -29,7 +28,6 @@ export function ScramblePanel({
   onNotify,
   scrambleAction = 'none',
   alignment,
-  monospaced = false,
   limitHeight = false,
 }: ScramblePanelProps) {
   const [copied, setCopied] = useState(false)
@@ -102,7 +100,7 @@ export function ScramblePanel({
       <div className="scramble-body" aria-busy={isLoading && !scramble}>
         {scramble ? (
           <p
-            className={`scramble-text${monospaced ? ' is-monospaced' : ''}${
+            className={`scramble-text${
               alignment ? ` is-aligned-${alignment}` : ''
             }${limitHeight ? ' is-height-limited' : ''}`}
             role={scrambleAction && scrambleAction !== 'none' ? 'button' : undefined}

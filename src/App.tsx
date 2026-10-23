@@ -429,7 +429,6 @@ export default function App() {
   const appShellClassName = [
     'app-shell',
     settings.showTimerDecimalSmall ? 'is-decimal-small' : '',
-    settings.scrambleMonospaced ? 'is-monospaced-scramble' : '',
     settings.scrambleLimitHeight ? 'is-scramble-height-limited' : '',
   ]
     .filter(Boolean)
@@ -438,7 +437,11 @@ export default function App() {
   return (
     <div
       className={appShellClassName}
-      style={{ zoom: settings.uiZoomPercent / 100 }}
+      style={
+        {
+          '--ui-scale': `${settings.uiZoomPercent / 100}`,
+        } as React.CSSProperties
+      }
     >
       <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
       <AppHeader
@@ -462,7 +465,6 @@ export default function App() {
             onNotify={(message) => showToast({ message })}
             scrambleAction={settings.scrambleAction}
             alignment={settings.scrambleAlignment}
-            monospaced={settings.scrambleMonospaced}
             limitHeight={settings.scrambleLimitHeight}
           />
 
@@ -478,6 +480,7 @@ export default function App() {
                 ? 'Scramble unavailable. Retry above.'
                 : 'Generating scramble…'
             }
+            showTimerDecimalSmall={settings.showTimerDecimalSmall}
             inspectionEnabled={settings.inspectionEnabled}
             onPress={timer.press}
             onRelease={timer.release}

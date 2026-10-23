@@ -111,29 +111,24 @@ export function SettingsDialog({
             </label>
 
             <label className="settings-field">
-              <span className="settings-field-label">Space hold time</span>
-              <select
+              <span className="settings-field-label">Space hold time (ms)</span>
+              <input
                 data-testid="hold-duration"
+                type="number"
+                min={0}
+                max={10000}
+                step={50}
                 value={settings.holdDurationMs}
-                onChange={(event) => onChange({ holdDurationMs: Number(event.target.value) })}
-              >
-                <option value={0}>0.00 s</option>
-                <option value={300}>0.30 s</option>
-                <option value={550}>0.55 s</option>
-                <option value={1000}>1.00 s</option>
-              </select>
+                onChange={(event) =>
+                  onChange({
+                    holdDurationMs: Math.max(
+                      0,
+                      Math.min(10000, Number(event.target.value || 0)),
+                    ),
+                  })
+                }
+              />
             </label>
-
-            <div className="settings-facts">
-              <div>
-                <span>Inspection limit</span>
-                <strong>15 s</strong>
-              </div>
-              <div>
-                <span>Late penalties</span>
-                <strong>+2 / DNF</strong>
-              </div>
-            </div>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-display-title">
@@ -193,16 +188,6 @@ export function SettingsDialog({
                 <option value="center">Center</option>
                 <option value="right">Right</option>
               </select>
-            </label>
-
-            <label className="settings-field" htmlFor="scramble-mono">
-              <span className="settings-field-label">Monospaced scramble</span>
-              <input
-                id="scramble-mono"
-                type="checkbox"
-                checked={settings.scrambleMonospaced}
-                onChange={(event) => onChange({ scrambleMonospaced: event.target.checked })}
-              />
             </label>
 
             <label className="settings-field" htmlFor="scramble-limit-height">

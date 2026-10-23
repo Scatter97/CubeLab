@@ -34,7 +34,6 @@ export interface Settings {
   showTimerDecimalSmall: boolean
   uiZoomPercent: number
   scrambleAlignment: ScrambleAlignment
-  scrambleMonospaced: boolean
   scrambleLimitHeight: boolean
   scrambleAction: ScrambleAction
   showDifferenceLabels: boolean
