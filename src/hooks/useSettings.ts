@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Settings } from '../types'
-import { loadSettings, saveSettings } from '../lib/storage'
+import {
+  DEFAULT_SETTINGS,
+  loadSettings,
+  parseSettingsData,
+  saveSettings,
+} from '../lib/storage'
 
 export interface UseSettingsResult {
   settings: Settings
   settingsStorageOk: boolean
   setInspectionEnabled: (enabled: boolean) => void
+  updateSettings: (next: Partial<Settings>) => void
   replaceSettings: (settings: Settings) => void
 }
 
@@ -23,18 +29,28 @@ export function useSettings(): UseSettingsResult {
     setSettingsStorageOk(success)
   }, [settings])
 
-  const setInspectionEnabled = useCallback((enabled: boolean) => {
-    setSettings({ inspectionEnabled: enabled })
-  }, [])
+  const updateSettings = useCallback(
+    (next: Partial<Settings>) =>
+      setSettings((previous) => ({ ...previous, ...next })),
+    [],
+  )
+
+  const setInspectionEnabled = useCallback(
+    (enabled: boolean) => {
+      updateSettings({ inspectionEnabled: enabled })
+    },
+    [updateSettings],
+  )
 
   const replaceSettings = useCallback((next: Settings) => {
-    setSettings({ inspectionEnabled: next.inspectionEnabled === true })
+    setSettings(parseSettingsData(next) ?? DEFAULT_SETTINGS)
   }, [])
 
   return {
     settings,
     settingsStorageOk,
     setInspectionEnabled,
+    updateSettings,
     replaceSettings,
   }
 }

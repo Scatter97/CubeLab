@@ -73,6 +73,10 @@ the production build because it tests the service worker and offline reload.
   dialog. Inspection lives there, along with the controls reference, local-data
   status, and backup/restore access. Settings opens only while the timer is idle
   and blocks timing while open. Do not reintroduce a header inspection toggle.
+- **Settings persistence is versioned.** `v1` settings records migrate to `v2`
+  with documented defaults and corruption recovery. `parseSettingsData` accepts
+  only valid fields, rejects records without `inspectionEnabled`, and upgrades
+  older backups during import.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent('333')`.
   Unit tests verify real random-state generation.
 - **Statistics follow WCA semantics.** Averages are newest-first; ao5/ao12 remove

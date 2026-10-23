@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_SETTINGS } from './storage'
 import type { SessionsData, Solve } from '../types'
 import {
   BACKUP_APP,
@@ -48,7 +49,7 @@ describe('backup format', () => {
   it('round-trips sessions and settings', () => {
     const backup = createBackup(
       sessions(),
-      { inspectionEnabled: true },
+      { ...DEFAULT_SETTINGS, inspectionEnabled: true },
       new Date('2026-10-23T18:00:00.000Z'),
     )
     const result = parseBackup(serializeBackup(backup))
@@ -61,7 +62,7 @@ describe('backup format', () => {
 
   it('takes a detached snapshot', () => {
     const source = sessions()
-    const backup = createBackup(source, { inspectionEnabled: false })
+    const backup = createBackup(source, { ...DEFAULT_SETTINGS, inspectionEnabled: false })
     const firstSolve = source.sessions[0]?.solves[0]
     if (!firstSolve) throw new Error('Fixture is missing a solve')
     firstSolve.rawMs = 99_999
@@ -85,7 +86,7 @@ describe('backup validation', () => {
   })
 
   it('rejects another application or format', () => {
-    const base = createBackup(sessions(), { inspectionEnabled: false })
+    const base = createBackup(sessions(), { ...DEFAULT_SETTINGS, inspectionEnabled: false })
     expect(parseBackup(JSON.stringify({ ...base, app: 'Other' }))).toEqual({
       ok: false,
       error: 'That file is not a CubeLab backup.',
@@ -97,7 +98,7 @@ describe('backup validation', () => {
   })
 
   it('rejects unsupported versions and missing dates', () => {
-    const base = createBackup(sessions(), { inspectionEnabled: false })
+    const base = createBackup(sessions(), { ...DEFAULT_SETTINGS, inspectionEnabled: false })
     expect(parseBackup(JSON.stringify({ ...base, version: 2 }))).toEqual({
       ok: false,
       error: 'This backup version is not supported.',
@@ -109,7 +110,7 @@ describe('backup validation', () => {
   })
 
   it('rejects backups without usable sessions or settings', () => {
-    const base = createBackup(sessions(), { inspectionEnabled: false })
+    const base = createBackup(sessions(), { ...DEFAULT_SETTINGS, inspectionEnabled: false })
     expect(
       parseBackup(JSON.stringify({ ...base, sessions: { sessions: [] } })),
     ).toEqual({
@@ -123,7 +124,7 @@ describe('backup validation', () => {
   })
 
   it('keeps valid records while skipping corrupt ones', () => {
-    const base = createBackup(sessions(), { inspectionEnabled: false })
+    const base = createBackup(sessions(), { ...DEFAULT_SETTINGS, inspectionEnabled: false })
     const payload = JSON.parse(serializeBackup(base)) as {
       sessions: { activeSessionId: string; sessions: unknown[] }
     }

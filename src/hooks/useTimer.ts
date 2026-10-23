@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  HOLD_TO_ARM_MS,
   transitionTimer,
   type TimerCompletion,
   type TimerEvent,
@@ -10,6 +9,7 @@ import {
 
 export interface UseTimerOptions {
   inspectionEnabled: boolean
+  holdDurationMs: number
   onSolve: (completion: TimerCompletion) => void
   /** Injectable for deterministic tests; defaults to performance.now. */
   now?: () => number
@@ -67,9 +67,10 @@ export function useTimer(options: UseTimerOptions): TimerController {
         at,
         input,
         inspectionEnabled: options.inspectionEnabled,
+        holdDurationMs: options.holdDurationMs,
       })
     },
-    [applyEvent, now, options.inspectionEnabled],
+    [applyEvent, now, options.holdDurationMs, options.inspectionEnabled],
   )
 
   const release = useCallback(
@@ -132,7 +133,11 @@ export function useTimer(options: UseTimerOptions): TimerController {
   if (state.status === 'holding') {
     holdProgress = Math.min(
       1,
-      Math.max(0, (clock - state.holdStartedAt) / HOLD_TO_ARM_MS),
+      Math.max(
+        0,
+        (clock - state.holdStartedAt) /
+          Math.max(1, state.holdDurationMs),
+      ),
     )
   } else if (state.status === 'ready') {
     holdProgress = 1

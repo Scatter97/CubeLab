@@ -1,13 +1,14 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23 19:18 (local)
+**Last verified:** 2026-10-23 19:49 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
 **Phase 2A.1:** Complete — csTimer-inspired Settings dialog
+**Phase 2A.2:** In progress — versioned settings schema and core preferences
 **Phase 2B:** Not started — 0% (Google Drive backup)
 **Phase 2C:** Not started — 0% (multi-device sync)
-**Repository state:** Phase 2A.1 verified and committed; working tree clean.
+**Repository state:** Phase 2A.2 implementation in progress; timer/display/scramble settings are wired, with more preferences pending.
 
 ## Scope delivered
 
@@ -82,10 +83,15 @@ dialog without adding a new persisted preference or changing timing behavior.
 - Phase 2A.1 moved inspection and backup entry points into the Settings dialog,
   added a responsive grouped-sections layout, and covered focus restoration and
   narrow-width touch targets in production E2E tests.
+- Phase 2A.2 introduced settings schema v2 with migration and typed defaults. The
+  current implemented controls are timer-update mode, Space-hold duration,
+  interface zoom, decimal display, scramble alignment/font/height limit,
+  scramble click action, and +2 difference labels. The dialog and persistence are
+  ready for further csTimer-style preference groups.
 
 ## Verification evidence
 
-Run at 2026-10-23 19:18 (local), after the Phase 2A.1 Settings work:
+Run at 2026-10-23 19:49 (local), after the Phase 2A.2 settings work:
 
 | Check | Command | Result |
 | --- | --- | --- |
@@ -176,9 +182,11 @@ application code.
 - The Settings dialog follows csTimer's grouped-options approach with Timer,
   Controls, Data, and About sections. It uses the shared native modal, a fixed
   footer, and an independently scrolling body on short screens.
-- Inspection remains the only persisted preference, so Phase 2A.1 does not change
-  the settings schema or require a migration. The dialog is structured for
-  future options.
+- The v2 settings schema stores presentation and interaction preferences as
+  typed fields with documented defaults. Unknown or corrupt values fall back to
+  defaults, while old v1 records upgrade automatically.
+- New timer settings can only affect interaction behavior. WCA timing and
+  statistics rules remain fixed.
 - The palette is flat light gray and white with a pale green timer surface and a
   solid muted green accent. Penalties use amber and red.
 - Decorative gradients, glows, grid/ambient backgrounds, and oversized rounded
@@ -392,6 +400,17 @@ All requested Milestone 1 functionality is implemented and verified:
 - [x] Full verification chain rerun
 
 **Completion estimate: 100% of authorized Phase 2A.1 scope.**
+
+### Phase 2A.2 — In progress
+
+- [x] Settings schema v2 and migration path
+- [x] Storage and backup validation for upgraded settings records
+- [x] Timer-update and Space-hold controls
+- [x] Display scaling, decimal compression, and scramble presentation controls
+- [x] +2 difference label control
+- [x] Accessibility, docs, visual QA, and full verification rerun
+- [ ] Additional csTimer-style preference groups pending
+- [ ] Additional csTimer-style preference groups pending
 
 ### Phase 2B — Not started
 

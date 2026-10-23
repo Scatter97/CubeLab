@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { copyText } from '../lib/clipboard'
 import { CheckIcon, CopyIcon, RefreshIcon } from './Icons'
+import type { ScrambleAction, ScrambleAlignment } from '../types'
 
 interface ScramblePanelProps {
   scramble: string | null
@@ -11,6 +12,10 @@ interface ScramblePanelProps {
   onRegenerate: () => void
   onRetry: () => void
   onNotify: (message: string) => void
+  scrambleAction?: ScrambleAction
+  alignment?: ScrambleAlignment
+  monospaced?: boolean
+  limitHeight?: boolean
 }
 
 export function ScramblePanel({
@@ -22,6 +27,10 @@ export function ScramblePanel({
   onRegenerate,
   onRetry,
   onNotify,
+  scrambleAction = 'none',
+  alignment,
+  monospaced = false,
+  limitHeight = false,
 }: ScramblePanelProps) {
   const [copied, setCopied] = useState(false)
   const copiedTimer = useRef<number | null>(null)
@@ -92,7 +101,21 @@ export function ScramblePanel({
 
       <div className="scramble-body" aria-busy={isLoading && !scramble}>
         {scramble ? (
-          <p className="scramble-text" aria-live="polite">
+          <p
+            className={`scramble-text${monospaced ? ' is-monospaced' : ''}${
+              alignment ? ` is-aligned-${alignment}` : ''
+            }${limitHeight ? ' is-height-limited' : ''}`}
+            role={scrambleAction && scrambleAction !== 'none' ? 'button' : undefined}
+            tabIndex={scrambleAction && scrambleAction !== 'none' ? 0 : undefined}
+            aria-live="polite"
+            onClick={() => {
+              if (scrambleAction === 'copy') {
+                void handleCopy()
+              } else if (scrambleAction === 'next' && canRegenerate) {
+                onRegenerate()
+              }
+            }}
+          >
             {scramble}
           </p>
         ) : error ? (

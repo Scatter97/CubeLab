@@ -23,6 +23,7 @@ export interface HoldingState {
   readonly holdStartedAt: number
   readonly inspectionStartedAt: number | null
   readonly input: TimerInput
+  readonly holdDurationMs: number
 }
 
 export interface ReadyState {
@@ -51,6 +52,7 @@ export type TimerEvent =
       at: number
       input: TimerInput
       inspectionEnabled: boolean
+      holdDurationMs?: number
     }
   | { type: 'release'; at: number; input: TimerInput }
   | { type: 'tick'; at: number }
@@ -114,6 +116,7 @@ export function transitionTimer(
               holdStartedAt: event.at,
               inspectionStartedAt: null,
               input: event.input,
+              holdDurationMs: event.holdDurationMs ?? HOLD_TO_ARM_MS,
             },
           }
         case 'inspection':
@@ -123,6 +126,7 @@ export function transitionTimer(
               holdStartedAt: event.at,
               inspectionStartedAt: state.inspectionStartedAt,
               input: event.input,
+              holdDurationMs: event.holdDurationMs ?? HOLD_TO_ARM_MS,
             },
           }
         case 'running': {
@@ -178,7 +182,7 @@ export function transitionTimer(
     case 'tick': {
       if (
         state.status === 'holding' &&
-        event.at - state.holdStartedAt >= HOLD_TO_ARM_MS
+        event.at - state.holdStartedAt >= state.holdDurationMs
       ) {
         return {
           state: {

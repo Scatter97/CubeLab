@@ -279,10 +279,13 @@ describe('settings persistence', () => {
     expect(loadSettings(new MemoryStorage())).toEqual(DEFAULT_SETTINGS)
   })
 
-  it('round-trips inspection preference', () => {
+  it('round-trips the complete settings object', () => {
     const storage = new MemoryStorage()
-    saveSettings({ inspectionEnabled: true }, storage)
-    expect(loadSettings(storage)).toEqual({ inspectionEnabled: true })
+    saveSettings({ ...DEFAULT_SETTINGS, inspectionEnabled: true }, storage)
+    expect(loadSettings(storage)).toEqual({
+      ...DEFAULT_SETTINGS,
+      inspectionEnabled: true,
+    })
   })
 
   it('falls back on malformed settings', () => {
@@ -295,7 +298,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 2, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 3, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })

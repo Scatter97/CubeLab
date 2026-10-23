@@ -343,6 +343,40 @@ kbd {
   transform: translateX(12px);
 }
 
+.settings-field {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.settings-field label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.settings-field span:first-child {
+  flex: 1 1 auto;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.settings-field select,
+.settings-field input {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 7px;
+  font-size: 0.66rem;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
 /* Layout */
 
 .workspace {
@@ -2386,4 +2420,28 @@ kbd {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.scramble-text.is-aligned-left {
+  text-align: left;
+}
+
+.scramble-text.is-aligned-center {
+  text-align: center;
+}
+
+.scramble-text.is-aligned-right {
+  text-align: right;
+}
+
+.scramble-text.is-height-limited {
+  display: -webkit-box;
+  max-height: 4.2em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.app-shell.is-decimal-small .timer-display {
+  font-size: .86em;
 }

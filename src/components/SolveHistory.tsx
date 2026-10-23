@@ -14,6 +14,7 @@ interface SolveHistoryProps {
   onDelete: (id: string) => void
   onRequestClear: () => void
   clearDisabled: boolean
+  showDifferenceLabels?: boolean
 }
 
 interface SolveRowProps {
@@ -21,6 +22,7 @@ interface SolveRowProps {
   number: number
   onSetPenalty: (id: string, penalty: Penalty) => void
   onDelete: (id: string) => void
+  showDifferenceLabels: boolean
 }
 
 function fullTimestamp(timestamp: number): string {
@@ -35,13 +37,17 @@ const SolveRow = memo(function SolveRow({
   number,
   onSetPenalty,
   onDelete,
+  showDifferenceLabels,
 }: SolveRowProps) {
   const time = formatSolveTime(solve.rawMs, solve.penalty)
   const effective =
-    solve.penalty === '+2'
+    solve.penalty === '+2' && showDifferenceLabels
       ? `Effective ${formatEffectiveSolveTime(solve)}`
       : null
-  const raw = solve.penalty === 'dnf' ? `Raw ${formatTime(solve.rawMs)}` : null
+  const raw =
+    solve.penalty === 'dnf' && showDifferenceLabels
+      ? `Raw ${formatTime(solve.rawMs)}`
+      : null
 
   return (
     <li className="history-row" data-testid="history-row">
@@ -131,6 +137,7 @@ export function SolveHistory({
   onDelete,
   onRequestClear,
   clearDisabled,
+  showDifferenceLabels = true,
 }: SolveHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const newestId = solves[0]?.id
@@ -193,6 +200,7 @@ export function SolveHistory({
                 number={solves.length - index}
                 onSetPenalty={onSetPenalty}
                 onDelete={onDelete}
+                showDifferenceLabels={showDifferenceLabels}
               />
             ))}
           </ol>

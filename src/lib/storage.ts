@@ -1,4 +1,13 @@
-import type { Penalty, Session, SessionsData, Settings, Solve } from '../types'
+import type {
+  Penalty,
+  ScrambleAction,
+  ScrambleAlignment,
+  Session,
+  SessionsData,
+  Settings,
+  Solve,
+  TimerUpdateMode,
+} from '../types'
 import { createId } from './id'
 import { DEFAULT_SESSION_NAME, normalizeSessionName } from './sessions'
 
@@ -7,9 +16,19 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 1
+export const SETTINGS_STORAGE_VERSION = 2
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
+  timerUpdateMode: 'live',
+  holdDurationMs: 300,
+  showTimerDecimalSmall: false,
+  uiZoomPercent: 100,
+  scrambleAlignment: 'center',
+  scrambleMonospaced: false,
+  scrambleLimitHeight: false,
+  scrambleAction: 'copy',
+  showDifferenceLabels: true,
 }
 
 export interface StorageLike {
@@ -24,7 +43,7 @@ interface StoredSessions {
 }
 
 interface StoredSettings {
-  version: typeof STORAGE_VERSION
+  version: typeof SETTINGS_STORAGE_VERSION
   settings: Settings
 }
 
@@ -138,10 +157,64 @@ export function parseSessionsData(value: unknown): SessionsData | null {
   return { activeSessionId, sessions }
 }
 
+function isValidTimerUpdateMode(value: unknown): value is TimerUpdateMode {
+  return value === 'live' || value === 'tenths' || value === 'seconds'
+}
+
+function isValidScrambleAlignment(value: unknown): value is ScrambleAlignment {
+  return value === 'left' || value === 'center' || value === 'right'
+}
+
+function isValidScrambleAction(value: unknown): value is ScrambleAction {
+  return value === 'none' || value === 'copy' || value === 'next'
+}
+
 export function parseSettingsData(value: unknown): Settings | null {
   if (!isRecord(value)) return null
   if (typeof value.inspectionEnabled !== 'boolean') return null
-  return { inspectionEnabled: value.inspectionEnabled }
+
+  const inspectionEnabled = value.inspectionEnabled
+
+  return {
+    inspectionEnabled,
+    timerUpdateMode: isValidTimerUpdateMode(value.timerUpdateMode)
+      ? value.timerUpdateMode
+      : DEFAULT_SETTINGS.timerUpdateMode,
+    holdDurationMs:
+      typeof value.holdDurationMs === 'number' &&
+      [0, 300, 550, 1000].includes(value.holdDurationMs)
+        ? value.holdDurationMs
+        : DEFAULT_SETTINGS.holdDurationMs,
+    showTimerDecimalSmall:
+      typeof value.showTimerDecimalSmall === 'boolean'
+        ? value.showTimerDecimalSmall
+        : DEFAULT_SETTINGS.showTimerDecimalSmall,
+    uiZoomPercent:
+      typeof value.uiZoomPercent === 'number' &&
+      Number.isFinite(value.uiZoomPercent) &&
+      value.uiZoomPercent >= 70 &&
+      value.uiZoomPercent <= 150
+        ? value.uiZoomPercent
+        : DEFAULT_SETTINGS.uiZoomPercent,
+    scrambleAlignment: isValidScrambleAlignment(value.scrambleAlignment)
+      ? value.scrambleAlignment
+      : DEFAULT_SETTINGS.scrambleAlignment,
+    scrambleMonospaced:
+      typeof value.scrambleMonospaced === 'boolean'
+        ? value.scrambleMonospaced
+        : DEFAULT_SETTINGS.scrambleMonospaced,
+    scrambleLimitHeight:
+      typeof value.scrambleLimitHeight === 'boolean'
+        ? value.scrambleLimitHeight
+        : DEFAULT_SETTINGS.scrambleLimitHeight,
+    scrambleAction: isValidScrambleAction(value.scrambleAction)
+      ? value.scrambleAction
+      : DEFAULT_SETTINGS.scrambleAction,
+    showDifferenceLabels:
+      typeof value.showDifferenceLabels === 'boolean'
+        ? value.showDifferenceLabels
+        : DEFAULT_SETTINGS.showDifferenceLabels,
+  }
 }
 
 function createEmptySessions(): SessionsData {
@@ -264,10 +337,15 @@ export function loadSettings(storage = getDefaultStorage()): Settings {
     const raw = storage.getItem(SETTINGS_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
     const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed) || parsed.version !== STORAGE_VERSION) {
+    if (!isRecord(parsed) || !isRecord(parsed.settings)) {
       return { ...DEFAULT_SETTINGS }
     }
-    return parseSettingsData(parsed.settings) ?? { ...DEFAULT_SETTINGS }
+
+    if (parsed.version === 1 || parsed.version === SETTINGS_STORAGE_VERSION) {
+      return parseSettingsData(parsed.settings) ?? { ...DEFAULT_SETTINGS }
+    }
+
+    return { ...DEFAULT_SETTINGS }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -280,10 +358,8 @@ export function saveSettings(
   if (!storage) return false
 
   const payload: StoredSettings = {
-    version: STORAGE_VERSION,
-    settings: {
-      inspectionEnabled: settings.inspectionEnabled,
-    },
+    version: SETTINGS_STORAGE_VERSION,
+    settings: { ...settings },
   }
 
   try {

@@ -23,7 +23,17 @@ import {
 import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
-import type { Penalty, Session } from './types'
+import type { Penalty, Session, TimerUpdateMode } from './types'
+
+function roundTimerElapsed(
+  elapsedMs: number | null,
+  mode: TimerUpdateMode,
+): number | null {
+  if (elapsedMs === null) return null
+  if (mode === 'tenths') return Math.floor(elapsedMs / 100) * 100
+  if (mode === 'seconds') return Math.floor(elapsedMs / 1000) * 1000
+  return elapsedMs
+}
 
 function isTextEntryTarget(target: EventTarget | null): boolean {
   return (
@@ -66,7 +76,7 @@ export default function App() {
   const {
     settings,
     settingsStorageOk,
-    setInspectionEnabled,
+    updateSettings,
     replaceSettings,
   } = useSettings()
   const {
@@ -119,8 +129,14 @@ export default function App() {
 
   const timer = useTimer({
     inspectionEnabled: settings.inspectionEnabled,
+    holdDurationMs: settings.holdDurationMs,
     onSolve: handleSolve,
   })
+
+  const displayElapsed = roundTimerElapsed(
+    timer.runningElapsedMs,
+    settings.timerUpdateMode,
+  )
 
   const timerActive = timer.state.status !== 'idle'
   const modalOpen =
@@ -134,14 +150,6 @@ export default function App() {
   const timerRelease = timer.release
   const canStart = scramble !== null
   const stats = useMemo(() => getSessionStats(solves), [solves])
-
-  const handleInspectionChange = useCallback(
-    (enabled: boolean) => {
-      if (timer.state.status !== 'idle') return
-      setInspectionEnabled(enabled)
-    },
-    [setInspectionEnabled, timer.state.status],
-  )
 
   const handleOpenSettings = useCallback(() => {
     if (timer.state.status !== 'idle') return
@@ -417,12 +425,22 @@ export default function App() {
   ])
 
   const storageHealthy = storageOk && settingsStorageOk
-  const displayElapsed = timer.runningElapsedMs
+
+  const appShellClassName = [
+    'app-shell',
+    settings.showTimerDecimalSmall ? 'is-decimal-small' : '',
+    settings.scrambleMonospaced ? 'is-monospaced-scramble' : '',
+    settings.scrambleLimitHeight ? 'is-scramble-height-limited' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
-    <div className="app-shell">
+    <div
+      className={appShellClassName}
+      style={{ zoom: settings.uiZoomPercent / 100 }}
+    >
       <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
-
       <AppHeader
         sessionName={activeSession.name}
         inspectionEnabled={settings.inspectionEnabled}
@@ -442,6 +460,10 @@ export default function App() {
             onRegenerate={handleRegenerate}
             onRetry={retryScramble}
             onNotify={(message) => showToast({ message })}
+            scrambleAction={settings.scrambleAction}
+            alignment={settings.scrambleAlignment}
+            monospaced={settings.scrambleMonospaced}
+            limitHeight={settings.scrambleLimitHeight}
           />
 
           <TimerStage
@@ -509,6 +531,7 @@ export default function App() {
             onDelete={handleDelete}
             onRequestClear={requestClear}
             clearDisabled={timerActive}
+            showDifferenceLabels={settings.showDifferenceLabels}
           />
         </aside>
       </main>
@@ -527,11 +550,11 @@ export default function App() {
 
       <SettingsDialog
         open={settingsOpen}
-        inspectionEnabled={settings.inspectionEnabled}
+        settings={settings}
         storageOk={storageHealthy}
         sessionCount={sessions.length}
         solveCount={countSolves(sessions)}
-        onInspectionChange={handleInspectionChange}
+        onChange={updateSettings}
         onOpenBackup={handleOpenBackup}
         onClose={() => setSettingsOpen(false)}
       />

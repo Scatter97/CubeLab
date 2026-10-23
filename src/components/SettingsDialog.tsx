@@ -1,25 +1,26 @@
 import { useModalDialog } from '../hooks/useModalDialog'
 import { formatSolveCount } from '../lib/format'
 import { ChevronRightIcon, CloseIcon } from './Icons'
+import type { Settings } from '../types'
 
 interface SettingsDialogProps {
   open: boolean
-  inspectionEnabled: boolean
+  settings: Settings
   storageOk: boolean
   sessionCount: number
   solveCount: number
-  onInspectionChange: (enabled: boolean) => void
+  onChange: (next: Partial<Settings>) => void
   onOpenBackup: () => void
   onClose: () => void
 }
 
 export function SettingsDialog({
   open,
-  inspectionEnabled,
+  settings,
   storageOk,
   sessionCount,
   solveCount,
-  onInspectionChange,
+  onChange,
   onOpenBackup,
   onClose,
 }: SettingsDialogProps) {
@@ -58,50 +59,71 @@ export function SettingsDialog({
         </header>
 
         <p id="settings-description" className="settings-intro">
-          Timer preferences and local data. Changes save automatically in this
-          browser.
+          Timer, display, scramble, and local-data preferences. Changes save
+          automatically in this browser.
         </p>
 
         <div className="settings-body">
-          <section
-            className="settings-section"
-            aria-labelledby="settings-timer-title"
-          >
+          <section className="settings-section" aria-labelledby="settings-timer-title">
             <div className="settings-section-heading">
               <h3 id="settings-timer-title">Timer</h3>
               <span className="settings-badge">WCA</span>
             </div>
+
             <div className="settings-row">
               <div className="settings-row-copy">
-                <span
-                  className="settings-row-label"
-                  id="settings-inspection-label"
-                >
+                <label className="settings-row-label" htmlFor="inspection-setting">
                   Inspection
-                </span>
-                <span
-                  className="settings-row-description"
-                  id="settings-inspection-description"
-                >
-                  15-second countdown before each solve. A solve started after
-                  15 seconds receives +2; after 17 seconds it is a DNF.
+                </label>
+                <span className="settings-row-description">
+                  15-second WCA countdown before each solve. Started late: over 15
+                  seconds is +2; over 17 seconds is DNF.
                 </span>
               </div>
               <button
                 type="button"
                 role="switch"
-                aria-checked={inspectionEnabled}
-                aria-labelledby="settings-inspection-label"
-                aria-describedby="settings-inspection-description"
+                id="inspection-setting"
+                aria-checked={settings.inspectionEnabled}
                 className="settings-switch"
                 data-testid="inspection-setting"
-                onClick={() => onInspectionChange(!inspectionEnabled)}
+                onClick={() => onChange({ inspectionEnabled: !settings.inspectionEnabled })}
               >
                 <span className="switch-track" aria-hidden="true">
                   <span className="switch-thumb" />
                 </span>
               </button>
             </div>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Timer updates</span>
+              <select
+                data-testid="timer-update-mode"
+                value={settings.timerUpdateMode}
+                onChange={(event) =>
+                  onChange({ timerUpdateMode: event.target.value as Settings['timerUpdateMode'] })
+                }
+              >
+                <option value="live">Live</option>
+                <option value="tenths">Every 0.1 seconds</option>
+                <option value="seconds">Whole seconds</option>
+              </select>
+            </label>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Space hold time</span>
+              <select
+                data-testid="hold-duration"
+                value={settings.holdDurationMs}
+                onChange={(event) => onChange({ holdDurationMs: Number(event.target.value) })}
+              >
+                <option value={0}>0.00 s</option>
+                <option value={300}>0.30 s</option>
+                <option value={550}>0.55 s</option>
+                <option value={1000}>1.00 s</option>
+              </select>
+            </label>
+
             <div className="settings-facts">
               <div>
                 <span>Inspection limit</span>
@@ -114,42 +136,102 @@ export function SettingsDialog({
             </div>
           </section>
 
-          <section
-            className="settings-section"
-            aria-labelledby="settings-controls-title"
-          >
+          <section className="settings-section" aria-labelledby="settings-display-title">
             <div className="settings-section-heading">
-              <h3 id="settings-controls-title">Controls</h3>
+              <h3 id="settings-display-title">Display</h3>
             </div>
-            <dl className="settings-controls">
-              <div>
-                <dt>
-                  <kbd>Space</kbd>
-                </dt>
-                <dd>
-                  Hold for 300 ms to arm, release to start, and press once to
-                  stop.
-                </dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Esc</kbd>
-                </dt>
-                <dd>Cancel an armed hold or an active inspection.</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Enter</kbd>
-                </dt>
-                <dd>Activate a focused button or switch.</dd>
-              </div>
-            </dl>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Interface zoom</span>
+              <select
+                data-testid="ui-zoom"
+                value={settings.uiZoomPercent}
+                onChange={(event) => onChange({ uiZoomPercent: Number(event.target.value) })}
+              >
+                {[70, 80, 90, 100, 110, 125, 150].map((value) => (
+                  <option key={value} value={value}>{value}%</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="settings-field" htmlFor="decimal-small">
+              <span className="settings-field-label">Small decimal point</span>
+              <input
+                id="decimal-small"
+                type="checkbox"
+                checked={settings.showTimerDecimalSmall}
+                onChange={(event) => onChange({ showTimerDecimalSmall: event.target.checked })}
+              />
+            </label>
+
+            <label className="settings-field" htmlFor="difference-labels">
+              <span className="settings-field-label">Show +2 difference labels</span>
+              <input
+                id="difference-labels"
+                type="checkbox"
+                checked={settings.showDifferenceLabels}
+                onChange={(event) => onChange({ showDifferenceLabels: event.target.checked })}
+              />
+            </label>
           </section>
 
-          <section
-            className="settings-section"
-            aria-labelledby="settings-data-title"
-          >
+          <section className="settings-section" aria-labelledby="settings-scramble-title">
+            <div className="settings-section-heading">
+              <h3 id="settings-scramble-title">Scramble</h3>
+            </div>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Alignment</span>
+              <select
+                data-testid="scramble-alignment"
+                value={settings.scrambleAlignment}
+                onChange={(event) =>
+                  onChange({ scrambleAlignment: event.target.value as Settings['scrambleAlignment'] })
+                }
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+
+            <label className="settings-field" htmlFor="scramble-mono">
+              <span className="settings-field-label">Monospaced scramble</span>
+              <input
+                id="scramble-mono"
+                type="checkbox"
+                checked={settings.scrambleMonospaced}
+                onChange={(event) => onChange({ scrambleMonospaced: event.target.checked })}
+              />
+            </label>
+
+            <label className="settings-field" htmlFor="scramble-limit-height">
+              <span className="settings-field-label">Limit scramble height</span>
+              <input
+                id="scramble-limit-height"
+                type="checkbox"
+                checked={settings.scrambleLimitHeight}
+                onChange={(event) => onChange({ scrambleLimitHeight: event.target.checked })}
+              />
+            </label>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Click scramble action</span>
+              <select
+                data-testid="scramble-action"
+                value={settings.scrambleAction}
+                onChange={(event) =>
+                  onChange({ scrambleAction: event.target.value as Settings['scrambleAction'] })
+                }
+              >
+                <option value="none">Nothing</option>
+                <option value="copy">Copy scramble</option>
+                <option value="next">Next scramble</option>
+              </select>
+            </label>
+          </section>
+
+          <section className="settings-section" aria-labelledby="settings-data-title">
             <div className="settings-section-heading">
               <h3 id="settings-data-title">Data</h3>
             </div>
@@ -158,19 +240,11 @@ export function SettingsDialog({
                 <span className="settings-row-label">Local storage</span>
                 <span className="settings-row-description">
                   {storageOk
-                    ? `${formatSolveCount(solveCount)} in ${
-                        sessionCount === 1
-                          ? '1 session'
-                          : `${sessionCount} sessions`
-                      }, saved in this browser.`
-                    : 'Browser storage is unavailable. Sessions and solves will not survive a refresh.'}
+                    ? `${formatSolveCount(solveCount)} in ${sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}.`
+                    : 'Browser storage is unavailable. Sessions and settings will not survive a refresh.'}
                 </span>
               </div>
-              <span
-                className={`settings-storage ${
-                  storageOk ? 'is-ok' : 'is-error'
-                }`}
-              >
+              <span className={`settings-storage ${storageOk ? 'is-ok' : 'is-error'}`}>
                 <span className="status-dot" aria-hidden="true" />
                 {storageOk ? 'Saved' : 'Unavailable'}
               </span>
@@ -189,15 +263,12 @@ export function SettingsDialog({
               </span>
               <ChevronRightIcon size={16} />
             </button>
-            <p className="settings-note">
+            <p className="dialog-content settings-note">
               Backups stay on this device. CubeLab never uploads them.
             </p>
           </section>
 
-          <section
-            className="settings-section"
-            aria-labelledby="settings-about-title"
-          >
+          <section className="settings-section" aria-labelledby="settings-about-title">
             <div className="settings-section-heading">
               <h3 id="settings-about-title">About</h3>
             </div>
@@ -219,9 +290,7 @@ export function SettingsDialog({
         </div>
 
         <footer className="settings-footer">
-          <span className="settings-footer-note">
-            Changes save automatically.
-          </span>
+          <span className="settings-footer-note">Changes save automatically.</span>
           <button
             type="button"
             className="button button-secondary"

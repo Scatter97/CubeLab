@@ -19,8 +19,25 @@ export interface Solve {
   createdAt: number
 }
 
+export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'
+export type ScrambleAlignment = 'left' | 'center' | 'right'
+export type ScrambleAction = 'none' | 'copy' | 'next'
+
+/**
+ * User preferences. Settings are local first and are intentionally small in
+ * scope: they control presentation and timer interaction, not WCA rules.
+ */
 export interface Settings {
   inspectionEnabled: boolean
+  timerUpdateMode: TimerUpdateMode
+  holdDurationMs: number
+  showTimerDecimalSmall: boolean
+  uiZoomPercent: number
+  scrambleAlignment: ScrambleAlignment
+  scrambleMonospaced: boolean
+  scrambleLimitHeight: boolean
+  scrambleAction: ScrambleAction
+  showDifferenceLabels: boolean
 }
 
 /**

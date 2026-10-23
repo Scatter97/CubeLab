@@ -17,9 +17,7 @@ Settings dialog in a responsive layout built around the clock.
   with a prefetched next scramble.
 - **Keyboard and pointer controls** that work reliably from anywhere on the page.
 - **Optional WCA inspection** with automatic `+2` and DNF penalties.
-- **csTimer-inspired Settings dialog** with Timer, Controls, Data, and About
-  sections. Inspection, local-data status, and backup/restore access live in one
-  place, and changes save automatically.
+- **csTimer-inspired Settings dialog** with Timer, Display, Scramble, Controls, Data, and About sections. It now covers inspection, timer updates, Space-hold time, display scaling, scramble presentation, local-data status, and backup/restore access, and changes save automatically.
 - **Named local sessions** with create, switch, rename, and confirmed delete.
   Each session has independent solves and statistics.
 - **Session statistics**: best/latest single, mo3, ao5, and ao12, including full
@@ -46,13 +44,13 @@ decorative gradients, glows, or background effects. On narrow screens the timer
 comes first, with the session controls, statistics, and history stacked below it.
 
 The header **Settings** button opens a csTimer-inspired preferences dialog. The
-dialog groups the inspection preference under **Timer**, a keyboard reference
-under **Controls**, local-data status and **Backup & restore** under **Data**, and
-local-first details under **About**. At 320 px the Settings dialog keeps the
-inspection label and its switch touch target visible, and its body scrolls
-independently so the Done button stays reachable. The desktop history rail
-scrolls internally rather than stretching the page. Offscreen history rows are
-skipped during rendering and memoized, so long sessions remain usable.
+dialog groups timer, display, scramble, controls, data, and about preferences in
+one place, with progressive migration from older settings records. At 320 px the
+Settings dialog keeps the inspection label and its switch touch target visible,
+and its body scrolls independently so the Done button stays reachable. The
+desktop history rail scrolls internally rather than stretching the page.
+Offscreen history rows are skipped during rendering and memoized, so long
+sessions remain usable.
 
 ![CubeLab Settings dialog](docs/cubelab-settings.png)
 
@@ -71,6 +69,7 @@ skipped during rendering and memoized, so long sessions remain usable.
 | Regenerate the scramble | Use the regenerate button in the scramble panel |
 | Open Settings | Use the **Settings** button in the header; it is unavailable while timing |
 | Change inspection | Open **Settings**, then toggle **Inspection** under **Timer** |
+| Tune timer updates, Space hold, scramble layout, monospaced output, and display scaling | Open **Settings**, then adjust **Timer**, **Display**, or **Scramble** |
 | Switch session | Choose a name in the session select; use arrow keys and <kbd>Enter</kbd> from the keyboard |
 | Create, rename, or delete a session | Use the buttons beside the session select |
 | Export or import a backup | Open **Settings → Data → Backup & restore** |
