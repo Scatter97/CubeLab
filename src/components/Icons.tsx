@@ -1,0 +1,135 @@
+import type { ReactNode, SVGProps } from 'react'
+
+type IconProps = Omit<SVGProps<SVGSVGElement>, 'children'> & {
+  size?: number
+}
+
+function Icon({
+  size = 18,
+  children,
+  ...props
+}: IconProps & { children: ReactNode }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      {...props}
+    >
+      {children}
+    </svg>
+  )
+}
+
+export function CopyIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="8" y="8" width="11" height="11" rx="2" />
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+    </Icon>
+  )
+}
+
+export function RefreshIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M20 11a8 8 0 0 0-14.8-4M4 5v5h5" />
+      <path d="M4 13a8 8 0 0 0 14.8 4M20 19v-5h-5" />
+    </Icon>
+  )
+}
+
+export function TrashIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2l1-12M10 11v6M14 11v6" />
+    </Icon>
+  )
+}
+
+export function CheckIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m5 12 4.2 4.2L19 6.5" />
+    </Icon>
+  )
+}
+
+export function ResetIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 4v6h6" />
+      <path d="M4.5 10a8 8 0 1 1-.1 4" />
+    </Icon>
+  )
+}
+
+export function ScanIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" />
+      <path d="M4 12h16" />
+    </Icon>
+  )
+}
+
+export function AlertIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3 2.8 20h18.4L12 3Z" />
+      <path d="M12 9v4M12 17h.01" />
+    </Icon>
+  )
+}
+
+export function ChevronRightIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m9 18 6-6-6-6" />
+    </Icon>
+  )
+}
+
+export function CubeMark({ size = 38 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M24 4.8 42 14.7v18.6L24 43.2 6 33.3V14.7L24 4.8Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M24 4.8v18.7M24 23.5 42 14.7M24 23.5 6 14.7M24 23.5v19.7"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity=".55"
+      />
+      <path
+        d="m15 19.1 9-4.7 9 4.7-9 4.8-9-4.8Z"
+        fill="currentColor"
+        opacity=".92"
+      />
+      <path d="m15 19.1 9 4.8v9.3l-9-4.7v-9.4Z" fill="currentColor" opacity=".3" />
+      <path
+        d="m33 19.1-9 4.8v9.3l9-4.7v-9.4Z"
+        fill="currentColor"
+        opacity=".15"
+      />
+    </svg>
+  )
+}
