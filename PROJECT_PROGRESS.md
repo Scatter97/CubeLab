@@ -1,22 +1,26 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23 18:00 (local)
+**Last verified:** 2026-10-23 19:02 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
-**Milestone 2:** Not started — 0% (Phase 2A authorized after Phase 1)
-**Repository state:** Phase 1 stabilization verified; commit state recorded under
-“Git status”.
+**Phase 2A:** Complete — local named sessions plus JSON backup/restore
+**Phase 2B:** Not started — 0% (Google Drive backup)
+**Phase 2C:** Not started — 0% (multi-device sync)
+**Repository state:** Phase 2A verified; commit state recorded under “Git status”.
 
 ## Scope delivered
 
 CubeLab Milestone 1 is a flat, csTimer-inspired, offline-first 3×3 speedcubing
 timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
+Phase 2A adds named local sessions and validated JSON backup/restore without
+changing the timer or statistics rules.
 
 ### Product
 
-- Flat light interface organized like a familiar speedcubing timer: session
-  statistics and solve history in the left rail, scramble across the timer area,
-  and an oversized central clock with quick ao5/ao12 values beneath it.
+- Flat light interface organized like a familiar speedcubing timer: a session
+  switcher, session statistics, and solve history in the left rail; scramble
+  across the timer area; and an oversized central clock with quick ao5/ao12
+  values beneath it.
 - Monotonic timer using `performance.now()`, launched by a 300 ms hold and stopped
   by a single press or tap.
 - Global <kbd>Space</kbd> control with OS key-repeat suppression and page-scroll
@@ -29,7 +33,15 @@ timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS
 - Solve penalties (`+2`, DNF), deletion with undo, and confirmed full-session
   clearing.
 - Best and latest single, mo3, ao5, and ao12 with correct DNF handling.
-- Versioned local persistence for solves and settings, with corruption recovery.
+- Named local sessions with create, switch, rename, and confirmed delete. Each
+  session owns independent solves, statistics, and history.
+- Versioned JSON backup/restore covering every session, solve, active session,
+  and setting. Import validates the file and requires explicit confirmation
+  before replacing local data.
+- Automatic migration from the original single-session storage key into
+  **Session 1**.
+- Versioned local persistence for sessions and settings, with corruption
+  recovery.
 - Installable PWA that works fully offline after the first visit, including
   scramble generation.
 - No backend, account, analytics, or remote data storage.
@@ -38,10 +50,17 @@ timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS
 
 - Pure timer state machine separated from the React adapter.
 - Input events are timestamped; the machine owns all timing transitions.
-- The hook keeps an authoritative state ref to make double-recording impossible
-  across repeated or same-frame events.
+- The timer hook keeps an authoritative state ref to make double-recording
+  impossible across repeated or same-frame events.
+- Pure session/name mutation logic in `src/lib/sessions.ts`, backed by focused
+  unit tests.
+- Pure backup creation/validation in `src/lib/backup.ts`, with file-size limits
+  and record-by-record recovery.
+- Shared native modal lifecycle and Tab/Shift+Tab focus containment in
+  `useModalDialog`, used by both confirmation and backup dialogs.
 - Strict TypeScript, Oxlint, Vitest, and Playwright.
-- Unit, storage, statistics, formatting, and real scramble-generation coverage.
+- Unit, session, storage, backup, statistics, formatting, and real
+  scramble-generation coverage.
 - Production browser tests, including a cold offline reload with service-worker
   interception.
 - Flat visual system with solid colors only: no decorative gradients, glows, or
@@ -49,21 +68,23 @@ timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS
 - Phase 1 added a modal focus trap, 28 px minimum touch targets, visible
   inspection labeling at narrow widths, coherent scramble-failure/disabled
   states, WCAG AA secondary-text contrast, and a bounded desktop history rail.
+- Phase 2A added a compact session panel, inline validated naming, locked session
+  controls during timing, migration tests, and confirmed replace-only import.
 
 ## Verification evidence
 
-Run at 2026-10-23 18:00 (local), after the Phase 1 stabilization pass:
+Run at 2026-10-23 19:02 (local), after the Phase 2A session/backup work:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **54/54 passed**, 5 test files |
-| Production build | `npm run build` | Passed; 68 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,121.28 KiB** |
-| Production E2E | `npm run test:e2e` | **8/8 passed**, Chromium |
-| Visual QA | production preview screenshots | 320, 360, 390, 720×500, 768 touch, 1024, 1440, and 1920 widths inspected; no horizontal overflow |
-| Performance | seeded 2,000-solve production session | Load ~0.55–0.61 s; history scrolls internally; no scroll long tasks |
+| Unit tests | `npm test` | **84/84 passed**, 7 test files |
+| Production build | `npm run build` | Passed; 73 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,138.77 KiB** |
+| Production E2E | `npm run test:e2e` | **11/11 passed**, Chromium |
+| Visual QA | production preview screenshots | Phase 2A checked 1440×1000, 390×844, and the backup dialog at 320×700; the earlier Phase 1 pass covered 320, 360, 390, 720×500, 768 touch, 1024, 1440, and 1920 widths; no horizontal overflow; desktop and mobile screenshots refreshed |
+| Performance | seeded 2,000-solve production session | Desktop ~1.35 s to queue-ready, mobile ~1.23 s; no long tasks during history scroll; penalty toggle ~282 ms desktop / ~233 ms mobile |
 
 The Playwright suite runs against the production preview and covers:
 
@@ -71,11 +92,18 @@ The Playwright suite runs against the production preview and covers:
 2. `+2` persistence across reload, delete/undo, and modal focus containment.
 3. Inspection activation, hold-to-time, solve recording, and settings persistence.
 4. Mobile layout plus pointer hold-to-time behavior.
-5. The 320 px layout, visible inspection label, and 28 px touch targets.
-6. A long desktop session scrolling inside the history rail.
-7. Scramble failure disabling timing and offering a retry.
-8. Full offline reload with service-worker precache and offline cubing.js scramble
-   generation.
+5. The 320 px layout, visible inspection label, session controls, and 28 px touch
+   targets.
+6. A long desktop session scrolling inside the history rail, including automatic
+   migration from the legacy single-session key.
+7. Named-session create/switch/rename/delete, duplicate-name validation, and
+   persistence of the active session.
+8. Session controls locking while the timer is active.
+9. Backup export, invalid-file handling, import cancellation with focus
+   restoration, and confirmed restoration of sessions and settings.
+10. Scramble failure disabling timing and offering a retry.
+11. Full offline reload with service-worker precache and offline `cubing.js`
+    scramble generation.
 
 Visual artifacts are checked in at `docs/cubelab-desktop.png` and
 `docs/cubelab-mobile.png`.
@@ -83,26 +111,31 @@ Visual artifacts are checked in at `docs/cubelab-desktop.png` and
 ### Performance evidence
 
 A production session seeded with 2,000 solves was measured in Chromium at
-1440×1000 and 390×844:
+1440×1000 and 390×844 after Phase 2A:
 
-- Desktop: ~610 ms to interactive with all rows present, 28,258 DOM nodes,
-  ~19.6 MB JS heap, 86,006 px of history content in a 561 px scroll viewport,
-  and a 1,001 px page height. Penalty toggle ~288 ms, delete ~203 ms, undo
-  ~413 ms. Programmatic scrolling produced no long tasks.
-- Mobile: ~552 ms to interactive, a 333 px history viewport, no horizontal
-  overflow, and a 1,200 px page height. Penalty toggle ~264 ms, delete ~206 ms,
-  undo ~418 ms.
+- Desktop: ~1.35 s to queue-ready with all rows present, 28,206 DOM nodes,
+  ~20.5 MB JS heap, 86,006 px of history content in a 456 px scroll viewport,
+  and a 1,001 px page height. Penalty toggle ~282 ms. Programmatic scrolling
+  produced no long tasks.
+- Mobile: ~1.23 s to queue-ready, a 333 px history viewport, no horizontal
+  overflow, and a 1,305 px page height. Penalty toggle ~233 ms. Programmatic
+  scrolling produced no long tasks.
 
-Offscreen history rows use `content-visibility: auto`, and rows are memoized.
-The remaining interaction cost is dominated by reconciling and persisting all
-2,000 solves; virtualization is the next step if sessions grow substantially
-beyond this size.
+The added session panel reduces the desktop history viewport from the Phase 1
+measurement (about 561 px) to about 456 px while preserving the bounded,
+internally scrolling rail. These are fresh-context measurements including
+service-worker startup, so they are not directly comparable to the earlier
+warm-load Phase 1 figures. Offscreen history rows use `content-visibility: auto`,
+and rows are memoized. The remaining interaction cost is dominated by reconciling
+and persisting all 2,000 solves; virtualization is the next step if sessions grow
+substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~252 kB (~77.84 kB gzip)
+- Main application bundle: ~268.00 kB (~81.93 kB gzip)
+- CSS: ~30.49 kB (~8.83 kB gzip)
 - Cubing.js chunk: ~1.21 MB (~335.13 kB gzip)
-- Precache total: ~2.07 MiB (2,121.28 KiB)
+- Precache total: ~2.09 MiB (2,138.77 KiB)
 - PWA: generated Workbox service worker and web manifest
 
 Vite reports the expected informational warning about the large cubing.js chunk.
@@ -115,6 +148,8 @@ It is a single cached dependency chunk, not duplicated application code.
 - The post-Milestone-1 redesign follows csTimer's familiar information hierarchy:
   session rail on the left, scramble above the clock, timer as the dominant
   element, and quick ao5/ao12 values directly beneath it.
+- Phase 2A adds a compact session panel at the top of the rail with a native
+  session select, new/rename/delete actions, and a Backup entry point.
 - The palette is flat light gray and white with a pale green timer surface and a
   solid muted green accent. Penalties use amber and red.
 - Decorative gradients, glows, grid/ambient backgrounds, and oversized rounded
@@ -122,12 +157,33 @@ It is a single cached dependency chunk, not duplicated application code.
   solid fills.
 - UI text uses the system sans-serif stack; timer and scramble text use the
   bundled JetBrains Mono variable font. Space Grotesk was removed.
-- On screens up to 900 px the timer moves first and statistics/history stack
-  below it. Touch action buttons remain at least 28 px.
+- On screens up to 900 px the timer moves first and the session controls,
+  statistics, and history stack below it. Touch action buttons remain at least
+  28 px.
 - The desktop history rail is bounded to the viewport and scrolls internally
   instead of stretching the page. The shell max-width is 1920 px.
 - At 320 px the inspection label remains visible; it is not collapsed to an
   unlabeled switch.
+
+### Sessions and backup
+
+- The active session is persisted by ID. Session order is creation order; new
+  sessions are appended and become active.
+- Names are trimmed, whitespace-collapsed, limited to 40 characters, and unique
+  case-insensitively. The next default name is the smallest unused `Session N`.
+- Deleting a session is confirmed and always leaves one session. Deleting the
+  active session selects its neighbor. Clearing a session removes only its
+  solves.
+- Session controls are disabled while the timer is armed, running, or in
+  inspection.
+- Export includes every session, every solve, the active session ID, and the
+  inspection setting. The backup is a detached snapshot.
+- Import is replace-only in Phase 2A. It validates the file, then shows current
+  and incoming session/solve counts before applying anything. Cancelling leaves
+  local data untouched. Merging and cloud sync are deferred to Phase 2C.
+- The backup file format is versioned (`cubelab-backup`, version 1) and capped at
+  10 MB. Invalid JSON, wrong markers, unsupported versions, empty sessions, and
+  invalid settings are rejected before confirmation.
 
 ### Timer and inspection
 
@@ -155,13 +211,23 @@ It is a single cached dependency chunk, not duplicated application code.
 
 Keys:
 
-- `cubelab:solves:v1`
-- `cubelab:settings:v1`
+- `cubelab:sessions:v1` — active session ID plus every named session and its
+  solves.
+- `cubelab:settings:v1` — local preferences.
+- `cubelab:solves:v1` — original single-session key, read only for migration into
+  **Session 1**.
 
-Each solve stores `id`, `event`, `rawMs`, `penalty`, `scramble`, and `createdAt`.
-Raw time is always preserved; penalties are applied for display and statistics.
-Record-by-record validation skips corrupt entries, duplicate IDs are ignored, and
-invalid JSON or unsupported schema versions safely fall back to defaults.
+Each session stores `id`, `name`, `createdAt`, `updatedAt`, and `solves`. Each
+solve stores `id`, `event`, `rawMs`, `penalty`, `scramble`, and `createdAt`. Raw
+time is always preserved; penalties are applied for display and statistics.
+Record-by-record validation skips corrupt sessions and solves, duplicate IDs are
+ignored, and invalid JSON or unsupported schema versions fall back to the legacy
+record and then to a fresh empty session. The active session is normalized to an
+existing session. A valid session collection is never silently discarded.
+
+Backups are versioned separately as `cubelab-backup` version 1. They are
+validated before the confirmation dialog; import replaces local data only after
+explicit confirmation.
 
 ### Production worker workaround
 
@@ -187,37 +253,52 @@ offline Playwright test and must not be undone casually.
 
 - Space is reserved globally for timer control. Text-entry targets are the only
   exception. This avoids focus-dependent timing failures after clicking a
-  control.
-- Focused buttons and switches can be activated with Enter.
+  control, including when the session select is focused.
+- Focused buttons, switches, and the session select remain keyboard-operable with
+  Enter and arrow keys.
 - Timer state changes and solve recording are announced through a live region.
 - Controls have visible focus styles, accessible names, and disabled states.
-- The confirmation dialog traps Tab/Shift+Tab focus and returns focus to its
-  trigger on close.
-- Touch targets are at least 28 px; the narrow layout and inspection label were
-  checked at 320, 360, 390, 768, 1024, 1440, and 1920 px widths.
+- The confirmation and backup dialogs trap Tab/Shift+Tab focus, close on Escape
+  or backdrop click, and return focus to their trigger.
+- The inline session-name editor focuses and selects its input, reports
+  validation with `role="alert"`, and returns focus to the session select.
+- Touch targets are at least 28 px; the narrow layout, session controls, and
+  inspection label were checked at 320, 360, 390, 768, 1024, 1440, and 1920 px
+  across the Phase 1 and Phase 2A passes.
 - Key secondary text was darkened to meet WCAG AA contrast (at least 4.5:1 on
   its actual background).
 
 ## Known limitations
 
 - Only the 3×3 event is implemented.
-- One local session only; no named sessions, cloud sync, export, or import.
+- Phase 2A import is replace-only; there is no merge, conflict resolution,
+  Google Drive backup, or multi-device sync yet.
+- Backup files are unencrypted JSON. They contain solve history and settings and
+  are the user's responsibility once downloaded.
+- Import is capped at 10 MB. Export has no cap, so an extremely large local
+  history could produce a backup file that the importer rejects. A 2,000-solve
+  backup is far below the limit.
+- Multiple open tabs are not synchronized. Each tab holds its own in-memory
+  state and writes it independently, so the last write wins. Use one tab when
+  changing sessions or importing a backup.
+- Session deletion is confirmed but has no undo. Clearing a session also has no
+  undo beyond re-importing a backup.
 - The history list still renders every row. A 2,000-solve session loads and
-  scrolls smoothly, but penalty/delete/undo actions take roughly 0.2–0.4 s in
-  Chromium. Virtualization should be added if sessions grow substantially
-  beyond that size.
+  scrolls smoothly, but penalty toggles take roughly 0.2–0.3 s in Chromium;
+  delete/undo were in the same range in the Phase 1 profile. Virtualization
+  should be added if sessions grow substantially beyond that size.
 - Automated browser testing uses Chromium only. WebKit and Firefox were not
   available in this environment; a physical iOS/Android device was not tested.
 - The mobile E2E flow exercises pointer events in a mobile viewport. It does not
   emulate platform-specific touch scrolling/pinch behavior.
-- No formal screen-reader audit has been completed, though semantic labels,
-  live regions, dialog focus handling, and keyboard controls are implemented.
+- No formal screen-reader audit has been completed, though semantic labels, live
+  regions, dialog focus handling, and keyboard controls are implemented.
 - First launch requires network access to install the service worker. Later
   launches are offline-capable.
 - The production bundle intentionally includes a large `cubing.js` chunk; no
   attempt was made to reimplement or trim its random-state solver.
 
-None of these limitations block the Milestone 1 acceptance criteria.
+None of these limitations block the Milestone 1 or Phase 2A acceptance criteria.
 
 ## Milestone status
 
@@ -241,35 +322,62 @@ All requested Milestone 1 functionality is implemented and verified:
 - [x] Offline-first PWA
 - [x] Documentation and agent handoff
 
-**Completion estimate: 100% of Milestone 1 scope. Overall roadmap remaining:
-Milestone 2 and beyond, not yet defined or started.**
+**Completion estimate: 100% of Milestone 1 scope.**
 
-### Milestone 2 — Not started
+### Phase 2A — Complete
 
-No Milestone 2 work has been started. Do not infer or implement its scope without
-an explicit brief. The README lists several deliberate non-goals for Milestone 1.
+- [x] Multiple named local sessions
+- [x] Create, switch, rename, and confirmed delete
+- [x] Case-insensitive unique names, 40-character limit, whitespace cleanup
+- [x] Session controls locked during timing
+- [x] Automatic migration from `cubelab:solves:v1` into **Session 1**
+- [x] Versioned sessions schema with corruption recovery
+- [x] JSON export of all sessions, solves, active session, and settings
+- [x] Validated import with explicit replacement confirmation
+- [x] Invalid-file and cancelled-import paths leave local data untouched
+- [x] Unit coverage for session mutations, migration, and backup validation
+- [x] Production E2E coverage for session lifecycle, locking, export, and import
+- [x] Refreshed desktop/mobile screenshots and documentation
+
+**Completion estimate: 100% of authorized Phase 2A scope.**
+
+### Phase 2B — Not started
+
+Google Drive backup/restore has not been started. No OAuth, Drive API, upload,
+background-sync, or cloud-storage code is present. Phase 2B requires an explicit
+brief covering authentication, file layout, conflict policy, privacy, and test
+coverage before implementation.
+
+### Phase 2C — Not started
+
+Multi-device merge/sync has not been started. Phase 2A import is intentionally
+replace-only; no merge or conflict-resolution logic exists yet.
 
 ## Handoff
 
 ### Safe next work
 
+- Implement Phase 2B only after an explicit instruction. Start with an OAuth and
+  Drive API design, a versioned remote backup envelope, restore semantics, and
+  failure-path tests before writing cloud code.
 - Add WebKit/Firefox browser coverage if those engines become available.
 - Profile and virtualize history for extremely large local sessions.
-- Add export/import or named sessions only when explicitly requested as a new
-  milestone.
 - Run a formal accessibility and physical-device touch audit.
+- Keep Phase 2C merge/sync separate from the Phase 2B backup path.
 
 ### Before changing anything
 
 1. Read `README.md` and `AGENTS.md`.
 2. Preserve the pure timer machine and WCA statistics semantics.
-3. Re-run `npm run check` after logic or build changes.
-4. Re-run the offline E2E test after any Vite, PWA, dependency, or asset change.
-5. Update this file with fresh evidence whenever status changes.
+3. Preserve the session and backup invariants: at least one session, unique
+   names, locked controls during timing, validated replace-only import.
+4. Re-run `npm run check` after logic or build changes.
+5. Re-run the offline E2E test after any Vite, PWA, dependency, or asset change.
+6. Update this file with fresh evidence whenever status changes.
 
 ## Git status
 
-The Phase 1 stabilization pass, refreshed screenshots, and documentation update
+The Phase 2A session/backup work, refreshed screenshots, and documentation update
 are committed. The working tree was clean after the final `npm run check` pass.
 Verify with:
 

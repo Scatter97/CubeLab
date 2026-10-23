@@ -1,77 +1,36 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import type { ReactNode } from 'react'
+import { useModalDialog } from '../hooks/useModalDialog'
 import { AlertIcon } from './Icons'
 
 interface ConfirmDialogProps {
   open: boolean
-  solveCount: number
+  eyebrow: string
+  title: string
+  description: ReactNode
+  cancelLabel: string
+  confirmLabel: string
   onCancel: () => void
   onConfirm: () => void
 }
 
 export function ConfirmDialog({
   open,
-  solveCount,
+  eyebrow,
+  title,
+  description,
+  cancelLabel,
+  confirmLabel,
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog) return
-
-    if (open && !dialog.open) {
-      dialog.showModal()
-    } else if (!open && dialog.open) {
-      dialog.close()
-    }
-  }, [open])
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLDialogElement>) => {
-    if (event.key !== 'Tab') return
-
-    const dialog = dialogRef.current
-    if (!dialog) return
-
-    const focusable = Array.from(
-      dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ),
-    ).filter((element) => element.getClientRects().length > 0)
-
-    if (focusable.length === 0) {
-      event.preventDefault()
-      dialog.focus()
-      return
-    }
-
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (!first || !last) {
-      event.preventDefault()
-      dialog.focus()
-      return
-    }
-
-    const active = document.activeElement
-
-    if (event.shiftKey) {
-      if (active === first || active === dialog || !dialog.contains(active)) {
-        event.preventDefault()
-        last.focus()
-      }
-    } else if (active === last || !dialog.contains(active)) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
+  const { dialogRef, handleKeyDown } = useModalDialog(open)
 
   return (
     <dialog
       ref={dialogRef}
       className="confirm-dialog"
-      aria-labelledby="clear-title"
-      aria-describedby="clear-description"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-description"
       onKeyDown={handleKeyDown}
       onCancel={(event) => {
         event.preventDefault()
@@ -85,15 +44,9 @@ export function ConfirmDialog({
         <span className="dialog-icon" aria-hidden="true">
           <AlertIcon size={22} />
         </span>
-        <span className="eyebrow">Clear session</span>
-        <h2 id="clear-title">Delete every solve?</h2>
-        <p id="clear-description">
-          This will permanently remove{' '}
-          <strong>
-            {solveCount} {solveCount === 1 ? 'solve' : 'solves'}
-          </strong>{' '}
-          from this browser. Your scramble queue and settings stay intact.
-        </p>
+        <span className="eyebrow">{eyebrow}</span>
+        <h2 id="confirm-title">{title}</h2>
+        <p id="confirm-description">{description}</p>
         <div className="dialog-actions">
           <button
             type="button"
@@ -101,14 +54,14 @@ export function ConfirmDialog({
             onClick={onCancel}
             autoFocus
           >
-            Keep solves
+            {cancelLabel}
           </button>
           <button
             type="button"
             className="button button-danger"
             onClick={onConfirm}
           >
-            Clear session
+            {confirmLabel}
           </button>
         </div>
       </div>

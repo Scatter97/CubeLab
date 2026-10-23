@@ -1,6 +1,18 @@
+import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 
 const TIMER = '[data-testid="timer-surface"]'
+
+interface StoredSession {
+  id: string
+  name: string
+  solves: unknown[]
+}
+
+interface StoredSessions {
+  activeSessionId: string
+  sessions: StoredSession[]
+}
 
 async function waitForApp(page: Page) {
   await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
@@ -29,11 +41,33 @@ async function recordSolve(page: Page, solveDurationMs = 120) {
   await stopWithSpace(page)
 }
 
-async function storedSolves(page: Page) {
+async function storedSessions(page: Page): Promise<StoredSessions | null> {
   return page.evaluate(() => {
-    const raw = localStorage.getItem('cubelab:solves:v1')
-    return raw ? (JSON.parse(raw) as { solves: unknown[] }).solves : []
+    const raw = localStorage.getItem('cubelab:sessions:v1')
+    return raw ? (JSON.parse(raw) as StoredSessions) : null
   })
+}
+
+async function storedSolves(page: Page): Promise<unknown[]> {
+  const data = await storedSessions(page)
+  return (
+    data?.sessions.find((session) => session.id === data.activeSessionId)
+      ?.solves ?? []
+  )
+}
+
+async function selectedSessionName(page: Page): Promise<string> {
+  return page.getByTestId('session-select').evaluate((element) => {
+    const select = element as HTMLSelectElement
+    return select.selectedOptions[0]?.textContent?.trim() ?? ''
+  })
+}
+
+async function openBackup(page: Page) {
+  await page.getByTestId('backup-button').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  return dialog
 }
 
 test('keyboard timing records exactly one solve and advances the scramble', async ({
@@ -230,6 +264,22 @@ test('narrow mobile layout keeps the inspection label and touch targets', async 
   if (!clearBox) throw new Error('Clear session has no bounding box')
   expect(clearBox.height).toBeGreaterThanOrEqual(28)
 
+  const sessionSelectBox = await page.getByTestId('session-select').boundingBox()
+  expect(sessionSelectBox).not.toBeNull()
+  if (!sessionSelectBox) throw new Error('Session select has no bounding box')
+  expect(sessionSelectBox.height).toBeGreaterThanOrEqual(28)
+
+  const newSessionBox = await page.getByTestId('new-session').boundingBox()
+  expect(newSessionBox).not.toBeNull()
+  if (!newSessionBox) throw new Error('New session button has no bounding box')
+  expect(newSessionBox.width).toBeGreaterThanOrEqual(28)
+  expect(newSessionBox.height).toBeGreaterThanOrEqual(28)
+
+  const backupBox = await page.getByTestId('backup-button').boundingBox()
+  expect(backupBox).not.toBeNull()
+  if (!backupBox) throw new Error('Backup button has no bounding box')
+  expect(backupBox.height).toBeGreaterThanOrEqual(28)
+
   await recordSolve(page, 80)
   const miniButtonBoxes = await page.locator('.mini-button').evaluateAll((buttons) =>
     buttons.map((button) => {
@@ -274,6 +324,13 @@ test('long desktop sessions scroll inside the history panel', async ({ page }) =
   await expect(page.getByTestId('solve-count')).toHaveText('120')
   await expect(page.locator('.history-row')).toHaveCount(120)
 
+  await expect
+    .poll(async () => (await storedSessions(page))?.sessions[0]?.solves.length)
+    .toBe(120)
+  const migrated = await storedSessions(page)
+  expect(migrated?.sessions).toHaveLength(1)
+  expect(migrated?.sessions[0]?.name).toBe('Session 1')
+
   const metrics = await page.locator('.history-scroll').evaluate((element) => ({
     scrollHeight: element.scrollHeight,
     clientHeight: element.clientHeight,
@@ -282,6 +339,243 @@ test('long desktop sessions scroll inside the history panel', async ({ page }) =
   }))
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
   expect(metrics.pageHeight).toBeLessThanOrEqual(metrics.viewportHeight + 1)
+})
+
+test('named sessions create, switch, rename, delete, and persist', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  const select = page.getByTestId('session-select')
+  await expect(page.getByTestId('solve-count')).toHaveText('0')
+  expect(await selectedSessionName(page)).toBe('Session 1')
+
+  await recordSolve(page, 100)
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await page.getByTestId('new-session').click()
+  const input = page.getByRole('textbox', { name: 'Session name' })
+  await expect(input).toBeVisible()
+  await expect(input).toHaveValue('Session 2')
+  await expect(input).toBeFocused()
+
+  // Duplicate names are rejected case-insensitively without closing the form.
+  await input.fill('session 1')
+  await page.getByTestId('save-session-name').click()
+  await expect(page.getByTestId('session-error')).toHaveText(
+    'Session names must be unique.',
+  )
+  await expect(input).toBeVisible()
+
+  await input.fill('Evening')
+  await page.getByTestId('save-session-name').click()
+  await expect(page.getByTestId('session-error')).toHaveCount(0)
+  expect(await selectedSessionName(page)).toBe('Evening')
+  await expect(page.getByTestId('solve-count')).toHaveText('0')
+  await expect(select).toBeFocused()
+
+  // Space still controls the timer while the session select is focused.
+  await recordSolve(page, 100)
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await select.selectOption({ label: 'Session 1' })
+  expect(await selectedSessionName(page)).toBe('Session 1')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await page.getByTestId('rename-session').click()
+  const renameInput = page.getByRole('textbox', { name: 'Session name' })
+  await expect(renameInput).toHaveValue('Session 1')
+  await renameInput.fill('Morning')
+  await page.getByTestId('save-session-name').click()
+  expect(await selectedSessionName(page)).toBe('Morning')
+  await expect(select).toBeFocused()
+
+  await page.reload()
+  await waitForApp(page)
+  expect(await selectedSessionName(page)).toBe('Morning')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await page.getByTestId('delete-session').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(
+    dialog.getByRole('heading', { name: /Delete .*Morning/ }),
+  ).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Keep session' })).toBeFocused()
+  await dialog.getByRole('button', { name: 'Keep session' }).click()
+  expect(await selectedSessionName(page)).toBe('Morning')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await page.getByTestId('delete-session').click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Delete session' }).click()
+  await expect(page.getByRole('status')).toContainText('Session deleted')
+  expect(await selectedSessionName(page)).toBe('Evening')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+  await expect(page.getByTestId('delete-session')).toBeDisabled()
+
+  await expect
+    .poll(async () => (await storedSessions(page))?.sessions.length)
+    .toBe(1)
+  const persisted = await storedSessions(page)
+  expect(persisted?.sessions[0]?.name).toBe('Evening')
+  expect(persisted?.sessions[0]?.solves).toHaveLength(1)
+
+  await page.reload()
+  await waitForApp(page)
+  expect(await selectedSessionName(page)).toBe('Evening')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+})
+
+test('session controls lock while the timer is active', async ({ page }) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  const select = page.getByTestId('session-select')
+  await expect(select).toBeEnabled()
+
+  await holdSpace(page)
+  await expect(select).toBeDisabled()
+  await expect(page.getByTestId('new-session')).toBeDisabled()
+  await expect(page.getByTestId('rename-session')).toBeDisabled()
+  await expect(page.getByTestId('backup-button')).toBeDisabled()
+
+  await stopWithSpace(page)
+  await expect(select).toBeEnabled()
+  await expect(page.getByTestId('new-session')).toBeEnabled()
+  await expect(page.getByTestId('backup-button')).toBeEnabled()
+})
+
+test('backup export and import restore all sessions and settings', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  await recordSolve(page, 100)
+  await page.getByTestId('new-session').click()
+  await page
+    .getByRole('textbox', { name: 'Session name' })
+    .fill('Evening')
+  await page.getByTestId('save-session-name').click()
+  await recordSolve(page, 100)
+
+  const inspectionSwitch = page.getByRole('switch', { name: /Inspection/ })
+  await inspectionSwitch.click()
+  await expect(inspectionSwitch).toHaveAttribute('aria-checked', 'true')
+
+  const dialog = await openBackup(page)
+  await expect(dialog.locator('.data-summary')).toContainText('2 sessions')
+  await expect(dialog.locator('.data-summary')).toContainText('2 solves')
+
+  // Invalid files fail inline and leave the dialog open.
+  await page.getByTestId('backup-file-input').setInputFiles({
+    name: 'broken.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{not valid json'),
+  })
+  await expect(page.getByTestId('backup-error')).toHaveText(
+    'That file is not valid JSON.',
+  )
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('backup-button')).toBeFocused()
+
+  const backupDialog = await openBackup(page)
+  const downloadPromise = page.waitForEvent('download')
+  await backupDialog.getByTestId('export-backup').click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(
+    /^cubelab-backup-\d{4}-\d{2}-\d{2}\.json$/,
+  )
+  const downloadPath = await download.path()
+  expect(downloadPath).not.toBeNull()
+  if (!downloadPath) throw new Error('Backup download has no path')
+
+  const backup = JSON.parse(readFileSync(downloadPath, 'utf8')) as {
+    app: string
+    format: string
+    version: number
+    sessions: { activeSessionId: string; sessions: StoredSession[] }
+    settings: { inspectionEnabled: boolean }
+  }
+  expect(backup.app).toBe('CubeLab')
+  expect(backup.format).toBe('cubelab-backup')
+  expect(backup.version).toBe(1)
+  expect(backup.sessions.sessions).toHaveLength(2)
+  expect(backup.sessions.sessions.map((session) => session.name)).toEqual([
+    'Session 1',
+    'Evening',
+  ])
+  expect(
+    backup.sessions.sessions.reduce(
+      (total, session) => total + session.solves.length,
+      0,
+    ),
+  ).toBe(2)
+  expect(backup.settings.inspectionEnabled).toBe(true)
+  await expect(dialog).toBeHidden()
+
+  // Start from empty local data so the restore is observable.
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await waitForApp(page)
+  expect(await selectedSessionName(page)).toBe('Session 1')
+  await expect(page.getByTestId('solve-count')).toHaveText('0')
+  await expect(
+    page.getByRole('switch', { name: /Inspection/ }),
+  ).toHaveAttribute('aria-checked', 'false')
+
+  // Importing requires explicit confirmation; cancelling keeps local data.
+  await openBackup(page)
+  await page.getByTestId('backup-file-input').setInputFiles(downloadPath)
+  const cancelDialog = page.getByRole('dialog')
+  await expect(cancelDialog).toBeVisible()
+  await expect(
+    cancelDialog.getByRole('heading', { name: 'Replace local sessions?' }),
+  ).toBeVisible()
+  await expect(cancelDialog).toContainText('2 sessions')
+  await expect(cancelDialog).toContainText('2 solves')
+  await expect(
+    cancelDialog.getByRole('button', { name: 'Cancel import' }),
+  ).toBeFocused()
+  await cancelDialog.getByRole('button', { name: 'Cancel import' }).click()
+  await expect(page.getByTestId('backup-button')).toBeFocused()
+  expect(await selectedSessionName(page)).toBe('Session 1')
+  await expect(page.getByTestId('solve-count')).toHaveText('0')
+  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
+    1,
+  )
+
+  await openBackup(page)
+  await page.getByTestId('backup-file-input').setInputFiles(downloadPath)
+  const importDialog = page.getByRole('dialog')
+  await expect(
+    importDialog.getByRole('heading', { name: 'Replace local sessions?' }),
+  ).toBeVisible()
+  await importDialog.getByRole('button', { name: 'Import backup' }).click()
+  await expect(page.getByRole('status')).toContainText('Backup imported')
+  await expect(page.getByTestId('backup-button')).toBeFocused()
+  expect(await selectedSessionName(page)).toBe('Evening')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
+    2,
+  )
+  await expect(
+    page.getByRole('switch', { name: /Inspection/ }),
+  ).toHaveAttribute('aria-checked', 'true')
+
+  await page.getByTestId('session-select').selectOption({ label: 'Session 1' })
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await page.reload()
+  await waitForApp(page)
+  expect(await selectedSessionName(page)).toBe('Session 1')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+  await expect(
+    page.getByRole('switch', { name: /Inspection/ }),
+  ).toHaveAttribute('aria-checked', 'true')
 })
 
 test('scramble failure disables timing and offers retry', async ({ page }) => {

@@ -1,8 +1,12 @@
-import type { Penalty, Settings, Solve } from '../types'
+import type { Penalty, Session, SessionsData, Settings, Solve } from '../types'
+import { createId } from './id'
+import { DEFAULT_SESSION_NAME, normalizeSessionName } from './sessions'
 
 export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
+export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
+export const SESSIONS_VERSION = 1
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -13,9 +17,10 @@ export interface StorageLike {
   setItem(key: string, value: string): void
 }
 
-interface StoredSolves {
-  version: typeof STORAGE_VERSION
-  solves: Solve[]
+interface StoredSessions {
+  version: typeof SESSIONS_VERSION
+  activeSessionId: string
+  sessions: Session[]
 }
 
 interface StoredSettings {
@@ -29,6 +34,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPenalty(value: unknown): value is Penalty {
   return value === 'none' || value === '+2' || value === 'dnf'
+}
+
+function isPositiveTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
 function parseSolve(value: unknown): Solve | null {
@@ -46,13 +55,7 @@ function parseSolve(value: unknown): Solve | null {
   if (typeof value.scramble !== 'string' || value.scramble.length === 0) {
     return null
   }
-  if (
-    typeof value.createdAt !== 'number' ||
-    !Number.isFinite(value.createdAt) ||
-    value.createdAt <= 0
-  ) {
-    return null
-  }
+  if (!isPositiveTimestamp(value.createdAt)) return null
 
   return {
     id: value.id,
@@ -61,6 +64,36 @@ function parseSolve(value: unknown): Solve | null {
     penalty: value.penalty,
     scramble: value.scramble,
     createdAt: value.createdAt,
+  }
+}
+
+function parseSession(value: unknown): Session | null {
+  if (!isRecord(value)) return null
+  if (typeof value.id !== 'string' || value.id.length === 0) return null
+  if (typeof value.name !== 'string') return null
+
+  const name = normalizeSessionName(value.name)
+  if (!name) return null
+  if (!isPositiveTimestamp(value.createdAt)) return null
+  if (!isPositiveTimestamp(value.updatedAt)) return null
+  if (!Array.isArray(value.solves)) return null
+
+  const seen = new Set<string>()
+  const solves: Solve[] = []
+  for (const candidate of value.solves) {
+    const solve = parseSolve(candidate)
+    if (solve && !seen.has(solve.id)) {
+      seen.add(solve.id)
+      solves.push(solve)
+    }
+  }
+
+  return {
+    id: value.id,
+    name,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    solves,
   }
 }
 
@@ -75,9 +108,129 @@ function getDefaultStorage(): StorageLike | null {
 }
 
 /**
- * Loads valid solves individually. Corrupt records are skipped rather than
- * making the whole session unreadable. Duplicate IDs are ignored to keep
- * React keys and edits deterministic.
+ * Validates a session collection. Invalid sessions and solves are skipped
+ * individually so one corrupt record cannot make every other session
+ * unreadable. Duplicate session and solve IDs are ignored.
+ */
+export function parseSessionsData(value: unknown): SessionsData | null {
+  if (!isRecord(value)) return null
+  if (!Array.isArray(value.sessions)) return null
+
+  const seen = new Set<string>()
+  const sessions: Session[] = []
+  for (const candidate of value.sessions) {
+    const session = parseSession(candidate)
+    if (session && !seen.has(session.id)) {
+      seen.add(session.id)
+      sessions.push(session)
+    }
+  }
+
+  if (sessions.length === 0) return null
+
+  const activeSessionId =
+    typeof value.activeSessionId === 'string' &&
+    sessions.some((session) => session.id === value.activeSessionId)
+      ? value.activeSessionId
+      : sessions[0]?.id
+
+  if (!activeSessionId) return null
+  return { activeSessionId, sessions }
+}
+
+export function parseSettingsData(value: unknown): Settings | null {
+  if (!isRecord(value)) return null
+  if (typeof value.inspectionEnabled !== 'boolean') return null
+  return { inspectionEnabled: value.inspectionEnabled }
+}
+
+function createEmptySessions(): SessionsData {
+  const id = createId()
+  const now = Date.now()
+  return {
+    activeSessionId: id,
+    sessions: [
+      {
+        id,
+        name: DEFAULT_SESSION_NAME,
+        createdAt: now,
+        updatedAt: now,
+        solves: [],
+      },
+    ],
+  }
+}
+
+function createSessionsFromLegacy(solves: readonly Solve[]): SessionsData {
+  const id = createId()
+  const timestamps = solves.map((solve) => solve.createdAt)
+  const createdAt = Math.min(...timestamps)
+  const updatedAt = Math.max(...timestamps)
+
+  return {
+    activeSessionId: id,
+    sessions: [
+      {
+        id,
+        name: DEFAULT_SESSION_NAME,
+        createdAt,
+        updatedAt,
+        solves: [...solves],
+      },
+    ],
+  }
+}
+
+/**
+ * Loads the current session collection. If the versioned sessions key is
+ * absent or unreadable, a valid legacy single-session record is migrated
+ * instead of being discarded. With no usable data, one empty session is
+ * created.
+ */
+export function loadSessions(storage = getDefaultStorage()): SessionsData {
+  if (!storage) return createEmptySessions()
+
+  try {
+    const raw = storage.getItem(SESSIONS_STORAGE_KEY)
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw)
+      if (isRecord(parsed) && parsed.version === SESSIONS_VERSION) {
+        const data = parseSessionsData(parsed)
+        if (data) return data
+      }
+    }
+  } catch {
+    // Fall through to the legacy record, then to a fresh session.
+  }
+
+  const legacySolves = loadSolves(storage)
+  if (legacySolves.length > 0) return createSessionsFromLegacy(legacySolves)
+  return createEmptySessions()
+}
+
+export function saveSessions(
+  data: SessionsData,
+  storage = getDefaultStorage(),
+): boolean {
+  if (!storage) return false
+
+  const payload: StoredSessions = {
+    version: SESSIONS_VERSION,
+    activeSessionId: data.activeSessionId,
+    sessions: [...data.sessions],
+  }
+
+  try {
+    storage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(payload))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Legacy single-session loader. Retained so existing local solves can be
+ * migrated into the named-session store.
  */
 export function loadSolves(storage = getDefaultStorage()): Solve[] {
   if (!storage) return []
@@ -104,25 +257,6 @@ export function loadSolves(storage = getDefaultStorage()): Solve[] {
   }
 }
 
-export function saveSolves(
-  solves: readonly Solve[],
-  storage = getDefaultStorage(),
-): boolean {
-  if (!storage) return false
-
-  const payload: StoredSolves = {
-    version: STORAGE_VERSION,
-    solves: [...solves],
-  }
-
-  try {
-    storage.setItem(SOLVES_STORAGE_KEY, JSON.stringify(payload))
-    return true
-  } catch {
-    return false
-  }
-}
-
 export function loadSettings(storage = getDefaultStorage()): Settings {
   if (!storage) return { ...DEFAULT_SETTINGS }
 
@@ -133,10 +267,7 @@ export function loadSettings(storage = getDefaultStorage()): Settings {
     if (!isRecord(parsed) || parsed.version !== STORAGE_VERSION) {
       return { ...DEFAULT_SETTINGS }
     }
-    if (!isRecord(parsed.settings)) return { ...DEFAULT_SETTINGS }
-    return {
-      inspectionEnabled: parsed.settings.inspectionEnabled === true,
-    }
+    return parseSettingsData(parsed.settings) ?? { ...DEFAULT_SETTINGS }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }

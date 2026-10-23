@@ -144,7 +144,7 @@ export function SolveHistory({
       <div className="panel-heading history-heading">
         <div>
           <span className="eyebrow">
-            <span className="eyebrow-index">03</span>
+            <span className="eyebrow-index">04</span>
             History
           </span>
           <h2 id="history-title">

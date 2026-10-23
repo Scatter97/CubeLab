@@ -1,38 +1,73 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppHeader } from './components/AppHeader'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { DataDialog } from './components/DataDialog'
 import { ScramblePanel } from './components/ScramblePanel'
+import { SessionPanel } from './components/SessionPanel'
 import { SolveHistory } from './components/SolveHistory'
 import { StatsPanel } from './components/StatsPanel'
 import { TimerStage } from './components/TimerStage'
 import { Toast } from './components/Toast'
 import { useScramble } from './hooks/useScramble'
+import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
-import { useSolves } from './hooks/useSolves'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
-import { formatStatValue, formatTime } from './lib/format'
+import {
+  backupFileName,
+  createBackup,
+  serializeBackup,
+  type Backup,
+} from './lib/backup'
+import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
+import { countSolves } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
-import type { Penalty } from './types'
+import type { Penalty, Session } from './types'
 
 function isTextEntryTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
-    target.closest('input, textarea, select, [contenteditable="true"]') !== null
+    target.closest('input, textarea, [contenteditable="true"]') !== null
   )
+}
+
+function downloadJsonFile(contents: string, fileName: string): void {
+  const blob = new Blob([contents], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
 export default function App() {
   const {
-    solves,
+    sessions,
+    activeSession,
+    activeSessionId,
     storageOk,
     addSolve,
     setPenalty,
     deleteSolve,
     restoreSolve,
     clearSolves,
-  } = useSolves()
-  const { settings, settingsStorageOk, setInspectionEnabled } = useSettings()
+    createSession,
+    renameSession,
+    deleteSession,
+    selectSession,
+    replaceSessions,
+  } = useSessions()
+  const solves = activeSession.solves
+  const {
+    settings,
+    settingsStorageOk,
+    setInspectionEnabled,
+    replaceSettings,
+  } = useSettings()
   const {
     scramble,
     nextScramble,
@@ -43,18 +78,16 @@ export default function App() {
   } = useScramble()
   const { toast, showToast, dismissToast } = useToast()
 
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [clearOpen, setClearOpen] = useState(false)
+  const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
+  const [pendingImport, setPendingImport] = useState<Backup | null>(null)
+  const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const scrambleRef = useRef(scramble)
-  const solvesRef = useRef(solves)
 
   useEffect(() => {
     scrambleRef.current = scramble
   }, [scramble])
-
-  useEffect(() => {
-    solvesRef.current = solves
-  }, [solves])
 
   const handleSolve = useCallback(
     (completion: { rawMs: number; penalty: Penalty }) => {
@@ -88,6 +121,8 @@ export default function App() {
   })
 
   const timerActive = timer.state.status !== 'idle'
+  const modalOpen =
+    dataOpen || clearOpen || sessionToDelete !== null || pendingImport !== null
   const timerCancel = timer.cancel
   const timerPress = timer.press
   const timerRelease = timer.release
@@ -96,10 +131,10 @@ export default function App() {
 
   const handleInspectionChange = useCallback(
     (enabled: boolean) => {
-      if (timer.state.status !== 'idle') return
+      if (timer.state.status !== 'idle' || modalOpen) return
       setInspectionEnabled(enabled)
     },
-    [setInspectionEnabled, timer.state.status],
+    [modalOpen, setInspectionEnabled, timer.state.status],
   )
 
   const handleRegenerate = useCallback(() => {
@@ -120,32 +155,196 @@ export default function App() {
 
   const handleDelete = useCallback(
     (id: string) => {
-      const current = solvesRef.current
-      const index = current.findIndex((solve) => solve.id === id)
-      const solve = current[index]
-      if (!solve) return
+      const removed = deleteSolve(id)
+      if (!removed) return
 
-      deleteSolve(id)
       showToast({
         message: 'Solve deleted',
         actionLabel: 'Undo',
-        onAction: () => restoreSolve(solve, index),
+        onAction: () =>
+          restoreSolve(removed.solve, removed.index, removed.sessionId),
       })
     },
     [deleteSolve, restoreSolve, showToast],
   )
 
   const requestClear = useCallback(() => {
-    if (timer.state.status === 'idle' && solves.length > 0) {
-      setConfirmOpen(true)
+    if (
+      timer.state.status === 'idle' &&
+      !modalOpen &&
+      solves.length > 0
+    ) {
+      setClearOpen(true)
     }
-  }, [solves.length, timer.state.status])
+  }, [modalOpen, solves.length, timer.state.status])
 
   const confirmClear = useCallback(() => {
     clearSolves()
-    setConfirmOpen(false)
+    setClearOpen(false)
     showToast({ message: 'Session cleared' })
   }, [clearSolves, showToast])
+
+  const handleCreateSession = useCallback(
+    (name: string): boolean => {
+      if (timer.state.status !== 'idle') return false
+      return createSession(name) !== null
+    },
+    [createSession, timer.state.status],
+  )
+
+  const handleRenameSession = useCallback(
+    (id: string, name: string): boolean => {
+      if (timer.state.status !== 'idle') return false
+      return renameSession(id, name)
+    },
+    [renameSession, timer.state.status],
+  )
+
+  const handleSelectSession = useCallback(
+    (id: string) => {
+      if (timer.state.status !== 'idle') return
+      selectSession(id)
+    },
+    [selectSession, timer.state.status],
+  )
+
+  const requestDeleteSession = useCallback(() => {
+    if (timer.state.status !== 'idle' || sessions.length <= 1) return
+    setSessionToDelete(activeSession)
+  }, [activeSession, sessions.length, timer.state.status])
+
+  const confirmDeleteSession = useCallback(() => {
+    if (!sessionToDelete) return
+    const deleted = deleteSession(sessionToDelete.id)
+    setSessionToDelete(null)
+    if (deleted) showToast({ message: 'Session deleted' })
+  }, [deleteSession, sessionToDelete, showToast])
+
+  const handleOpenBackup = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setDataOpen(true)
+  }, [timer.state.status])
+
+  const handleExport = useCallback((): boolean => {
+    if (timer.state.status !== 'idle') return false
+
+    try {
+      const backup = createBackup(
+        { activeSessionId, sessions },
+        settings,
+      )
+      downloadJsonFile(serializeBackup(backup), backupFileName())
+      setDataOpen(false)
+      showToast({ message: 'Backup exported' })
+      return true
+    } catch {
+      return false
+    }
+  }, [activeSessionId, sessions, settings, showToast, timer.state.status])
+
+  const handleImportRequested = useCallback((backup: Backup) => {
+    setDataOpen(false)
+    setPendingImport(backup)
+  }, [])
+
+  const confirmImport = useCallback(() => {
+    if (!pendingImport) return
+
+    replaceSessions(pendingImport.sessions)
+    replaceSettings(pendingImport.settings)
+    setPendingImport(null)
+    showToast({ message: 'Backup imported' })
+  }, [pendingImport, replaceSessions, replaceSettings, showToast])
+
+  const cancelConfirm = useCallback(() => {
+    setClearOpen(false)
+    setSessionToDelete(null)
+    setPendingImport(null)
+  }, [])
+
+  const confirmContent = useMemo(() => {
+    if (pendingImport) {
+      const currentSolveCount = countSolves(sessions)
+      const importedSolveCount = countSolves(pendingImport.sessions.sessions)
+      const importedSessionCount = pendingImport.sessions.sessions.length
+
+      return {
+        eyebrow: 'Import backup',
+        title: 'Replace local sessions?',
+        description: (
+          <>
+            Replace <strong>{formatSolveCount(currentSolveCount)}</strong> across{' '}
+            <strong>
+              {sessions.length === 1
+                ? '1 session'
+                : `${sessions.length} sessions`}
+            </strong>{' '}
+            with <strong>{formatSolveCount(importedSolveCount)}</strong> across{' '}
+            <strong>
+              {importedSessionCount === 1
+                ? '1 session'
+                : `${importedSessionCount} sessions`}
+            </strong>
+            . Settings will also be restored. Export first if you need a copy.
+          </>
+        ),
+        cancelLabel: 'Cancel import',
+        confirmLabel: 'Import backup',
+        onConfirm: confirmImport,
+      }
+    }
+
+    if (sessionToDelete) {
+      return {
+        eyebrow: 'Delete session',
+        title: `Delete “${sessionToDelete.name}”?`,
+        description: (
+          <>
+            This will permanently remove{' '}
+            <strong>{formatSolveCount(sessionToDelete.solves.length)}</strong>{' '}
+            from this browser. The other sessions stay intact.
+          </>
+        ),
+        cancelLabel: 'Keep session',
+        confirmLabel: 'Delete session',
+        onConfirm: confirmDeleteSession,
+      }
+    }
+
+    if (clearOpen) {
+      return {
+        eyebrow: 'Clear session',
+        title: 'Delete every solve?',
+        description: (
+          <>
+            This will permanently remove{' '}
+            <strong>{formatSolveCount(solves.length)}</strong> from{' '}
+            <strong>{activeSession.name}</strong>. Your other sessions and
+            settings stay intact.
+          </>
+        ),
+        cancelLabel: 'Keep solves',
+        confirmLabel: 'Clear session',
+        onConfirm: confirmClear,
+      }
+    }
+
+    return null
+  }, [
+    activeSession.name,
+    clearOpen,
+    confirmClear,
+    confirmDeleteSession,
+    confirmImport,
+    pendingImport,
+    sessionToDelete,
+    sessions,
+    solves.length,
+  ])
+
+  const handleConfirm = useCallback(() => {
+    confirmContent?.onConfirm()
+  }, [confirmContent])
 
   const handleToastAction = useCallback(() => {
     if (toast?.onAction) toast.onAction()
@@ -159,7 +358,7 @@ export default function App() {
     const isActive = timer.state.status !== 'idle'
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (confirmOpen) return
+      if (modalOpen) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
 
       if (event.key === 'Escape') {
@@ -184,7 +383,7 @@ export default function App() {
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (confirmOpen || event.code !== 'Space') return
+      if (modalOpen || event.code !== 'Space') return
       if (isTextEntryTarget(event.target)) return
       event.preventDefault()
       timerRelease('keyboard')
@@ -198,7 +397,7 @@ export default function App() {
     }
   }, [
     canStart,
-    confirmOpen,
+    modalOpen,
     timerCancel,
     timerPress,
     timerRelease,
@@ -213,9 +412,10 @@ export default function App() {
       <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
 
       <AppHeader
+        sessionName={activeSession.name}
         inspectionEnabled={settings.inspectionEnabled}
         onInspectionChange={handleInspectionChange}
-        inspectionLocked={timerActive || confirmOpen}
+        inspectionLocked={timerActive || modalOpen}
         storageOk={storageHealthy}
       />
 
@@ -278,7 +478,18 @@ export default function App() {
           </div>
         </div>
 
-        <aside className="side-column" aria-label="Session insights">
+        <aside className="side-column" aria-label="Sessions and solve insights">
+          <SessionPanel
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            locked={timerActive}
+            onCreate={handleCreateSession}
+            onRename={handleRenameSession}
+            onSelect={handleSelectSession}
+            onRequestDelete={requestDeleteSession}
+            onOpenBackup={handleOpenBackup}
+          />
+
           <StatsPanel stats={stats} />
 
           <SolveHistory
@@ -292,7 +503,7 @@ export default function App() {
       </main>
 
       <footer className="app-footer">
-        <span>CubeLab · Milestone 1</span>
+        <span>CubeLab · Local sessions</span>
         <span className="footer-middle">
           Local-first. Solves stay in this browser.
         </span>
@@ -303,11 +514,24 @@ export default function App() {
         {announcement}
       </div>
 
+      <DataDialog
+        open={dataOpen}
+        sessionCount={sessions.length}
+        solveCount={countSolves(sessions)}
+        onClose={() => setDataOpen(false)}
+        onExport={handleExport}
+        onImport={handleImportRequested}
+      />
+
       <ConfirmDialog
-        open={confirmOpen}
-        solveCount={solves.length}
-        onCancel={() => setConfirmOpen(false)}
-        onConfirm={confirmClear}
+        open={confirmContent !== null}
+        eyebrow={confirmContent?.eyebrow ?? ''}
+        title={confirmContent?.title ?? ''}
+        description={confirmContent?.description ?? null}
+        cancelLabel={confirmContent?.cancelLabel ?? 'Cancel'}
+        confirmLabel={confirmContent?.confirmLabel ?? 'Confirm'}
+        onCancel={cancelConfirm}
+        onConfirm={handleConfirm}
       />
 
       <Toast

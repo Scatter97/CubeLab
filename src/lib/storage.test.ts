@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { Solve } from '../types'
+import type { Session, SessionsData, Solve } from '../types'
 import {
   DEFAULT_SETTINGS,
+  SESSIONS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   SOLVES_STORAGE_KEY,
+  loadSessions,
   loadSettings,
   loadSolves,
+  saveSessions,
   saveSettings,
-  saveSolves,
   type StorageLike,
 } from './storage'
+import { DEFAULT_SESSION_NAME } from './sessions'
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>()
@@ -39,8 +42,31 @@ function solve(overrides: Partial<Solve> = {}): Solve {
   }
 }
 
-describe('solve persistence', () => {
-  it('round-trips solves through storage', () => {
+function session(overrides: Partial<Session> = {}): Session {
+  return {
+    id: 'session-1',
+    name: DEFAULT_SESSION_NAME,
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_000,
+    solves: [],
+    ...overrides,
+  }
+}
+
+function sessionsData(overrides: Partial<SessionsData> = {}): SessionsData {
+  return {
+    activeSessionId: 'session-1',
+    sessions: [session()],
+    ...overrides,
+  }
+}
+
+function seedLegacy(storage: MemoryStorage, solves: readonly Solve[]): void {
+  storage.seed(SOLVES_STORAGE_KEY, JSON.stringify({ version: 1, solves }))
+}
+
+describe('legacy solve persistence', () => {
+  it('reads valid legacy solves from storage', () => {
     const storage = new MemoryStorage()
     const original = [
       solve(),
@@ -58,37 +84,11 @@ describe('solve persistence', () => {
       }),
     ]
 
-    expect(saveSolves(original, storage)).toBe(true)
+    seedLegacy(storage, original)
     expect(loadSolves(storage)).toEqual(original)
   })
 
-  it('survives a simulated refresh with a new load call', () => {
-    const storage = new MemoryStorage()
-    saveSolves([solve()], storage)
-    expect(loadSolves(storage)).toHaveLength(1)
-    expect(loadSolves(storage)[0]?.id).toBe('solve-1')
-  })
-
-  it('returns an empty session when no data exists', () => {
-    expect(loadSolves(new MemoryStorage())).toEqual([])
-  })
-
-  it('recovers safely from corrupt JSON', () => {
-    const storage = new MemoryStorage()
-    storage.seed(SOLVES_STORAGE_KEY, '{not valid json')
-    expect(loadSolves(storage)).toEqual([])
-  })
-
-  it('rejects an unknown storage version', () => {
-    const storage = new MemoryStorage()
-    storage.seed(
-      SOLVES_STORAGE_KEY,
-      JSON.stringify({ version: 99, solves: [solve()] }),
-    )
-    expect(loadSolves(storage)).toEqual([])
-  })
-
-  it('filters invalid and duplicate records without losing valid solves', () => {
+  it('filters invalid and duplicate legacy records without losing valid solves', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SOLVES_STORAGE_KEY,
@@ -114,24 +114,163 @@ describe('solve persistence', () => {
     ])
   })
 
-  it('reports failure when storage rejects a write', () => {
-    const storage: StorageLike = {
-      getItem: () => null,
-      setItem: () => {
-        throw new Error('QuotaExceededError')
-      },
-    }
-    expect(saveSolves([solve()], storage)).toBe(false)
+  it('recovers safely from corrupt legacy JSON', () => {
+    const storage = new MemoryStorage()
+    storage.seed(SOLVES_STORAGE_KEY, '{not valid json')
+    expect(loadSolves(storage)).toEqual([])
   })
 
-  it('fails closed when storage access throws', () => {
+  it('rejects an unknown legacy storage version', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SOLVES_STORAGE_KEY,
+      JSON.stringify({ version: 99, solves: [solve()] }),
+    )
+    expect(loadSolves(storage)).toEqual([])
+  })
+})
+
+describe('session persistence', () => {
+  it('creates one empty default session when no data exists', () => {
+    const loaded = loadSessions(new MemoryStorage())
+    expect(loaded.sessions).toHaveLength(1)
+    expect(loaded.sessions[0]).toMatchObject({
+      name: DEFAULT_SESSION_NAME,
+      solves: [],
+    })
+    expect(loaded.sessions[0]?.createdAt).toBeGreaterThan(0)
+    expect(loaded.activeSessionId).toBe(loaded.sessions[0]?.id)
+  })
+
+  it('round-trips multiple sessions and the active session', () => {
+    const storage = new MemoryStorage()
+    const original = sessionsData({
+      activeSessionId: 'session-2',
+      sessions: [
+        session({ solves: [solve()] }),
+        session({
+          id: 'session-2',
+          name: 'Evening',
+          solves: [solve({ id: 'solve-2', penalty: '+2' })],
+        }),
+      ],
+    })
+
+    expect(saveSessions(original, storage)).toBe(true)
+    expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('migrates a valid legacy single session', () => {
+    const storage = new MemoryStorage()
+    seedLegacy(storage, [
+      solve({ id: 'newer', createdAt: 1_700_000_002_000 }),
+      solve({ id: 'older', createdAt: 1_700_000_001_000 }),
+    ])
+
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions).toHaveLength(1)
+    expect(loaded.sessions[0]?.name).toBe(DEFAULT_SESSION_NAME)
+    expect(loaded.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'newer',
+      'older',
+    ])
+    expect(loaded.sessions[0]?.createdAt).toBe(1_700_000_001_000)
+    expect(loaded.sessions[0]?.updatedAt).toBe(1_700_000_002_000)
+    expect(loaded.activeSessionId).toBe(loaded.sessions[0]?.id)
+  })
+
+  it('prefers valid session data over the legacy record', () => {
+    const storage = new MemoryStorage()
+    seedLegacy(storage, [solve({ id: 'legacy' })])
+    saveSessions(
+      sessionsData({
+        sessions: [
+          session({ solves: [solve({ id: 'current' })] }),
+        ],
+      }),
+      storage,
+    )
+
+    expect(loadSessions(storage).sessions[0]?.solves[0]?.id).toBe('current')
+  })
+
+  it('falls back to the legacy record when session data is corrupt', () => {
+    const storage = new MemoryStorage()
+    seedLegacy(storage, [solve({ id: 'legacy' })])
+    storage.seed(SESSIONS_STORAGE_KEY, '{not valid json')
+
+    expect(loadSessions(storage).sessions[0]?.solves[0]?.id).toBe('legacy')
+  })
+
+  it('filters invalid and duplicate sessions and solves', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSessionId: 'missing',
+        sessions: [
+          session({
+            solves: [
+              solve(),
+              { ...solve(), id: 'bad-solve', rawMs: -1 },
+              solve({ id: 'duplicate-solve' }),
+              { ...solve(), id: 'duplicate-solve', rawMs: 99_999 },
+            ],
+          }),
+          { ...session(), id: '', name: 'Broken' },
+          session({ id: 'session-1', name: 'Duplicate session' }),
+          session({
+            id: 'session-2',
+            name: '  Evening  ',
+            solves: [solve({ id: 'solve-2' })],
+          }),
+        ],
+      }),
+    )
+
+    const loaded = loadSessions(storage)
+    expect(loaded.activeSessionId).toBe('session-1')
+    expect(loaded.sessions.map((item) => item.id)).toEqual([
+      'session-1',
+      'session-2',
+    ])
+    expect(loaded.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'solve-1',
+      'duplicate-solve',
+    ])
+    expect(loaded.sessions[1]?.name).toBe('Evening')
+  })
+
+  it('falls back to legacy when the sessions version is unsupported', () => {
+    const storage = new MemoryStorage()
+    seedLegacy(storage, [solve({ id: 'legacy' })])
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({ version: 2, sessions: [] }),
+    )
+
+    expect(loadSessions(storage).sessions[0]?.solves[0]?.id).toBe('legacy')
+  })
+
+  it('recovers with a default session when storage access throws', () => {
     const storage: StorageLike = {
       getItem: () => {
         throw new Error('SecurityError')
       },
       setItem: () => undefined,
     }
-    expect(loadSolves(storage)).toEqual([])
+    expect(loadSessions(storage).sessions).toHaveLength(1)
+  })
+
+  it('reports failure when a session write is rejected', () => {
+    const storage: StorageLike = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError')
+      },
+    }
+    expect(saveSessions(sessionsData(), storage)).toBe(false)
   })
 })
 

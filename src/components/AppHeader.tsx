@@ -1,6 +1,7 @@
 import { CubeMark, ScanIcon } from './Icons'
 
 interface AppHeaderProps {
+  sessionName: string
   inspectionEnabled: boolean
   onInspectionChange: (enabled: boolean) => void
   inspectionLocked: boolean
@@ -8,6 +9,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({
+  sessionName,
   inspectionEnabled,
   onInspectionChange,
   inspectionLocked,
@@ -29,9 +31,11 @@ export function AppHeader({
 
       <div className="header-context" aria-hidden="true">
         <span className="context-divider" />
-        <span className="context-label">3×3 session</span>
+        <span className="context-label" title={sessionName}>
+          {sessionName}
+        </span>
         <span className="context-dot" />
-        <span className="context-meta">Random state</span>
+        <span className="context-meta">3×3 · Random state</span>
       </div>
 
       <div className="header-actions">
@@ -39,8 +43,8 @@ export function AppHeader({
           className={`storage-state ${storageOk ? 'is-ok' : 'is-error'}`}
           title={
             storageOk
-              ? 'Solves are saved in this browser'
-              : 'Browser storage is unavailable. Solves will not survive a refresh.'
+              ? 'Sessions and solves are saved in this browser'
+              : 'Browser storage is unavailable. Sessions and solves will not survive a refresh.'
           }
         >
           <span className="status-dot" aria-hidden="true" />

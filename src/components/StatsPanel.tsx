@@ -45,8 +45,8 @@ export function StatsPanel({ stats }: StatsPanelProps) {
       <div className="panel-heading">
         <div>
           <span className="eyebrow">
-            <span className="eyebrow-index">02</span>
-            Session
+            <span className="eyebrow-index">03</span>
+            Statistics
           </span>
           <h2 id="stats-title">Statistics</h2>
         </div>

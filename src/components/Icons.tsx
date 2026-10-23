@@ -62,6 +62,31 @@ export function CheckIcon(props: IconProps) {
   )
 }
 
+export function PlusIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </Icon>
+  )
+}
+
+export function PencilIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z" />
+      <path d="m13.8 6.2 3 3" />
+    </Icon>
+  )
+}
+
+export function CloseIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </Icon>
+  )
+}
+
 export function ResetIcon(props: IconProps) {
   return (
     <Icon {...props}>

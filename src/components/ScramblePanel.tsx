@@ -54,7 +54,7 @@ export function ScramblePanel({
       <div className="scramble-header">
         <div className="section-heading">
           <span className="eyebrow">
-            <span className="eyebrow-index">01</span>
+            <span className="eyebrow-index">02</span>
             Scramble
           </span>
           <span className="scramble-badge">

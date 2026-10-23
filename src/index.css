@@ -203,8 +203,12 @@ kbd {
 }
 
 .context-label {
+  max-width: 220px;
+  overflow: hidden;
   font-weight: 600;
   color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .context-dot {
@@ -931,6 +935,73 @@ kbd {
   font-size: 0.52rem;
 }
 
+/* Session panel */
+
+.session-panel {
+  flex-shrink: 0;
+  padding: 10px 13px;
+}
+
+.session-heading {
+  align-items: center;
+}
+
+.session-heading .text-button {
+  margin-top: 0;
+}
+
+.session-controls,
+.session-edit {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.session-select,
+.session-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  font-size: 0.68rem;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.session-select {
+  padding-right: 4px;
+}
+
+.session-select:hover:not(:disabled),
+.session-name-input:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.session-select:disabled,
+.session-name-input:disabled {
+  opacity: 0.55;
+}
+
+.session-name-input {
+  background: var(--surface);
+}
+
+.session-action {
+  flex-shrink: 0;
+  width: 28px;
+  min-width: 28px;
+}
+
+.session-error {
+  margin: 6px 0 0;
+  font-size: 0.58rem;
+  line-height: 1.4;
+  color: var(--danger);
+}
+
 /* Stats */
 
 .stats-panel {
@@ -1408,6 +1479,66 @@ kbd {
   border-color: #a91f1f;
 }
 
+.button-primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.button-primary:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+/* Backup dialog */
+
+.data-dialog {
+  width: min(480px, calc(100vw - 24px));
+}
+
+.dialog-icon.is-neutral {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.data-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 8px 10px;
+  margin-top: 14px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+}
+
+.data-summary strong {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dialog-content .data-error {
+  padding: 7px 9px;
+  margin: 10px 0 0;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  border-radius: 3px;
+}
+
+.dialog-content .dialog-note {
+  margin: 12px 0 0;
+  font-size: 0.6rem;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
 /* Toast */
 
 .toast {
@@ -1764,6 +1895,31 @@ kbd {
 
   .stats-panel {
     padding: 9px 11px;
+  }
+
+  .session-panel {
+    padding: 9px 11px;
+  }
+
+  .session-controls,
+  .session-edit {
+    gap: 3px;
+    margin-top: 7px;
+  }
+
+  .session-select,
+  .session-name-input {
+    height: 30px;
+  }
+
+  .session-action {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+  }
+
+  .data-summary {
+    font-size: 0.64rem;
   }
 
   .panel-heading h2 {

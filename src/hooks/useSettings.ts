@@ -6,6 +6,7 @@ export interface UseSettingsResult {
   settings: Settings
   settingsStorageOk: boolean
   setInspectionEnabled: (enabled: boolean) => void
+  replaceSettings: (settings: Settings) => void
 }
 
 export function useSettings(): UseSettingsResult {
@@ -26,5 +27,14 @@ export function useSettings(): UseSettingsResult {
     setSettings({ inspectionEnabled: enabled })
   }, [])
 
-  return { settings, settingsStorageOk, setInspectionEnabled }
+  const replaceSettings = useCallback((next: Settings) => {
+    setSettings({ inspectionEnabled: next.inspectionEnabled === true })
+  }, [])
+
+  return {
+    settings,
+    settingsStorageOk,
+    setInspectionEnabled,
+    replaceSettings,
+  }
 }

@@ -18,19 +18,24 @@ evidence in `PROJECT_PROGRESS.md`.
 
 ## Scope
 
-This repository currently contains **CubeLab Milestone 1**:
+This repository contains **CubeLab Milestone 1** plus the authorized **Phase 2A**
+local-data work:
 
 - 3×3 speedcubing timer
 - WCA random-state scrambles via `cubing.js`
 - optional 15-second inspection with `+2` / DNF
 - single, mo3, ao5, and ao12 statistics
 - local solve history and settings
+- multiple named local sessions with create/switch/rename/delete
+- JSON export/import of all sessions and settings
+- automatic migration from the original single-session storage key
 - offline-capable PWA
 - responsive, accessible UI
 
-Do **not** begin Milestone 2 features without an explicit user instruction. Do
-not broaden to other puzzle events, accounts, cloud sync, multiple named
-sessions, exports, or social features as drive-by additions.
+Phase 2A is complete. Do **not** begin Phase 2B (Google Drive backup), Phase 2C
+(multi-device sync), or any other cloud/account feature without an explicit user
+instruction. Do not broaden to other puzzle events or social features as
+drive-by additions.
 
 ## Commands
 
@@ -59,17 +64,31 @@ the production build because it tests the service worker and offline reload.
   solve duration from wall-clock `Date` values.
 - **Space belongs to the timer.** Global Space must remain reserved for
   arm/start/stop and suppressed from page scrolling. It may be left to
-  text-entry fields only. Focused buttons and switches must remain usable with
-  Enter.
+  text-entry fields only. Focused buttons, switches, and the session select must
+  remain usable with Enter and arrow keys. Do not let a focused session select
+  swallow Space.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent('333')`.
   Unit tests verify real random-state generation.
 - **Statistics follow WCA semantics.** Averages are newest-first; ao5/ao12 remove
   one best and one worst; one DNF is trimmed as worst; two or more DNFs make the
   average a DNF. mo3 contains no trimmed result and any DNF makes it a DNF.
   Effective `+2` adds 2 seconds. Update `src/lib/stats.test.ts` for any change.
-- **Persistence is versioned.** Keys are `cubelab:solves:v1` and
-  `cubelab:settings:v1`. Validate and recover from corrupt records; never silently
-  discard a valid session. Any schema change needs a migration and tests.
+- **Sessions are local and explicit.** Session names are trimmed, limited to 40
+  characters, and unique case-insensitively. At least one session must always
+  exist. Session controls are disabled while the timer is armed, running, or in
+  inspection. Deleting a session and clearing solves require confirmation.
+- **Persistence is versioned.** Keys are `cubelab:sessions:v1` (active session
+  plus all named sessions and solves) and `cubelab:settings:v1`. The original
+  `cubelab:solves:v1` key is read only for migration into **Session 1**. Validate
+  and recover from corrupt records; never silently discard a valid session. Any
+  schema change needs a migration and tests.
+- **Backups replace only after confirmation.** Export every session, solve, and
+  setting as a versioned JSON file. Import must validate the app marker, format
+  version, sessions, solves, and settings, then show current/incoming counts and
+  require explicit confirmation. Invalid files must not mutate local data.
+  Backup/import stays entirely local; do not add upload or Drive code without an
+  explicit Phase 2B instruction. Keep the 10 MB import cap unless large-backup
+  behavior is deliberately designed and tested.
 - **Raw data is immutable by default.** Store raw milliseconds plus a penalty
   value. Do not overwrite raw time when applying `+2`.
 - **Keep the production worker isolation.** `vite.config.ts` isolates cubing
@@ -84,8 +103,12 @@ the production build because it tests the service worker and offline reload.
 
 For a behavior change:
 
-- Add or update focused unit tests for pure logic.
-- Add or update a Playwright test for user-visible flows.
+- Add or update focused unit tests for pure logic. Session/name mutations belong
+  in `src/lib/sessions.test.ts`; storage and migration in
+  `src/lib/storage.test.ts`; backup validation in `src/lib/backup.test.ts`.
+- Add or update a Playwright test for user-visible flows, including session
+  create/switch/rename/delete, timer locking, export, invalid import, import
+  cancellation, and confirmed replacement.
 - Test failure paths, not only the happy path.
 - Keep tests deterministic. Avoid asserting exact wall-clock durations from live
   timing; use ranges or state-machine timestamps.
