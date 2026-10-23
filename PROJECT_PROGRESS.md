@@ -1,20 +1,21 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-22
+**Last verified:** 2026-10-23
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Milestone 2:** Not started — 0% (awaiting an explicit brief)
-**Repository state:** Initial milestone commit prepared; working tree verified after
-commit as noted under “Git status”.
+**Repository state:** Post-Milestone-1 csTimer-inspired UI redesign verified;
+commit state recorded under “Git status”.
 
 ## Scope delivered
 
-CubeLab Milestone 1 is a premium, offline-first 3×3 speedcubing timer built with
-React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
+CubeLab Milestone 1 is a flat, csTimer-inspired, offline-first 3×3 speedcubing
+timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
 
 ### Product
 
-- Dark, responsive interface with a central timer, scramble panel, compact stats,
-  and chronological solve history.
+- Flat light interface organized like a familiar speedcubing timer: session
+  statistics and solve history in the left rail, scramble across the timer area,
+  and an oversized central clock with quick ao5/ao12 values beneath it.
 - Monotonic timer using `performance.now()`, launched by a 300 ms hold and stopped
   by a single press or tap.
 - Global <kbd>Space</kbd> control with OS key-repeat suppression and page-scroll
@@ -42,18 +43,20 @@ React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
 - Unit, storage, statistics, formatting, and real scramble-generation coverage.
 - Production browser tests, including a cold offline reload with service-worker
   interception.
+- Flat visual system with solid colors only: no decorative gradients, glows, or
+  ambient background effects. Desktop and 390 px mobile layouts are checked.
 
 ## Verification evidence
 
-Run at 2026-10-22 22:18 (local):
+Run at 2026-10-23 17:37 (local), after the csTimer-inspired redesign:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
 | Unit tests | `npm test` | **54/54 passed**, 5 test files |
-| Production build | `npm run build` | Passed; 69 modules transformed |
-| PWA generation | included in build | 25 precache entries, **2,173.03 KiB** |
+| Production build | `npm run build` | Passed; 68 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,120.12 KiB** |
 | Production E2E | `npm run test:e2e` | **5/5 passed**, Chromium |
 | Visual QA | production preview screenshots | Desktop 1440×1000 and mobile 390×844 inspected |
 
@@ -72,15 +75,30 @@ Visual artifacts are checked in at `docs/cubelab-desktop.png` and
 
 ### Production bundle
 
-- Main application bundle: ~251 kB (~78 kB gzip)
-- Cubing.js chunk: ~1.21 MB (~335 kB gzip)
-- Precache total: ~2.17 MiB
+- Main application bundle: ~251 kB (~77.56 kB gzip)
+- Cubing.js chunk: ~1.21 MB (~335.13 kB gzip)
+- Precache total: ~2.07 MiB
 - PWA: generated Workbox service worker and web manifest
 
 Vite reports the expected informational warning about the large cubing.js chunk.
 It is a single cached dependency chunk, not duplicated application code.
 
 ## Key decisions and invariants
+
+### Interface and visual system
+
+- The post-Milestone-1 redesign follows csTimer's familiar information hierarchy:
+  session rail on the left, scramble above the clock, timer as the dominant
+  element, and quick ao5/ao12 values directly beneath it.
+- The palette is flat light gray and white with a pale green timer surface and a
+  solid muted green accent. Penalties use amber and red.
+- Decorative gradients, glows, grid/ambient backgrounds, and oversized rounded
+  cards were removed. The interface uses 3 px panel radii, 1 px borders, and
+  solid fills.
+- UI text uses the system sans-serif stack; timer and scramble text use the
+  bundled JetBrains Mono variable font. Space Grotesk was removed.
+- On screens up to 900 px the timer moves first and statistics/history stack
+  below it. Touch action buttons remain at least 28 px.
 
 ### Timer and inspection
 
@@ -171,7 +189,7 @@ None of these limitations block the Milestone 1 acceptance criteria.
 
 All requested Milestone 1 functionality is implemented and verified:
 
-- [x] Premium dark responsive UI
+- [x] Flat csTimer-inspired responsive UI
 - [x] Central monotonic timer
 - [x] Scramble display and queue
 - [x] Keyboard hold/release/stop behavior

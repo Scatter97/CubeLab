@@ -43,7 +43,7 @@ export function SolveHistory({
         <div>
           <span className="eyebrow">
             <span className="eyebrow-index">03</span>
-            Timeline
+            History
           </span>
           <h2 id="history-title">
             Solves

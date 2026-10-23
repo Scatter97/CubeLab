@@ -11,7 +11,7 @@ import { useSettings } from './hooks/useSettings'
 import { useSolves } from './hooks/useSolves'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
-import { formatTime } from './lib/format'
+import { formatStatValue, formatTime } from './lib/format'
 import { getSessionStats } from './lib/stats'
 import type { Penalty } from './types'
 
@@ -204,9 +204,6 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <span className="page-ambient" aria-hidden="true" />
-      <span className="page-grid" aria-hidden="true" />
-
       <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
 
       <AppHeader
@@ -243,18 +240,27 @@ export default function App() {
           />
 
           <div className="session-caption">
-            <span>
-              <span className="caption-dot" aria-hidden="true" />
+            <span className="caption-session">
               {stats.count === 0
-                ? 'Your first solve is one hold away'
-                : `${stats.count === 1 ? 'One solve' : `${stats.count} solves`} this session`}
+                ? 'No solves yet'
+                : `${stats.count === 1 ? '1 solve' : `${stats.count} solves`} this session`}
+            </span>
+            <span className="quick-stats" aria-label="Current averages">
+              <span>
+                <span>ao5</span>
+                <strong>{formatStatValue(stats.latestAverage5)}</strong>
+              </span>
+              <span>
+                <span>ao12</span>
+                <strong>{formatStatValue(stats.latestAverage12)}</strong>
+              </span>
             </span>
             <span className="caption-shortcuts">
-              <kbd>Space</kbd> arm / start / stop
+              <kbd>Space</kbd> hold to arm · release to start
               {settings.inspectionEnabled ? (
                 <>
                   <span aria-hidden="true">·</span>
-                  <kbd>Esc</kbd> reset inspection
+                  <kbd>Esc</kbd> reset
                 </>
               ) : null}
             </span>
@@ -277,12 +283,9 @@ export default function App() {
       <footer className="app-footer">
         <span>CubeLab · Milestone 1</span>
         <span className="footer-middle">
-          Built for focus. All data stays in this browser.
+          Local-first. Solves stay in this browser.
         </span>
-        <span className="footer-meta">
-          <span className="footer-dot" aria-hidden="true" />
-          Local-first
-        </span>
+        <span className="footer-meta">3×3 · WCA</span>
       </footer>
 
       <div className="sr-only" aria-live="polite" aria-atomic="true">

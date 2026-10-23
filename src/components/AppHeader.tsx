@@ -23,7 +23,7 @@ export function AppHeader({
           <span className="brand-name">
             Cube<span>Lab</span>
           </span>
-          <span className="brand-subtitle">Precision timer</span>
+          <span className="brand-subtitle">Speedcubing timer</span>
         </span>
       </div>
 
@@ -51,6 +51,7 @@ export function AppHeader({
           type="button"
           role="switch"
           aria-checked={inspectionEnabled}
+          aria-label="Inspection (WCA 15 seconds)"
           className={`inspection-toggle ${
             inspectionLocked ? 'is-locked' : ''
           }`}

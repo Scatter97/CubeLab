@@ -96,7 +96,7 @@ export function TimerStage({
 
   let mainValue = '0.00'
   let suffix: string | null = null
-  let caption = inspectionEnabled ? '15-second inspection enabled' : 'Ready when you are'
+  let caption = inspectionEnabled ? 'Inspection enabled' : 'Ready'
   let rawCaption: string | null = null
   let toneClass = ''
 
@@ -113,10 +113,10 @@ export function TimerStage({
         toneClass = 'is-dnf'
         caption = 'Inspection DNF — finish or stop to record'
       } else {
-        caption = 'Monotonic clock · press to stop'
+        caption = 'Press Space or tap to stop'
       }
     } else {
-      caption = 'Monotonic clock · press to stop'
+      caption = 'Press Space or tap to stop'
     }
   } else if (inspection) {
     mainValue = inspection.value
@@ -237,9 +237,6 @@ export function TimerStage({
 
   return (
     <section className={stageClass} aria-labelledby="timer-phase">
-      <span className="stage-glow" aria-hidden="true" />
-      <span className="stage-grid" aria-hidden="true" />
-
       <button
         type="button"
         className="timer-surface"
@@ -261,11 +258,11 @@ export function TimerStage({
             {inspection ? (
               <>15s + 2s · WCA</>
             ) : isRunning ? (
-              'Live'
+              'Timing'
             ) : inspectionEnabled ? (
-              'Inspection · on'
+              'Inspection on'
             ) : (
-              <>Monotonic</>
+              <>3×3</>
             )}
           </span>
         </span>

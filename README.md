@@ -2,10 +2,11 @@
 
 **A focused, offline-first 3×3 speedcubing timer.**
 
-CubeLab is a premium dark-mode timer built around one job: get out of the way and
-let you solve. It combines a precise monotonic timer, official WCA random-state
-scrambles from `cubing.js`, optional WCA inspection, WCA-aware session
-statistics, and durable local history in a responsive interface.
+CubeLab is a focused, offline-first 3×3 speedcubing timer with a flat,
+csTimer-inspired interface. It combines a precise monotonic timer, official WCA
+random-state scrambles from `cubing.js`, optional WCA inspection, WCA-aware
+session statistics, and durable local history in a responsive layout built
+around the clock.
 
 ![CubeLab desktop interface](docs/cubelab-desktop.png)
 
@@ -24,6 +25,15 @@ statistics, and durable local history in a responsive interface.
 - **Local-first persistence** with versioned, validated browser storage.
 - **Installable PWA** with full offline operation after the first visit.
 - **Responsive, accessible UI** for desktop, tablet, and mobile.
+
+## Interface
+
+The layout follows the familiar speedcubing-timer structure: session statistics
+and solve history in the left rail, the scramble above the timer, and the clock
+as the dominant element. The flat light theme uses neutral panels, a pale green
+timer surface, and a solid green accent. There are no decorative gradients,
+glows, or background effects. On narrow screens the timer comes first, with the
+statistics and history stacked below it.
 
 ### Mobile layout
 
@@ -123,7 +133,7 @@ src/
   lib/format.ts          Display formatting
   components/            Presentational timer, scramble, stats, history, dialogs
   App.tsx                Integration, global input, session orchestration
-  index.css              Design system and responsive layout
+  index.css              Flat csTimer-inspired theme and responsive layout
 e2e/timer.spec.ts        Production browser and offline tests
 ```
 

@@ -46,9 +46,9 @@ export function StatsPanel({ stats }: StatsPanelProps) {
         <div>
           <span className="eyebrow">
             <span className="eyebrow-index">02</span>
-            Performance
+            Session
           </span>
-          <h2 id="stats-title">Session stats</h2>
+          <h2 id="stats-title">Statistics</h2>
         </div>
         <span className="count-pill">{formatSolveCount(stats.count)}</span>
       </div>
