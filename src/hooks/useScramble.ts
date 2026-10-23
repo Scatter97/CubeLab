@@ -52,7 +52,7 @@ export function useScramble(): ScrambleController {
         }
       } catch {
         if (!cancelled) {
-          setError('Could not generate a scramble. Check your connection and retry.')
+          setError('Could not generate a scramble. Try again.')
         }
       } finally {
         if (!cancelled) setIsGenerating(false)
@@ -81,7 +81,7 @@ export function useScramble(): ScrambleController {
   return {
     scramble: slots[0],
     nextScramble: slots[1],
-    isLoading: isGenerating || slots[0] === null,
+    isLoading: isGenerating || (slots[0] === null && error === null),
     error,
     advance,
     retry,

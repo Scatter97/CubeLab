@@ -46,10 +46,15 @@ export default function App() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const scrambleRef = useRef(scramble)
+  const solvesRef = useRef(solves)
 
   useEffect(() => {
     scrambleRef.current = scramble
   }, [scramble])
+
+  useEffect(() => {
+    solvesRef.current = solves
+  }, [solves])
 
   const handleSolve = useCallback(
     (completion: { rawMs: number; penalty: Penalty }) => {
@@ -115,8 +120,9 @@ export default function App() {
 
   const handleDelete = useCallback(
     (id: string) => {
-      const index = solves.findIndex((solve) => solve.id === id)
-      const solve = solves[index]
+      const current = solvesRef.current
+      const index = current.findIndex((solve) => solve.id === id)
+      const solve = current[index]
       if (!solve) return
 
       deleteSolve(id)
@@ -126,7 +132,7 @@ export default function App() {
         onAction: () => restoreSolve(solve, index),
       })
     },
-    [deleteSolve, restoreSolve, showToast, solves],
+    [deleteSolve, restoreSolve, showToast],
   )
 
   const requestClear = useCallback(() => {
@@ -233,6 +239,11 @@ export default function App() {
             holdProgress={timer.holdProgress}
             latestSolve={solves[0] ?? null}
             disabled={!canStart && !timerActive}
+            disabledHint={
+              scrambleError
+                ? 'Scramble unavailable. Retry above.'
+                : 'Generating scramble…'
+            }
             inspectionEnabled={settings.inspectionEnabled}
             onPress={timer.press}
             onRelease={timer.release}

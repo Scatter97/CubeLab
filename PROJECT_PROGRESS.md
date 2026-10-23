@@ -1,10 +1,11 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23
+**Last verified:** 2026-10-23 18:00 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
-**Milestone 2:** Not started — 0% (awaiting an explicit brief)
-**Repository state:** Post-Milestone-1 csTimer-inspired UI redesign verified;
-commit state recorded under “Git status”.
+**Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
+**Milestone 2:** Not started — 0% (Phase 2A authorized after Phase 1)
+**Repository state:** Phase 1 stabilization verified; commit state recorded under
+“Git status”.
 
 ## Scope delivered
 
@@ -44,11 +45,14 @@ timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS
 - Production browser tests, including a cold offline reload with service-worker
   interception.
 - Flat visual system with solid colors only: no decorative gradients, glows, or
-  ambient background effects. Desktop and 390 px mobile layouts are checked.
+  ambient background effects. Desktop and 320–1920 px layouts are checked.
+- Phase 1 added a modal focus trap, 28 px minimum touch targets, visible
+  inspection labeling at narrow widths, coherent scramble-failure/disabled
+  states, WCAG AA secondary-text contrast, and a bounded desktop history rail.
 
 ## Verification evidence
 
-Run at 2026-10-23 17:37 (local), after the csTimer-inspired redesign:
+Run at 2026-10-23 18:00 (local), after the Phase 1 stabilization pass:
 
 | Check | Command | Result |
 | --- | --- | --- |
@@ -56,28 +60,49 @@ Run at 2026-10-23 17:37 (local), after the csTimer-inspired redesign:
 | Lint | `npm run lint` | Passed with no warnings |
 | Unit tests | `npm test` | **54/54 passed**, 5 test files |
 | Production build | `npm run build` | Passed; 68 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,120.12 KiB** |
-| Production E2E | `npm run test:e2e` | **5/5 passed**, Chromium |
-| Visual QA | production preview screenshots | Desktop 1440×1000 and mobile 390×844 inspected |
+| PWA generation | included in build | 22 precache entries, **2,121.28 KiB** |
+| Production E2E | `npm run test:e2e` | **8/8 passed**, Chromium |
+| Visual QA | production preview screenshots | 320, 360, 390, 720×500, 768 touch, 1024, 1440, and 1920 widths inspected; no horizontal overflow |
+| Performance | seeded 2,000-solve production session | Load ~0.55–0.61 s; history scrolls internally; no scroll long tasks |
 
 The Playwright suite runs against the production preview and covers:
 
 1. Keyboard hold/start/stop, exactly one recorded solve, and scramble advancement.
-2. `+2` persistence across reload, delete, and undo.
-3. Confirmed session clearing and cancellation.
-4. Inspection activation, hold-to-time, solve recording, and settings persistence.
-5. Mobile layout plus pointer hold-to-time behavior.
-6. Full offline reload with service-worker precache and offline cubing.js scramble
+2. `+2` persistence across reload, delete/undo, and modal focus containment.
+3. Inspection activation, hold-to-time, solve recording, and settings persistence.
+4. Mobile layout plus pointer hold-to-time behavior.
+5. The 320 px layout, visible inspection label, and 28 px touch targets.
+6. A long desktop session scrolling inside the history rail.
+7. Scramble failure disabling timing and offering a retry.
+8. Full offline reload with service-worker precache and offline cubing.js scramble
    generation.
 
 Visual artifacts are checked in at `docs/cubelab-desktop.png` and
 `docs/cubelab-mobile.png`.
 
+### Performance evidence
+
+A production session seeded with 2,000 solves was measured in Chromium at
+1440×1000 and 390×844:
+
+- Desktop: ~610 ms to interactive with all rows present, 28,258 DOM nodes,
+  ~19.6 MB JS heap, 86,006 px of history content in a 561 px scroll viewport,
+  and a 1,001 px page height. Penalty toggle ~288 ms, delete ~203 ms, undo
+  ~413 ms. Programmatic scrolling produced no long tasks.
+- Mobile: ~552 ms to interactive, a 333 px history viewport, no horizontal
+  overflow, and a 1,200 px page height. Penalty toggle ~264 ms, delete ~206 ms,
+  undo ~418 ms.
+
+Offscreen history rows use `content-visibility: auto`, and rows are memoized.
+The remaining interaction cost is dominated by reconciling and persisting all
+2,000 solves; virtualization is the next step if sessions grow substantially
+beyond this size.
+
 ### Production bundle
 
-- Main application bundle: ~251 kB (~77.56 kB gzip)
+- Main application bundle: ~252 kB (~77.84 kB gzip)
 - Cubing.js chunk: ~1.21 MB (~335.13 kB gzip)
-- Precache total: ~2.07 MiB
+- Precache total: ~2.07 MiB (2,121.28 KiB)
 - PWA: generated Workbox service worker and web manifest
 
 Vite reports the expected informational warning about the large cubing.js chunk.
@@ -99,6 +124,10 @@ It is a single cached dependency chunk, not duplicated application code.
   bundled JetBrains Mono variable font. Space Grotesk was removed.
 - On screens up to 900 px the timer moves first and statistics/history stack
   below it. Touch action buttons remain at least 28 px.
+- The desktop history rail is bounded to the viewport and scrolls internally
+  instead of stretching the page. The shell max-width is 1920 px.
+- At 320 px the inspection label remains visible; it is not collapsed to an
+  unlabeled switch.
 
 ### Timer and inspection
 
@@ -162,14 +191,21 @@ offline Playwright test and must not be undone casually.
 - Focused buttons and switches can be activated with Enter.
 - Timer state changes and solve recording are announced through a live region.
 - Controls have visible focus styles, accessible names, and disabled states.
-- Touch targets and mobile layout were checked at 390 px width.
+- The confirmation dialog traps Tab/Shift+Tab focus and returns focus to its
+  trigger on close.
+- Touch targets are at least 28 px; the narrow layout and inspection label were
+  checked at 320, 360, 390, 768, 1024, 1440, and 1920 px widths.
+- Key secondary text was darkened to meet WCAG AA contrast (at least 4.5:1 on
+  its actual background).
 
 ## Known limitations
 
 - Only the 3×3 event is implemented.
 - One local session only; no named sessions, cloud sync, export, or import.
-- The history list grows without virtualization. It remains scrollable, but very
-  large sessions (thousands of solves) have not been profiled.
+- The history list still renders every row. A 2,000-solve session loads and
+  scrolls smoothly, but penalty/delete/undo actions take roughly 0.2–0.4 s in
+  Chromium. Virtualization should be added if sessions grow substantially
+  beyond that size.
 - Automated browser testing uses Chromium only. WebKit and Firefox were not
   available in this environment; a physical iOS/Android device was not tested.
 - The mobile E2E flow exercises pointer events in a mobile viewport. It does not
@@ -233,7 +269,7 @@ an explicit brief. The README lists several deliberate non-goals for Milestone 1
 
 ## Git status
 
-The csTimer-inspired redesign, refreshed screenshots, and documentation update
+The Phase 1 stabilization pass, refreshed screenshots, and documentation update
 are committed. The working tree was clean after the final `npm run check` pass.
 Verify with:
 

@@ -106,8 +106,17 @@ test('penalties survive reload and delete supports undo', async ({ page }) => {
   await page.getByRole('button', { name: 'Clear session' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Keep solves' })).toBeFocused()
+
+  // Tab and Shift+Tab stay inside the modal dialog.
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.getByRole('button', { name: 'Clear session' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Keep solves' })).toBeFocused()
+
   await dialog.getByRole('button', { name: 'Keep solves' }).click()
   await expect(page.getByTestId('solve-count')).toHaveText('1')
+  await expect(page.getByRole('button', { name: 'Clear session' })).toBeFocused()
 
   await page.getByRole('button', { name: 'Clear session' }).click()
   await expect(dialog).toBeVisible()
@@ -190,6 +199,106 @@ test('mobile layout supports hold-to-time pointer controls', async ({
   await expect(page.getByTestId('solve-count')).toHaveText('1')
 
   await context.close()
+})
+
+test('narrow mobile layout keeps the inspection label and touch targets', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 320, height: 700 },
+    hasTouch: true,
+    isMobile: true,
+  })
+  const page = await context.newPage()
+
+  await page.goto('/')
+  await waitForApp(page)
+
+  const inspectionSwitch = page.getByRole('switch', { name: /Inspection/ })
+  await expect(inspectionSwitch).toBeVisible()
+  await expect(page.locator('.toggle-label')).toBeVisible()
+  await expect(page.locator('.toggle-label')).toHaveText('Inspection')
+
+  const switchBox = await inspectionSwitch.boundingBox()
+  expect(switchBox).not.toBeNull()
+  if (!switchBox) throw new Error('Inspection switch has no bounding box')
+  expect(switchBox.height).toBeGreaterThanOrEqual(28)
+
+  const clearButton = page.getByRole('button', { name: 'Clear session' })
+  const clearBox = await clearButton.boundingBox()
+  expect(clearBox).not.toBeNull()
+  if (!clearBox) throw new Error('Clear session has no bounding box')
+  expect(clearBox.height).toBeGreaterThanOrEqual(28)
+
+  await recordSolve(page, 80)
+  const miniButtonBoxes = await page.locator('.mini-button').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const rect = button.getBoundingClientRect()
+      return { width: rect.width, height: rect.height }
+    }),
+  )
+  expect(miniButtonBoxes.length).toBeGreaterThanOrEqual(3)
+  for (const box of miniButtonBoxes) {
+    expect(box.width).toBeGreaterThanOrEqual(28)
+    expect(box.height).toBeGreaterThanOrEqual(28)
+  }
+
+  const noHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+  )
+  expect(noHorizontalOverflow).toBe(true)
+
+  await context.close()
+})
+
+test('long desktop sessions scroll inside the history panel', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.addInitScript(() => {
+    const now = Date.now()
+    const solves = Array.from({ length: 120 }, (_, index) => ({
+      id: `history-${index}`,
+      event: '333',
+      rawMs: 9000 + index,
+      penalty: 'none',
+      scramble: "R U R' U' F2 D L2 B' R2 U2 F R2",
+      createdAt: now - index * 1000,
+    }))
+    localStorage.setItem(
+      'cubelab:solves:v1',
+      JSON.stringify({ version: 1, solves }),
+    )
+  })
+
+  await page.goto('/')
+  await waitForApp(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('120')
+  await expect(page.locator('.history-row')).toHaveCount(120)
+
+  const metrics = await page.locator('.history-scroll').evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    pageHeight: document.documentElement.scrollHeight,
+    viewportHeight: window.innerHeight,
+  }))
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+  expect(metrics.pageHeight).toBeLessThanOrEqual(metrics.viewportHeight + 1)
+})
+
+test('scramble failure disables timing and offers retry', async ({ page }) => {
+  await page.route('**/search-worker-entry*', (route) => route.abort())
+  await page.goto('/')
+
+  const error = page.locator('.scramble-error')
+  await expect(error).toBeVisible({ timeout: 30_000 })
+  await expect(error).toContainText('Could not generate a scramble')
+  await expect(page.locator('.queue-label')).toContainText('Scramble unavailable')
+  await expect(page.locator('.timer-hint')).toContainText('Scramble unavailable')
+  await expect(page.locator(TIMER)).toBeDisabled()
+  await expect(page.locator(TIMER)).toHaveAttribute(
+    'aria-label',
+    /Scramble unavailable/,
+  )
+  await expect(error.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
 })
 
 test('installed app loads scrambles while completely offline', async ({

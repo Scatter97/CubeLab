@@ -113,14 +113,24 @@ export function ScramblePanel({
       <div className="scramble-footer">
         <span className="queue-label">
           <span
-            className={`queue-indicator ${isLoading ? 'is-loading' : ''}`}
+            className={`queue-indicator ${
+              error ? 'is-error' : isLoading ? 'is-loading' : ''
+            }`}
             aria-hidden="true"
           />
-          {isLoading ? 'Preparing next' : 'Queue ready'}
+          {error ? 'Scramble unavailable' : isLoading ? 'Preparing next' : 'Queue ready'}
         </span>
-        <span className="next-scramble" title={nextScramble ?? undefined}>
-          {nextScramble ?? 'Next scramble will appear here'}
-        </span>
+        {error && scramble ? (
+          <button type="button" className="text-button" onClick={onRetry}>
+            Retry next scramble
+          </button>
+        ) : (
+          <span className="next-scramble" title={nextScramble ?? undefined}>
+            {error
+              ? 'Retry above to continue'
+              : nextScramble ?? 'Next scramble will appear here'}
+          </span>
+        )}
       </div>
     </section>
   )

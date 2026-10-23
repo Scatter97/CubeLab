@@ -24,7 +24,9 @@ around the clock.
 - **Penalty, delete, undo, and confirmed session clearing.**
 - **Local-first persistence** with versioned, validated browser storage.
 - **Installable PWA** with full offline operation after the first visit.
-- **Responsive, accessible UI** for desktop, tablet, and mobile.
+- **Responsive, accessible UI** for desktop, tablet, and mobile, including 28 px
+  touch targets, visible focus states, modal focus containment, and WCAG AA
+  secondary-text contrast.
 
 ## Interface
 
@@ -33,7 +35,10 @@ and solve history in the left rail, the scramble above the timer, and the clock
 as the dominant element. The flat light theme uses neutral panels, a pale green
 timer surface, and a solid green accent. There are no decorative gradients,
 glows, or background effects. On narrow screens the timer comes first, with the
-statistics and history stacked below it.
+statistics and history stacked below it. At 320 px the inspection switch keeps a
+visible label, and the desktop history rail scrolls internally rather than
+stretching the page. Offscreen history rows are skipped during rendering and
+memoized, so long sessions remain usable.
 
 ### Mobile layout
 
@@ -115,8 +120,9 @@ npm run test:e2e    # Playwright against the production preview
 
 The Playwright suite builds and serves the production output, then verifies
 keyboard timing, penalties, persistence across reloads, delete/undo, confirmed
-clearing, inspection, mobile pointer timing, and full offline scramble generation
-through the installed service worker.
+clearing, inspection, mobile pointer timing, 320 px touch targets, long-history
+scrolling, the scramble-failure recovery state, and full offline scramble
+generation through the installed service worker.
 
 ## Architecture
 

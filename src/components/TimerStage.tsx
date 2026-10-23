@@ -17,6 +17,7 @@ interface TimerStageProps {
   holdProgress: number
   latestSolve: Solve | null
   disabled: boolean
+  disabledHint?: string
   inspectionEnabled: boolean
   onPress: (input: TimerInput) => void
   onRelease: (input: TimerInput) => void
@@ -80,6 +81,7 @@ export function TimerStage({
   holdProgress,
   latestSolve,
   disabled,
+  disabledHint = 'Generating scramble…',
   inspectionEnabled,
   onPress,
   onRelease,
@@ -137,8 +139,10 @@ export function TimerStage({
     caption = state.status === 'holding' ? 'Keep holding' : 'Release to start'
   }
 
+  if (disabled) caption = 'Timer unavailable'
+
   const hint = (() => {
-    if (disabled) return 'Generating scramble…'
+    if (disabled) return disabledHint
     switch (state.status) {
       case 'idle':
         return inspectionEnabled ? (
@@ -205,7 +209,7 @@ export function TimerStage({
   }
 
   const accessibleLabel = (() => {
-    if (disabled) return 'Timer unavailable while a scramble is generated.'
+    if (disabled) return `Timer unavailable: ${disabledHint}`
     if (isRunning) return `Timer running at ${mainValue}. Press Space or tap to stop.`
     if (inspection) {
       return `Inspection, ${inspection.value}. Hold Space or press and hold the timer to arm.`
@@ -252,7 +256,9 @@ export function TimerStage({
         <span className="stage-top">
           <span className="phase-pill">
             <span className={`phase-dot ${isRunning ? 'is-live' : ''}`} aria-hidden="true" />
-            <span id="timer-phase">{phaseLabel(state)}</span>
+            <span id="timer-phase">
+              {disabled ? 'Waiting' : phaseLabel(state)}
+            </span>
           </span>
           <span className="stage-mode">
             {inspection ? (
