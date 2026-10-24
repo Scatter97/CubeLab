@@ -422,3 +422,26 @@ export function mergeSessionsById(
       .filter((session) => session.id !== sourceId),
   }
 }
+
+
+
+export function setSessionEvent(
+  data: SessionsData,
+  sessionId: string,
+  event: PuzzleEvent,
+  now = Date.now(),
+): SessionsData | null {
+  const session = data.sessions.find((candidate) => candidate.id === sessionId)
+  if (!session) return null
+  if (session.solves.length > 0) return null
+  if (session.event === event) return data
+
+  return {
+    ...data,
+    sessions: data.sessions.map((candidate) =>
+      candidate.id === sessionId
+        ? { ...candidate, event, updatedAt: now }
+        : candidate,
+    ),
+  }
+}

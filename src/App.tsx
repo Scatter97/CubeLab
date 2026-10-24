@@ -122,6 +122,7 @@ export default function App() {
     renameSession,
     deleteSession,
     selectSession,
+    setSessionEvent,
     replaceSessions,
   } = useSessions()
   const solves = activeSession.solves
@@ -530,6 +531,14 @@ export default function App() {
     if (timer.state.status !== 'idle') return
     setSessionSettingsOpen(true)
   }, [timer.state.status])
+
+  const handleSetSessionEvent = useCallback(
+    (id: string, event: PuzzleEvent) => {
+      if (timer.state.status !== 'idle') return false
+      return setSessionEvent(id, event)
+    },
+    [setSessionEvent, timer.state.status],
+  )
 
   const requestDeleteSession = useCallback(() => {
     if (timer.state.status !== 'idle' || sessions.length <= 1) return
@@ -963,9 +972,16 @@ export default function App() {
 
       <SessionSettingsDialog
         open={sessionSettingsOpen}
+        sessions={sessions}
         session={activeSession}
         effectiveInspectionEnabled={activeInspectionEnabled}
         canDelete={sessions.length > 1}
+        onRenameSession={(id, name) => handleRenameSession(id, name)}
+        onSetSessionEvent={(id, event) => handleSetSessionEvent(id, event)}
+        onCreateForEvent={() => {
+          setSessionSettingsOpen(false)
+          setCreateSessionOpen(true)
+        }}
         onSetInspection={handleSetSessionInspection}
         onRequestClear={requestClear}
         onRequestDelete={requestDeleteSession}

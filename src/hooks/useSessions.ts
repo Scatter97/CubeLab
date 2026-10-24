@@ -9,6 +9,7 @@ import {
   getActiveSession,
   removeSolve as removeSolveFromData,
   renameSession as renameSessionInData,
+  setSessionEvent as setSessionEventInData,
   restoreSolve as restoreSolveInData,
   setActiveSession as setActiveSessionInData,
   setSessionInspection as setSessionInspectionInData,
@@ -38,6 +39,7 @@ export interface UseSessionsResult {
     preferences?: SessionPreferences,
   ) => string | null
   renameSession: (id: string, name: string) => boolean
+  setSessionEvent: (id: string, event: PuzzleEvent) => boolean
   deleteSession: (id: string) => boolean
   selectSession: (id: string) => void
   replaceSessions: (data: SessionsData) => void
@@ -192,6 +194,14 @@ export function useSessions(): UseSessionsResult {
     return true
   }, [])
 
+  const setSessionEvent = useCallback((id: string, value: PuzzleEvent): boolean => {
+    const next = setSessionEventInData(dataRef.current, id, value)
+    if (!next) return false
+    dataRef.current = next
+    setData(next)
+    return true
+  }, [])
+
   const deleteSession = useCallback((id: string): boolean => {
     const next = deleteSessionFromData(dataRef.current, id)
     if (!next) return false
@@ -232,6 +242,7 @@ export function useSessions(): UseSessionsResult {
     clearSolves,
     createSession,
     renameSession,
+    setSessionEvent,
     deleteSession,
     selectSession,
     replaceSessions,

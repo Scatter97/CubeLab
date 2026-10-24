@@ -1,13 +1,19 @@
+import { useEffect, useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { formatSolveCount } from '../lib/format'
-import type { Session } from '../types'
+import { CUBELAB_EVENTS } from '../lib/events'
+import type { PuzzleEvent, Session } from '../types'
 import { CloseIcon } from './Icons'
 
 interface SessionSettingsDialogProps {
   open: boolean
+  sessions: Session[]
   session: Session
   effectiveInspectionEnabled: boolean
   canDelete: boolean
+  onRenameSession: (id: string, name: string) => boolean
+  onSetSessionEvent: (id: string, event: PuzzleEvent) => boolean
+  onCreateForEvent: (event: PuzzleEvent) => void
   onSetInspection: (enabled: boolean) => void
   onRequestClear: () => void
   onRequestDelete: () => void
@@ -16,16 +22,29 @@ interface SessionSettingsDialogProps {
 
 export function SessionSettingsDialog({
   open,
+  sessions: allSessions,
   session,
   effectiveInspectionEnabled,
   canDelete,
+  onRenameSession,
+  onSetSessionEvent,
+  onCreateForEvent,
   onSetInspection,
   onRequestClear,
   onRequestDelete,
   onClose,
 }: SessionSettingsDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
+  const [name, setName] = useState(session.name)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const [eventError, setEventError] = useState<string | null>(null)
   const hasOverride = session.inspectionEnabled !== undefined
+  useEffect(() => {
+    if (!open) return
+    setName(session.name)
+    setNameError(null)
+    setEventError(null)
+  }, [open, session.name])
 
   return (
     <dialog
@@ -63,6 +82,102 @@ export function SessionSettingsDialog({
         </header>
 
         <div className="session-settings-body">
+          <div className="session-settings-group">
+            <h3>General</h3>
+            <div className="settings-field">
+              <span>Session name</span>
+              <input
+                type="text"
+                aria-label="Session name"
+                value={name}
+                onChange={(event) => {
+                  setName(event.target.value)
+                  setNameError(null)
+                }}
+                onBlur={() => {
+                  const trimmed = name.trim()
+                  if (!trimmed) {
+                    setNameError('Enter a session name.')
+                    setName(session.name)
+                    return
+                  }
+                  if (trimmed.length > 40) {
+                    setNameError('Use 40 characters or fewer.')
+                    return
+                  }
+                  const duplicate = allSessions.some(
+                    (candidate) =>
+                      candidate.id !== session.id &&
+                      candidate.name.trim().toLowerCase() ===
+                        trimmed.toLowerCase(),
+                  )
+                  if (duplicate) {
+                    setNameError('Session names must be unique.')
+                    return
+                  }
+                  const ok = onRenameSession(session.id, trimmed)
+                  if (!ok) setNameError('Could not rename the session.')
+                }}
+              />
+              {nameError ? (
+                <p role="alert" className="settings-error">
+                  {nameError}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="settings-field">
+              <span>Puzzle event</span>
+              {session.solves.length > 0 ? (
+                <input
+                  className="compact-select"
+                  type="text"
+                  value={CUBELAB_EVENTS.find((item) => item.id === (session.event ?? '333'))?.label ?? session.event}
+                  disabled
+                  readOnly
+                />
+              ) : (
+                <select
+                  className="compact-select"
+                  value={session.event ?? '333'}
+                  onChange={(eventTarget) => {
+                    const next = eventTarget.target.value as PuzzleEvent
+                    if (!onSetSessionEvent(session.id, next)) {
+                      setEventError('Could not change this session event.')
+                      return
+                    }
+                    setEventError(null)
+                  }}
+                >
+                  {CUBELAB_EVENTS.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {eventError ? (
+                <p role="alert" className="settings-error">
+                  {eventError}
+                </p>
+              ) : null}
+              {session.solves.length > 0 ? (
+                <p className="settings-row-description">
+                  Event is locked because this session has solves.
+                  <button
+                    type="button"
+                    className="button button-secondary button-small"
+                    onClick={() =>
+                      onCreateForEvent?.(session.event ?? '333')
+                    }
+                  >
+                    Create a new session for another event
+                  </button>
+                </p>
+              ) : null}
+            </div>
+          </div>
+
           <div className="settings-row">
             <div className="settings-row-copy">
               <span className="settings-row-label">Inspection</span>
