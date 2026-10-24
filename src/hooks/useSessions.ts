@@ -11,6 +11,8 @@ import {
   renameSession as renameSessionInData,
   restoreSolve as restoreSolveInData,
   setActiveSession as setActiveSessionInData,
+  setSessionInspection as setSessionInspectionInData,
+  setSolveComment as setSolveCommentInData,
   setSolvePenalty,
   type RemovedSolve,
 } from '../lib/sessions'
@@ -23,10 +25,12 @@ export interface UseSessionsResult {
   storageOk: boolean
   addSolve: (input: NewSolve) => Solve
   setPenalty: (id: string, penalty: Penalty) => void
+  setComment: (id: string, comment: string) => void
+  setInspection: (id: string, enabled: boolean) => void
   deleteSolve: (id: string) => RemovedSolve | null
   restoreSolve: (solve: Solve, index: number, sessionId: string) => void
   clearSolves: () => void
-  createSession: (name: string) => string | null
+  createSession: (name: string, inspectionEnabled?: boolean) => string | null
   renameSession: (id: string, name: string) => boolean
   deleteSession: (id: string) => boolean
   selectSession: (id: string) => void
@@ -92,6 +96,7 @@ export function useSessions(): UseSessionsResult {
         rawMs: Math.max(0, Math.floor(input.rawMs)),
         penalty: input.penalty,
         scramble: input.scramble,
+        comment: '',
         createdAt: Date.now(),
       }
       commit((current) => addSolveToData(current, solve))
@@ -103,6 +108,20 @@ export function useSessions(): UseSessionsResult {
   const setPenalty = useCallback(
     (id: string, penalty: Penalty) => {
       commit((current) => setSolvePenalty(current, id, penalty))
+    },
+    [commit],
+  )
+
+  const setComment = useCallback(
+    (id: string, comment: string) => {
+      commit((current) => setSolveCommentInData(current, id, comment))
+    },
+    [commit],
+  )
+
+  const setInspection = useCallback(
+    (id: string, enabled: boolean) => {
+      commit((current) => setSessionInspectionInData(current, id, enabled))
     },
     [commit],
   )
@@ -133,14 +152,19 @@ export function useSessions(): UseSessionsResult {
     commit((current) => clearActiveSolves(current))
   }, [commit])
 
-  const createSession = useCallback((name: string): string | null => {
-    const result = createSessionInData(dataRef.current, name)
-    if (!result) return null
+  const createSession = useCallback(
+    (name: string, inspectionEnabled?: boolean): string | null => {
+      const result = createSessionInData(dataRef.current, name, {
+        inspectionEnabled,
+      })
+      if (!result) return null
 
-    dataRef.current = result.data
-    setData(result.data)
-    return result.sessionId
-  }, [])
+      dataRef.current = result.data
+      setData(result.data)
+      return result.sessionId
+    },
+    [],
+  )
 
   const renameSession = useCallback((id: string, name: string): boolean => {
     const current = dataRef.current
@@ -186,6 +210,8 @@ export function useSessions(): UseSessionsResult {
     storageOk,
     addSolve,
     setPenalty,
+    setComment,
+    setInspection,
     deleteSolve,
     restoreSolve,
     clearSolves,

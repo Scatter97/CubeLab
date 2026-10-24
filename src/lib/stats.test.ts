@@ -18,6 +18,7 @@ function solve(rawMs: number, penalty: Penalty = 'none', id?: string): Solve {
     rawMs,
     penalty,
     scramble: "R U R' U'",
+    comment: '',
     createdAt: 1_700_000_000_000 + rawMs,
   }
 }
@@ -210,6 +211,40 @@ describe('personal bests', () => {
   })
 })
 
+describe('large averages', () => {
+  it('matches a brute-force search for larger windows', () => {
+    const all = solves(
+      ...Array.from({ length: 140 }, (_, index) => {
+        const raw = 9_000 + ((index * 137) % 3_000)
+        return index % 29 === 0 ? ([raw, 'dnf'] as [number, Penalty]) : raw
+      }),
+    )
+
+    for (const size of [5, 12, 25, 100]) {
+      let expected: number | null = null
+      for (let start = 0; start <= all.length - size; start += 1) {
+        const result = calculateAverage(all.slice(start), size)
+        if (
+          result?.status === 'value' &&
+          (expected === null || result.ms < expected)
+        ) {
+          expected = result.ms
+        }
+      }
+      expect(calculateBestAverage(all, size)).toBe(expected)
+    }
+  })
+
+  it('supports custom average sizes without computing unrelated built-ins', () => {
+    const all = solves(...Array.from({ length: 30 }, (_, index) => 10_000 + index))
+    const stats = getSessionStats(all, [7, 25])
+
+    expect(stats.averages.get(7)).toBeDefined()
+    expect(stats.averages.get(25)).toBeDefined()
+    expect(stats.averages.has(12)).toBe(false)
+  })
+})
+
 describe('session summary', () => {
   it('exposes current and best values with DNF awareness', () => {
     const stats = getSessionStats(
@@ -224,9 +259,9 @@ describe('session summary', () => {
     )
 
     expect(stats.count).toBe(6)
-    expect(stats.bestSingleMs).toBe(10_000)
-    expect(stats.latestSingle).toEqual({ status: 'dnf' })
-    expect(stats.latestMean3).toEqual({ status: 'dnf' })
-    expect(stats.latestAverage5).toEqual({ status: 'dnf' })
+    expect(stats.single.best).toBe(10_000)
+    expect(stats.single.latest).toEqual({ status: 'dnf' })
+    expect(stats.mo3.latest).toEqual({ status: 'dnf' })
+    expect(stats.averages.get(5)?.latest).toEqual({ status: 'dnf' })
   })
 })

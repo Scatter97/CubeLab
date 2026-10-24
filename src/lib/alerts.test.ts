@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { ALERT_MAX_GAIN, alertGainForVolume } from './alerts'
+import {
+  ALERT_MAX_GAIN,
+  alertGainForTone,
+  alertGainForVolume,
+  inspectionWarningEvents,
+} from './alerts'
 
 describe('alert volume', () => {
   it('maps the preference to a safe gain range', () => {
@@ -13,5 +18,47 @@ describe('alert volume', () => {
     expect(alertGainForVolume(-20)).toBe(0)
     expect(alertGainForVolume(200)).toBeCloseTo(ALERT_MAX_GAIN)
     expect(alertGainForVolume(Number.NaN)).toBe(0)
+  })
+})
+
+
+describe('alert tone gains', () => {
+  it('boosts only the danger tone by about 50%', () => {
+    expect(alertGainForTone('success', 70)).toBeCloseTo(alertGainForVolume(70))
+    expect(alertGainForTone('warning', 70)).toBeCloseTo(alertGainForVolume(70))
+    expect(alertGainForTone('danger', 70)).toBeCloseTo(
+      alertGainForVolume(70) * 1.5,
+    )
+  })
+
+  it('caps the danger gain below clipping at full volume', () => {
+    expect(alertGainForTone('danger', 100)).toBeLessThanOrEqual(0.75)
+    expect(alertGainForTone('danger', 0)).toBe(0)
+  })
+})
+
+describe('inspection warning events', () => {
+  it('fires countdown warnings when the display reaches 12s and 8s remaining', () => {
+    expect(inspectionWarningEvents('down', true, true)).toEqual([
+      { key: '12s', elapsedMs: 3_000, label: '12 seconds' },
+      { key: '8s', elapsedMs: 7_000, label: '8 seconds' },
+    ])
+  })
+
+  it('fires count-up warnings at 8s and 12s elapsed', () => {
+    expect(inspectionWarningEvents('up', true, true)).toEqual([
+      { key: '8s', elapsedMs: 8_000, label: '8 seconds' },
+      { key: '12s', elapsedMs: 12_000, label: '12 seconds' },
+    ])
+  })
+
+  it('honors each warning toggle independently', () => {
+    expect(inspectionWarningEvents('down', false, false)).toEqual([])
+    expect(inspectionWarningEvents('down', true, false)).toEqual([
+      { key: '8s', elapsedMs: 7_000, label: '8 seconds' },
+    ])
+    expect(inspectionWarningEvents('down', false, true)).toEqual([
+      { key: '12s', elapsedMs: 3_000, label: '12 seconds' },
+    ])
   })
 })

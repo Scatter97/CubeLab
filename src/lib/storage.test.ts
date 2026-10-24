@@ -38,6 +38,7 @@ function solve(overrides: Partial<Solve> = {}): Solve {
     rawMs: 12_340,
     penalty: 'none',
     scramble: "R U R' U'",
+    comment: '',
     createdAt: 1_700_000_000_000,
     ...overrides,
   }
@@ -148,11 +149,17 @@ describe('session persistence', () => {
     const original = sessionsData({
       activeSessionId: 'session-2',
       sessions: [
-        session({ solves: [solve()] }),
+        session({
+          solves: [solve({ comment: 'First solve' })],
+          inspectionEnabled: false,
+        }),
         session({
           id: 'session-2',
           name: 'Evening',
-          solves: [solve({ id: 'solve-2', penalty: '+2' })],
+          solves: [
+            solve({ id: 'solve-2', penalty: '+2', comment: 'Locked up' }),
+          ],
+          inspectionEnabled: true,
         }),
       ],
     })
@@ -248,10 +255,43 @@ describe('session persistence', () => {
     seedLegacy(storage, [solve({ id: 'legacy' })])
     storage.seed(
       SESSIONS_STORAGE_KEY,
-      JSON.stringify({ version: 2, sessions: [] }),
+      JSON.stringify({ version: 3, sessions: [] }),
     )
 
     expect(loadSessions(storage).sessions[0]?.solves[0]?.id).toBe('legacy')
+  })
+
+  it('migrates v1 sessions with empty comments and no inspection override', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        activeSessionId: 'session-1',
+        sessions: [
+          {
+            id: 'session-1',
+            name: 'Session 1',
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+            solves: [
+              {
+                id: 'solve-1',
+                event: '333',
+                rawMs: 12_340,
+                penalty: 'none',
+                scramble: "R U R' U'",
+                createdAt: 1_700_000_000_000,
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions[0]?.solves[0]?.comment).toBe('')
+    expect(loaded.sessions[0]?.inspectionEnabled).toBeUndefined()
   })
 
   it('recovers with a default session when storage access throws', () => {
@@ -321,7 +361,9 @@ describe('settings persistence', () => {
         inspectionEnabled: true,
         alertChannel: 'sound-haptic',
         alertVolume: 85,
-        inspectionWarning: '12s',
+        inspectionWarning8s: true,
+        inspectionWarning12s: true,
+        inspectionCountDirection: 'up',
         accentColor: 'violet',
         statPrecision: 'tenths',
         statVisibility: {
@@ -329,12 +371,19 @@ describe('settings persistence', () => {
           mo3: true,
           ao5: false,
           ao12: true,
+          ao25: true,
         },
+        customAverages: [
+          { id: 'custom-1', size: 7, visible: true },
+          { id: 'custom-2', size: 50, visible: false },
+        ],
       }),
     ).toMatchObject({
       alertChannel: 'sound-haptic',
       alertVolume: 85,
-      inspectionWarning: '12s',
+      inspectionWarning8s: true,
+      inspectionWarning12s: true,
+      inspectionCountDirection: 'up',
       accentColor: 'violet',
       statPrecision: 'tenths',
       statVisibility: {
@@ -342,7 +391,12 @@ describe('settings persistence', () => {
         mo3: true,
         ao5: false,
         ao12: true,
+        ao25: true,
       },
+      customAverages: [
+        { id: 'custom-1', size: 7, visible: true },
+        { id: 'custom-2', size: 50, visible: false },
+      ],
     })
   })
 
@@ -364,7 +418,8 @@ describe('settings persistence', () => {
     ).toMatchObject({
       alertChannel: DEFAULT_SETTINGS.alertChannel,
       alertVolume: DEFAULT_SETTINGS.alertVolume,
-      inspectionWarning: DEFAULT_SETTINGS.inspectionWarning,
+      inspectionWarning8s: DEFAULT_SETTINGS.inspectionWarning8s,
+      inspectionWarning12s: DEFAULT_SETTINGS.inspectionWarning12s,
       accentColor: DEFAULT_SETTINGS.accentColor,
       statPrecision: DEFAULT_SETTINGS.statPrecision,
       statVisibility: {
@@ -439,7 +494,8 @@ describe('settings persistence', () => {
       inspectionEnabled: true,
       alertChannel: 'sound',
       alertVolume: DEFAULT_SETTINGS.alertVolume,
-      inspectionWarning: '8s',
+      inspectionWarning8s: true,
+      inspectionWarning12s: false,
       accentColor: 'blue',
       statPrecision: 'tenths',
       statVisibility: {
@@ -449,6 +505,73 @@ describe('settings persistence', () => {
         ao12: false,
       },
     })
+  })
+
+  it('upgrades a v4 record with the new inspection and custom-average fields', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        version: 4,
+        settings: {
+          inspectionEnabled: true,
+          alertChannel: 'visual',
+          alertVolume: 50,
+          inspectionWarning: '12s',
+          accentColor: 'amber',
+          statPrecision: 'tenths',
+          statVisibility: {
+            single: true,
+            mo3: false,
+            ao5: true,
+            ao12: false,
+          },
+        },
+      }),
+    )
+
+    expect(loadSettings(storage)).toMatchObject({
+      inspectionEnabled: true,
+      inspectionCountDirection: 'down',
+      inspectionWarning8s: false,
+      inspectionWarning12s: true,
+      customAverages: [],
+      statVisibility: {
+        single: true,
+        mo3: false,
+        ao5: true,
+        ao12: false,
+        ao25: false,
+        ao10000: false,
+      },
+    })
+  })
+
+  it('filters invalid, duplicate, built-in, and excess custom averages', () => {
+    const parsed = parseSettingsData({
+      inspectionEnabled: false,
+      customAverages: [
+        { id: 'custom-1', size: 7, visible: true },
+        { id: 'custom-1', size: 8, visible: true },
+        { id: 'custom-2', size: 7, visible: true },
+        { id: 'custom-3', size: 5, visible: true },
+        { id: 'custom-4', size: 2, visible: true },
+        { id: 'custom-5', size: 9.5, visible: true },
+        { id: 'custom-6', size: 9, visible: false },
+        { id: 'custom-7', size: 10, visible: true },
+        { id: 'custom-8', size: 11, visible: true },
+        { id: 'custom-9', size: 13, visible: true },
+      ],
+    })
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.customAverages).toEqual([
+      { id: 'custom-1', size: 7, visible: true },
+      { id: 'custom-6', size: 9, visible: false },
+      { id: 'custom-7', size: 10, visible: true },
+      { id: 'custom-8', size: 11, visible: true },
+      { id: 'custom-9', size: 13, visible: true },
+    ])
   })
 
   it('falls back on malformed settings', () => {
@@ -461,7 +584,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 5, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 6, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })

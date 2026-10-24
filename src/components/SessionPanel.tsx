@@ -5,7 +5,13 @@ import {
   getSessionNameError,
   nextSessionName,
 } from '../lib/sessions'
-import { CheckIcon, CloseIcon, PencilIcon, PlusIcon, TrashIcon } from './Icons'
+import {
+  CheckIcon,
+  CloseIcon,
+  PencilIcon,
+  PlusIcon,
+  SettingsIcon,
+} from './Icons'
 
 interface SessionPanelProps {
   sessions: readonly Session[]
@@ -14,7 +20,7 @@ interface SessionPanelProps {
   onCreate: (name: string) => boolean
   onRename: (id: string, name: string) => boolean
   onSelect: (id: string) => void
-  onRequestDelete: () => void
+  onOpenSessionSettings: () => void
 }
 
 type EditMode = 'create' | 'rename'
@@ -26,7 +32,7 @@ export function SessionPanel({
   onCreate,
   onRename,
   onSelect,
-  onRequestDelete,
+  onOpenSessionSettings,
 }: SessionPanelProps) {
   const [editing, setEditing] = useState<EditMode | null>(null)
   const [draft, setDraft] = useState('')
@@ -222,19 +228,17 @@ export function SessionPanel({
           <button
             type="button"
             className="icon-button session-action"
-            aria-label="Delete session"
+            aria-label="Session settings"
             title={
-              sessions.length <= 1
-                ? 'Keep at least one session'
-                : locked
-                  ? 'Finish or reset the current timer before deleting a session'
-                  : 'Delete the active session'
+              locked
+                ? 'Finish or reset the current timer before opening session settings'
+                : 'Open settings for the active session'
             }
-            disabled={locked || sessions.length <= 1}
-            data-testid="delete-session"
-            onClick={onRequestDelete}
+            disabled={locked}
+            data-testid="session-settings"
+            onClick={onOpenSessionSettings}
           >
-            <TrashIcon size={15} />
+            <SettingsIcon size={15} />
           </button>
         </div>
       )}

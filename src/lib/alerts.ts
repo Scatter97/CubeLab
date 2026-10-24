@@ -1,9 +1,16 @@
-import type { InspectionWarning } from '../types'
+import type { InspectionCountDirection } from '../types'
+import { INSPECTION_LIMIT_MS } from '../timer/machine'
 
 export type AlertTone = 'success' | 'danger' | 'warning'
 
 /** Peak gain at 100% volume. Kept below clipping for the short alert tones. */
 export const ALERT_MAX_GAIN = 0.4
+const MAX_TONE_GAIN = 0.75
+const TONE_GAIN_MULTIPLIER: Record<AlertTone, number> = {
+  success: 1,
+  warning: 1,
+  danger: 1.5,
+}
 
 let audioContext: AudioContext | null = null
 
@@ -12,6 +19,14 @@ export function alertGainForVolume(volume: number): number {
   if (!Number.isFinite(volume)) return 0
   const normalized = Math.min(100, Math.max(0, volume)) / 100
   return normalized * ALERT_MAX_GAIN
+}
+
+/** The DNF/danger tone is deliberately louder than the other feedback tones. */
+export function alertGainForTone(tone: AlertTone, volume: number): number {
+  return Math.min(
+    MAX_TONE_GAIN,
+    alertGainForVolume(volume) * TONE_GAIN_MULTIPLIER[tone],
+  )
 }
 
 function getAudioContext(): AudioContext | null {
@@ -63,7 +78,7 @@ function toneSequence(tone: AlertTone): ToneStep[] {
 }
 
 export function playAlertSound(tone: AlertTone, volume = 70): void {
-  const peakGain = alertGainForVolume(volume)
+  const peakGain = alertGainForTone(tone, volume)
   if (peakGain <= 0) return
 
   const context = getAudioContext()
@@ -99,8 +114,39 @@ export function vibrateAlert(tone: AlertTone): void {
   navigator.vibrate(pattern)
 }
 
-export function inspectionWarningMs(warning: InspectionWarning): number | null {
-  if (warning === '8s') return 8_000
-  if (warning === '12s') return 12_000
-  return null
+export interface InspectionWarningEvent {
+  key: '8s' | '12s'
+  elapsedMs: number
+  label: string
+}
+
+/**
+ * Maps the two optional warnings to elapsed inspection times. Countdown
+ * warnings fire when the display reaches 12s and 8s remaining; count-up
+ * warnings fire at 8s and 12s elapsed.
+ */
+export function inspectionWarningEvents(
+  direction: InspectionCountDirection,
+  warnAt8s: boolean,
+  warnAt12s: boolean,
+): InspectionWarningEvent[] {
+  const events: InspectionWarningEvent[] = []
+
+  if (warnAt12s) {
+    events.push({
+      key: '12s',
+      elapsedMs:
+        direction === 'down' ? INSPECTION_LIMIT_MS - 12_000 : 12_000,
+      label: '12 seconds',
+    })
+  }
+  if (warnAt8s) {
+    events.push({
+      key: '8s',
+      elapsedMs: direction === 'down' ? INSPECTION_LIMIT_MS - 8_000 : 8_000,
+      label: '8 seconds',
+    })
+  }
+
+  return events.sort((a, b) => a.elapsedMs - b.elapsedMs)
 }

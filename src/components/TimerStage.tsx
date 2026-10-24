@@ -1,5 +1,5 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import type { Solve } from '../types'
+import type { InspectionCountDirection, Solve } from '../types'
 import type { AlertTone } from '../lib/alerts'
 import { formatSolveTime, formatTime } from '../lib/format'
 import {
@@ -31,8 +31,9 @@ interface TimerStageProps {
   disabled: boolean
   disabledHint?: string
   inspectionEnabled: boolean
+  inspectionCountDirection: InspectionCountDirection
   showTimerDecimalSmall?: boolean
-  alert?: { tone: AlertTone; id: number } | null
+  alert?: { tone: AlertTone; id: number; message?: string } | null
   onPress: (input: TimerInput) => void
   onRelease: (input: TimerInput) => void
   onCancel: () => void
@@ -46,7 +47,10 @@ interface InspectionDisplay {
   caption: string
 }
 
-function getInspectionDisplay(elapsedMs: number | null): InspectionDisplay {
+function getInspectionDisplay(
+  elapsedMs: number | null,
+  direction: InspectionCountDirection,
+): InspectionDisplay {
   const elapsed = elapsedMs ?? 0
 
   if (elapsed > INSPECTION_DNF_MS) {
@@ -62,6 +66,15 @@ function getInspectionDisplay(elapsedMs: number | null): InspectionDisplay {
       value: '+2',
       tone: 'warning',
       caption: 'Start now — over 17 seconds is a DNF',
+    }
+  }
+
+  if (direction === 'up') {
+    const elapsedSeconds = Math.floor(elapsed / 1_000)
+    return {
+      value: String(elapsedSeconds),
+      tone: elapsed >= 12_000 ? 'warning' : 'safe',
+      caption: 'Hold to arm, release to start',
     }
   }
 
@@ -97,6 +110,7 @@ export function TimerStage({
   disabled,
   disabledHint = 'Generating scramble…',
   inspectionEnabled,
+  inspectionCountDirection,
   showTimerDecimalSmall = false,
   alert = null,
   onPress,
@@ -105,7 +119,9 @@ export function TimerStage({
 }: TimerStageProps) {
   const activePointer = useRef<number | null>(null)
   const inspection =
-    state.status === 'inspection' ? getInspectionDisplay(inspectionElapsedMs) : null
+    state.status === 'inspection'
+      ? getInspectionDisplay(inspectionElapsedMs, inspectionCountDirection)
+      : null
   const isRunning = state.status === 'running'
   const showReset =
     state.status === 'inspection' ||
@@ -266,7 +282,11 @@ export function TimerStage({
           key={alert.id}
           className={`timer-alert is-${alert.tone}`}
           aria-hidden="true"
-        />
+        >
+          {alert.message ? (
+            <span className="timer-alert-message">{alert.message}</span>
+          ) : null}
+        </span>
       ) : null}
       <button
         type="button"

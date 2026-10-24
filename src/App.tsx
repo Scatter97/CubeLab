@@ -4,6 +4,7 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { DataDialog } from './components/DataDialog'
 import { ScramblePanel } from './components/ScramblePanel'
 import { SessionPanel } from './components/SessionPanel'
+import { SessionSettingsDialog } from './components/SessionSettingsDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SolveHistory } from './components/SolveHistory'
 import { StatsPanel } from './components/StatsPanel'
@@ -15,7 +16,7 @@ import { useSettings } from './hooks/useSettings'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
 import {
-  inspectionWarningMs,
+  inspectionWarningEvents,
   playAlertSound,
   primeAlertAudio,
   vibrateAlert,
@@ -30,6 +31,7 @@ import {
 import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
+import { BUILT_IN_STAT_DEFINITIONS } from './lib/statDefinitions'
 import type {
   AlertChannel,
   Penalty,
@@ -66,6 +68,7 @@ function activeInspectionStartedAt(state: TimerState): number | null {
 interface TimerAlert {
   tone: AlertTone
   id: number
+  message?: string
 }
 
 function downloadJsonFile(contents: string, fileName: string): void {
@@ -89,6 +92,8 @@ export default function App() {
     storageOk,
     addSolve,
     setPenalty,
+    setComment,
+    setInspection,
     deleteSolve,
     restoreSolve,
     clearSolves,
@@ -119,6 +124,7 @@ export default function App() {
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [timerAlert, setTimerAlert] = useState<TimerAlert | null>(null)
@@ -127,8 +133,11 @@ export default function App() {
   const alertTimeoutRef = useRef<number | null>(null)
   const inspectionWarningRef = useRef<{
     startedAt: number | null
-    warned: boolean
-  }>({ startedAt: null, warned: false })
+    warned: Record<'8s' | '12s', boolean>
+  }>({
+    startedAt: null,
+    warned: { '8s': false, '12s': false },
+  })
 
   useEffect(() => {
     scrambleRef.current = scramble
@@ -144,21 +153,28 @@ export default function App() {
   )
 
   const triggerAlert = useCallback(
-    (tone: AlertTone, channel: AlertChannel, volume: number) => {
-      if (channel === 'off') return
-
-      if (channel.includes('sound')) playAlertSound(tone, volume)
-      if (channel.includes('haptic')) vibrateAlert(tone)
-      if (!channel.includes('visual')) return
+    (
+      tone: AlertTone,
+      channel: AlertChannel,
+      volume: number,
+      message?: string,
+      forceVisual = false,
+    ) => {
+      if (channel !== 'off') {
+        if (channel.includes('sound')) playAlertSound(tone, volume)
+        if (channel.includes('haptic')) vibrateAlert(tone)
+      }
+      if (!forceVisual && !channel.includes('visual')) return
 
       alertIdRef.current += 1
-      setTimerAlert({ tone, id: alertIdRef.current })
+      setTimerAlert({ tone, id: alertIdRef.current, message })
       if (alertTimeoutRef.current !== null) {
         window.clearTimeout(alertTimeoutRef.current)
       }
+      const duration = message ? 1_600 : tone === 'warning' ? 900 : 650
       alertTimeoutRef.current = window.setTimeout(
         () => setTimerAlert(null),
-        tone === 'warning' ? 900 : 650,
+        duration,
       )
     },
     [],
@@ -201,8 +217,11 @@ export default function App() {
     ],
   )
 
+  const activeInspectionEnabled =
+    activeSession.inspectionEnabled ?? settings.inspectionEnabled
+
   const timer = useTimer({
-    inspectionEnabled: settings.inspectionEnabled,
+    inspectionEnabled: activeInspectionEnabled,
     holdDurationMs: settings.holdDurationMs,
     onSolve: handleSolve,
   })
@@ -210,30 +229,51 @@ export default function App() {
   useEffect(() => {
     const startedAt = activeInspectionStartedAt(timer.state)
     if (startedAt === null) {
-      inspectionWarningRef.current = { startedAt: null, warned: false }
+      inspectionWarningRef.current = {
+        startedAt: null,
+        warned: { '8s': false, '12s': false },
+      }
       return
     }
 
     if (inspectionWarningRef.current.startedAt !== startedAt) {
-      inspectionWarningRef.current = { startedAt, warned: false }
+      inspectionWarningRef.current = {
+        startedAt,
+        warned: { '8s': false, '12s': false },
+      }
     }
 
-    const thresholdMs = inspectionWarningMs(settings.inspectionWarning)
-    if (
-      thresholdMs === null ||
-      inspectionWarningRef.current.warned ||
-      (timer.inspectionElapsedMs ?? 0) < thresholdMs
-    ) {
-      return
-    }
+    const elapsedMs = timer.inspectionElapsedMs ?? 0
+    const events = inspectionWarningEvents(
+      settings.inspectionCountDirection,
+      settings.inspectionWarning8s,
+      settings.inspectionWarning12s,
+    )
 
-    inspectionWarningRef.current.warned = true
-    setAnnouncement(`${thresholdMs / 1_000} seconds of inspection remaining.`)
-    triggerAlert('warning', settings.alertChannel, settings.alertVolume)
+    for (const event of events) {
+      if (
+        inspectionWarningRef.current.warned[event.key] ||
+        elapsedMs < event.elapsedMs
+      ) {
+        continue
+      }
+
+      inspectionWarningRef.current.warned[event.key] = true
+      setAnnouncement(event.label)
+      triggerAlert(
+        'warning',
+        settings.alertChannel,
+        settings.alertVolume,
+        event.label,
+        true,
+      )
+    }
   }, [
     settings.alertChannel,
     settings.alertVolume,
-    settings.inspectionWarning,
+    settings.inspectionCountDirection,
+    settings.inspectionWarning8s,
+    settings.inspectionWarning12s,
     timer.inspectionElapsedMs,
     timer.state,
     triggerAlert,
@@ -247,6 +287,7 @@ export default function App() {
   const timerActive = timer.state.status !== 'idle'
   const modalOpen =
     settingsOpen ||
+    sessionSettingsOpen ||
     dataOpen ||
     clearOpen ||
     sessionToDelete !== null ||
@@ -262,7 +303,29 @@ export default function App() {
   )
   const timerRelease = timer.release
   const canStart = scramble !== null
-  const stats = useMemo(() => getSessionStats(solves), [solves])
+  const visibleAverageSizes = useMemo(() => {
+    const sizes: number[] = []
+    for (const definition of BUILT_IN_STAT_DEFINITIONS) {
+      if (
+        definition.size !== null &&
+        definition.key !== 'single' &&
+        definition.key !== 'mo3' &&
+        settings.statVisibility[definition.key]
+      ) {
+        sizes.push(definition.size)
+      }
+    }
+    for (const average of settings.customAverages) {
+      if (average.visible) sizes.push(average.size)
+    }
+    return sizes
+  }, [settings.customAverages, settings.statVisibility])
+  const stats = useMemo(
+    () => getSessionStats(solves, visibleAverageSizes),
+    [solves, visibleAverageSizes],
+  )
+  const latestAo5 = stats.averages.get(5)?.latest ?? null
+  const latestAo12 = stats.averages.get(12)?.latest ?? null
 
   const handleOpenSettings = useCallback(() => {
     if (timer.state.status !== 'idle') return
@@ -285,6 +348,21 @@ export default function App() {
     [setPenalty],
   )
 
+  const handleSetComment = useCallback(
+    (id: string, comment: string) => {
+      setComment(id, comment)
+    },
+    [setComment],
+  )
+
+  const handleSetSessionInspection = useCallback(
+    (enabled: boolean) => {
+      if (timer.state.status !== 'idle') return
+      setInspection(activeSession.id, enabled)
+    },
+    [activeSession.id, setInspection, timer.state.status],
+  )
+
   const handleDelete = useCallback(
     (id: string) => {
       const removed = deleteSolve(id)
@@ -301,27 +379,24 @@ export default function App() {
   )
 
   const requestClear = useCallback(() => {
-    if (
-      timer.state.status === 'idle' &&
-      !modalOpen &&
-      solves.length > 0
-    ) {
+    if (timer.state.status === 'idle' && solves.length > 0) {
       setClearOpen(true)
     }
-  }, [modalOpen, solves.length, timer.state.status])
+  }, [solves.length, timer.state.status])
 
   const confirmClear = useCallback(() => {
     clearSolves()
     setClearOpen(false)
+    setSessionSettingsOpen(false)
     showToast({ message: 'Session cleared' })
   }, [clearSolves, showToast])
 
   const handleCreateSession = useCallback(
     (name: string): boolean => {
       if (timer.state.status !== 'idle') return false
-      return createSession(name) !== null
+      return createSession(name, activeInspectionEnabled) !== null
     },
-    [createSession, timer.state.status],
+    [activeInspectionEnabled, createSession, timer.state.status],
   )
 
   const handleRenameSession = useCallback(
@@ -340,6 +415,11 @@ export default function App() {
     [selectSession, timer.state.status],
   )
 
+  const handleOpenSessionSettings = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSessionSettingsOpen(true)
+  }, [timer.state.status])
+
   const requestDeleteSession = useCallback(() => {
     if (timer.state.status !== 'idle' || sessions.length <= 1) return
     setSessionToDelete(activeSession)
@@ -349,6 +429,7 @@ export default function App() {
     if (!sessionToDelete) return
     const deleted = deleteSession(sessionToDelete.id)
     setSessionToDelete(null)
+    setSessionSettingsOpen(false)
     if (deleted) showToast({ message: 'Session deleted' })
   }, [deleteSession, sessionToDelete, showToast])
 
@@ -423,6 +504,7 @@ export default function App() {
         ),
         cancelLabel: 'Cancel import',
         confirmLabel: 'Import backup',
+        requireText: undefined,
         onConfirm: confirmImport,
       }
     }
@@ -440,6 +522,7 @@ export default function App() {
         ),
         cancelLabel: 'Keep session',
         confirmLabel: 'Delete session',
+        requireText: 'DELETE THIS SESSION',
         onConfirm: confirmDeleteSession,
       }
     }
@@ -458,6 +541,7 @@ export default function App() {
         ),
         cancelLabel: 'Keep solves',
         confirmLabel: 'Clear session',
+        requireText: 'CLEAR THIS SESSION',
         onConfirm: confirmClear,
       }
     }
@@ -560,7 +644,7 @@ export default function App() {
       <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
       <AppHeader
         sessionName={activeSession.name}
-        inspectionEnabled={settings.inspectionEnabled}
+        inspectionEnabled={activeInspectionEnabled}
         onOpenSettings={handleOpenSettings}
         settingsLocked={timerActive}
         storageOk={storageHealthy}
@@ -595,7 +679,8 @@ export default function App() {
                 : 'Generating scramble…'
             }
             showTimerDecimalSmall={settings.showTimerDecimalSmall}
-            inspectionEnabled={settings.inspectionEnabled}
+            inspectionEnabled={activeInspectionEnabled}
+            inspectionCountDirection={settings.inspectionCountDirection}
             alert={timerAlert}
             onPress={timerPress}
             onRelease={timer.release}
@@ -614,10 +699,7 @@ export default function App() {
                   <span>
                     <span>ao5</span>
                     <strong>
-                      {formatStatValue(
-                        stats.latestAverage5,
-                        settings.statPrecision,
-                      )}
+                      {formatStatValue(latestAo5, settings.statPrecision)}
                     </strong>
                   </span>
                 ) : null}
@@ -625,10 +707,7 @@ export default function App() {
                   <span>
                     <span>ao12</span>
                     <strong>
-                      {formatStatValue(
-                        stats.latestAverage12,
-                        settings.statPrecision,
-                      )}
+                      {formatStatValue(latestAo12, settings.statPrecision)}
                     </strong>
                   </span>
                 ) : null}
@@ -636,7 +715,7 @@ export default function App() {
             ) : null}
             <span className="caption-shortcuts">
               <kbd>Space</kbd> hold to arm · release to start
-              {settings.inspectionEnabled ? (
+              {activeInspectionEnabled ? (
                 <>
                   <span aria-hidden="true">·</span>
                   <kbd>Esc</kbd> reset
@@ -654,12 +733,13 @@ export default function App() {
             onCreate={handleCreateSession}
             onRename={handleRenameSession}
             onSelect={handleSelectSession}
-            onRequestDelete={requestDeleteSession}
+            onOpenSessionSettings={handleOpenSessionSettings}
           />
 
           <StatsPanel
             stats={stats}
             visibleStats={settings.statVisibility}
+            customAverages={settings.customAverages}
             precision={settings.statPrecision}
           />
 
@@ -667,8 +747,8 @@ export default function App() {
             solves={solves}
             onSetPenalty={handleSetPenalty}
             onDelete={handleDelete}
-            onRequestClear={requestClear}
-            clearDisabled={timerActive}
+            onSetComment={handleSetComment}
+            onNotify={(message) => showToast({ message })}
           />
         </aside>
       </main>
@@ -696,6 +776,17 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
       />
 
+      <SessionSettingsDialog
+        open={sessionSettingsOpen}
+        session={activeSession}
+        effectiveInspectionEnabled={activeInspectionEnabled}
+        canDelete={sessions.length > 1}
+        onSetInspection={handleSetSessionInspection}
+        onRequestClear={requestClear}
+        onRequestDelete={requestDeleteSession}
+        onClose={() => setSessionSettingsOpen(false)}
+      />
+
       <DataDialog
         open={dataOpen}
         sessionCount={sessions.length}
@@ -712,6 +803,7 @@ export default function App() {
         description={confirmContent?.description ?? null}
         cancelLabel={confirmContent?.cancelLabel ?? 'Cancel'}
         confirmLabel={confirmContent?.confirmLabel ?? 'Confirm'}
+        requireText={confirmContent?.requireText}
         onCancel={cancelConfirm}
         onConfirm={handleConfirm}
       />

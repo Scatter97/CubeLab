@@ -1,7 +1,8 @@
 import type {
   AccentColor,
   AlertChannel,
-  InspectionWarning,
+  CustomAverageSetting,
+  InspectionCountDirection,
   Penalty,
   ScrambleAction,
   ScrambleAlignment,
@@ -14,17 +15,27 @@ import type {
   TimerUpdateMode,
 } from '../types'
 import { createId } from './id'
-import { DEFAULT_SESSION_NAME, normalizeSessionName } from './sessions'
+import {
+  DEFAULT_SESSION_NAME,
+  MAX_SOLVE_COMMENT_LENGTH,
+  normalizeSessionName,
+} from './sessions'
+import {
+  BUILT_IN_STAT_DEFINITIONS,
+  MAX_CUSTOM_AVERAGES,
+  isValidCustomAverageSize,
+} from './statDefinitions'
 
 export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
 export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
-export const SESSIONS_VERSION = 1
-export const SETTINGS_STORAGE_VERSION = 4
+export const SESSIONS_VERSION = 2
+export const SETTINGS_STORAGE_VERSION = 5
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
+  inspectionCountDirection: 'down',
   timerUpdateMode: 'live',
   holdDurationMs: 300,
   showTimerDecimalSmall: false,
@@ -34,14 +45,23 @@ export const DEFAULT_SETTINGS: Settings = {
   scrambleAction: 'copy',
   alertChannel: 'off',
   alertVolume: 70,
-  inspectionWarning: 'off',
+  inspectionWarning8s: false,
+  inspectionWarning12s: false,
   accentColor: 'green',
   statVisibility: {
     single: true,
     mo3: true,
     ao5: true,
     ao12: true,
+    ao25: false,
+    ao100: false,
+    ao200: false,
+    ao500: false,
+    ao1000: false,
+    ao5000: false,
+    ao10000: false,
   },
+  customAverages: [],
   statPrecision: 'centiseconds',
 }
 
@@ -49,6 +69,9 @@ function cloneDefaultSettings(): Settings {
   return {
     ...DEFAULT_SETTINGS,
     statVisibility: { ...DEFAULT_SETTINGS.statVisibility },
+    customAverages: DEFAULT_SETTINGS.customAverages.map((average) => ({
+      ...average,
+    })),
   }
 }
 
@@ -58,7 +81,7 @@ export interface StorageLike {
 }
 
 interface StoredSessions {
-  version: typeof SESSIONS_VERSION
+  version: number
   activeSessionId: string
   sessions: Session[]
 }
@@ -103,6 +126,10 @@ function parseSolve(value: unknown): Solve | null {
     rawMs: value.rawMs,
     penalty: value.penalty,
     scramble: value.scramble,
+    comment:
+      typeof value.comment === 'string'
+        ? value.comment.slice(0, MAX_SOLVE_COMMENT_LENGTH)
+        : '',
     createdAt: value.createdAt,
   }
 }
@@ -134,6 +161,9 @@ function parseSession(value: unknown): Session | null {
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     solves,
+    ...(typeof value.inspectionEnabled === 'boolean'
+      ? { inspectionEnabled: value.inspectionEnabled }
+      : {}),
   }
 }
 
@@ -200,8 +230,10 @@ function isValidAlertChannel(value: unknown): value is AlertChannel {
   )
 }
 
-function isValidInspectionWarning(value: unknown): value is InspectionWarning {
-  return value === 'off' || value === '8s' || value === '12s'
+function isValidInspectionCountDirection(
+  value: unknown,
+): value is InspectionCountDirection {
+  return value === 'down' || value === 'up'
 }
 
 function isValidAccentColor(value: unknown): value is AccentColor {
@@ -221,12 +253,44 @@ function parseStatVisibility(value: unknown): StatVisibility {
   const fallback = DEFAULT_SETTINGS.statVisibility
   if (!isRecord(value)) return { ...fallback }
 
-  return {
-    single: typeof value.single === 'boolean' ? value.single : fallback.single,
-    mo3: typeof value.mo3 === 'boolean' ? value.mo3 : fallback.mo3,
-    ao5: typeof value.ao5 === 'boolean' ? value.ao5 : fallback.ao5,
-    ao12: typeof value.ao12 === 'boolean' ? value.ao12 : fallback.ao12,
+  const visibility: StatVisibility = { ...fallback }
+  for (const { key } of BUILT_IN_STAT_DEFINITIONS) {
+    if (typeof value[key] === 'boolean') visibility[key] = value[key]
   }
+  return visibility
+}
+
+function parseCustomAverages(value: unknown): CustomAverageSetting[] {
+  if (!Array.isArray(value)) return []
+
+  const averages: CustomAverageSetting[] = []
+  const usedIds = new Set<string>()
+  const usedSizes = new Set<number>()
+
+  for (const candidate of value) {
+    if (averages.length >= MAX_CUSTOM_AVERAGES) break
+    if (!isRecord(candidate)) continue
+    if (typeof candidate.id !== 'string' || candidate.id.length === 0) continue
+    if (usedIds.has(candidate.id)) continue
+    if (
+      typeof candidate.size !== 'number' ||
+      !isValidCustomAverageSize(candidate.size) ||
+      usedSizes.has(candidate.size)
+    ) {
+      continue
+    }
+
+    averages.push({
+      id: candidate.id,
+      size: candidate.size,
+      visible:
+        typeof candidate.visible === 'boolean' ? candidate.visible : true,
+    })
+    usedIds.add(candidate.id)
+    usedSizes.add(candidate.size)
+  }
+
+  return averages
 }
 
 export function parseSettingsData(value: unknown): Settings | null {
@@ -237,6 +301,11 @@ export function parseSettingsData(value: unknown): Settings | null {
 
   return {
     inspectionEnabled,
+    inspectionCountDirection: isValidInspectionCountDirection(
+      value.inspectionCountDirection,
+    )
+      ? value.inspectionCountDirection
+      : DEFAULT_SETTINGS.inspectionCountDirection,
     timerUpdateMode: isValidTimerUpdateMode(value.timerUpdateMode)
       ? value.timerUpdateMode
       : DEFAULT_SETTINGS.timerUpdateMode,
@@ -278,13 +347,19 @@ export function parseSettingsData(value: unknown): Settings | null {
       value.alertVolume <= 100
         ? Math.round(value.alertVolume)
         : DEFAULT_SETTINGS.alertVolume,
-    inspectionWarning: isValidInspectionWarning(value.inspectionWarning)
-      ? value.inspectionWarning
-      : DEFAULT_SETTINGS.inspectionWarning,
+    inspectionWarning8s:
+      typeof value.inspectionWarning8s === 'boolean'
+        ? value.inspectionWarning8s
+        : value.inspectionWarning === '8s',
+    inspectionWarning12s:
+      typeof value.inspectionWarning12s === 'boolean'
+        ? value.inspectionWarning12s
+        : value.inspectionWarning === '12s',
     accentColor: isValidAccentColor(value.accentColor)
       ? value.accentColor
       : DEFAULT_SETTINGS.accentColor,
     statVisibility: parseStatVisibility(value.statVisibility),
+    customAverages: parseCustomAverages(value.customAverages),
     statPrecision: isValidStatPrecision(value.statPrecision)
       ? value.statPrecision
       : DEFAULT_SETTINGS.statPrecision,
@@ -341,7 +416,10 @@ export function loadSessions(storage = getDefaultStorage()): SessionsData {
     const raw = storage.getItem(SESSIONS_STORAGE_KEY)
     if (raw) {
       const parsed: unknown = JSON.parse(raw)
-      if (isRecord(parsed) && parsed.version === SESSIONS_VERSION) {
+      if (
+        isRecord(parsed) &&
+        (parsed.version === 1 || parsed.version === SESSIONS_VERSION)
+      ) {
         const data = parseSessionsData(parsed)
         if (data) return data
       }

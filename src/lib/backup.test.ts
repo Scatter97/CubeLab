@@ -18,6 +18,7 @@ function solve(overrides: Partial<Solve> = {}): Solve {
     rawMs: 12_340,
     penalty: 'none',
     scramble: "R U R' U'",
+    comment: '',
     createdAt: 1_700_000_000_000,
     ...overrides,
   }

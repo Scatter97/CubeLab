@@ -2,6 +2,7 @@ import type { Penalty, Session, SessionsData, Solve } from '../types'
 import { createId } from './id'
 
 export const MAX_SESSION_NAME_LENGTH = 40
+export const MAX_SOLVE_COMMENT_LENGTH = 500
 export const DEFAULT_SESSION_NAME = 'Session 1'
 
 export interface SessionNameCandidate {
@@ -97,7 +98,11 @@ function updateActiveSession(
 export function createSession(
   data: SessionsData,
   name: string,
-  options: { id?: string; now?: number } = {},
+  options: {
+    id?: string
+    now?: number
+    inspectionEnabled?: boolean
+  } = {},
 ): CreatedSession | null {
   const normalized = normalizeSessionName(name)
   if (getSessionNameError(normalized, data.sessions)) return null
@@ -112,6 +117,9 @@ export function createSession(
     createdAt: now,
     updatedAt: now,
     solves: [],
+    ...(typeof options.inspectionEnabled === 'boolean'
+      ? { inspectionEnabled: options.inspectionEnabled }
+      : {}),
   }
 
   return {
@@ -193,6 +201,46 @@ export function addSolve(
       updatedAt: now,
     }
   })
+}
+
+export function setSolveComment(
+  data: SessionsData,
+  solveId: string,
+  comment: string,
+  now = Date.now(),
+): SessionsData {
+  const normalized = comment.slice(0, MAX_SOLVE_COMMENT_LENGTH)
+  return updateActiveSession(data, (session) => {
+    const solve = session.solves.find((candidate) => candidate.id === solveId)
+    if (!solve || solve.comment === normalized) return session
+
+    return {
+      ...session,
+      solves: session.solves.map((candidate) =>
+        candidate.id === solveId ? { ...candidate, comment: normalized } : candidate,
+      ),
+      updatedAt: now,
+    }
+  })
+}
+
+export function setSessionInspection(
+  data: SessionsData,
+  sessionId: string,
+  inspectionEnabled: boolean,
+  now = Date.now(),
+): SessionsData {
+  const session = data.sessions.find((candidate) => candidate.id === sessionId)
+  if (!session || session.inspectionEnabled === inspectionEnabled) return data
+
+  return {
+    ...data,
+    sessions: data.sessions.map((candidate) =>
+      candidate.id === sessionId
+        ? { ...candidate, inspectionEnabled, updatedAt: now }
+        : candidate,
+    ),
+  }
 }
 
 export function setSolvePenalty(

@@ -43,17 +43,15 @@ export function AppHeader({
       </div>
 
       <div className="header-actions">
-        <span
-          className={`storage-state ${storageOk ? 'is-ok' : 'is-error'}`}
-          title={
-            storageOk
-              ? 'Sessions and solves are saved in this browser'
-              : 'Browser storage is unavailable. Sessions and solves will not survive a refresh.'
-          }
-        >
-          <span className="status-dot" aria-hidden="true" />
-          {storageOk ? 'Saved locally' : 'Storage unavailable'}
-        </span>
+        {!storageOk ? (
+          <span
+            className="storage-state is-error"
+            title="Browser storage is unavailable. Sessions and solves will not survive a refresh."
+          >
+            <span className="status-dot" aria-hidden="true" />
+            Storage unavailable
+          </span>
+        ) : null}
 
         <button
           type="button"

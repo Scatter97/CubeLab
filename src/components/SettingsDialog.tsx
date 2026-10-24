@@ -1,7 +1,17 @@
+import { useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { formatSolveCount } from '../lib/format'
+import { createId } from '../lib/id'
+import {
+  BUILT_IN_STAT_DEFINITIONS,
+  MAX_CUSTOM_AVERAGES,
+  MAX_CUSTOM_AVERAGE_SIZE,
+  MIN_CUSTOM_AVERAGE_SIZE,
+  isBuiltInAverageSize,
+  nextCustomAverageSize,
+} from '../lib/statDefinitions'
 import { ChevronRightIcon, CloseIcon } from './Icons'
-import type { Settings } from '../types'
+import type { CustomAverageSetting, Settings } from '../types'
 
 interface SettingsDialogProps {
   open: boolean
@@ -25,6 +35,46 @@ export function SettingsDialog({
   onClose,
 }: SettingsDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
+  const [customAverageError, setCustomAverageError] = useState<string | null>(
+    null,
+  )
+
+  const updateCustomAverages = (next: CustomAverageSetting[]) => {
+    const sizes = next.map((average) => average.size)
+    if (new Set(sizes).size !== sizes.length) {
+      setCustomAverageError('Custom averages must use different sizes.')
+      return
+    }
+    setCustomAverageError(null)
+    onChange({ customAverages: next })
+  }
+
+  const addCustomAverage = () => {
+    if (settings.customAverages.length >= MAX_CUSTOM_AVERAGES) return
+    const size = nextCustomAverageSize(
+      settings.customAverages.map((average) => average.size),
+    )
+    updateCustomAverages([
+      ...settings.customAverages,
+      { id: createId(), size, visible: true },
+    ])
+  }
+
+  const changeCustomAverageSize = (id: string, value: number) => {
+    const size = Math.max(
+      MIN_CUSTOM_AVERAGE_SIZE,
+      Math.min(MAX_CUSTOM_AVERAGE_SIZE, Math.round(value)),
+    )
+    if (isBuiltInAverageSize(size)) {
+      setCustomAverageError(`ao${size} is already available above.`)
+      return
+    }
+    updateCustomAverages(
+      settings.customAverages.map((average) =>
+        average.id === id ? { ...average, size } : average,
+      ),
+    )
+  }
 
   return (
     <dialog
@@ -76,8 +126,9 @@ export function SettingsDialog({
                   Inspection
                 </label>
                 <span className="settings-row-description">
-                  15-second WCA countdown before each solve. Started late: over 15
-                  seconds is +2; over 17 seconds is DNF.
+                  15-second WCA inspection before each solve. This is the default
+                  for sessions without an override. Started late: over 15 seconds
+                  is +2; over 17 seconds is DNF.
                 </span>
               </div>
               <button
@@ -94,6 +145,23 @@ export function SettingsDialog({
                 </span>
               </button>
             </div>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Inspection timer</span>
+              <select
+                data-testid="inspection-direction"
+                value={settings.inspectionCountDirection}
+                onChange={(event) =>
+                  onChange({
+                    inspectionCountDirection: event.target
+                      .value as Settings['inspectionCountDirection'],
+                  })
+                }
+              >
+                <option value="down">Count down (15 → 0)</option>
+                <option value="up">Count up (0 → 17)</option>
+              </select>
+            </label>
 
             <label className="settings-field">
               <span className="settings-field-label">Timer updates</span>
@@ -175,27 +243,41 @@ export function SettingsDialog({
               </span>
             </div>
 
-            <label className="settings-field">
-              <span className="settings-field-label">Inspection warning</span>
-              <select
-                data-testid="inspection-warning"
-                value={settings.inspectionWarning}
-                onChange={(event) =>
-                  onChange({
-                    inspectionWarning: event.target
-                      .value as Settings['inspectionWarning'],
-                  })
-                }
-              >
-                <option value="off">Off</option>
-                <option value="8s">At 8 seconds</option>
-                <option value="12s">At 12 seconds</option>
-              </select>
-            </label>
+            <fieldset className="settings-fieldset">
+              <legend className="settings-field-label">
+                Inspection warnings
+              </legend>
+              <div className="settings-checkbox-grid">
+                <label className="settings-checkbox">
+                  <input
+                    type="checkbox"
+                    data-testid="inspection-warning-8s"
+                    checked={settings.inspectionWarning8s}
+                    onChange={(event) =>
+                      onChange({ inspectionWarning8s: event.target.checked })
+                    }
+                  />
+                  <span>8 seconds</span>
+                </label>
+                <label className="settings-checkbox">
+                  <input
+                    type="checkbox"
+                    data-testid="inspection-warning-12s"
+                    checked={settings.inspectionWarning12s}
+                    onChange={(event) =>
+                      onChange({ inspectionWarning12s: event.target.checked })
+                    }
+                  />
+                  <span>12 seconds</span>
+                </label>
+              </div>
+            </fieldset>
 
             <p className="settings-note">
-              Feedback flashes the timer. Volume applies to sound; haptic
-              support varies by browser and device.
+              Warnings always show their text when enabled and follow the
+              inspection timer direction. Sound and haptic follow the feedback
+              channel above; volume applies to sound, and haptic support varies
+              by browser and device.
             </p>
           </section>
 
@@ -261,14 +343,7 @@ export function SettingsDialog({
             <fieldset className="settings-fieldset">
               <legend className="settings-field-label">Visible cards</legend>
               <div className="settings-checkbox-grid">
-                {(
-                  [
-                    ['single', 'Best single'],
-                    ['mo3', 'Best mo3'],
-                    ['ao5', 'Best ao5'],
-                    ['ao12', 'Best ao12'],
-                  ] as const
-                ).map(([key, label]) => (
+                {BUILT_IN_STAT_DEFINITIONS.map(({ key, label }) => (
                   <label key={key} className="settings-checkbox">
                     <input
                       type="checkbox"
@@ -288,6 +363,87 @@ export function SettingsDialog({
                 ))}
               </div>
             </fieldset>
+
+            <div className="settings-fieldset">
+              <span className="settings-field-label">Custom averages</span>
+              <div className="settings-custom-averages">
+                {settings.customAverages.map((average, index) => (
+                  <div className="settings-custom-average" key={average.id}>
+                    <label className="settings-checkbox">
+                      <input
+                        type="checkbox"
+                        aria-label={`Show custom ao${average.size}`}
+                        data-testid={`custom-average-visible-${index}`}
+                        checked={average.visible}
+                        onChange={(event) =>
+                          updateCustomAverages(
+                            settings.customAverages.map((candidate) =>
+                              candidate.id === average.id
+                                ? {
+                                    ...candidate,
+                                    visible: event.target.checked,
+                                  }
+                                : candidate,
+                            ),
+                          )
+                        }
+                      />
+                      <span>ao</span>
+                    </label>
+                    <input
+                      type="number"
+                      className="settings-custom-size"
+                      aria-label={`Custom average size ${index + 1}`}
+                      data-testid={`custom-average-size-${index}`}
+                      min={MIN_CUSTOM_AVERAGE_SIZE}
+                      max={MAX_CUSTOM_AVERAGE_SIZE}
+                      step={1}
+                      value={average.size}
+                      onChange={(event) =>
+                        changeCustomAverageSize(
+                          average.id,
+                          Number(event.target.value || MIN_CUSTOM_AVERAGE_SIZE),
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="text-button danger-text"
+                      aria-label={`Remove custom ao${average.size}`}
+                      data-testid={`remove-custom-average-${index}`}
+                      onClick={() =>
+                        updateCustomAverages(
+                          settings.customAverages.filter(
+                            (candidate) => candidate.id !== average.id,
+                          ),
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="text-button settings-add-average"
+                data-testid="add-custom-average"
+                disabled={settings.customAverages.length >= MAX_CUSTOM_AVERAGES}
+                onClick={addCustomAverage}
+              >
+                Add custom average
+              </button>
+              <p className="settings-note settings-custom-note">
+                Up to {MAX_CUSTOM_AVERAGES} custom trimmed averages, from ao
+                {MIN_CUSTOM_AVERAGE_SIZE} to ao{MAX_CUSTOM_AVERAGE_SIZE}. Built-in
+                sizes such as ao5 and ao12 are already listed above.
+              </p>
+              {customAverageError ? (
+                <p className="settings-error" role="alert">
+                  {customAverageError}
+                </p>
+              ) : null}
+            </div>
 
             <label className="settings-field">
               <span className="settings-field-label">Stat precision</span>

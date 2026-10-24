@@ -2,7 +2,7 @@
 
 **Status:** Active planning document  
 **Last updated:** 2026-10-23  
-**Current release line:** Phase 2A.2 complete; Phase 2B next, not started
+**Current release line:** Phase 2A.3 complete; Phase 2B next, not started
 
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
@@ -21,6 +21,10 @@ verification evidence.
   update modes, interface zoom, small decimals, scramble presentation, alerts
   with adjustable volume, accent colors, statistics display controls, the
   Controls reference, and dedicated production E2E coverage are in place.
+- Phase 2A.3 is complete: settings schema v5, sessions schema v2, count-down/
+  count-up inspection with independent warnings, expanded built-in and custom
+  statistics, per-session settings, typed destructive confirmations, persisted
+  solve comments, and the floating solve action menu are in place.
 - Phase 2B (Google Drive backup) and Phase 2C (multi-device sync) are not
   started. Neither may begin without an explicit user instruction.
 
@@ -70,6 +74,47 @@ statistics correctness.
       and failure paths.
 - [x] `npm run check` passes.
 - [x] `README.md`, `PROJECT_PROGRESS.md`, and the Settings screenshot are refreshed.
+
+## Phase 2A.3 — Timer, statistics, and history refinements — Complete
+
+**Goal:** Refine the timer, session, statistics, and history surfaces without
+changing WCA timing or calculation semantics.
+
+**Delivered:**
+
+1. **Inspection**
+   - Count-down or count-up display.
+   - Independent optional **8 seconds** and **12 seconds** visual warnings that
+     follow the displayed direction.
+   - A 50% louder DNF/danger tone at the same volume setting, capped safely.
+2. **Statistics**
+   - Built-in single, mo3, ao5, ao12, ao25, ao100, ao200, ao500, ao1000,
+     ao5000, and ao10000.
+   - Up to five custom trimmed averages from ao3 to ao10000, excluding built-in
+     sizes.
+   - A Fenwick-tree fast path for large averages.
+3. **Sessions**
+   - Session-settings gear replacing the inline delete button.
+   - Per-session inspection override, clear session, and delete session.
+   - Typed `CLEAR THIS SESSION` / `DELETE THIS SESSION` confirmation phrases.
+4. **History**
+   - Floating row menu for `+2`, DNF, delete/undo, copy scramble/time/text, and
+     comments.
+   - Persisted 500-character solve comments.
+   - Inline penalty/delete buttons and the History clear action removed.
+5. **Chrome and storage**
+   - Green “Saved locally” header indicator removed.
+   - Settings schema v5 and sessions schema v2 with migrations and validation.
+
+**Acceptance gate — met:**
+
+- [x] WCA penalties and statistics remain unchanged by display preferences.
+- [x] Typed confirmations protect destructive session actions.
+- [x] Comments and per-session inspection persist through reload and backup.
+- [x] Settings/session migrations and custom-average validation have unit tests.
+- [x] Production E2E covers the new flows and failure paths.
+- [x] `npm run check` passes.
+- [x] `README.md`, `PROJECT_PROGRESS.md`, `AGENTS.md`, and screenshots are updated.
 
 ## Phase 2B — Google Drive backup
 

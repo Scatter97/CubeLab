@@ -3,14 +3,22 @@ import {
   formatSolveCount,
   formatStatValue,
 } from '../lib/format'
-import type { SessionStats, StatResult } from '../lib/stats'
-import type { StatKey, StatPrecision, StatVisibility } from '../types'
+import { BUILT_IN_STAT_DEFINITIONS } from '../lib/statDefinitions'
+import type { SessionStats, StatPair, StatResult } from '../lib/stats'
+import type {
+  CustomAverageSetting,
+  StatPrecision,
+  StatVisibility,
+} from '../types'
 
 interface StatsPanelProps {
   stats: SessionStats
   visibleStats: StatVisibility
+  customAverages: readonly CustomAverageSetting[]
   precision: StatPrecision
 }
+
+const EMPTY_PAIR: StatPair = { best: null, latest: null }
 
 function resultClass(result: StatResult): string {
   if (result === null) return 'is-empty'
@@ -51,45 +59,42 @@ function StatTile({
 export function StatsPanel({
   stats,
   visibleStats,
+  customAverages,
   precision,
 }: StatsPanelProps) {
-  const tiles: Array<{
-    key: StatKey
-    label: string
-    best: number | null
-    latest: StatResult
-    testId: string
-  }> = [
-    {
-      key: 'single',
-      label: 'Best single',
-      best: stats.bestSingleMs,
-      latest: stats.latestSingle,
-      testId: 'best-single',
-    },
-    {
-      key: 'mo3',
-      label: 'Best mo3',
-      best: stats.bestMean3Ms,
-      latest: stats.latestMean3,
-      testId: 'best-mo3',
-    },
-    {
-      key: 'ao5',
-      label: 'Best ao5',
-      best: stats.bestAverage5Ms,
-      latest: stats.latestAverage5,
-      testId: 'best-ao5',
-    },
-    {
-      key: 'ao12',
-      label: 'Best ao12',
-      best: stats.bestAverage12Ms,
-      latest: stats.latestAverage12,
-      testId: 'best-ao12',
-    },
-  ]
-  const shownTiles = tiles.filter((tile) => visibleStats[tile.key])
+  const builtInTiles = BUILT_IN_STAT_DEFINITIONS.filter(
+    (definition) => visibleStats[definition.key],
+  ).map((definition) => {
+    const pair =
+      definition.key === 'single'
+        ? stats.single
+        : definition.key === 'mo3'
+          ? stats.mo3
+          : stats.averages.get(definition.size as number) ?? EMPTY_PAIR
+
+    return {
+      key: definition.key as string,
+      label: definition.label,
+      best: pair.best,
+      latest: pair.latest,
+      testId: `best-${definition.key}`,
+    }
+  })
+
+  const customTiles = customAverages
+    .filter((average) => average.visible)
+    .map((average) => {
+      const pair = stats.averages.get(average.size) ?? EMPTY_PAIR
+      return {
+        key: `custom-${average.id}`,
+        label: `Best ao${average.size}`,
+        best: pair.best,
+        latest: pair.latest,
+        testId: `best-ao${average.size}`,
+      }
+    })
+
+  const shownTiles = [...builtInTiles, ...customTiles]
 
   return (
     <section className="panel stats-panel" aria-labelledby="stats-title">

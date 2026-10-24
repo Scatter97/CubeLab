@@ -15,7 +15,10 @@ import {
   renameSession,
   restoreSolve,
   setActiveSession,
+  setSessionInspection,
+  setSolveComment,
   setSolvePenalty,
+  MAX_SOLVE_COMMENT_LENGTH,
 } from './sessions'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
@@ -25,6 +28,7 @@ function solve(overrides: Partial<Solve> = {}): Solve {
     rawMs: 12_340,
     penalty: 'none',
     scramble: "R U R' U'",
+    comment: '',
     createdAt: 1_700_000_000_000,
     ...overrides,
   }
@@ -96,6 +100,14 @@ describe('session collection', () => {
       updatedAt: 1_700_000_100_000,
       solves: [],
     })
+  })
+
+  it('inherits the requested inspection value when creating a session', () => {
+    const result = createSession(data(), 'Evening', {
+      id: 'session-2',
+      inspectionEnabled: true,
+    })
+    expect(result?.data.sessions[1]?.inspectionEnabled).toBe(true)
   })
 
   it('refuses duplicate names and duplicate IDs', () => {
@@ -188,6 +200,40 @@ describe('solve mutations', () => {
   it('does not add a duplicate solve ID', () => {
     const current = data({ sessions: [session({ solves: [solve()] })] })
     expect(addSolve(current, solve(), 5)).toBe(current)
+  })
+
+  it('stores and clears solve comments without touching raw time', () => {
+    const current = data({ sessions: [session({ solves: [solve()] })] })
+    const commented = setSolveComment(current, 'solve-1', '  Locked up on F2L  ', 5)
+    expect(commented.sessions[0]?.solves[0]).toMatchObject({
+      rawMs: 12_340,
+      comment: '  Locked up on F2L  ',
+    })
+    expect(commented.sessions[0]?.updatedAt).toBe(5)
+
+    const cleared = setSolveComment(commented, 'solve-1', '', 6)
+    expect(cleared.sessions[0]?.solves[0]?.comment).toBe('')
+    expect(setSolveComment(cleared, 'missing', 'x')).toBe(cleared)
+  })
+
+  it('truncates solve comments to the supported length', () => {
+    const current = data({ sessions: [session({ solves: [solve()] })] })
+    const long = 'x'.repeat(MAX_SOLVE_COMMENT_LENGTH + 20)
+    const commented = setSolveComment(current, 'solve-1', long)
+    expect(commented.sessions[0]?.solves[0]?.comment).toHaveLength(
+      MAX_SOLVE_COMMENT_LENGTH,
+    )
+  })
+
+  it('sets a per-session inspection override', () => {
+    const current = data({
+      sessions: [session(), session({ id: 'session-2', name: 'Evening' })],
+    })
+    const updated = setSessionInspection(current, 'session-2', true, 5)
+    expect(updated.sessions[1]?.inspectionEnabled).toBe(true)
+    expect(updated.sessions[1]?.updatedAt).toBe(5)
+    expect(updated.sessions[0]?.inspectionEnabled).toBeUndefined()
+    expect(setSessionInspection(updated, 'session-2', true, 6)).toBe(updated)
   })
 
   it('updates penalties without overwriting raw time', () => {

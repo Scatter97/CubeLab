@@ -3,10 +3,18 @@ import { expect, test, type Page } from '@playwright/test'
 
 const TIMER = '[data-testid="timer-surface"]'
 
+interface StoredSolve {
+  id: string
+  scramble: string
+  penalty: string
+  comment: string
+}
+
 interface StoredSession {
   id: string
   name: string
-  solves: unknown[]
+  solves: StoredSolve[]
+  inspectionEnabled?: boolean
 }
 
 interface StoredSessions {
@@ -48,7 +56,7 @@ async function storedSessions(page: Page): Promise<StoredSessions | null> {
   })
 }
 
-async function storedSolves(page: Page): Promise<unknown[]> {
+async function storedSolves(page: Page): Promise<StoredSolve[]> {
   const data = await storedSessions(page)
   return (
     data?.sessions.find((session) => session.id === data.activeSessionId)
@@ -77,6 +85,20 @@ async function openBackup(page: Page) {
   const dialog = page.getByRole('dialog', { name: 'Your local data' })
   await expect(dialog).toBeVisible()
   return dialog
+}
+
+async function openSessionSettings(page: Page) {
+  await page.getByTestId('session-settings').click()
+  const dialog = page.getByRole('dialog', { name: 'Session settings' })
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function openFirstSolveMenu(page: Page) {
+  await page.locator('[data-testid="history-row"]').first().click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  return menu
 }
 
 test('keyboard timing records exactly one solve and advances the scramble', async ({
@@ -109,104 +131,146 @@ test('keyboard timing records exactly one solve and advances the scramble', asyn
 
   const solves = await storedSolves(page)
   expect(solves).toHaveLength(1)
-  expect((solves[0] as { scramble: string }).scramble).toBe(firstScramble)
+  expect(solves[0]?.scramble).toBe(firstScramble)
 })
 
-test('penalties survive reload and delete supports undo', async ({ page }) => {
+test('solve menu handles penalties, comments, copying, undo, and typed clear', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/')
   await waitForApp(page)
-  await recordSolve(page, 100)
+  await recordSolve(page, 120)
 
-  const plusTwoButton = page.getByRole('button', {
-    name: 'Toggle plus two penalty for solve 1',
-  })
-  await plusTwoButton.click()
-  await expect(plusTwoButton).toHaveAttribute('aria-pressed', 'true')
+  const row = page.locator('[data-testid="history-row"]').first()
+  let menu = await openFirstSolveMenu(page)
+  await expect(menu).toContainText('Solve #1')
+  await menu.getByRole('menuitem', { name: 'Add +2 penalty' }).click()
+  await expect(menu).toBeHidden()
+  await expect(row).toContainText('+2')
 
-  const storedBeforeReload = await storedSolves(page)
-  expect((storedBeforeReload[0] as { penalty: string }).penalty).toBe('+2')
+  let solves = await storedSolves(page)
+  expect(solves[0]?.penalty).toBe('+2')
 
   await page.reload()
   await waitForApp(page)
   await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  menu = await openFirstSolveMenu(page)
   await expect(
-    page.getByRole('button', {
-      name: 'Toggle plus two penalty for solve 1',
-    }),
-  ).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('timer-display')).toContainText('+2')
+    menu.getByRole('menuitem', { name: 'Remove +2 penalty' }),
+  ).toBeVisible()
+  await menu.getByRole('menuitem', { name: 'Add comment' }).click()
+  const commentBox = page.getByRole('textbox', { name: 'Solve comment' })
+  await expect(commentBox).toBeFocused()
+  await commentBox.fill('  Locked up on F2L  ')
+  await page.getByRole('button', { name: 'Save comment' }).click()
+  await expect(page.getByRole('status')).toContainText('Solve comment saved')
+  await expect(row.locator('.history-comment')).toHaveText('Locked up on F2L')
 
-  await page.getByRole('button', { name: 'Delete solve 1' }).click()
+  solves = await storedSolves(page)
+  expect(solves[0]?.comment).toBe('Locked up on F2L')
+  const scramble = solves[0]?.scramble ?? ''
+
+  menu = await openFirstSolveMenu(page)
+  await expect(menu).toContainText('Locked up on F2L')
+  await menu.getByRole('menuitem', { name: 'Copy scramble' }).click()
+  await expect(page.getByRole('status')).toContainText(
+    'Scramble copied to clipboard',
+  )
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(scramble)
+
+  menu = await openFirstSolveMenu(page)
+  await menu.getByRole('menuitem', { name: 'Delete solve' }).click()
   await expect(page.getByTestId('solve-count')).toHaveText('0')
-  await expect(page.getByText('No solves yet.')).toBeVisible()
   await expect(page.getByRole('status')).toContainText('Solve deleted')
-
   await page.getByRole('button', { name: 'Undo' }).click()
   await expect(page.getByTestId('solve-count')).toHaveText('1')
-  await expect(page.getByText('No solves yet.')).toBeHidden()
+  await expect(page.locator('.history-comment')).toHaveText('Locked up on F2L')
 
-  // Clearing requires explicit confirmation and can be cancelled.
-  await page.getByRole('button', { name: 'Clear session' }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'Keep solves' })).toBeFocused()
+  // Clear lives in per-session settings and requires the exact typed phrase.
+  const sessionDialog = await openSessionSettings(page)
+  await sessionDialog.getByTestId('session-clear').click()
+  const confirm = page.getByRole('dialog', { name: 'Delete every solve?' })
+  await expect(confirm).toBeVisible()
+  const typed = confirm.getByTestId('confirm-text')
+  await expect(typed).toBeFocused()
+  const clearButton = confirm.getByRole('button', { name: 'Clear session' })
+  await expect(clearButton).toBeDisabled()
 
-  // Tab and Shift+Tab stay inside the modal dialog.
-  await page.keyboard.press('Shift+Tab')
-  await expect(dialog.getByRole('button', { name: 'Clear session' })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(dialog.getByRole('button', { name: 'Keep solves' })).toBeFocused()
+  await typed.fill('clear this session')
+  await expect(clearButton).toBeDisabled()
+  await typed.fill('CLEAR THIS SESSION')
+  await expect(clearButton).toBeEnabled()
+  await clearButton.click()
 
-  await dialog.getByRole('button', { name: 'Keep solves' }).click()
-  await expect(page.getByTestId('solve-count')).toHaveText('1')
-  await expect(page.getByRole('button', { name: 'Clear session' })).toBeFocused()
-
-  await page.getByRole('button', { name: 'Clear session' }).click()
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Clear session' }).click()
+  await expect(page.getByRole('status')).toContainText('Session cleared')
   await expect(page.getByTestId('solve-count')).toHaveText('0')
+  await expect(sessionDialog).toBeHidden()
   expect(await storedSolves(page)).toHaveLength(0)
 })
 
-test('inspection starts, arms, times a solve, and persists its setting', async ({
+test('inspection supports count-down, count-up, and independent warnings', async ({
   page,
 }) => {
   await page.goto('/')
   await waitForApp(page)
+  await page.clock.install()
 
-  const settings = await openSettings(page)
-  const inspectionSwitch = settings.getByRole('switch', { name: /Inspection/ })
-  await expect(inspectionSwitch).toHaveAttribute('aria-checked', 'false')
-  await inspectionSwitch.click()
-  await expect(inspectionSwitch).toHaveAttribute('aria-checked', 'true')
+  let settings = await openSettings(page)
+  await settings.getByTestId('inspection-setting').click()
+  await settings.getByTestId('inspection-direction').selectOption('down')
+  await settings.getByTestId('inspection-warning-8s').check()
+  await settings.getByTestId('inspection-warning-12s').check()
+  // Warning text is visual even when solve/DNF feedback is off.
+  await settings.getByTestId('alert-channel').selectOption('off')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
-  await expect(page.getByTestId('settings-button')).toBeFocused()
 
-  // The header Settings button keeps focus after closing. Space still controls
-  // the timer, and Settings cannot be reopened while timing is active.
   await page.keyboard.press('Space')
-  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection', {
-    timeout: 3_000,
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
+  await expect(page.getByTestId('timer-display')).toHaveText('15')
+
+  await page.clock.fastForward(3_100)
+  await expect(page.getByTestId('timer-display')).toHaveText('12')
+  await expect(page.locator('.timer-alert-message')).toHaveText('12 seconds')
+  await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
+    '12 seconds',
+  )
+
+  await page.clock.fastForward(4_000)
+  await expect(page.getByTestId('timer-display')).toHaveText('8')
+  await expect(page.locator('.timer-alert-message')).toHaveText('8 seconds')
+
+  await page.keyboard.press('Escape')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
+
+  settings = await openSettings(page)
+  await settings.getByTestId('inspection-direction').selectOption('up')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await page.keyboard.press('Space')
+  await expect(page.getByTestId('timer-display')).toHaveText('0')
+  await page.clock.fastForward(8_100)
+  await expect(page.getByTestId('timer-display')).toHaveText('8')
+  await expect(page.locator('.timer-alert-message')).toHaveText('8 seconds')
+
+  await page.clock.fastForward(4_000)
+  await expect(page.getByTestId('timer-display')).toHaveText('12')
+  await expect(page.locator('.timer-alert-message')).toHaveText('12 seconds')
+
+  await page.keyboard.press('Escape')
+  const stored = await page.evaluate(() => {
+    const raw = localStorage.getItem('cubelab:settings:v1')
+    return raw ? (JSON.parse(raw) as { settings: Record<string, unknown> }) : null
   })
-  await expect(page.getByTestId('settings-button')).toBeDisabled()
-  await expect(page.locator(TIMER)).toContainText('15s + 2s')
-
-  await holdSpace(page)
-  await page.waitForTimeout(120)
-  await stopWithSpace(page)
-  await expect(page.getByTestId('solve-count')).toHaveText('1')
-
-  const solves = await storedSolves(page)
-  expect((solves[0] as { penalty: string }).penalty).toBe('none')
-
-  await page.reload()
-  await waitForApp(page)
-  await expect(page.getByTestId('solve-count')).toHaveText('1')
-  const reopenedSettings = await openSettings(page)
-  await expect(
-    reopenedSettings.getByRole('switch', { name: /Inspection/ }),
-  ).toHaveAttribute('aria-checked', 'true')
+  expect(stored?.settings.inspectionCountDirection).toBe('up')
+  expect(stored?.settings.inspectionWarning8s).toBe(true)
+  expect(stored?.settings.inspectionWarning12s).toBe(true)
 })
 
 test('settings dialog contains focus and restores it to the header button', async ({
@@ -292,7 +356,9 @@ test('interface zoom fills the viewport and keeps dialogs usable', async ({
   expect(zoomedOut.scrollHeight).toBeLessThanOrEqual(zoomedOut.innerHeight + 1)
   expect(zoomedOut.shell.x).toBeCloseTo(0, 0)
   expect(zoomedOut.shell.width).toBeCloseTo(zoomedOut.innerWidth, 0)
-  expect(zoomedOut.shell.height).toBeGreaterThanOrEqual(zoomedOut.innerHeight - 1)
+  expect(zoomedOut.shell.height).toBeGreaterThanOrEqual(
+    zoomedOut.innerHeight - 1,
+  )
 
   const zoomedSettings = await openSettings(page)
   await zoomedSettings.getByTestId('ui-zoom').selectOption('150')
@@ -382,7 +448,7 @@ test('effective +2 labels are not clipped in the history rail', async ({
     localStorage.setItem(
       'cubelab:sessions:v1',
       JSON.stringify({
-        version: 1,
+        version: 2,
         activeSessionId: 'history-session',
         sessions: [
           {
@@ -397,6 +463,7 @@ test('effective +2 labels are not clipped in the history rail', async ({
                 rawMs: 10_250,
                 penalty: '+2',
                 scramble: "R U R' U' F2 D2 L2 B2 R2 U2",
+                comment: '',
                 createdAt: now - 86_400_000 * 400,
               },
             ],
@@ -439,7 +506,9 @@ test('alerts, accent, and controls settings apply and persist', async ({
   await volume.press('ArrowRight')
   await volume.press('ArrowRight')
   await expect(volume).toHaveValue('85')
-  await settings.getByTestId('inspection-warning').selectOption('8s')
+  await settings.getByTestId('inspection-direction').selectOption('up')
+  await settings.getByTestId('inspection-warning-8s').check()
+  await settings.getByTestId('inspection-warning-12s').check()
   await settings.getByTestId('accent-color').selectOption('blue')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
@@ -460,30 +529,10 @@ test('alerts, accent, and controls settings apply and persist', async ({
   const reopened = await openSettings(page)
   await expect(reopened.getByTestId('alert-channel')).toHaveValue('visual')
   await expect(reopened.getByTestId('alert-volume')).toHaveValue('85')
-  await expect(reopened.getByTestId('inspection-warning')).toHaveValue('8s')
+  await expect(reopened.getByTestId('inspection-direction')).toHaveValue('up')
+  await expect(reopened.getByTestId('inspection-warning-8s')).toBeChecked()
+  await expect(reopened.getByTestId('inspection-warning-12s')).toBeChecked()
   await expect(reopened.getByTestId('accent-color')).toHaveValue('blue')
-})
-
-test('inspection warning fires at the configured threshold', async ({ page }) => {
-  await page.goto('/')
-  await waitForApp(page)
-  await page.clock.install()
-
-  const settings = await openSettings(page)
-  await settings.getByTestId('inspection-setting').click()
-  await settings.getByTestId('inspection-warning').selectOption('8s')
-  await settings.getByTestId('alert-channel').selectOption('visual')
-  await settings.getByTestId('settings-done').click()
-  await expect(settings).toBeHidden()
-
-  await page.keyboard.press('Space')
-  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
-  await page.clock.fastForward(8_100)
-
-  await expect(page.locator('.timer-alert')).toHaveClass(/is-warning/)
-  await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
-    '8 seconds of inspection remaining.',
-  )
 })
 
 test('DNF feedback uses the danger visual alert', async ({ page }) => {
@@ -515,22 +564,25 @@ test('DNF feedback uses the danger visual alert', async ({ page }) => {
   )
 })
 
-test('statistics visibility and precision are display-only', async ({ page }) => {
+test('expanded and custom statistics are display-only and persist', async ({
+  page,
+}) => {
   const now = Date.now()
   await page.addInitScript(
     ({ now }) => {
-      const solves = Array.from({ length: 12 }, (_, index) => ({
+      const solves = Array.from({ length: 130 }, (_, index) => ({
         id: `stats-solve-${index}`,
         event: '333',
-        rawMs: 10_000 + index * 1_000,
+        rawMs: 10_000 + index * 100,
         penalty: 'none',
         scramble: "R U R' U'",
+        comment: '',
         createdAt: now - index * 1_000,
       }))
       localStorage.setItem(
         'cubelab:sessions:v1',
         JSON.stringify({
-          version: 1,
+          version: 2,
           activeSessionId: 'stats-session',
           sessions: [
             {
@@ -550,21 +602,37 @@ test('statistics visibility and precision are display-only', async ({ page }) =>
   await page.goto('/')
   await waitForApp(page)
 
-  const settings = await openSettings(page)
+  let settings = await openSettings(page)
   await settings.getByTestId('stat-visible-mo3').uncheck()
+  await settings.getByTestId('stat-visible-ao25').check()
+  await settings.getByTestId('stat-visible-ao100').check()
   await settings.getByTestId('stat-precision').selectOption('tenths')
+  await settings.getByTestId('add-custom-average').click()
+  await expect(settings.getByTestId('custom-average-size-0')).toHaveValue('6')
+  await settings.getByTestId('custom-average-size-0').fill('7')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
   await expect(page.getByTestId('best-mo3')).toHaveCount(0)
   await expect(page.getByTestId('best-single')).toHaveText('10.0')
+  await expect(page.getByTestId('best-ao25')).toBeVisible()
+  await expect(page.getByTestId('best-ao100')).toBeVisible()
+  await expect(page.getByTestId('best-ao7')).toBeVisible()
 
-  const reopened = await openSettings(page)
-  await reopened.getByTestId('stat-visible-single').uncheck()
-  await reopened.getByTestId('stat-visible-ao5').uncheck()
-  await reopened.getByTestId('stat-visible-ao12').uncheck()
-  await reopened.getByTestId('settings-done').click()
-  await expect(reopened).toBeHidden()
+  settings = await openSettings(page)
+  await expect(settings.getByTestId('stat-visible-mo3')).not.toBeChecked()
+  await expect(settings.getByTestId('stat-visible-ao25')).toBeChecked()
+  await expect(settings.getByTestId('stat-visible-ao100')).toBeChecked()
+  await expect(settings.getByTestId('custom-average-size-0')).toHaveValue('7')
+
+  await settings.getByTestId('stat-visible-single').uncheck()
+  await settings.getByTestId('stat-visible-ao5').uncheck()
+  await settings.getByTestId('stat-visible-ao12').uncheck()
+  await settings.getByTestId('stat-visible-ao25').uncheck()
+  await settings.getByTestId('stat-visible-ao100').uncheck()
+  await settings.getByTestId('custom-average-visible-0').uncheck()
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
 
   await expect(page.locator('.stats-empty')).toBeVisible()
   await expect(page.locator('.quick-stats')).toHaveCount(0)
@@ -610,7 +678,7 @@ test('mobile layout supports hold-to-time pointer controls', async ({
   await context.close()
 })
 
-test('narrow mobile layout keeps settings and session touch targets', async ({
+test('narrow mobile layout keeps settings, session, and solve-menu targets usable', async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -663,11 +731,14 @@ test('narrow mobile layout keeps settings and session touch targets', async ({
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
-  const clearButton = page.getByRole('button', { name: 'Clear session' })
-  const clearBox = await clearButton.boundingBox()
-  expect(clearBox).not.toBeNull()
-  if (!clearBox) throw new Error('Clear session has no bounding box')
-  expect(clearBox.height).toBeGreaterThanOrEqual(28)
+  const sessionSettingsButton = page.getByTestId('session-settings')
+  const sessionSettingsBox = await sessionSettingsButton.boundingBox()
+  expect(sessionSettingsBox).not.toBeNull()
+  if (!sessionSettingsBox) {
+    throw new Error('Session settings button has no bounding box')
+  }
+  expect(sessionSettingsBox.width).toBeGreaterThanOrEqual(28)
+  expect(sessionSettingsBox.height).toBeGreaterThanOrEqual(28)
 
   const sessionSelectBox = await page.getByTestId('session-select').boundingBox()
   expect(sessionSelectBox).not.toBeNull()
@@ -680,18 +751,48 @@ test('narrow mobile layout keeps settings and session touch targets', async ({
   expect(newSessionBox.width).toBeGreaterThanOrEqual(28)
   expect(newSessionBox.height).toBeGreaterThanOrEqual(28)
 
+  const sessionDialog = await openSessionSettings(page)
+  const sessionDialogBox = await sessionDialog.boundingBox()
+  expect(sessionDialogBox).not.toBeNull()
+  if (!sessionDialogBox) throw new Error('Session dialog has no bounding box')
+  expect(sessionDialogBox.width).toBeLessThanOrEqual(320)
+  const sessionSwitchBox = await sessionDialog
+    .getByTestId('session-inspection-setting')
+    .boundingBox()
+  expect(sessionSwitchBox).not.toBeNull()
+  if (!sessionSwitchBox) throw new Error('Session switch has no bounding box')
+  expect(sessionSwitchBox.height).toBeGreaterThanOrEqual(28)
+  await sessionDialog.getByTestId('session-settings-done').click()
+  await expect(sessionDialog).toBeHidden()
+
   await recordSolve(page, 80)
-  const miniButtonBoxes = await page.locator('.mini-button').evaluateAll((buttons) =>
-    buttons.map((button) => {
-      const rect = button.getBoundingClientRect()
-      return { width: rect.width, height: rect.height }
-    }),
-  )
-  expect(miniButtonBoxes.length).toBeGreaterThanOrEqual(3)
-  for (const box of miniButtonBoxes) {
-    expect(box.width).toBeGreaterThanOrEqual(28)
+  const row = page.locator('[data-testid="history-row"]').first()
+  await row.scrollIntoViewIfNeeded()
+  await row.click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  const menuBox = await menu.boundingBox()
+  expect(menuBox).not.toBeNull()
+  if (!menuBox) throw new Error('Solve menu has no bounding box')
+  expect(menuBox.width).toBeLessThanOrEqual(320)
+  expect(menuBox.x).toBeGreaterThanOrEqual(0)
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(320)
+
+  const actionBoxes = await menu
+    .getByRole('menuitem')
+    .evaluateAll((items) =>
+      items.map((item) => {
+        const rect = item.getBoundingClientRect()
+        return { width: rect.width, height: rect.height }
+      }),
+    )
+  expect(actionBoxes.length).toBeGreaterThanOrEqual(6)
+  for (const box of actionBoxes) {
     expect(box.height).toBeGreaterThanOrEqual(28)
   }
+
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
 
   const noHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth <= window.innerWidth + 1,
@@ -711,6 +812,7 @@ test('long desktop sessions scroll inside the history panel', async ({ page }) =
       rawMs: 9000 + index,
       penalty: 'none',
       scramble: "R U R' U' F2 D L2 B' R2 U2 F R2",
+      comment: '',
       createdAt: now - index * 1000,
     }))
     localStorage.setItem(
@@ -796,24 +898,38 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   expect(await selectedSessionName(page)).toBe('Morning')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
 
-  await page.getByTestId('delete-session').click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible()
-  await expect(
-    dialog.getByRole('heading', { name: /Delete .*Morning/ }),
-  ).toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'Keep session' })).toBeFocused()
-  await dialog.getByRole('button', { name: 'Keep session' }).click()
+  const sessionDialog = await openSessionSettings(page)
+  await sessionDialog.getByTestId('session-delete').click()
+  const confirm = page.getByRole('dialog', { name: /Delete .*Morning/ })
+  await expect(confirm).toBeVisible()
+  await expect(confirm.getByRole('button', { name: 'Keep session' })).toBeVisible()
+  await confirm.getByRole('button', { name: 'Keep session' }).click()
+  await expect(confirm).toBeHidden()
+  await expect(sessionDialog).toBeVisible()
   expect(await selectedSessionName(page)).toBe('Morning')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
 
-  await page.getByTestId('delete-session').click()
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Delete session' }).click()
+  await sessionDialog.getByTestId('session-delete').click()
+  const deleteConfirm = page.getByRole('dialog', {
+    name: /Delete .*Morning/,
+  })
+  const deleteButton = deleteConfirm.getByRole('button', {
+    name: 'Delete session',
+  })
+  await expect(deleteButton).toBeDisabled()
+  await deleteConfirm.getByTestId('confirm-text').fill('DELETE THIS SESSION')
+  await expect(deleteButton).toBeEnabled()
+  await deleteButton.click()
+
   await expect(page.getByRole('status')).toContainText('Session deleted')
+  await expect(sessionDialog).toBeHidden()
   expect(await selectedSessionName(page)).toBe('Evening')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
-  await expect(page.getByTestId('delete-session')).toBeDisabled()
+
+  const afterDelete = await openSessionSettings(page)
+  await expect(afterDelete.getByTestId('session-delete')).toBeDisabled()
+  await afterDelete.getByTestId('session-settings-done').click()
+  await expect(afterDelete).toBeHidden()
 
   await expect
     .poll(async () => (await storedSessions(page))?.sessions.length)
@@ -828,6 +944,73 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await expect(page.getByTestId('solve-count')).toHaveText('1')
 })
 
+test('per-session inspection overrides the global default and persists', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  let settings = await openSettings(page)
+  await expect(
+    settings.getByRole('switch', { name: /Inspection/ }),
+  ).toHaveAttribute('aria-checked', 'false')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  let sessionDialog = await openSessionSettings(page)
+  const sessionSwitch = sessionDialog.getByTestId('session-inspection-setting')
+  await expect(sessionSwitch).toHaveAttribute('aria-checked', 'false')
+  await sessionSwitch.click()
+  await expect(sessionSwitch).toHaveAttribute('aria-checked', 'true')
+  await sessionDialog.getByTestId('session-settings-done').click()
+  await expect(sessionDialog).toBeHidden()
+  await expect(page.getByTestId('settings-button')).toHaveAttribute(
+    'aria-label',
+    /Inspection on/,
+  )
+
+  // New sessions inherit the active session's effective inspection value.
+  await page.getByTestId('new-session').click()
+  await page.getByRole('textbox', { name: 'Session name' }).fill('Session 2')
+  await page.getByTestId('save-session-name').click()
+  expect(await selectedSessionName(page)).toBe('Session 2')
+
+  sessionDialog = await openSessionSettings(page)
+  await expect(
+    sessionDialog.getByTestId('session-inspection-setting'),
+  ).toHaveAttribute('aria-checked', 'true')
+  await sessionDialog.getByTestId('session-inspection-setting').click()
+  await sessionDialog.getByTestId('session-settings-done').click()
+  await expect(page.getByTestId('settings-button')).toHaveAttribute(
+    'aria-label',
+    /Inspection off/,
+  )
+
+  await page.getByTestId('session-select').selectOption({ label: 'Session 1' })
+  await expect(page.getByTestId('settings-button')).toHaveAttribute(
+    'aria-label',
+    /Inspection on/,
+  )
+
+  await page.reload()
+  await waitForApp(page)
+  await expect(page.getByTestId('settings-button')).toHaveAttribute(
+    'aria-label',
+    /Inspection on/,
+  )
+  await page.getByTestId('session-select').selectOption({ label: 'Session 2' })
+  await expect(page.getByTestId('settings-button')).toHaveAttribute(
+    'aria-label',
+    /Inspection off/,
+  )
+
+  // The global default remains unchanged.
+  settings = await openSettings(page)
+  await expect(
+    settings.getByRole('switch', { name: /Inspection/ }),
+  ).toHaveAttribute('aria-checked', 'false')
+})
+
 test('session controls lock while the timer is active', async ({ page }) => {
   await page.goto('/')
   await waitForApp(page)
@@ -839,32 +1022,41 @@ test('session controls lock while the timer is active', async ({ page }) => {
   await expect(select).toBeDisabled()
   await expect(page.getByTestId('new-session')).toBeDisabled()
   await expect(page.getByTestId('rename-session')).toBeDisabled()
+  await expect(page.getByTestId('session-settings')).toBeDisabled()
   await expect(page.getByTestId('settings-button')).toBeDisabled()
 
   await stopWithSpace(page)
   await expect(select).toBeEnabled()
   await expect(page.getByTestId('new-session')).toBeEnabled()
+  await expect(page.getByTestId('session-settings')).toBeEnabled()
   await expect(page.getByTestId('settings-button')).toBeEnabled()
 })
 
-test('backup export and import restore all sessions and settings', async ({
+test('backup export and import restore sessions, comments, and settings', async ({
   page,
 }) => {
   await page.goto('/')
   await waitForApp(page)
 
   await recordSolve(page, 100)
-  await page.getByTestId('new-session').click()
+  const menu = await openFirstSolveMenu(page)
+  await menu.getByRole('menuitem', { name: 'Add comment' }).click()
   await page
-    .getByRole('textbox', { name: 'Session name' })
-    .fill('Evening')
+    .getByRole('textbox', { name: 'Solve comment' })
+    .fill('Backup comment')
+  await page.getByRole('button', { name: 'Save comment' }).click()
+  await expect(page.getByRole('status')).toContainText('Solve comment saved')
+
+  await page.getByTestId('new-session').click()
+  await page.getByRole('textbox', { name: 'Session name' }).fill('Evening')
   await page.getByTestId('save-session-name').click()
   await recordSolve(page, 100)
 
   const settings = await openSettings(page)
-  const inspectionSwitch = settings.getByRole('switch', { name: /Inspection/ })
-  await inspectionSwitch.click()
-  await expect(inspectionSwitch).toHaveAttribute('aria-checked', 'true')
+  await settings.getByRole('switch', { name: /Inspection/ }).click()
+  await settings.getByTestId('inspection-direction').selectOption('up')
+  await settings.getByTestId('inspection-warning-8s').check()
+  await settings.getByTestId('add-custom-average').click()
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -900,8 +1092,13 @@ test('backup export and import restore all sessions and settings', async ({
     app: string
     format: string
     version: number
-    sessions: { activeSessionId: string; sessions: StoredSession[] }
-    settings: { inspectionEnabled: boolean }
+    sessions: StoredSessions
+    settings: {
+      inspectionEnabled: boolean
+      inspectionCountDirection: string
+      inspectionWarning8s: boolean
+      customAverages: { size: number }[]
+    }
   }
   expect(backup.app).toBe('CubeLab')
   expect(backup.format).toBe('cubelab-backup')
@@ -917,7 +1114,11 @@ test('backup export and import restore all sessions and settings', async ({
       0,
     ),
   ).toBe(2)
+  expect(backup.sessions.sessions[0]?.solves[0]?.comment).toBe('Backup comment')
   expect(backup.settings.inspectionEnabled).toBe(true)
+  expect(backup.settings.inspectionCountDirection).toBe('up')
+  expect(backup.settings.inspectionWarning8s).toBe(true)
+  expect(backup.settings.customAverages[0]?.size).toBe(6)
   await expect(dialog).toBeHidden()
 
   // Start from empty local data so the restore is observable.
@@ -936,11 +1137,10 @@ test('backup export and import restore all sessions and settings', async ({
   // Importing requires explicit confirmation; cancelling keeps local data.
   await openBackup(page)
   await page.getByTestId('backup-file-input').setInputFiles(downloadPath)
-  const cancelDialog = page.getByRole('dialog')
+  const cancelDialog = page.getByRole('dialog', {
+    name: 'Replace local sessions?',
+  })
   await expect(cancelDialog).toBeVisible()
-  await expect(
-    cancelDialog.getByRole('heading', { name: 'Replace local sessions?' }),
-  ).toBeVisible()
   await expect(cancelDialog).toContainText('2 sessions')
   await expect(cancelDialog).toContainText('2 solves')
   await expect(
@@ -956,10 +1156,10 @@ test('backup export and import restore all sessions and settings', async ({
 
   await openBackup(page)
   await page.getByTestId('backup-file-input').setInputFiles(downloadPath)
-  const importDialog = page.getByRole('dialog')
-  await expect(
-    importDialog.getByRole('heading', { name: 'Replace local sessions?' }),
-  ).toBeVisible()
+  const importDialog = page.getByRole('dialog', {
+    name: 'Replace local sessions?',
+  })
+  await expect(importDialog).toBeVisible()
   await importDialog.getByRole('button', { name: 'Import backup' }).click()
   await expect(page.getByRole('status')).toContainText('Backup imported')
   await expect(page.getByTestId('settings-button')).toBeFocused()
@@ -968,15 +1168,26 @@ test('backup export and import restore all sessions and settings', async ({
   await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
     2,
   )
+
   const importedSettings = await openSettings(page)
   await expect(
     importedSettings.getByRole('switch', { name: /Inspection/ }),
   ).toHaveAttribute('aria-checked', 'true')
+  await expect(
+    importedSettings.getByTestId('inspection-direction'),
+  ).toHaveValue('up')
+  await expect(
+    importedSettings.getByTestId('inspection-warning-8s'),
+  ).toBeChecked()
+  await expect(importedSettings.getByTestId('custom-average-size-0')).toHaveValue(
+    '6',
+  )
   await importedSettings.getByTestId('settings-done').click()
   await expect(importedSettings).toBeHidden()
 
   await page.getByTestId('session-select').selectOption({ label: 'Session 1' })
   await expect(page.getByTestId('solve-count')).toHaveText('1')
+  await expect(page.locator('.history-comment')).toHaveText('Backup comment')
 
   await page.reload()
   await waitForApp(page)
@@ -1004,7 +1215,9 @@ test('scramble failure disables timing and offers retry', async ({ page }) => {
     'aria-label',
     /Scramble unavailable/,
   )
-  await expect(error.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+  await expect(
+    error.getByRole('button', { name: 'Retry', exact: true }),
+  ).toBeVisible()
 })
 
 test('installed app loads scrambles while completely offline', async ({

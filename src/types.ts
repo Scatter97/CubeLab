@@ -16,6 +16,7 @@ export interface Solve {
   rawMs: number
   penalty: Penalty
   scramble: string
+  comment: string
   createdAt: number
 }
 
@@ -23,16 +24,40 @@ export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'
 export type ScrambleAlignment = 'left' | 'center' | 'right'
 export type ScrambleAction = 'none' | 'copy' | 'next'
 export type AlertChannel = 'off' | 'visual' | 'sound' | 'haptic' | 'sound-haptic'
-export type InspectionWarning = 'off' | '8s' | '12s'
+export type InspectionCountDirection = 'down' | 'up'
 export type AccentColor = 'green' | 'blue' | 'violet' | 'amber'
 export type StatPrecision = 'centiseconds' | 'tenths'
-export type StatKey = 'single' | 'mo3' | 'ao5' | 'ao12'
+export type StatKey =
+  | 'single'
+  | 'mo3'
+  | 'ao5'
+  | 'ao12'
+  | 'ao25'
+  | 'ao100'
+  | 'ao200'
+  | 'ao500'
+  | 'ao1000'
+  | 'ao5000'
+  | 'ao10000'
 
 export interface StatVisibility {
   single: boolean
   mo3: boolean
   ao5: boolean
   ao12: boolean
+  ao25: boolean
+  ao100: boolean
+  ao200: boolean
+  ao500: boolean
+  ao1000: boolean
+  ao5000: boolean
+  ao10000: boolean
+}
+
+export interface CustomAverageSetting {
+  id: string
+  size: number
+  visible: boolean
 }
 
 /**
@@ -41,6 +66,7 @@ export interface StatVisibility {
  */
 export interface Settings {
   inspectionEnabled: boolean
+  inspectionCountDirection: InspectionCountDirection
   timerUpdateMode: TimerUpdateMode
   holdDurationMs: number
   showTimerDecimalSmall: boolean
@@ -50,9 +76,11 @@ export interface Settings {
   scrambleAction: ScrambleAction
   alertChannel: AlertChannel
   alertVolume: number
-  inspectionWarning: InspectionWarning
+  inspectionWarning8s: boolean
+  inspectionWarning12s: boolean
   accentColor: AccentColor
   statVisibility: StatVisibility
+  customAverages: CustomAverageSetting[]
   statPrecision: StatPrecision
 }
 
@@ -67,6 +95,8 @@ export interface Session {
   createdAt: number
   updatedAt: number
   solves: Solve[]
+  /** Optional per-session override; falls back to the global default. */
+  inspectionEnabled?: boolean
 }
 
 /** The complete locally persisted session collection. */
@@ -75,4 +105,4 @@ export interface SessionsData {
   sessions: Session[]
 }
 
-export type NewSolve = Omit<Solve, 'id' | 'event' | 'createdAt'>
+export type NewSolve = Omit<Solve, 'id' | 'event' | 'createdAt' | 'comment'>
