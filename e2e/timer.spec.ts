@@ -239,10 +239,10 @@ test('inspection supports count-down, count-up, and independent warnings', async
   await settings.getByTestId('inspection-setting').click()
   await settings.getByTestId('inspection-direction').selectOption('down')
   await expect(settings.getByTestId('inspection-warning-8s').locator('..')).toContainText(
-    '7 seconds remaining',
+    '8 seconds elapsed',
   )
   await expect(settings.getByTestId('inspection-warning-12s').locator('..')).toContainText(
-    '3 seconds remaining',
+    '12 seconds elapsed',
   )
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('inspection-warning-12s').check()

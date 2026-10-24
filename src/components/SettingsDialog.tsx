@@ -309,12 +309,12 @@ export function SettingsDialog({
                     : [
                         {
                           key: '8s' as const,
-                          label: '7 seconds remaining',
+                          label: '8 seconds elapsed',
                           checked: settings.inspectionWarning8s,
                         },
                         {
                           key: '12s' as const,
-                          label: '3 seconds remaining',
+                          label: '12 seconds elapsed',
                           checked: settings.inspectionWarning12s,
                         },
                       ]
@@ -341,7 +341,7 @@ export function SettingsDialog({
             <p className="settings-note">
               {settings.inspectionCountDirection === 'up'
                 ? 'Count up warns at 8 and 12 seconds elapsed.'
-                : 'Count down warns at 7 and 3 seconds remaining.'}{' '}
+                : 'Count down warns at 8 and 12 seconds elapsed (7 and 3 seconds remaining).'}{' '}
               Warnings always show their text when enabled and follow the
               inspection timer direction. Sound and haptic follow the feedback
               channel above; volume applies to sound, and haptic support varies
