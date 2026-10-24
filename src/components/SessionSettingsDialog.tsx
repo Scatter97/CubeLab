@@ -38,13 +38,15 @@ export function SessionSettingsDialog({
   const [name, setName] = useState(session.name)
   const [nameError, setNameError] = useState<string | null>(null)
   const [eventError, setEventError] = useState<string | null>(null)
+  const [selectedEvent, setSelectedEvent] = useState<PuzzleEvent>(session.event ?? '333')
   const hasOverride = session.inspectionEnabled !== undefined
   useEffect(() => {
     if (!open) return
     setName(session.name)
+    setSelectedEvent(session.event ?? '333')
     setNameError(null)
     setEventError(null)
-  }, [open, session.name])
+  }, [open, session.name, session.event])
 
   return (
     <dialog
@@ -64,7 +66,6 @@ export function SessionSettingsDialog({
       <div className="dialog-content session-settings-content">
         <header className="settings-header">
           <div>
-            <span className="eyebrow">Session</span>
             <h2 id="session-settings-title">Session settings</h2>
             <p id="session-settings-description" className="session-settings-meta">
               {session.name} · {formatSolveCount(session.solves.length)}
@@ -83,7 +84,6 @@ export function SessionSettingsDialog({
 
         <div className="session-settings-body">
           <div className="session-settings-group">
-            <h3>General</h3>
             <div className="settings-field">
               <span>Session name</span>
               <input
@@ -127,7 +127,7 @@ export function SessionSettingsDialog({
             </div>
 
             <div className="settings-field">
-              <span>Puzzle event</span>
+              <span>Event</span>
               {session.solves.length > 0 ? (
                 <input
                   className="compact-select"
@@ -139,12 +139,24 @@ export function SessionSettingsDialog({
               ) : (
                 <select
                   className="compact-select"
-                  value={session.event ?? '333'}
+                  value={selectedEvent}
                   onChange={(eventTarget) => {
                     const next = eventTarget.target.value as PuzzleEvent
+                    const previous = selectedEvent
                     if (!onSetSessionEvent(session.id, next)) {
                       setEventError('Could not change this session event.')
                       return
+                    }
+                    setSelectedEvent(next)
+                    const trimmedName = name.trim()
+                    const eventLabel = (id: PuzzleEvent) =>
+                      CUBELAB_EVENTS.find((item) => item.id === id)?.label ?? id
+                    const defaultish =
+                      trimmedName === '' ||
+                      trimmedName === eventLabel(previous) ||
+                      /^Session \\d+$/.test(trimmedName)
+                    if (defaultish) {
+                      setName(eventLabel(next))
                     }
                     setEventError(null)
                   }}
@@ -205,10 +217,6 @@ export function SessionSettingsDialog({
           <div className="session-settings-danger">
             <div>
               <h3>Manage session</h3>
-              <p>
-                Clear removes every solve in this session. Delete removes the
-                session and its solves. Both require typed confirmation.
-              </p>
             </div>
             <div className="session-settings-actions">
               <button
@@ -235,7 +243,6 @@ export function SessionSettingsDialog({
         </div>
 
         <footer className="session-settings-footer">
-          <span>Changes save automatically.</span>
           <button
             type="button"
             className="button button-primary"
