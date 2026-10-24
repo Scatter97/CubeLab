@@ -20,7 +20,8 @@ interface SessionPanelProps {
   locked: boolean
   event?: PuzzleEvent
   availableEvents?: readonly PuzzleEvent[]
-  onCreate: (name: string) => boolean
+  onCreate?: (name: string) => boolean
+  onRequestCreate?: () => void
   onRename: (id: string, name: string) => boolean
   onSelect: (id: string) => void
   onSelectEvent?: (event: PuzzleEvent) => void
@@ -36,6 +37,7 @@ export function SessionPanel({
   event = '333',
   availableEvents = ['333', '222', '444', '333oh'],
   onCreate,
+  onRequestCreate,
   onRename,
   onSelect,
   onSelectEvent,
@@ -67,6 +69,10 @@ export function SessionPanel({
 
   const startCreate = () => {
     if (locked) return
+    if (onRequestCreate) {
+      onRequestCreate()
+      return
+    }
     setDraft(nextSessionName(sessions))
     setError(null)
     setEditing('create')
@@ -106,8 +112,8 @@ export function SessionPanel({
 
     const saved =
       editing === 'create'
-        ? onCreate(draft)
-        : onRename(activeSessionId, draft)
+        ? (onCreate?.(draft) ?? false)
+        : (onRename?.(activeSessionId, draft) ?? false)
     if (!saved) {
       setError('Could not save the session. Try another name.')
       return

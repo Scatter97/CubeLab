@@ -1,7 +1,10 @@
 import { CubeMark, SettingsIcon } from './Icons'
 
+import type { PuzzleEvent } from '../types'
+
 interface AppHeaderProps {
   sessionName: string
+  event?: PuzzleEvent
   inspectionEnabled: boolean
   onOpenSettings: () => void
   settingsLocked: boolean
@@ -10,6 +13,7 @@ interface AppHeaderProps {
 
 export function AppHeader({
   sessionName,
+  event = '333',
   inspectionEnabled,
   onOpenSettings,
   settingsLocked,
@@ -38,7 +42,13 @@ export function AppHeader({
         </span>
         <span className="context-dot" />
         <span className="context-meta">
-          3×3 · Inspection {inspectionLabel}
+          {event === '222'
+            ? '2×2'
+            : event === '444'
+              ? '4×4'
+              : event === '333oh'
+                ? '3×3 OH'
+                : '3×3'} · Inspection {inspectionLabel}
         </span>
       </div>
 

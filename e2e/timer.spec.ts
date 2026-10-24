@@ -928,26 +928,31 @@ test('named sessions create, switch, rename, delete, and persist', async ({
 
   await recordSolve(page, 100)
   await expect(page.getByTestId('solve-count')).toHaveText('1')
-
+  await page.waitForTimeout(300)
+  page.on('console', (msg) => console.error('BROWSER_CONSOLE:', msg.text()))
+  page.on('pageerror', (err) => console.error('BROWSER_PAGEERROR:', err.message))
+  await expect(page.getByTestId('new-session')).toBeEnabled()
   await page.getByTestId('new-session').click()
   const input = page.getByRole('textbox', { name: 'Session name' })
   await expect(input).toBeVisible()
   await expect(input).toHaveValue('Session 2')
   await expect(input).toBeFocused()
 
-  // Duplicate names are rejected case-insensitively without closing the form.
+  // Duplicate names are rejected case-insensitively without closing the dialog.
   await input.fill('session 1')
-  await page.getByTestId('save-session-name').click()
+  await page.getByRole('button', { name: 'Create session', exact: true }).click()
   await expect(page.getByTestId('session-error')).toHaveText(
     'Session names must be unique.',
   )
   await expect(input).toBeVisible()
 
   await input.fill('Evening')
-  await page.getByTestId('save-session-name').click()
+  await page.getByRole('button', { name: 'Create session', exact: true }).click()
   await expect(page.getByTestId('session-error')).toHaveCount(0)
   expect(await selectedSessionName(page)).toBe('Evening')
   await expect(page.getByTestId('solve-count')).toHaveText('0')
+  const activeElementId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+  console.error('SESSION_CREATE_ACTIVE_ELEMENT=' + (activeElementId ?? 'null'))
   await expect(select).toBeFocused()
 
   // Space still controls the timer while the session select is focused.
@@ -1045,7 +1050,7 @@ test('per-session inspection overrides the global default and persists', async (
   // New sessions inherit the active session's effective inspection value.
   await page.getByTestId('new-session').click()
   await page.getByRole('textbox', { name: 'Session name' }).fill('Session 2')
-  await page.getByTestId('save-session-name').click()
+  await page.getByRole('button', { name: 'Create session', exact: true }).click()
   expect(await selectedSessionName(page)).toBe('Session 2')
 
   sessionDialog = await openSessionSettings(page)
@@ -1122,7 +1127,7 @@ test('backup export and import restore sessions, comments, and settings', async 
 
   await page.getByTestId('new-session').click()
   await page.getByRole('textbox', { name: 'Session name' }).fill('Evening')
-  await page.getByTestId('save-session-name').click()
+  await page.getByRole('button', { name: 'Create session', exact: true }).click()
   await recordSolve(page, 100)
 
   const settings = await openSettings(page)

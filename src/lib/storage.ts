@@ -9,6 +9,7 @@ import type {
   PuzzleEvent,
   ScrambleAlignment,
   Session,
+  SessionPreferences,
   SessionsData,
   Settings,
   Solve,
@@ -177,6 +178,24 @@ function isPuzzleEvent(value: unknown): value is PuzzleEvent {
   return value === '333' || value === '222' || value === '444' || value === '333oh'
 }
 
+function parseSessionPreferences(value: unknown): SessionPreferences | undefined {
+  if (!isRecord(value)) return undefined
+  const preferences: SessionPreferences = {}
+  if (typeof value.inspectionEnabled === 'boolean') preferences.inspectionEnabled = value.inspectionEnabled
+  if (value.inspectionCountDirection === 'down' || value.inspectionCountDirection === 'up') preferences.inspectionCountDirection = value.inspectionCountDirection
+  if (typeof value.inspectionWarning8s === 'boolean') preferences.inspectionWarning8s = value.inspectionWarning8s
+  if (typeof value.inspectionWarning12s === 'boolean') preferences.inspectionWarning12s = value.inspectionWarning12s
+  if (value.inspectionWarningVisualScope === 'timer' || value.inspectionWarningVisualScope === 'screen') preferences.inspectionWarningVisualScope = value.inspectionWarningVisualScope
+  if (value.scrambleAlignment === 'left' || value.scrambleAlignment === 'center' || value.scrambleAlignment === 'right') preferences.scrambleAlignment = value.scrambleAlignment
+  if (typeof value.scrambleLimitHeight === 'boolean') preferences.scrambleLimitHeight = value.scrambleLimitHeight
+  if (value.scrambleAction === 'none' || value.scrambleAction === 'copy' || value.scrambleAction === 'next') preferences.scrambleAction = value.scrambleAction
+  if (value.timerUpdateMode === 'live' || value.timerUpdateMode === 'tenths' || value.timerUpdateMode === 'seconds') preferences.timerUpdateMode = value.timerUpdateMode
+  if (typeof value.holdDurationMs === 'number' && value.holdDurationMs >= 0 && value.holdDurationMs <= 10000) preferences.holdDurationMs = value.holdDurationMs
+  if (typeof value.stopWithAnyKey === 'boolean') preferences.stopWithAnyKey = value.stopWithAnyKey
+  if (typeof value.showTimerDecimalSmall === 'boolean') preferences.showTimerDecimalSmall = value.showTimerDecimalSmall
+  return Object.keys(preferences).length > 0 ? preferences : undefined
+}
+
 function parseSession(value: unknown): Session | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
@@ -207,6 +226,9 @@ function parseSession(value: unknown): Session | null {
     solves,
     ...(typeof value.inspectionEnabled === 'boolean'
       ? { inspectionEnabled: value.inspectionEnabled }
+      : {}),
+    ...(parseSessionPreferences(value.preferences)
+      ? { preferences: parseSessionPreferences(value.preferences) }
       : {}),
   }
 }

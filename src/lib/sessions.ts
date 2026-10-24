@@ -1,4 +1,11 @@
-import type { Penalty, PuzzleEvent, Session, SessionsData, Solve } from '../types'
+import type {
+  Penalty,
+  PuzzleEvent,
+  Session,
+  SessionPreferences,
+  SessionsData,
+  Solve,
+} from '../types'
 import { createId } from './id'
 
 export const MAX_SESSION_NAME_LENGTH = 40
@@ -103,6 +110,7 @@ export function createSession(
     now?: number
     event?: PuzzleEvent
     inspectionEnabled?: boolean
+    preferences?: SessionPreferences
   } = {},
 ): CreatedSession | null {
   const normalized = normalizeSessionName(name)
@@ -122,6 +130,7 @@ export function createSession(
     ...(typeof options.inspectionEnabled === 'boolean'
       ? { inspectionEnabled: options.inspectionEnabled }
       : {}),
+    ...(options.preferences ? { preferences: options.preferences } : {}),
   }
 
   return {

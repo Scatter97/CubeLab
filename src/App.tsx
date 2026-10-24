@@ -17,6 +17,7 @@ import { useSettings } from './hooks/useSettings'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
 import { MergeSessionsDialog } from './components/MergeSessionsDialog'
+import { SessionSetupDialog } from './components/SessionSetupDialog'
 import { useSync } from './hooks/useSync'
 import {
   inspectionWarningEvents,
@@ -41,6 +42,7 @@ import type {
   AlertChannel,
   Penalty,
   PuzzleEvent,
+  SessionPreferences,
   Session,
   TimerUpdateMode,
 } from './types'
@@ -152,6 +154,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
   const [mergeSessionsOpen, setMergeSessionsOpen] = useState(false)
+  const [createSessionOpen, setCreateSessionOpen] = useState(false)
+  const createSessionOpenPrev = useRef(false)
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [timerAlert, setTimerAlert] = useState<TimerAlert | null>(null)
@@ -251,10 +255,40 @@ export default function App() {
 
   const activeInspectionEnabled =
     activeSession.inspectionEnabled ?? settings.inspectionEnabled
+  const effectiveSettings = {
+    ...settings,
+    inspectionEnabled: activeInspectionEnabled,
+    inspectionCountDirection:
+      activeSession.preferences?.inspectionCountDirection ??
+      settings.inspectionCountDirection,
+    inspectionWarning8s:
+      activeSession.preferences?.inspectionWarning8s ?? settings.inspectionWarning8s,
+    inspectionWarning12s:
+      activeSession.preferences?.inspectionWarning12s ?? settings.inspectionWarning12s,
+    inspectionWarningVisualScope:
+      activeSession.preferences?.inspectionWarningVisualScope ??
+      settings.inspectionWarningVisualScope,
+    timerUpdateMode:
+      activeSession.preferences?.timerUpdateMode ?? settings.timerUpdateMode,
+    holdDurationMs:
+      activeSession.preferences?.holdDurationMs ?? settings.holdDurationMs,
+    stopWithAnyKey:
+      activeSession.preferences?.stopWithAnyKey ?? settings.stopWithAnyKey,
+    showTimerDecimalSmall:
+      activeSession.preferences?.showTimerDecimalSmall ??
+      settings.showTimerDecimalSmall,
+    scrambleAlignment:
+      activeSession.preferences?.scrambleAlignment ?? settings.scrambleAlignment,
+    scrambleLimitHeight:
+      activeSession.preferences?.scrambleLimitHeight ??
+      settings.scrambleLimitHeight,
+    scrambleAction:
+      activeSession.preferences?.scrambleAction ?? settings.scrambleAction,
+  }
 
   const timer = useTimer({
     inspectionEnabled: activeInspectionEnabled,
-    holdDurationMs: settings.holdDurationMs,
+    holdDurationMs: effectiveSettings.holdDurationMs,
     onSolve: handleSolve,
   })
 
@@ -334,7 +368,7 @@ export default function App() {
 
   const displayElapsed = roundTimerElapsed(
     timer.runningElapsedMs,
-    settings.timerUpdateMode,
+    effectiveSettings.timerUpdateMode,
   )
 
   const timerActive = timer.state.status !== 'idle'
@@ -451,11 +485,29 @@ export default function App() {
   }, [activeSession.id, activeSession.solves, clearSolves, showToast, sync])
 
   const handleCreateSession = useCallback(
-    (name: string): boolean => {
+    (
+      name: string,
+      event?: PuzzleEvent,
+      preferences?: SessionPreferences,
+    ): boolean => {
       if (timer.state.status !== 'idle') return false
-      return createSession(name, activeInspectionEnabled) !== null
+      const id = createSession(
+        name,
+        preferences?.inspectionEnabled ?? activeInspectionEnabled,
+        event,
+        preferences,
+      )
+      if (id) {
+        selectSession(id)
+      }
+      return Boolean(id)
     },
-    [activeInspectionEnabled, createSession, timer.state.status],
+    [
+      activeInspectionEnabled,
+      createSession,
+      selectSession,
+      timer.state.status,
+    ],
   )
 
   const handleRenameSession = useCallback(
@@ -761,8 +813,16 @@ export default function App() {
     timer.state.status,
   ])
 
-  const storageHealthy = storageOk && settingsStorageOk
+  useEffect(() => {
+    if (createSessionOpenPrev.current && !createSessionOpen && timer.state.status === 'idle') {
+      window.setTimeout(() => {
+        document.querySelector<HTMLElement>('[data-testid="session-select"]')?.focus()
+      }, 0)
+    }
+    createSessionOpenPrev.current = createSessionOpen
+  }, [createSessionOpen, timer.state.status])
 
+  const storageHealthy = storageOk && settingsStorageOk
   const appShellClassName = [
     'app-shell',
     settings.showTimerDecimalSmall ? 'is-decimal-small' : '',
@@ -784,6 +844,7 @@ export default function App() {
       <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
       <AppHeader
         sessionName={activeSession.name}
+        event={activeEvent}
         inspectionEnabled={activeInspectionEnabled}
         onOpenSettings={handleOpenSettings}
         settingsLocked={timerActive}
@@ -801,9 +862,9 @@ export default function App() {
             onRegenerate={handleRegenerate}
             onRetry={retryScramble}
             onNotify={(message) => showToast({ message })}
-            scrambleAction={settings.scrambleAction}
-            alignment={settings.scrambleAlignment}
-            limitHeight={settings.scrambleLimitHeight}
+            scrambleAction={effectiveSettings.scrambleAction}
+            alignment={effectiveSettings.scrambleAlignment}
+            limitHeight={effectiveSettings.scrambleLimitHeight}
           />
 
           <TimerStage
@@ -818,11 +879,11 @@ export default function App() {
                 ? 'Scramble unavailable. Retry above.'
                 : 'Generating scramble…'
             }
-            showTimerDecimalSmall={settings.showTimerDecimalSmall}
+            showTimerDecimalSmall={effectiveSettings.showTimerDecimalSmall}
             inspectionEnabled={activeInspectionEnabled}
-            inspectionCountDirection={settings.inspectionCountDirection}
+            inspectionCountDirection={effectiveSettings.inspectionCountDirection}
             alert={timerAlert}
-            inspectionWarningVisualScope={settings.inspectionWarningVisualScope}
+            inspectionWarningVisualScope={effectiveSettings.inspectionWarningVisualScope}
             onPress={timerPress}
             onRelease={timer.release}
             onCancel={handleCancel}
@@ -873,6 +934,7 @@ export default function App() {
             locked={timerActive}
             event={activeEvent}
             onCreate={handleCreateSession}
+            onRequestCreate={() => setCreateSessionOpen(true)}
             onRename={handleRenameSession}
             onSelect={handleSelectSession}
             onSelectEvent={handleSelectEvent}
@@ -984,6 +1046,17 @@ export default function App() {
         sessions={{ activeSessionId, sessions }}
         onClose={() => setMergeSessionsOpen(false)}
         onMerge={handleMergeSessions}
+      />
+
+      <SessionSetupDialog
+        open={createSessionOpen}
+        sessions={sessions.map((session) => ({ name: session.name }))}
+        defaultEvent={activeEvent}
+        defaultInspectionEnabled={activeInspectionEnabled}
+        onClose={() => setCreateSessionOpen(false)}
+        onCreate={(name, event, preferences) =>
+          Boolean(handleCreateSession(name, event, preferences))
+        }
       />
 
       <Toast

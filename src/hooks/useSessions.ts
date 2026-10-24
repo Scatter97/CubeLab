@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { NewSolve, Penalty, PuzzleEvent, Session, SessionsData, Solve } from '../types'
+import type { NewSolve, Penalty, PuzzleEvent, Session, SessionPreferences, SessionsData, Solve } from '../types'
 import { createId } from '../lib/id'
 import {
   addSolve as addSolveToData,
@@ -35,6 +35,7 @@ export interface UseSessionsResult {
     name: string,
     inspectionEnabled?: boolean,
     event?: PuzzleEvent,
+    preferences?: SessionPreferences,
   ) => string | null
   renameSession: (id: string, name: string) => boolean
   deleteSession: (id: string) => boolean
@@ -164,10 +165,12 @@ export function useSessions(): UseSessionsResult {
       name: string,
       inspectionEnabled?: boolean,
       event?: PuzzleEvent,
+      preferences?: SessionPreferences,
     ): string | null => {
       const result = createSessionInData(dataRef.current, name, {
         inspectionEnabled,
         event,
+        preferences,
       })
       if (!result) return null
 

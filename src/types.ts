@@ -108,6 +108,27 @@ export interface Settings {
 }
 
 /**
+/**
+ * Session-local overrides for inspection, scramble presentation, and timer behavior.
+ * Global appearance, accent, alert volume, stats display, sync, and text scaling
+ * remain application-wide and are not duplicated here.
+ */
+export interface SessionPreferences {
+  inspectionEnabled?: boolean
+  inspectionCountDirection?: InspectionCountDirection
+  inspectionWarning8s?: boolean
+  inspectionWarning12s?: boolean
+  inspectionWarningVisualScope?: InspectionWarningVisualScope
+  scrambleAlignment?: ScrambleAlignment
+  scrambleLimitHeight?: boolean
+  scrambleAction?: ScrambleAction
+  timerUpdateMode?: TimerUpdateMode
+  holdDurationMs?: number
+  stopWithAnyKey?: boolean
+  showTimerDecimalSmall?: boolean
+}
+
+/**
  * A named local session. Solves are stored newest-first inside the session.
  * Timestamps are wall-clock metadata only; solve duration always comes from
  * the monotonic timer.
@@ -122,7 +143,10 @@ export interface Session {
   solves: Solve[]
   /** Optional per-session override; falls back to the global default. */
   inspectionEnabled?: boolean
+  /** Session-specific inspection, scramble, and timer overrides. */
+  preferences?: SessionPreferences
 }
+
 
 /** The complete locally persisted session collection. */
 export interface SessionsData {
