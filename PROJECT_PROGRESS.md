@@ -9,6 +9,7 @@
 **Phase 2B:** Not started — 0% (Google Drive backup)
 **Phase 2C:** Not started — 0% (multi-device sync)
 **Repository state:** Phase 2A.2 core settings are implemented and covered by dedicated production E2E tests; additional csTimer-style preference groups remain pending.
+**Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
 ## Scope delivered
 
@@ -474,8 +475,8 @@ replace-only; no merge or conflict-resolution logic exists yet.
 ## Git status
 
 Phase 2A.2 settings work is committed across the schema/core-preferences,
-feedback-refinement, and difference-label-removal commits. The current zoom,
-history-label, and settings-test fixes are the next commit. Verify with:
+feedback-refinement, difference-label-removal, and final behavior/coverage
+commits. The roadmap is tracked separately in `ROADMAP.md`. Verify with:
 
 ```bash
 git status --short

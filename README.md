@@ -6,7 +6,8 @@ CubeLab is a focused, offline-first 3×3 speedcubing timer with a flat,
 csTimer-inspired interface. It combines a precise monotonic timer, official WCA
 random-state scrambles from `cubing.js`, optional WCA inspection, WCA-aware
 session statistics, named local sessions, JSON backup/restore, and a centralized
-Settings dialog in a responsive layout built around the clock.
+Settings dialog in a responsive layout built around the clock. See
+[`ROADMAP.md`](ROADMAP.md) for the planned phases and their acceptance gates.
 
 ![CubeLab desktop interface](docs/cubelab-desktop.png)
 
