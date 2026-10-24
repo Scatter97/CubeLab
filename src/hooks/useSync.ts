@@ -46,6 +46,7 @@ export interface UseSyncResult {
   syncNow: (reason?: string) => Promise<void>
   recordDeletion: (kind: 'solve' | 'session', id: string, sessionId?: string) => void
   clearDeletion: (kind: 'solve' | 'session', id: string) => void
+  resetBase: (data: SessionsData) => void
 }
 
 const MAX_BACKOFF_MS = 30_000
@@ -203,11 +204,39 @@ export function useSync({
     [persist],
   )
 
+  const resetBase = useCallback(
+    (data: SessionsData) => {
+      const next = {
+        ...syncRef.current,
+        runtime: {
+          ...syncRef.current.runtime,
+          tombstones: [],
+          conflicts: [],
+          solveCountAtLastSync: countSolvesInData(data),
+          lastSyncStatus:
+            syncRef.current.preferences.enabled ? 'synced' as SyncStatus : syncRef.current.runtime.lastSyncStatus,
+        },
+      }
+      persist(next)
+      lastSyncedSessionsRef.current = data
+      knownSessionsRef.current = data
+    },
+    [persist],
+  )
+
   const updatePreferences = useCallback(
     (next: Partial<SyncPreferences>) => {
+      const enabled = next.enabled ?? syncRef.current.preferences.enabled
+      const nextStatus =
+        enabled
+          ? syncRef.current.runtime.lastSyncStatus === 'disabled'
+            ? 'pending'
+            : syncRef.current.runtime.lastSyncStatus
+          : 'disabled'
       persist({
         ...syncRef.current,
         preferences: { ...syncRef.current.preferences, ...next },
+        runtime: { ...syncRef.current.runtime, lastSyncStatus: nextStatus },
       })
     },
     [persist],
@@ -215,11 +244,17 @@ export function useSync({
 
   const syncNow = useCallback(
     async (reason?: string) => {
-      if (!syncRef.current.preferences.enabled) return
+      if (!syncRef.current.preferences.enabled) {
+        if (reason === 'manual') onNotify('Enable automatic synchronization first.')
+        return
+      }
       if (!leaderRef.current && !timerActiveRef.current) {
         // Followers primarily mirror; only the coordinator syncs.
       }
-      if (!leaderRef.current) return
+      if (!leaderRef.current) {
+        // Avoid a silent no-op if tab leadership was never resolved.
+        leaderRef.current = true
+      }
       if (runningRef.current) {
         await runningRef.current
         return
@@ -237,11 +272,37 @@ export function useSync({
         try {
           if (!transport) throw new Error('Google Drive is not configured.')
           if (!transport.isConnected()) {
-            persist({
-              ...syncRef.current,
-              runtime: { ...syncRef.current.runtime, lastSyncStatus: 'auth-required', lastError: 'Google Drive connection required.' },
-            })
-            return
+            if (reason === 'manual') {
+              try {
+                await transport.connect()
+              } catch (caughtError) {
+                const authError =
+                  toMessage(caughtError).toLowerCase().includes('connect') ||
+                  toMessage(caughtError).toLowerCase().includes('cancel')
+                  ? 'Google Drive connection required.'
+                  : toMessage(caughtError)
+                persist({
+                  ...syncRef.current,
+                  runtime: {
+                    ...syncRef.current.runtime,
+                    lastSyncStatus: 'auth-required',
+                    lastError: authError,
+                  },
+                })
+                onNotify('Connect Google Drive first.')
+                return
+              }
+            } else {
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'auth-required',
+                  lastError: 'Google Drive connection required.',
+                },
+              })
+              return
+            }
           }
 
           const remoteFile = await transport.findBackup()
@@ -393,7 +454,15 @@ export function useSync({
         leaderRef.current = false
       }
     }
+    const leaderTimeout = window.setTimeout(() => {
+      leaderRef.current = true
+    }, 1_000)
     void locks.request('cubelab-sync-leader', { ifAvailable: true }, async (lock: any) => {
+      window.clearTimeout(leaderTimeout)
+      if (!lock) {
+        leaderRef.current = true
+        return
+      }
       if (!lock || released) return
       leaderRef.current = true
       // Startup sync.
@@ -485,7 +554,6 @@ export function useSync({
   useEffect(() => {
     if (!syncRef.current.preferences.enabled) return
 
-    const mode = syncRef.current.preferences.mode
     const intervalMs = syncRef.current.preferences.intervalMinutes * 60 * 1000
 
     const runScheduled = () => {
@@ -496,10 +564,9 @@ export function useSync({
       void syncNow('scheduled')
     }
 
+    // Automatic synchronization is intentionally always combined.
     let intervalId: number | null = null
-    if (mode === 'time' || mode === 'combined') {
-      intervalId = window.setInterval(runScheduled, intervalMs)
-    }
+    intervalId = window.setInterval(runScheduled, intervalMs)
 
     return () => {
       if (intervalId !== null) window.clearInterval(intervalId)
@@ -511,10 +578,8 @@ export function useSync({
     if (!syncRef.current.preferences.enabled) return
     if (timerActiveRef.current) return
 
-    const mode = syncRef.current.preferences.mode
     const pendingSolves = Math.max(0, countSolvesInData(sessions) - syncRef.current.runtime.solveCountAtLastSync)
     const shouldSolveSync =
-      (mode === 'solve' || mode === 'combined') &&
       pendingSolves >= syncRef.current.preferences.solveThreshold
 
     if (shouldSolveSync) {
@@ -565,5 +630,6 @@ export function useSync({
     },
     recordDeletion,
     clearDeletion,
+    resetBase,
   }
 }

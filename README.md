@@ -108,7 +108,7 @@ near the row; the menu stays inside the viewport on narrow screens.
 | Open solve actions | Click a solve row or focus it and press <kbd>Enter</kbd> |
 | Add a solve comment | Open solve actions, choose **Add comment**, then **Save comment** |
 | Export or import a backup | Open **Settings → Data → Backup & restore** |
-| Back up to or restore from Google Drive | Open **Settings → Data → Google Drive backup**, then connect and use **Backup now** or **Restore from Drive** |
+| Manage Google Drive synchronization | Open **Settings → Data → Google Drive backup**, then connect and use automatic or manual **Sync now** |
 | Activate a focused button or switch | <kbd>Enter</kbd> |
 
 <kbd>Space</kbd> is reserved for timing throughout the app and never scrolls the
@@ -150,33 +150,30 @@ limited to 10 MB; invalid files produce an inline error and are not applied.
 ### Google Drive backup
 
 Open **Settings → Data → Google Drive backup**. Connect with Google Identity
-Services to obtain an access token for the app-data scope, then use **Backup
-now** or **Restore from Drive**. Backup is always manual; CubeLab never uploads
-in the background, after solves, or when settings change. A valid remote restore
-shows current and incoming counts and requires typing `RESTORE FROM DRIVE` before
-replacing local data. Invalid or unsupported remote files are rejected before
-mutation.
+Services to obtain an access token for the app-data scope. CubeLab saves completed
+solves locally immediately, then downloads, compares, merges, saves, and uploads
+cloud changes without interrupting the timer. The remote file is
+`cubelab-backup.json` in Google Drive app data. Invalid or unsupported remote
+files are rejected before mutation.
 
-The remote file is stored privately in Google Drive app data as
-`cubelab-backup.json`. Google Drive backup is optional; all timer, session,
-storage, and local JSON backup features work without it. Build with
-`VITE_GOOGLE_CLIENT_ID` to enable the controls; otherwise the dialog explains
-that Drive is not configured. OAuth tokens are kept in memory only and are not
-stored in `localStorage`. The connected account label is stored locally. Deleting
-the remote backup does not change local sessions or settings.
+Automatic synchronization is enabled only after the user connects Google Drive.
+Its common settings are:
+combined mode at 5 minutes or 10 solves, whichever comes first, with minimum
+values of 1 minute and 1 solve. Startup, exit, and reconnection synchronization
+are available as advanced options.
 
-### Google Drive synchronization
+There is no separate manual **Backup now** button and no
+**Restore from Drive** button. Synchronization is the reconciliation path:
+**Sync now**, startup sync, and automatic scheduling all merge local and cloud
+sessions and solves. Deletions use tombstones. Same-field conflicts are resolved
+automatically unless manual review is enabled.
 
-Open **Settings → Data → Google Drive backup** and enable **Automatic
-synchronization**. Choose time-based, solve-count, or combined scheduling. The
-minimum interval is 1 minute and the minimum solve threshold is 1 solve. The
-recommended default is combined mode at 5 minutes or 10 solves, whichever comes
-first. CubeLab always saves locally first, then downloads, merges, and uploads
-cloud changes without interrupting the timer. Synchronization can also run on
-startup, on exit, and after internet reconnection. Deletions use tombstones. By
-default, same-field conflicts are resolved automatically by edit time; manual
-conflict review is available as an opt-in. Automatic synchronization is disabled
-by default and requires explicit user opt-in.
+Google Drive synchronization is optional; all timer, session, storage, and local
+JSON backup features work without it. Build with `VITE_GOOGLE_CLIENT_ID` to
+enable the controls; otherwise the dialog explains that Drive is not configured.
+OAuth tokens are kept in memory only and are not stored in `localStorage`. The
+connected account label is stored locally. Deleting the remote backup does not
+change local sessions or settings.
 
 ### Inspection rules
 

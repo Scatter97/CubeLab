@@ -3022,3 +3022,28 @@ kbd {
   vertical-align: 0.08em;
   line-height: 1;
 }
+
+.compact-select {
+  flex: 0 0 auto;
+  height: 28px;
+  min-width: 96px;
+  padding: 0 7px;
+  font-size: 0.66rem;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.advanced-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.settings-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
+}

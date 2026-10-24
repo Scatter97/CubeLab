@@ -494,6 +494,7 @@ export default function App() {
     if (!pendingDriveRestore) return
     replaceSessions(pendingDriveRestore.sessions)
     replaceSettings(pendingDriveRestore.settings)
+    sync.resetBase(pendingDriveRestore.sessions)
     const current = loadDriveBackupState()
     saveDriveBackupState(
       { ...current, lastRestoreAt: Date.now() },
@@ -501,7 +502,7 @@ export default function App() {
     setPendingDriveRestore(null)
     setDriveOpen(false)
     showToast({ message: 'Google Drive backup restored' })
-  }, [pendingDriveRestore, replaceSessions, replaceSettings, showToast])
+  }, [pendingDriveRestore, replaceSessions, replaceSettings, showToast, sync])
 
   const cancelDriveRestore = useCallback(() => {
     setPendingDriveRestore(null)
@@ -534,9 +535,10 @@ export default function App() {
 
     replaceSessions(pendingImport.sessions)
     replaceSettings(pendingImport.settings)
+    sync.resetBase(pendingImport.sessions)
     setPendingImport(null)
     showToast({ message: 'Backup imported' })
-  }, [pendingImport, replaceSessions, replaceSettings, showToast])
+  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync])
 
   const cancelConfirm = useCallback(() => {
     setClearOpen(false)

@@ -89,10 +89,6 @@ function isValidThreshold(value: unknown): value is SyncSolveThreshold {
   return SYNC_THRESHOLD_OPTIONS.includes(value as SyncSolveThreshold)
 }
 
-function isValidMode(value: unknown): value is SyncMode {
-  return value === 'time' || value === 'solve' || value === 'combined'
-}
-
 function isTombstone(value: unknown): value is Tombstone {
   if (!isRecord(value)) return false
   if (value.kind !== 'solve' && value.kind !== 'session') return false
@@ -118,7 +114,7 @@ function normalizePreferences(value: unknown): SyncPreferences {
   if (!isRecord(value)) return fallback
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback.enabled,
-    mode: isValidMode(value.mode) ? value.mode : fallback.mode,
+    mode: 'combined',
     intervalMinutes: isValidInterval(value.intervalMinutes) ? value.intervalMinutes : fallback.intervalMinutes,
     solveThreshold: isValidThreshold(value.solveThreshold) ? value.solveThreshold : fallback.solveThreshold,
     syncOnStartup: typeof value.syncOnStartup === 'boolean' ? value.syncOnStartup : fallback.syncOnStartup,

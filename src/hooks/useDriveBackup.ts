@@ -26,6 +26,7 @@ export interface UseDriveBackupOptions {
   storageOk: boolean
   onPendingRestore: (backup: ReturnType<typeof createBackup>) => void
   onNotify: (message: string) => void
+  onConnected?: () => void
 }
 
 function toMessage(error: unknown): string {
@@ -40,6 +41,7 @@ export function useDriveBackup({
   storageOk,
   onPendingRestore,
   onNotify,
+  onConnected,
 }: UseDriveBackupOptions) {
   const configured = Boolean(transport?.configured)
   const [connected, setConnected] = useState(false)
@@ -77,12 +79,13 @@ export function useDriveBackup({
         connectedAccountLabel: transport.accountLabel,
       })
       setPhase('connected')
+      onConnected?.()
     } catch (caught) {
       setConnected(false)
       setError(toMessage(caught))
       setPhase('error')
     }
-  }, [metadata, persistMetadata, transport])
+  }, [metadata, onConnected, persistMetadata, transport])
 
   const disconnect = useCallback(() => {
     if (transport) transport.disconnect()
@@ -153,12 +156,14 @@ export function useDriveBackup({
   }, [connect, connected, metadata, onPendingRestore, persistMetadata, transport])
 
   const deleteRemoteBackup = useCallback(async () => {
-    if (!transport || !metadata.remoteFileId) return
+    const remoteFileId = metadata.remoteFileId ?? loadDriveBackupState().remoteFileId
+    if (!transport || !remoteFileId) return
     setPhase('deleting')
     setError(null)
     try {
-      await transport.deleteBackup(metadata.remoteFileId)
+      await transport.deleteBackup(remoteFileId)
       persistMetadata({
+        ...loadDriveBackupState(),
         ...metadata,
         remoteFileId: null,
         remoteModifiedTime: null,
