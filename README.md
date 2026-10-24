@@ -108,6 +108,7 @@ near the row; the menu stays inside the viewport on narrow screens.
 | Open solve actions | Click a solve row or focus it and press <kbd>Enter</kbd> |
 | Add a solve comment | Open solve actions, choose **Add comment**, then **Save comment** |
 | Export or import a backup | Open **Settings → Data → Backup & restore** |
+| Back up to or restore from Google Drive | Open **Settings → Data → Google Drive backup**, then connect and use **Backup now** or **Restore from Drive** |
 | Activate a focused button or switch | <kbd>Enter</kbd> |
 
 <kbd>Space</kbd> is reserved for timing throughout the app and never scrolls the
@@ -145,6 +146,24 @@ settings before changing anything. Valid data replaces the local sessions and
 settings only after a confirmation dialog explains the current and incoming
 counts. Cancelling the confirmation leaves local data untouched. Imports are
 limited to 10 MB; invalid files produce an inline error and are not applied.
+
+### Google Drive backup
+
+Open **Settings → Data → Google Drive backup**. Connect with Google Identity
+Services to obtain an access token for the app-data scope, then use **Backup
+now** or **Restore from Drive**. Backup is always manual; CubeLab never uploads
+in the background, after solves, or when settings change. A valid remote restore
+shows current and incoming counts and requires typing `RESTORE FROM DRIVE` before
+replacing local data. Invalid or unsupported remote files are rejected before
+mutation.
+
+The remote file is stored privately in Google Drive app data as
+`cubelab-backup.json`. Google Drive backup is optional; all timer, session,
+storage, and local JSON backup features work without it. Build with
+`VITE_GOOGLE_CLIENT_ID` to enable the controls; otherwise the dialog explains
+that Drive is not configured. OAuth tokens are kept in memory only and are not
+stored in `localStorage`. The connected account label is stored locally. Deleting
+the remote backup does not change local sessions or settings.
 
 ### Inspection rules
 

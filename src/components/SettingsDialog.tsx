@@ -21,6 +21,7 @@ interface SettingsDialogProps {
   solveCount: number
   onChange: (next: Partial<Settings>) => void
   onOpenBackup: () => void
+  onOpenDriveBackup: () => void
   onClose: () => void
 }
 
@@ -32,6 +33,7 @@ export function SettingsDialog({
   solveCount,
   onChange,
   onOpenBackup,
+  onOpenDriveBackup,
   onClose,
 }: SettingsDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
@@ -617,6 +619,20 @@ export function SettingsDialog({
                 <span className="settings-data-title">Backup &amp; restore</span>
                 <span className="settings-data-description">
                   Export or import every session, solve, and setting
+                </span>
+              </span>
+              <ChevronRightIcon size={16} />
+            </button>
+            <button
+              type="button"
+              className="settings-data-button"
+              onClick={onOpenDriveBackup}
+              data-testid="settings-drive-button"
+            >
+              <span className="settings-data-copy">
+                <span className="settings-data-title">Google Drive backup</span>
+                <span className="settings-data-description">
+                  Manually back up or restore with Google Drive app data
                 </span>
               </span>
               <ChevronRightIcon size={16} />

@@ -1314,3 +1314,88 @@ test('installed app loads scrambles while completely offline', async ({
 
   await context.setOffline(false)
 })
+
+test('google drive backup and restore work in mock mode', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-drive-button').click()
+  await expect(settings).toBeHidden()
+  const drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive).toBeVisible()
+
+  await drive.getByTestId('drive-connect').click()
+  await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+  await expect(drive.getByTestId('drive-account-label')).toContainText(
+    'Google Drive (mock)',
+  )
+
+  await drive.getByTestId('drive-backup-now').click()
+  await expect(drive).toContainText('Last successful backup')
+  await expect(drive).toContainText('Remote file:')
+
+  await drive.getByTestId('drive-done').click()
+  await expect(drive).toBeHidden()
+
+  await recordSolve(page, 100)
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  const settings2 = await openSettings(page)
+  await settings2.getByTestId('settings-drive-button').click()
+  const drive2 = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive2).toBeVisible()
+  await drive2.getByTestId('drive-connect').click()
+  await page.waitForTimeout(300)
+  await drive2.getByTestId('drive-restore').click()
+  await page.waitForTimeout(500)
+  const restoreDialog = page.getByRole('dialog', { name: 'Replace local sessions?' })
+  await expect(restoreDialog).toBeVisible()
+  await expect(restoreDialog).toContainText('1 solve')
+  await restoreDialog.getByTestId('confirm-text').fill('RESTORE FROM DRIVE')
+  await expect(
+    restoreDialog.getByRole('button', { name: 'Restore backup' }),
+  ).toBeEnabled()
+  await restoreDialog.getByRole('button', { name: 'Restore backup' }).click()
+  await expect(page.getByTestId('solve-count')).toHaveText('0')
+
+  const settings3 = await openSettings(page)
+  await settings3.getByTestId('settings-drive-button').click()
+  const drive3 = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive3).toBeVisible()
+  await drive3.getByTestId('drive-connect').click()
+  await page.waitForTimeout(300)
+  await drive3.getByTestId('drive-delete-remote').click()
+  const deleteDialog = page.getByRole('dialog', {
+    name: 'Delete the Google Drive backup?',
+  })
+  await expect(deleteDialog).toBeVisible()
+  await deleteDialog.getByRole('button', { name: 'Delete backup' }).click()
+  await expect(drive3).toContainText('No remote backup found yet.')
+  await drive3.getByTestId('drive-done').click()
+  await expect(drive3).toBeHidden()
+})
+
+test('invalid google drive backup is rejected', async ({ page }) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-drive-button').click()
+  const drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive).toBeVisible()
+
+  await drive.getByTestId('drive-connect').click()
+  await drive.getByTestId('drive-backup-now').click()
+  await page.evaluate(() => {
+    ;(window as { __cubeLabMockDrive?: { __corruptRemote?: () => void } })
+      .__cubeLabMockDrive?.__corruptRemote?.()
+  })
+
+  await drive.getByTestId('drive-restore').click()
+  await expect(drive.getByTestId('drive-error')).toBeVisible()
+  await expect(drive.getByTestId('drive-error')).toContainText('valid JSON')
+  await drive.getByTestId('drive-done').click()
+  await expect(drive).toBeHidden()
+})

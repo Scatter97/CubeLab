@@ -6,10 +6,10 @@
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
 **Phase 2A.1:** Complete — csTimer-inspired Settings dialog
 **Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v4
-**Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop
-**Phase 2B:** Not started — 0% (Google Drive backup)
+**Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
+**Phase 2B:** Complete — optional manual Google Drive backup and restore
+**Repository state:** Phase 2B manual Google Drive backup is implemented, documented, and verified. Phase 2C has not been started.
 **Phase 2C:** Not started — 0% (multi-device sync)
-**Repository state:** Phase 2A.3 and the latest timer/history/settings refinement are implemented, documented, and verified. Phase 2B has not been started.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
 ## Scope delivered
@@ -148,10 +148,9 @@ session-settings, solve-menu, comment, documentation, and screenshot updates:
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **111/111 passed**, 9 test files |
-| Production build | `npm run build` | Passed; 77 modules transformed |
+| Unit tests | `npm test` | **119/119 passed**, 12 test files || Production build | `npm run build` | Passed; 77 modules transformed |
 | PWA generation | included in build | 22 precache entries, **2,185.41 KiB** |
-| Production E2E | `npm run test:e2e` | **21/21 passed**, Chromium |
+| Production E2E | `npm run test:e2e` | **23/23 passed**, Chromium |
 | Visual QA | production preview screenshots | Refreshed `docs/cubelab-desktop.png`, `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`; verified the session gear, floating solve menu, expanded statistics, and Settings warning/custom-average controls at 1440×1000, 390×844, and 320×700 with no horizontal overflow |
 | Performance | seeded 2,000-solve production session | Not re-measured; the Phase 2A profile below remains the latest. Large-average calculation now has a Fenwick-tree fast path and brute-force comparison coverage. |
 
@@ -577,12 +576,23 @@ All requested Milestone 1 functionality is implemented and verified:
 
 **Completion estimate: 100% of authorized Phase 2A.3 scope.**
 
-### Phase 2B — Not started
+### Phase 2B — Complete
 
-Google Drive backup/restore has not been started. No OAuth, Drive API, upload,
-background-sync, or cloud-storage code is present. Phase 2B requires an explicit
-brief covering authentication, file layout, conflict policy, privacy, and test
-coverage before implementation.
+Phase 2B manual Google Drive backup/restore is implemented without background
+sync or telemetry.
+
+- Google Identity Services OAuth and the Drive app-data file
+  `cubelab-backup.json` are used for app-private remote backups.
+- Backup is manual only; restore downloads, validates, and replaces local data
+  only after an explicit confirmation dialog and the typed phrase
+  `RESTORE FROM DRIVE`.
+- Remote metadata is stored under `cubelab:drive:v1` with field-level fallback.
+- Drive controls are disabled while timing and when no client ID is configured.
+- Remote deletion and offline/failure paths are covered by unit and mock E2E
+  tests.
+- Automated tests use a deterministic in-memory Drive transport. Real Google
+  Drive authentication and Google servers were not exercised in CI; production
+  correctness depends on deploying with a valid `VITE_GOOGLE_CLIENT_ID`.
 
 ### Phase 2C — Not started
 
@@ -593,9 +603,10 @@ replace-only; no merge or conflict-resolution logic exists yet.
 
 ### Safe next work
 
-- Phase 2A.3 is complete. Implement Phase 2B only after an explicit instruction.
-  Start with an OAuth and Drive API design, a versioned remote backup envelope,
-  restore semantics, and failure-path tests before writing cloud code.
+- Phase 2B is complete. Do not add automatic sync, telemetry, or non-Google cloud
+  providers without an explicit brief.
+- If more Google Drive behavior is requested, extend the Drive transport,
+  metadata store, and failure-path tests together.
 - If more timer preferences are requested, extend the Settings dialog and the
   versioned settings schema together, with migration and E2E coverage. Do not
   duplicate the inspection control back into the header.

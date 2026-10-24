@@ -1,9 +1,7 @@
 # CubeLab Roadmap
 
 **Status:** Active planning document  
-**Last updated:** 2026-10-23  
-**Current release line:** Phase 2A.3 complete; Phase 2B next, not started
-
+**Last updated:** 2026-10-24**Current release line:** Phase 2B complete (manual Google Drive backup); Phase 2C next, not started
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
 `PROJECT_PROGRESS.md` remains the source of truth for completed work and current
@@ -25,10 +23,10 @@ verification evidence.
   count-up inspection with independent warnings, expanded built-in and custom
   statistics, per-session settings, typed destructive confirmations, persisted
   solve comments, and the floating solve action menu are in place.
-- Phase 2B (Google Drive backup) and Phase 2C (multi-device sync) are not
-  started. Neither may begin without an explicit user instruction.
-
-## Product principles
+- Phase 2B (Google Drive backup) is complete: manual backup/restore, typed
+  restore confirmation, remote deletion, mock E2E coverage, and final
+  verification are in place.
+- Phase 2C (multi-device sync) is not started and remains a separate approval.## Product principles
 
 1. **Timer correctness first.** Timing transitions stay in the pure timer
    machine. Use monotonic time only; never derive solve duration from wall-clock

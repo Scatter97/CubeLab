@@ -125,7 +125,10 @@ the production build because it tests the service worker and offline reload.
   version, sessions, solves, and settings, then show current/incoming counts and
   require explicit confirmation. Invalid files must not mutate local data.
   Backup/import stays entirely local; do not add upload or Drive code without an
-  explicit Phase 2B instruction. Keep the 10 MB import cap unless large-backup
+  explicit Phase 2B instruction. The authorized Phase 2B path is manual only:
+  Google Identity Services OAuth, app-data file `cubelab-backup.json`, fixed
+  file name, remote metadata in `cubelab:drive:v1`, typed restore phrase, and no
+  background sync or telemetry. Keep the 10 MB import cap unless large-backup
   behavior is deliberately designed and tested.
 - **Raw data is immutable by default.** Store raw milliseconds plus a penalty
   value. Do not overwrite raw time when applying `+2`.

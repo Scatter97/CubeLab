@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppHeader } from './components/AppHeader'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { DriveBackupDialog } from './components/DriveBackupDialog'
 import { DataDialog } from './components/DataDialog'
 import { ScramblePanel } from './components/ScramblePanel'
 import { SessionPanel } from './components/SessionPanel'
@@ -31,6 +32,8 @@ import {
 import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
+import { createDriveTransport } from './lib/driveTransport'
+import { loadDriveBackupState, saveDriveBackupState } from './lib/driveStorage'
 import { BUILT_IN_STAT_DEFINITIONS } from './lib/statDefinitions'
 import type {
   AlertChannel,
@@ -131,8 +134,11 @@ export default function App() {
     retry: retryScramble,
   } = useScramble()
   const { toast, showToast, dismissToast } = useToast()
+  const driveTransport = useMemo(() => createDriveTransport(), [])
 
   const [clearOpen, setClearOpen] = useState(false)
+  const [driveOpen, setDriveOpen] = useState(false)
+  const [pendingDriveRestore, setPendingDriveRestore] = useState<Backup | null>(null)
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -450,6 +456,34 @@ export default function App() {
     setSettingsOpen(false)
     setDataOpen(true)
   }, [timer.state.status])
+
+  const handleOpenDriveBackup = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSettingsOpen(false)
+    setDriveOpen(true)
+  }, [timer.state.status])
+
+  const handleDriveRestorePending = useCallback((backup: Backup) => {
+    setPendingDriveRestore(backup)
+    setDriveOpen(false)
+  }, [])
+
+  const confirmDriveRestore = useCallback(() => {
+    if (!pendingDriveRestore) return
+    replaceSessions(pendingDriveRestore.sessions)
+    replaceSettings(pendingDriveRestore.settings)
+    const current = loadDriveBackupState()
+    saveDriveBackupState(
+      { ...current, lastRestoreAt: Date.now() },
+    )
+    setPendingDriveRestore(null)
+    setDriveOpen(false)
+    showToast({ message: 'Google Drive backup restored' })
+  }, [pendingDriveRestore, replaceSessions, replaceSettings, showToast])
+
+  const cancelDriveRestore = useCallback(() => {
+    setPendingDriveRestore(null)
+  }, [])
 
   const handleExport = useCallback((): boolean => {
     if (timer.state.status !== 'idle') return false
@@ -800,6 +834,7 @@ export default function App() {
         solveCount={countSolves(sessions)}
         onChange={updateSettings}
         onOpenBackup={handleOpenBackup}
+        onOpenDriveBackup={handleOpenDriveBackup}
         onClose={() => setSettingsOpen(false)}
       />
 
@@ -822,6 +857,32 @@ export default function App() {
         onExport={handleExport}
         onImport={handleImportRequested}
       />
+
+      <DriveBackupDialog
+        open={driveOpen}
+          transport={driveTransport}
+          sessions={{ activeSessionId, sessions }}
+          settings={settings}
+          storageOk={storageHealthy}
+          onClose={() => setDriveOpen(false)}
+          onNotify={(message) => showToast({ message })}
+          onPendingRestore={handleDriveRestorePending}
+        />
+
+      {pendingDriveRestore ? (
+        <ConfirmDialog
+          open={true}
+          eyebrow="Restore Google Drive backup"
+        title="Replace local sessions?"
+        description={`Replace ${countSolves(sessions)} solves across ${sessions.length} sessions with ${countSolves(pendingDriveRestore.sessions.sessions)} solves across ${pendingDriveRestore.sessions.sessions.length} sessions. Settings will also be restored.`}
+
+        cancelLabel="Cancel restore"
+        confirmLabel="Restore backup"
+        requireText="RESTORE FROM DRIVE"
+        onCancel={cancelDriveRestore}
+        onConfirm={confirmDriveRestore}
+      />
+) : null}
 
       <ConfirmDialog
         open={confirmContent !== null}
