@@ -526,25 +526,6 @@ export default function App() {
     [selectSession, timer.state.status],
   )
 
-  const handleSelectEvent = useCallback(
-    (event: PuzzleEvent) => {
-      if (timer.state.status !== 'idle') return
-      const existing = sessions.find(
-        (session) => (session.event ?? '333') === event,
-      )
-      if (existing) {
-        selectSession(existing.id)
-        return true
-      }
-      const id = createSession('Session 1', activeInspectionEnabled, event)
-      if (id) {
-        selectSession(id)
-      }
-      return Boolean(id)
-    },
-    [activeInspectionEnabled, createSession, selectSession, sessions, timer.state.status],
-  )
-
   const handleOpenSessionSettings = useCallback(() => {
     if (timer.state.status !== 'idle') return
     setSessionSettingsOpen(true)
@@ -932,12 +913,10 @@ export default function App() {
             sessions={visibleSessions}
             activeSessionId={activeSessionId}
             locked={timerActive}
-            event={activeEvent}
             onCreate={handleCreateSession}
             onRequestCreate={() => setCreateSessionOpen(true)}
             onRename={handleRenameSession}
             onSelect={handleSelectSession}
-            onSelectEvent={handleSelectEvent}
             onOpenSessionSettings={handleOpenSessionSettings}
           />
 

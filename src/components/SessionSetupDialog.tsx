@@ -30,15 +30,6 @@ export function SessionSetupDialog({
   const [inspectionEnabled, setInspectionEnabled] = useState(
     defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled,
   )
-  const [scrambleAction, setScrambleAction] = useState(
-    defaultPreferences?.scrambleAction ?? 'copy',
-  )
-  const [scrambleAlignment, setScrambleAlignment] = useState(
-    defaultPreferences?.scrambleAlignment ?? 'center',
-  )
-  const [scrambleLimitHeight, setScrambleLimitHeight] = useState(
-    defaultPreferences?.scrambleLimitHeight ?? false,
-  )
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -47,9 +38,6 @@ export function SessionSetupDialog({
     setName(nextSessionName(sessions as { id: string; name: string }[]))
     setEvent(defaultEvent)
     setInspectionEnabled(defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled)
-    setScrambleAction(defaultPreferences?.scrambleAction ?? 'copy')
-    setScrambleAlignment(defaultPreferences?.scrambleAlignment ?? 'center')
-    setScrambleLimitHeight(defaultPreferences?.scrambleLimitHeight ?? false)
     setError(null)
   }, [open, sessions, defaultEvent, defaultInspectionEnabled, defaultPreferences])
 
@@ -81,9 +69,6 @@ export function SessionSetupDialog({
     setError(null)
     const preferences: SessionPreferences = {
       inspectionEnabled,
-      scrambleAction,
-      scrambleAlignment,
-      scrambleLimitHeight,
     }
     const ok = onCreate(trimmed, event, preferences)
     if (!ok) {
@@ -186,58 +171,6 @@ export function SessionSetupDialog({
                 <span className="switch-thumb" />
               </span>
             </button>
-          </div>
-
-          <div className="session-settings-group">
-            <h3>Scramble</h3>
-            <div className="settings-field">
-              <span>Click action</span>
-              <select
-                className="compact-select"
-                value={scrambleAction}
-                onChange={(eventTarget) =>
-                  setScrambleAction(eventTarget.target.value as any)
-                }
-              >
-                <option value="none">None</option>
-                <option value="copy">Copy</option>
-                <option value="next">Next</option>
-              </select>
-            </div>
-            <div className="settings-field">
-              <span>Alignment</span>
-              <select
-                className="compact-select"
-                value={scrambleAlignment}
-                onChange={(eventTarget) =>
-                  setScrambleAlignment(eventTarget.target.value as any)
-                }
-              >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-copy">
-                <span className="settings-row-label">Limit height</span>
-                <span className="settings-row-description">
-                  Restrict scramble panel height.
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={scrambleLimitHeight}
-                aria-label="Limit scramble height"
-                className="settings-switch"
-                onClick={() => setScrambleLimitHeight(!scrambleLimitHeight)}
-              >
-                <span className="switch-track" aria-hidden="true">
-                  <span className="switch-thumb" />
-                </span>
-              </button>
-            </div>
           </div>
         </div>
 

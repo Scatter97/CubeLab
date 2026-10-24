@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { PuzzleEvent, Session } from '../types'
+import type { Session } from '../types'
 import {
   MAX_SESSION_NAME_LENGTH,
   getSessionNameError,
   nextSessionName,
 } from '../lib/sessions'
-import { CUBELAB_EVENTS } from '../lib/events'
 import {
   CheckIcon,
   CloseIcon,
@@ -18,13 +17,10 @@ interface SessionPanelProps {
   sessions: readonly Session[]
   activeSessionId: string
   locked: boolean
-  event?: PuzzleEvent
-  availableEvents?: readonly PuzzleEvent[]
   onCreate?: (name: string) => boolean
   onRequestCreate?: () => void
   onRename: (id: string, name: string) => boolean
   onSelect: (id: string) => void
-  onSelectEvent?: (event: PuzzleEvent) => void
   onOpenSessionSettings: () => void
 }
 
@@ -34,13 +30,10 @@ export function SessionPanel({
   sessions,
   activeSessionId,
   locked,
-  event = '333',
-  availableEvents = ['333', '222', '444', '333oh'],
   onCreate,
   onRequestCreate,
   onRename,
   onSelect,
-  onSelectEvent,
   onOpenSessionSettings,
 }: SessionPanelProps) {
   const [editing, setEditing] = useState<EditMode | null>(null)
@@ -134,27 +127,7 @@ export function SessionPanel({
         </div>
       </div>
 
-      <div className="session-event-row">
-        <label className="sr-only" htmlFor="active-event">Active event</label>
-        <select
-          id="active-event"
-          className="session-select"
-          value={event}
-          disabled={locked}
-          data-testid="event-select"
-          onChange={(changeEvent) =>
-            onSelectEvent?.(changeEvent.target.value as PuzzleEvent)
-          }
-        >
-          {CUBELAB_EVENTS.filter((item) => availableEvents.includes(item.id)).map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {editing ? (
+{editing ? (
         <form
           className="session-edit"
           onSubmit={handleSubmit}
