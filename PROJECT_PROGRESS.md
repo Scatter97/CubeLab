@@ -1,6 +1,6 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23 22:45 (local)
+**Last verified:** 2026-10-24 11:05 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
@@ -591,8 +591,12 @@ sync or telemetry.
 - Remote deletion and offline/failure paths are covered by unit and mock E2E
   tests.
 - Automated tests use a deterministic in-memory Drive transport. Real Google
-  Drive authentication and Google servers were not exercised in CI; production
-  correctness depends on deploying with a valid `VITE_GOOGLE_CLIENT_ID`.
+  Identity Services authentication and Google Drive app-data backup/restore were
+  also validated on 2026-10-24 with a configured test OAuth client (Google Cloud
+  project `cubelab-978`) while the OAuth app remained in Testing mode; CI still
+  uses the mock transport. Production correctness depends on deploying with a
+  valid `VITE_GOOGLE_CLIENT_ID` and completing Google publishing/brand work before
+  non-test users can sign in.
 
 ### Phase 2C — Not started
 
