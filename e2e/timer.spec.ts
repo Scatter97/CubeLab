@@ -1373,3 +1373,4 @@ test('invalid google drive backup is rejected', async ({ page }) => {
   await drive.getByTestId('drive-done').click()
   await expect(drive).toBeHidden()
 })
+
