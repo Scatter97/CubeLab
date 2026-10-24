@@ -1,11 +1,11 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23 20:41 (local)
+**Last verified:** 2026-10-23 21:12 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
 **Phase 2A.1:** Complete — csTimer-inspired Settings dialog
-**Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v3
+**Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v4
 **Phase 2B:** Not started — 0% (Google Drive backup)
 **Phase 2C:** Not started — 0% (multi-device sync)
 **Repository state:** Phase 2A.2 is implemented, documented, and verified. Phase 2B has not been started.
@@ -38,7 +38,8 @@ penalties, or WCA calculations.
 - Optional WCA inspection with 15-second / 17-second boundaries and automatic
   `+2` or DNF penalty at solve start.
 - Optional visual, sound, haptic, or combined feedback for completed solves and
-  DNFs, plus an optional inspection warning at 8 or 12 seconds.
+  DNFs, with adjustable alert volume (70% default), plus an optional inspection
+  warning at 8 or 12 seconds.
 - Four accent colors with WCAG AA contrast, applied to controls and the timer
   surface.
 - csTimer-inspired Settings dialog with Timer, Alerts, Display, Appearance,
@@ -95,13 +96,14 @@ penalties, or WCA calculations.
 - Phase 2A.1 moved inspection and backup entry points into the Settings dialog,
   added a responsive grouped-sections layout, and covered focus restoration and
   narrow-width touch targets in production E2E tests.
-- Phase 2A.2 introduced settings schema v3 with v1/v2 migration and typed
+- Phase 2A.2 introduced settings schema v4 with v1–v3 migration and typed
   defaults. Implemented controls cover timer-update mode, custom Space-hold
   timing, interface zoom, small-decimal display, scramble alignment/height
-  limit/click action, visual/sound/haptic solve and DNF feedback, inspection
-  warnings at 8 or 12 seconds, accent color, statistic-card visibility, and
-  tenths/hundredths display precision. Interface zoom scales the app shell with
-  `zoom` plus viewport-relative dimensions instead of leaving blank layout space,
+  limit/click action, visual/sound/haptic solve and DNF feedback with adjustable
+  alert volume, inspection warnings at 8 or 12 seconds, accent color,
+  statistic-card visibility, and tenths/hundredths display precision.
+  Interface zoom scales the app shell with `zoom` plus viewport-relative
+  dimensions instead of leaving blank layout space,
   dialogs compensate for the scale, history effective-time labels wrap instead
   of ellipsizing, and the scramble click action is keyboard-activatable with
   Enter. Web Audio is primed during a user gesture so inspection warnings remain
@@ -109,18 +111,18 @@ penalties, or WCA calculations.
 
 ## Verification evidence
 
-Run at 2026-10-23 20:41 (local), after the Phase 2A.2 alerts, appearance,
-statistics, controls, documentation, and screenshot updates:
+Run at 2026-10-23 21:12 (local), after the Phase 2A.2 alerts, appearance,
+statistics, controls, alert-volume, documentation, and screenshot updates:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **91/91 passed**, 7 test files |
+| Unit tests | `npm test` | **94/94 passed**, 8 test files |
 | Production build | `npm run build` | Passed; 75 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,165.33 KiB** |
+| PWA generation | included in build | 22 precache entries, **2,166.44 KiB** |
 | Production E2E | `npm run test:e2e` | **20/20 passed**, Chromium |
-| Visual QA | production preview screenshots | Refreshed `docs/cubelab-settings.png`; verified the new settings groups at 1440×1000 and the narrow layout at 320 px with no horizontal overflow |
+| Visual QA | production preview screenshots | Refreshed `docs/cubelab-settings.png` with the alert-volume row; verified the Alerts layout at 1440×1000, 390 px, and 320 px with no horizontal overflow |
 | Performance | seeded 2,000-solve production session | Not re-measured; the changes are presentation-only and do not touch the timer or persistence path. The Phase 2A profile below remains the latest. |
 
 The Playwright suite runs against the production preview and covers:
@@ -150,8 +152,8 @@ The Playwright suite runs against the production preview and covers:
 15. Small-decimal rendering, scramble alignment/height, keyboard activation of
     the scramble click action, and Space remaining reserved for the timer.
 16. Effective `+2` history labels remaining fully visible instead of clipping.
-17. Visual solve feedback, accent application, the Controls reference, and
-    alert/accent persistence across reload.
+17. Visual solve feedback, alert volume, accent application, the Controls
+    reference, and alert/volume/accent persistence across reload.
 18. The 8-second inspection warning firing at the configured threshold under
     Playwright's mocked clock.
 19. DNF feedback using the danger visual alert after an inspection overrun.
@@ -187,16 +189,16 @@ substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~287.21 kB (~86.30 kB gzip)
-- CSS: ~38.46 kB (~10.20 kB gzip)
+- Main application bundle: ~288.04 kB (~86.52 kB gzip)
+- CSS: ~38.78 kB (~10.27 kB gzip)
 - Cubing.js chunk: ~1.21 MB (~335.13 kB gzip)
-- Precache total: ~2.11 MiB (2,165.33 KiB)
+- Precache total: ~2.12 MiB (2,166.44 KiB)
 - PWA: generated Workbox service worker and web manifest
 
-Phase 2A.2 adds alert, appearance, statistics, and controls UI plus supporting
-CSS; the main bundle remains below 290 kB before gzip. Vite reports the expected
-informational warning about the large cubing.js chunk. It is a single cached
-dependency chunk, not duplicated application code.
+Phase 2A.2 adds alert volume, appearance, statistics, and controls UI plus
+supporting CSS; the main bundle remains below 290 kB before gzip. Vite reports
+the expected informational warning about the large cubing.js chunk. It is a
+single cached dependency chunk, not duplicated application code.
 
 ## Key decisions and invariants
 
@@ -216,9 +218,9 @@ dependency chunk, not duplicated application code.
   Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About
   sections. It uses the shared native modal, a fixed footer, and an
   independently scrolling body on short screens.
-- The v3 settings schema stores presentation and interaction preferences as
+- The v4 settings schema stores presentation and interaction preferences as
   typed fields with documented defaults. Unknown or corrupt values fall back
-  field-by-field, while v1 and v2 records upgrade automatically.
+  field-by-field, while v1–v3 records upgrade automatically.
 - Interface zoom uses CSS `zoom` with a reciprocal viewport width/height and a
   scale-adjusted dialog cap. This keeps the app filling the viewport at reduced
   zoom without introducing blank scroll space or horizontal overflow.
@@ -308,7 +310,7 @@ ignored, and invalid JSON or unsupported schema versions fall back to the legacy
 record and then to a fresh empty session. The active session is normalized to an
 existing session. A valid session collection is never silently discarded.
 
-Settings are stored at schema version 3. Loading accepts versions 1–3, upgrades
+Settings are stored at schema version 4. Loading accepts versions 1–4, upgrades
 older records with defaults, and validates each new field independently. A
 record without `inspectionEnabled` is rejected as invalid, matching the original
 settings contract.
@@ -457,7 +459,7 @@ All requested Milestone 1 functionality is implemented and verified:
 
 ### Phase 2A.2 — Complete
 
-- [x] Settings schema v3 with v1/v2 migration and field-level validation
+- [x] Settings schema v4 with v1–v3 migration and field-level validation
 - [x] Storage and backup validation for upgraded settings records
 - [x] Timer-update and custom Space-hold (0–10 s) controls
 - [x] Display scaling, small-decimal controls, and scramble click/alignment/height controls

@@ -19,7 +19,7 @@ Settings dialog in a responsive layout built around the clock. See
   with a prefetched next scramble.
 - **Keyboard and pointer controls** that work reliably from anywhere on the page.
 - **Optional WCA inspection** with automatic `+2` and DNF penalties.
-- **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About sections. It covers inspection, timer updates, Space-hold time, visual/sound/haptic solve and inspection alerts, accent color, visible statistics and display precision, display scaling, scramble presentation, local-data status, and backup/restore access. Changes save automatically.
+- **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About sections. It covers inspection, timer updates, Space-hold time, visual/sound/haptic solve and inspection alerts with adjustable volume, accent color, visible statistics and display precision, display scaling, scramble presentation, local-data status, and backup/restore access. Changes save automatically.
 - **Named local sessions** with create, switch, rename, and confirmed delete.
   Each session has independent solves and statistics.
 - **Session statistics**: best/latest single, mo3, ao5, and ao12, including full
@@ -74,6 +74,7 @@ memoized, so long sessions remain usable.
 | Change inspection | Open **Settings**, then toggle **Inspection** under **Timer** |
 | Tune timer updates, Space hold, scramble layout, and display scaling | Open **Settings**, then adjust **Timer**, **Display**, or **Scramble** |
 | Choose solve/DNF and inspection feedback | Open **Settings → Alerts** and choose visual, sound, haptic, or a combination |
+| Adjust alert volume | Open **Settings → Alerts** and move the **Alert volume** slider |
 | Change the accent color | Open **Settings → Appearance** and choose green, blue, violet, or amber |
 | Show or hide statistic cards and choose precision | Open **Settings → Statistics** |
 | Switch session | Choose a name in the session select; use arrow keys and <kbd>Enter</kbd> from the keyboard |
@@ -187,9 +188,9 @@ delete, timer locking of session controls and Settings, backup export,
 invalid-file handling, import cancellation, confirmed restore of sessions and
 settings, the scramble-failure recovery state, and full offline scramble
 generation through the installed service worker. It also covers visual solve,
-DNF, and inspection alerts, accent persistence, the Controls reference,
-statistics visibility and tenths precision, and the inspection warning
-threshold.
+DNF, and inspection alerts, adjustable alert volume, accent persistence, the
+Controls reference, statistics visibility and tenths precision, and the
+inspection warning threshold.
 
 ## Architecture
 
@@ -237,9 +238,9 @@ individually. Corrupt session JSON falls back to the legacy record and then to a
 fresh empty session; a valid session collection is never silently discarded.
 The active session is normalized to an existing session on load.
 
-Settings are stored at schema version 3. Version 1 and version 2 records are
-upgraded in place with defaults for alert, appearance, and statistics fields;
-invalid individual values fall back without discarding the rest of the record.
+Settings are stored at schema version 4. Version 1–3 records are upgraded in
+place with defaults for alert, appearance, and statistics fields; invalid
+individual values fall back without discarding the rest of the record.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
 exportedAt, sessions, settings }`. The parser validates the marker, version,

@@ -17,10 +17,10 @@ verification evidence.
   migration, and local persistence.
 - Phase 2A.1 is complete: centralized Settings dialog, modal focus handling, and
   inspection/backup entry points.
-- Phase 2A.2 is complete: settings schema v3, custom Space hold time, timer
-  update modes, interface zoom, small decimals, scramble presentation, alerts,
-  accent colors, statistics display controls, the Controls reference, and
-  dedicated production E2E coverage are in place.
+- Phase 2A.2 is complete: settings schema v4, custom Space hold time, timer
+  update modes, interface zoom, small decimals, scramble presentation, alerts
+  with adjustable volume, accent colors, statistics display controls, the
+  Controls reference, and dedicated production E2E coverage are in place.
 - Phase 2B (Google Drive backup) and Phase 2C (multi-device sync) are not
   started. Neither may begin without an explicit user instruction.
 
@@ -49,6 +49,7 @@ statistics correctness.
    - Optional inspection warning at 8/12 seconds.
    - Optional solve-complete and DNF feedback.
    - Visual, sound, haptic, and sound+haptic preferences.
+   - Adjustable 0–100% alert volume with a louder 70% default.
    - Visual feedback respects reduced-motion through the global motion query.
 2. **Appearance**
    - Green, blue, violet, and amber accent choices with WCAG AA contrast checks.
@@ -64,7 +65,7 @@ statistics correctness.
 **Acceptance gate — met:**
 
 - [x] New preferences have typed defaults and validation.
-- [x] Settings schema v3 includes documented v1/v2 migration and unit tests.
+- [x] Settings schema v4 includes documented v1–v3 migration and unit tests.
 - [x] Every new control has focused Playwright coverage, including persistence
       and failure paths.
 - [x] `npm run check` passes.

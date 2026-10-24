@@ -320,6 +320,7 @@ describe('settings persistence', () => {
       parseSettingsData({
         inspectionEnabled: true,
         alertChannel: 'sound-haptic',
+        alertVolume: 85,
         inspectionWarning: '12s',
         accentColor: 'violet',
         statPrecision: 'tenths',
@@ -332,6 +333,7 @@ describe('settings persistence', () => {
       }),
     ).toMatchObject({
       alertChannel: 'sound-haptic',
+      alertVolume: 85,
       inspectionWarning: '12s',
       accentColor: 'violet',
       statPrecision: 'tenths',
@@ -349,6 +351,7 @@ describe('settings persistence', () => {
       parseSettingsData({
         inspectionEnabled: true,
         alertChannel: 'telepathy',
+        alertVolume: 101,
         inspectionWarning: '5s',
         accentColor: 'red',
         statPrecision: 'minutes',
@@ -360,6 +363,7 @@ describe('settings persistence', () => {
       }),
     ).toMatchObject({
       alertChannel: DEFAULT_SETTINGS.alertChannel,
+      alertVolume: DEFAULT_SETTINGS.alertVolume,
       inspectionWarning: DEFAULT_SETTINGS.inspectionWarning,
       accentColor: DEFAULT_SETTINGS.accentColor,
       statPrecision: DEFAULT_SETTINGS.statPrecision,
@@ -379,7 +383,7 @@ describe('settings persistence', () => {
     })
   })
 
-  it('upgrades a v2 record with defaults for v3 preferences', () => {
+  it('upgrades a v2 record with defaults for newer preferences', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
@@ -410,6 +414,43 @@ describe('settings persistence', () => {
     })
   })
 
+  it('upgrades a v3 record with the default alert volume', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        version: 3,
+        settings: {
+          inspectionEnabled: true,
+          alertChannel: 'sound',
+          inspectionWarning: '8s',
+          accentColor: 'blue',
+          statPrecision: 'tenths',
+          statVisibility: {
+            single: true,
+            mo3: false,
+            ao5: true,
+            ao12: false,
+          },
+        },
+      }),
+    )
+    expect(loadSettings(storage)).toMatchObject({
+      inspectionEnabled: true,
+      alertChannel: 'sound',
+      alertVolume: DEFAULT_SETTINGS.alertVolume,
+      inspectionWarning: '8s',
+      accentColor: 'blue',
+      statPrecision: 'tenths',
+      statVisibility: {
+        single: true,
+        mo3: false,
+        ao5: true,
+        ao12: false,
+      },
+    })
+  })
+
   it('falls back on malformed settings', () => {
     const storage = new MemoryStorage()
     storage.seed(SETTINGS_STORAGE_KEY, '["unexpected"]')
@@ -420,7 +461,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 4, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 5, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })

@@ -76,8 +76,8 @@ the production build because it tests the service worker and offline reload.
   presentation, the controls reference, local-data status, and backup/restore
   access live there. Settings opens only while the timer is idle and blocks
   timing while open. Do not reintroduce a header inspection toggle.
-- **Settings persistence is versioned.** `v1` and `v2` settings records migrate
-  to `v3` with documented defaults and field-level corruption recovery.
+- **Settings persistence is versioned.** `v1`–`v3` settings records migrate to
+  `v4` with documented defaults and field-level corruption recovery.
   `parseSettingsData` accepts only valid fields, rejects records without
   `inspectionEnabled`, and upgrades older backups during import. Alerts,
   appearance, and statistics preferences must not alter raw times or WCA
@@ -125,8 +125,8 @@ For a behavior change:
 - Add or update a Playwright test for user-visible flows, including settings
   open/close and focus restoration, inspection persistence, session
   create/switch/rename/delete, timer locking, export, invalid import, import
-  cancellation, confirmed replacement, alert feedback, accent persistence,
-  statistic visibility/precision, and the Controls reference.
+  cancellation, confirmed replacement, alert feedback and volume persistence,
+  accent persistence, statistic visibility/precision, and the Controls reference.
 - Test failure paths, not only the happy path.
 - Keep tests deterministic. Avoid asserting exact wall-clock durations from live
   timing; use ranges or state-machine timestamps.

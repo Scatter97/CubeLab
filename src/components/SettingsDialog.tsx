@@ -155,6 +155,26 @@ export function SettingsDialog({
               </select>
             </label>
 
+            <div className="settings-field">
+              <span className="settings-field-label">Alert volume</span>
+              <span className="settings-volume">
+                <input
+                  id="alert-volume"
+                  data-testid="alert-volume"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={settings.alertVolume}
+                  aria-label="Alert volume"
+                  onChange={(event) =>
+                    onChange({ alertVolume: Number(event.target.value) })
+                  }
+                />
+                <output htmlFor="alert-volume">{settings.alertVolume}%</output>
+              </span>
+            </div>
+
             <label className="settings-field">
               <span className="settings-field-label">Inspection warning</span>
               <select
@@ -174,8 +194,8 @@ export function SettingsDialog({
             </label>
 
             <p className="settings-note">
-              Feedback flashes the timer. Sound and haptic output depend on
-              browser and device support.
+              Feedback flashes the timer. Volume applies to sound; haptic
+              support varies by browser and device.
             </p>
           </section>
 

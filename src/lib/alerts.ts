@@ -2,7 +2,17 @@ import type { InspectionWarning } from '../types'
 
 export type AlertTone = 'success' | 'danger' | 'warning'
 
+/** Peak gain at 100% volume. Kept below clipping for the short alert tones. */
+export const ALERT_MAX_GAIN = 0.4
+
 let audioContext: AudioContext | null = null
+
+/** Maps the 0–100 preference to a safe Web Audio gain. */
+export function alertGainForVolume(volume: number): number {
+  if (!Number.isFinite(volume)) return 0
+  const normalized = Math.min(100, Math.max(0, volume)) / 100
+  return normalized * ALERT_MAX_GAIN
+}
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null
@@ -52,7 +62,10 @@ function toneSequence(tone: AlertTone): ToneStep[] {
   }
 }
 
-export function playAlertSound(tone: AlertTone): void {
+export function playAlertSound(tone: AlertTone, volume = 70): void {
+  const peakGain = alertGainForVolume(volume)
+  if (peakGain <= 0) return
+
   const context = getAudioContext()
   if (!context) return
   if (context.state === 'suspended') void context.resume()
@@ -66,7 +79,7 @@ export function playAlertSound(tone: AlertTone): void {
     oscillator.type = 'sine'
     oscillator.frequency.value = frequency
     gain.gain.setValueAtTime(0.0001, start)
-    gain.gain.exponentialRampToValueAtTime(0.08, start + 0.01)
+    gain.gain.exponentialRampToValueAtTime(peakGain, start + 0.01)
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration)
 
     oscillator.connect(gain)

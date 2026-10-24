@@ -144,10 +144,10 @@ export default function App() {
   )
 
   const triggerAlert = useCallback(
-    (tone: AlertTone, channel: AlertChannel) => {
+    (tone: AlertTone, channel: AlertChannel, volume: number) => {
       if (channel === 'off') return
 
-      if (channel.includes('sound')) playAlertSound(tone)
+      if (channel.includes('sound')) playAlertSound(tone, volume)
       if (channel.includes('haptic')) vibrateAlert(tone)
       if (!channel.includes('visual')) return
 
@@ -188,10 +188,17 @@ export default function App() {
       triggerAlert(
         completion.penalty === 'dnf' ? 'danger' : 'success',
         settings.alertChannel,
+        settings.alertVolume,
       )
       advanceScramble()
     },
-    [addSolve, advanceScramble, settings.alertChannel, triggerAlert],
+    [
+      addSolve,
+      advanceScramble,
+      settings.alertChannel,
+      settings.alertVolume,
+      triggerAlert,
+    ],
   )
 
   const timer = useTimer({
@@ -222,9 +229,10 @@ export default function App() {
 
     inspectionWarningRef.current.warned = true
     setAnnouncement(`${thresholdMs / 1_000} seconds of inspection remaining.`)
-    triggerAlert('warning', settings.alertChannel)
+    triggerAlert('warning', settings.alertChannel, settings.alertVolume)
   }, [
     settings.alertChannel,
+    settings.alertVolume,
     settings.inspectionWarning,
     timer.inspectionElapsedMs,
     timer.state,

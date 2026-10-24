@@ -21,7 +21,7 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 1
-export const SETTINGS_STORAGE_VERSION = 3
+export const SETTINGS_STORAGE_VERSION = 4
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrambleLimitHeight: false,
   scrambleAction: 'copy',
   alertChannel: 'off',
+  alertVolume: 70,
   inspectionWarning: 'off',
   accentColor: 'green',
   statVisibility: {
@@ -270,6 +271,13 @@ export function parseSettingsData(value: unknown): Settings | null {
     alertChannel: isValidAlertChannel(value.alertChannel)
       ? value.alertChannel
       : DEFAULT_SETTINGS.alertChannel,
+    alertVolume:
+      typeof value.alertVolume === 'number' &&
+      Number.isFinite(value.alertVolume) &&
+      value.alertVolume >= 0 &&
+      value.alertVolume <= 100
+        ? Math.round(value.alertVolume)
+        : DEFAULT_SETTINGS.alertVolume,
     inspectionWarning: isValidInspectionWarning(value.inspectionWarning)
       ? value.inspectionWarning
       : DEFAULT_SETTINGS.inspectionWarning,

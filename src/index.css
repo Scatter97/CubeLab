@@ -425,6 +425,30 @@ kbd {
   border-radius: 3px;
 }
 
+.settings-volume {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-volume input[type='range'] {
+  width: 108px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  accent-color: var(--accent);
+}
+
+.settings-volume output {
+  min-width: 32px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 .settings-fieldset {
   padding: 0;
   margin: 12px 0 0;

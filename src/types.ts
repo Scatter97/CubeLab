@@ -49,6 +49,7 @@ export interface Settings {
   scrambleLimitHeight: boolean
   scrambleAction: ScrambleAction
   alertChannel: AlertChannel
+  alertVolume: number
   inspectionWarning: InspectionWarning
   accentColor: AccentColor
   statVisibility: StatVisibility
