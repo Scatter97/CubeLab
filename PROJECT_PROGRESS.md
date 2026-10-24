@@ -9,6 +9,8 @@
 **Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
 **Phase 2C:** Complete — local-first Google Drive synchronization with automatic startup, exit, reconnect, combined scheduling, ID-based merging, tombstones, conflict recovery, session redirects, empty-default adoption, duplicate-name detection, manual session merges, per-field conflict resolution, sync settings UI, and mock-based coverage
+**Phase 3:** Complete — WCA event architecture with 3x3, 2x2, 4x4, and 3x3 one-handed support, per-session event identity, automatic v2-to-v3 storage migration, event-aware scrambling, and event-scoped sessions
+**Repository state:** Phase 2B manual Google Drive backup, Phase 2C local-first synchronization, and Phase 3 multi-event support are implemented, documented, and verified.
 **Repository state:** Phase 2B manual Google Drive backup and Phase 2C local-first synchronization are implemented, documented, and verified.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
