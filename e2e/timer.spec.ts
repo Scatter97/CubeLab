@@ -95,7 +95,7 @@ async function openSessionSettings(page: Page) {
 }
 
 async function openFirstSolveMenu(page: Page) {
-  await page.locator('[data-testid="history-row"]').first().click()
+  await page.locator('[data-testid="history-main"]').first().click()
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
   return menu
@@ -144,11 +144,26 @@ test('solve menu handles penalties, comments, copying, undo, and typed clear', a
   await recordSolve(page, 120)
 
   const row = page.locator('[data-testid="history-row"]').first()
+  await expect(row.getByTestId('solve-plus-two')).toBeVisible()
+  await expect(row.getByTestId('solve-dnf')).toBeVisible()
+
+  const inlinePlusTwo = row.getByTestId('solve-plus-two')
+  const inlineDnf = row.getByTestId('solve-dnf')
+  await inlinePlusTwo.click()
+  await expect(row.locator('.history-time')).toContainText('+2')
+  await inlinePlusTwo.click()
+  await expect(row.locator('.history-time')).not.toContainText('+2')
+
+  await inlineDnf.click()
+  await expect(row.locator('.history-time')).toContainText('DNF')
+  await inlineDnf.click()
+  await expect(row.locator('.history-time')).not.toContainText('DNF')
+
   let menu = await openFirstSolveMenu(page)
   await expect(menu).toContainText('Solve #1')
   await menu.getByRole('menuitem', { name: 'Add +2 penalty' }).click()
   await expect(menu).toBeHidden()
-  await expect(row).toContainText('+2')
+  await expect(row.locator('.history-time')).toContainText('+2')
 
   let solves = await storedSolves(page)
   expect(solves[0]?.penalty).toBe('+2')
@@ -223,6 +238,12 @@ test('inspection supports count-down, count-up, and independent warnings', async
   let settings = await openSettings(page)
   await settings.getByTestId('inspection-setting').click()
   await settings.getByTestId('inspection-direction').selectOption('down')
+  await expect(settings.getByTestId('inspection-warning-12s').locator('..')).toContainText(
+    '12 seconds remaining',
+  )
+  await expect(settings.getByTestId('inspection-warning-8s').locator('..')).toContainText(
+    '8 seconds remaining',
+  )
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('inspection-warning-12s').check()
   // Warning text is visual even when solve/DNF feedback is off.
@@ -236,14 +257,14 @@ test('inspection supports count-down, count-up, and independent warnings', async
 
   await page.clock.fastForward(3_100)
   await expect(page.getByTestId('timer-display')).toHaveText('12')
-  await expect(page.locator('.timer-alert-message')).toHaveText('12 seconds')
+  await expect(page.locator('.timer-alert-message')).toHaveText('12 seconds remaining')
   await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
-    '12 seconds',
+    '12 seconds remaining',
   )
 
   await page.clock.fastForward(4_000)
   await expect(page.getByTestId('timer-display')).toHaveText('8')
-  await expect(page.locator('.timer-alert-message')).toHaveText('8 seconds')
+  await expect(page.locator('.timer-alert-message')).toHaveText('8 seconds remaining')
 
   await page.keyboard.press('Escape')
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
@@ -328,6 +349,39 @@ test('custom Space hold time changes the arm threshold and persists', async ({
   await expect(reopened.getByTestId('hold-duration')).toHaveValue('1000')
 })
 
+test('optional any-key stop records exactly one solve and persists', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  let settings = await openSettings(page)
+  const toggle = settings.getByTestId('stop-with-any-key')
+  await expect(toggle).not.toBeChecked()
+  await toggle.check()
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await holdSpace(page)
+  await page.keyboard.press('a')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await page.reload()
+  await waitForApp(page)
+  settings = await openSettings(page)
+  await expect(settings.getByTestId('stop-with-any-key')).toBeChecked()
+  await settings.getByTestId('stop-with-any-key').uncheck()
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await holdSpace(page)
+  await page.keyboard.press('a')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'running')
+  await stopWithSpace(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('2')
+})
+
 test('interface zoom fills the viewport and keeps dialogs usable', async ({
   page,
 }) => {
@@ -395,9 +449,24 @@ test('interface zoom fills the viewport and keeps dialogs usable', async ({
 
 test('display and scramble preferences apply and keyboard activation works', async ({
   page,
+  context,
 }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/')
   await waitForApp(page)
+
+  const initialScramble = await page.locator('.scramble-text').innerText()
+  const scrambleBody = page.locator('.scramble-body')
+  const bodyBox = await scrambleBody.boundingBox()
+  expect(bodyBox).not.toBeNull()
+  if (!bodyBox) throw new Error('Scramble body has no bounding box')
+  await page.mouse.click(bodyBox.x + 4, bodyBox.y + bodyBox.height / 2)
+  await expect(page.getByRole('status')).toContainText(
+    'Scramble copied to clipboard',
+  )
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(initialScramble)
 
   const settings = await openSettings(page)
   await settings.locator('#decimal-small').check()
@@ -428,7 +497,7 @@ test('display and scramble preferences apply and keyboard activation works', asy
   ).toBe('right')
 
   const before = await scramble.innerText()
-  await scramble.focus()
+  await scrambleBody.focus()
   await page.keyboard.press('Enter')
   await expect.poll(() => scramble.innerText()).not.toBe(before)
   await waitForApp(page)
@@ -768,7 +837,7 @@ test('narrow mobile layout keeps settings, session, and solve-menu targets usabl
   await recordSolve(page, 80)
   const row = page.locator('[data-testid="history-row"]').first()
   await row.scrollIntoViewIfNeeded()
-  await row.click()
+  await row.locator('[data-testid="history-main"]').click()
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
   const menuBox = await menu.boundingBox()

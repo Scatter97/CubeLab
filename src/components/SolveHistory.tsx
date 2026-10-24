@@ -4,8 +4,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type KeyboardEvent,
-  type MouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { Penalty, Solve } from '../types'
@@ -43,7 +41,8 @@ interface SolveRowProps {
   solve: Solve
   number: number
   menuOpen: boolean
-  onOpenMenu: (solve: Solve, number: number, trigger: HTMLElement) => void
+  onOpenMenu: (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => void
+  onSetPenalty: (id: string, penalty: Penalty) => void
 }
 
 function fullTimestamp(timestamp: number): string {
@@ -63,7 +62,9 @@ const SolveRow = memo(function SolveRow({
   number,
   menuOpen,
   onOpenMenu,
+  onSetPenalty,
 }: SolveRowProps) {
+  const rowRef = useRef<HTMLLIElement>(null)
   const time = formatSolveTime(solve.rawMs, solve.penalty)
   const effective =
     solve.penalty === '+2'
@@ -71,72 +72,116 @@ const SolveRow = memo(function SolveRow({
       : null
   const raw = solve.penalty === 'dnf' ? `Raw ${formatTime(solve.rawMs)}` : null
 
-  const handleClick = (event: MouseEvent<HTMLLIElement>) => {
+  const openMenu = (trigger: HTMLElement) => {
     const selection = window.getSelection()
     if (selection && selection.toString().length > 0) return
-    onOpenMenu(solve, number, event.currentTarget)
-  }
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLLIElement>) => {
-    if (event.key !== 'Enter' || event.repeat) return
-    event.preventDefault()
-    onOpenMenu(solve, number, event.currentTarget)
+    onOpenMenu(
+      solve,
+      number,
+      trigger,
+      rowRef.current ?? trigger,
+    )
   }
 
   return (
     <li
-      className="history-row"
+      ref={rowRef}
+      className={`history-row${menuOpen ? ' is-menu-open' : ''}`}
       data-testid="history-row"
       data-solve-id={solve.id}
-      tabIndex={0}
-      role="button"
-      aria-haspopup="menu"
-      aria-expanded={menuOpen}
-      aria-label={`Solve ${number}, ${time.display}${time.suffix ?? ''}. Open solve actions.`}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
     >
-      <span
-        className={`history-time ${
-          solve.penalty === 'dnf'
-            ? 'is-dnf'
-            : solve.penalty === '+2'
-              ? 'is-penalty'
-              : ''
-        }`}
-        data-testid="history-time"
+      <button
+        type="button"
+        className="history-main"
+        data-testid="history-main"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-label={`Solve ${number}, ${time.display}${time.suffix ?? ''}. Open solve actions.`}
+        onClick={(event) => openMenu(event.currentTarget)}
       >
-        {time.display}
-        {time.suffix ? (
-          <span className="time-suffix">{time.suffix}</span>
-        ) : null}
-      </span>
-
-      <span className="history-copy">
-        <span className="history-meta">
-          <span>#{number}</span>
-          <span aria-hidden="true">·</span>
-          <time
-            dateTime={new Date(solve.createdAt).toISOString()}
-            title={fullTimestamp(solve.createdAt)}
-          >
-            {formatRelativeTime(solve.createdAt)}
-          </time>
-          {effective ? (
-            <span className="effective-time">{effective}</span>
-          ) : raw ? (
-            <span className="effective-time">{raw}</span>
+        <span
+          className={`history-time ${
+            solve.penalty === 'dnf'
+              ? 'is-dnf'
+              : solve.penalty === '+2'
+                ? 'is-penalty'
+                : ''
+          }`}
+          data-testid="history-time"
+        >
+          {time.display}
+          {time.suffix ? (
+            <span className="time-suffix">{time.suffix}</span>
           ) : null}
         </span>
-        <span className="history-scramble" title={solve.scramble}>
-          {solve.scramble}
-        </span>
-        {solve.comment ? (
-          <span className="history-comment" title={solve.comment}>
-            {solve.comment}
+
+        <span className="history-copy">
+          <span className="history-meta">
+            <span>#{number}</span>
+            <span aria-hidden="true">·</span>
+            <time
+              dateTime={new Date(solve.createdAt).toISOString()}
+              title={fullTimestamp(solve.createdAt)}
+            >
+              {formatRelativeTime(solve.createdAt)}
+            </time>
+            {effective ? (
+              <span className="effective-time">{effective}</span>
+            ) : raw ? (
+              <span className="effective-time">{raw}</span>
+            ) : null}
           </span>
-        ) : null}
-      </span>
+          <span className="history-scramble" title={solve.scramble}>
+            {solve.scramble}
+          </span>
+          {solve.comment ? (
+            <span className="history-comment" title={solve.comment}>
+              {solve.comment}
+            </span>
+          ) : null}
+        </span>
+      </button>
+
+      <div className="history-actions">
+        <button
+          type="button"
+          className={`history-action${solve.penalty === '+2' ? ' is-active is-warning' : ''}`}
+          data-testid="solve-plus-two"
+          aria-pressed={solve.penalty === '+2'}
+          aria-label={
+            solve.penalty === '+2'
+              ? `Remove +2 penalty from solve ${number}`
+              : `Add +2 penalty to solve ${number}`
+          }
+          onClick={() =>
+            onSetPenalty(
+              solve.id,
+              solve.penalty === '+2' ? 'none' : '+2',
+            )
+          }
+        >
+          +2
+        </button>
+        <button
+          type="button"
+          className={`history-action${solve.penalty === 'dnf' ? ' is-active is-danger' : ''}`}
+          data-testid="solve-dnf"
+          aria-pressed={solve.penalty === 'dnf'}
+          aria-label={
+            solve.penalty === 'dnf'
+              ? `Remove DNF from solve ${number}`
+              : `Mark solve ${number} as DNF`
+          }
+          onClick={() =>
+            onSetPenalty(
+              solve.id,
+              solve.penalty === 'dnf' ? 'none' : 'dnf',
+            )
+          }
+        >
+          DNF
+        </button>
+      </div>
     </li>
   )
 })
@@ -170,13 +215,13 @@ export function SolveHistory({
   }, [])
 
   const handleOpenMenu = useCallback(
-    (solve: Solve, number: number, trigger: HTMLElement) => {
+    (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => {
       setCommentDraft(solve.comment)
       setCommentEditing(false)
       setOpenMenu({
         solve,
         number,
-        rect: trigger.getBoundingClientRect(),
+        rect: anchor.getBoundingClientRect(),
         trigger,
       })
     },
@@ -243,16 +288,22 @@ export function SolveHistory({
   const menu = openMenu
     ? (() => {
         const menuWidth = 248
-        const estimatedHeight = 340
-        const left = Math.min(
-          Math.max(8, openMenu.rect.right - menuWidth),
-          window.innerWidth - menuWidth - 8,
+        const estimatedHeight = 360
+        const rightSpace = window.innerWidth - openMenu.rect.right - 8
+        const placeRight = rightSpace >= menuWidth
+        const left = placeRight
+          ? openMenu.rect.right + 8
+          : Math.max(
+              8,
+              Math.min(openMenu.rect.left, window.innerWidth - menuWidth - 8),
+            )
+        const top = Math.max(
+          8,
+          Math.min(
+            openMenu.rect.top,
+            window.innerHeight - estimatedHeight - 8,
+          ),
         )
-        const placeAbove =
-          window.innerHeight - openMenu.rect.bottom < estimatedHeight + 8
-        const top = placeAbove
-          ? Math.max(8, openMenu.rect.top - estimatedHeight - 4)
-          : openMenu.rect.bottom + 4
         const time = formatSolveTime(
           openMenu.solve.rawMs,
           openMenu.solve.penalty,
@@ -465,6 +516,7 @@ export function SolveHistory({
                 number={solves.length - index}
                 menuOpen={openMenu?.solve.id === solve.id}
                 onOpenMenu={handleOpenMenu}
+                onSetPenalty={onSetPenalty}
               />
             ))}
           </ol>

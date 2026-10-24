@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
 import { copyText } from '../lib/clipboard'
-import { CheckIcon, CopyIcon, RefreshIcon } from './Icons'
+import { RefreshIcon } from './Icons'
 import type { ScrambleAction, ScrambleAlignment } from '../types'
 
 interface ScramblePanelProps {
@@ -30,30 +29,10 @@ export function ScramblePanel({
   alignment,
   limitHeight = false,
 }: ScramblePanelProps) {
-  const [copied, setCopied] = useState(false)
-  const copiedTimer = useRef<number | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (copiedTimer.current !== null) {
-        window.clearTimeout(copiedTimer.current)
-      }
-    }
-  }, [])
-
   const handleCopy = async () => {
     if (!scramble) return
     const didCopy = await copyText(scramble)
-    if (didCopy) {
-      setCopied(true)
-      onNotify('Scramble copied to clipboard')
-      if (copiedTimer.current !== null) {
-        window.clearTimeout(copiedTimer.current)
-      }
-      copiedTimer.current = window.setTimeout(() => setCopied(false), 1_800)
-    } else {
-      onNotify('Could not copy the scramble')
-    }
+    onNotify(didCopy ? 'Scramble copied to clipboard' : 'Could not copy the scramble')
   }
 
   const activateScramble = () => {
@@ -63,6 +42,8 @@ export function ScramblePanel({
       onRegenerate()
     }
   }
+
+  const canActivate = Boolean(scramble) && scrambleAction !== 'none'
 
   return (
     <section className="panel scramble-panel" aria-labelledby="scramble-title">
@@ -82,16 +63,6 @@ export function ScramblePanel({
           <button
             type="button"
             className="icon-button"
-            onClick={handleCopy}
-            disabled={!scramble}
-            aria-label="Copy scramble"
-            title="Copy scramble"
-          >
-            {copied ? <CheckIcon size={17} /> : <CopyIcon size={17} />}
-          </button>
-          <button
-            type="button"
-            className="icon-button"
             onClick={onRegenerate}
             disabled={!canRegenerate}
             aria-label="Generate a new scramble"
@@ -105,23 +76,33 @@ export function ScramblePanel({
         </div>
       </div>
 
-      <div className="scramble-body" aria-busy={isLoading && !scramble}>
+      <div
+        className="scramble-body"
+        aria-busy={isLoading && !scramble}
+        role={canActivate ? 'button' : undefined}
+        tabIndex={canActivate ? 0 : undefined}
+        aria-label={
+          canActivate
+            ? scrambleAction === 'copy'
+              ? 'Copy scramble'
+              : 'Generate next scramble'
+            : undefined
+        }
+        onClick={canActivate ? activateScramble : undefined}
+        onKeyDown={(event) => {
+          // Space remains reserved for the timer; Enter activates the
+          // scramble action for keyboard users.
+          if (!canActivate || event.key !== 'Enter') return
+          event.preventDefault()
+          activateScramble()
+        }}
+      >
         {scramble ? (
           <p
             className={`scramble-text${
               alignment ? ` is-aligned-${alignment}` : ''
             }${limitHeight ? ' is-height-limited' : ''}`}
-            role={scrambleAction && scrambleAction !== 'none' ? 'button' : undefined}
-            tabIndex={scrambleAction && scrambleAction !== 'none' ? 0 : undefined}
             aria-live="polite"
-            onClick={activateScramble}
-            onKeyDown={(event) => {
-              // Space remains reserved for the timer; Enter activates the
-              // scramble action for keyboard users.
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              activateScramble()
-            }}
           >
             {scramble}
           </p>

@@ -6,10 +6,10 @@
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
 **Phase 2A.1:** Complete — csTimer-inspired Settings dialog
 **Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v4
-**Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, and schema v5
+**Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop
 **Phase 2B:** Not started — 0% (Google Drive backup)
 **Phase 2C:** Not started — 0% (multi-device sync)
-**Repository state:** Phase 2A.3 is implemented, documented, and verified. Phase 2B has not been started.
+**Repository state:** Phase 2A.3 and the latest timer/history/settings refinement are implemented, documented, and verified. Phase 2B has not been started.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
 ## Scope delivered
@@ -131,8 +131,13 @@ calculations.
   count-down/count-up inspection, independent warning toggles, expanded built-in
   averages, up to five custom averages, per-session inspection overrides,
   typed destructive confirmations, persisted solve comments, and the floating
-  solve menu. The History panel no longer contains a clear-session action, and
-  inline penalty/delete buttons were replaced by the row menu.
+  solve menu. The History panel no longer contains a clear-session action; penalty
+  and DNF controls are available inline on each solve row while the floating menu
+  retains the remaining actions. A later refinement increases the settings schema
+  to v6 for an optional any-key stop toggle, makes header Settings an icon-only
+  gear, makes the whole scramble body clickable for copy/advance, removes the
+  separate scramble copy button, and replaces Settings checkboxes with custom
+  toggle controls.
 
 ## Verification evidence
 
@@ -146,7 +151,7 @@ session-settings, solve-menu, comment, documentation, and screenshot updates:
 | Unit tests | `npm test` | **111/111 passed**, 9 test files |
 | Production build | `npm run build` | Passed; 77 modules transformed |
 | PWA generation | included in build | 22 precache entries, **2,185.41 KiB** |
-| Production E2E | `npm run test:e2e` | **20/20 passed**, Chromium |
+| Production E2E | `npm run test:e2e` | **21/21 passed**, Chromium |
 | Visual QA | production preview screenshots | Refreshed `docs/cubelab-desktop.png`, `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`; verified the session gear, floating solve menu, expanded statistics, and Settings warning/custom-average controls at 1440×1000, 390×844, and 320×700 with no horizontal overflow |
 | Performance | seeded 2,000-solve production session | Not re-measured; the Phase 2A profile below remains the latest. Large-average calculation now has a Fenwick-tree fast path and brute-force comparison coverage. |
 
@@ -260,8 +265,9 @@ application code.
 - New timer settings can only affect interaction behavior. WCA timing and
   statistics rules remain fixed.
 - Solve/DNF feedback is opt-in and uses the configured channel. Inspection
-  warnings, when enabled, always show their **8 seconds** / **12 seconds** text
-  regardless of that channel; sound and haptic still follow it. Web Audio is
+  warnings, when enabled, always show their direction-aware text (12/8 seconds
+  remaining when counting down, 8/12 seconds when counting up) regardless of that
+  channel; sound and haptic still follow it. Web Audio is
   primed on timer press so a timer-driven warning is not blocked by autoplay
   policy. The DNF/danger tone applies a 1.5× gain capped at 0.75; solve and
   warning tones keep the normal volume gain. Statistics precision changes only
@@ -365,10 +371,10 @@ session collection is never silently discarded. Sessions are stored at schema
 version 2; version 1 records migrate with empty comments and no inspection
 override.
 
-Settings are stored at schema version 5. Loading accepts versions 1–5, upgrades
+Settings are stored at schema version 6. Loading accepts versions 1–6, upgrades
 older records with defaults, and validates each new field independently. A
 record without `inspectionEnabled` is rejected as invalid, matching the original
-settings contract.
+settings contract. The v6 records add the optional any-key stop preference.
 
 Backups are versioned separately as `cubelab-backup` version 1. They are
 validated before the confirmation dialog; import replaces local data only after

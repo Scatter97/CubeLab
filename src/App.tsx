@@ -57,6 +57,18 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
   )
 }
 
+function isModifierKey(key: string): boolean {
+  return (
+    key === 'Shift' ||
+    key === 'Control' ||
+    key === 'Alt' ||
+    key === 'Meta' ||
+    key === 'CapsLock' ||
+    key === 'NumLock' ||
+    key === 'ScrollLock'
+  )
+}
+
 function activeInspectionStartedAt(state: TimerState): number | null {
   if (state.status === 'inspection') return state.inspectionStartedAt
   if (state.status === 'holding' || state.status === 'ready') {
@@ -586,6 +598,20 @@ export default function App() {
         return
       }
 
+      if (
+        settings.stopWithAnyKey &&
+        timer.state.status === 'running' &&
+        !event.repeat &&
+        !isModifierKey(event.key) &&
+        !isTextEntryTarget(event.target)
+      ) {
+        // The optional any-key stop is intentionally limited to a running
+        // timer. Tab is allowed through so keyboard focus can still move.
+        if (event.key !== 'Tab') event.preventDefault()
+        timerPress('keyboard')
+        return
+      }
+
       if (event.code !== 'Space') return
 
       // Space is reserved for timing throughout the app, including while a
@@ -615,6 +641,7 @@ export default function App() {
   }, [
     canStart,
     modalOpen,
+    settings.stopWithAnyKey,
     timerCancel,
     timerPress,
     timerRelease,

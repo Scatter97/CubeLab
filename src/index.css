@@ -297,13 +297,14 @@ kbd {
 }
 
 .settings-button {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  min-height: 28px;
-  padding: 5px 8px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  place-items: center;
   color: var(--text);
-  text-align: left;
   background: var(--surface-soft);
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -327,22 +328,7 @@ kbd {
   place-items: center;
 }
 
-.settings-button-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.15;
-}
 
-.settings-button-label {
-  font-size: 0.67rem;
-  font-weight: 600;
-}
-
-.settings-button-hint {
-  font-size: 0.52rem;
-  color: var(--text-muted);
-}
 
 .switch-track {
   position: relative;
@@ -482,6 +468,61 @@ kbd {
   margin: 0;
 }
 
+/* Custom checkbox toggles for all Settings options. */
+.settings-dialog input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  margin: 0;
+  background: #dfe5eb;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.settings-dialog input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(25, 35, 45, 0.22);
+  transition: transform 120ms ease;
+}
+
+.settings-dialog input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings-dialog input[type='checkbox']:checked::before {
+  transform: translateX(14px);
+}
+
+.settings-dialog input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-dialog input[type='checkbox']:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-row-spaced {
+  margin-top: 12px;
+}
+
 /* Layout */
 
 .workspace {
@@ -568,7 +609,7 @@ kbd {
 
 .scramble-panel {
   flex-shrink: 0;
-  padding: 10px 14px 0;
+  padding: 10px 10px 0;
 }
 
 .scramble-header {
@@ -642,9 +683,19 @@ kbd {
 .scramble-body {
   display: grid;
   min-height: 92px;
-  padding: 10px 0 8px;
+  padding: 9px 0 7px;
   text-align: center;
   place-items: center;
+  border-radius: 2px;
+}
+
+.scramble-body[role='button'] {
+  cursor: pointer;
+}
+
+.scramble-body[role='button']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .scramble-text {
@@ -1382,26 +1433,39 @@ kbd {
 
 .history-row {
   display: grid;
-  grid-template-columns: minmax(56px, auto) minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
   align-items: center;
   padding: 7px 6px;
   cursor: pointer;
   border-bottom: 1px solid var(--line-soft);
   /* Skip rendering rows outside the history viewport. The 28px intrinsic
-     content height plus 14px padding and 1px border matches the 43px row. */
+      content height plus 14px padding and 1px border matches the 43px row. */
   content-visibility: auto;
   contain-intrinsic-size: 28px;
   transition: background 120ms ease;
 }
 
-.history-row:focus-visible {
-  background: var(--surface-soft);
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+.history-main {
+  display: grid;
+  grid-template-columns: minmax(52px, auto) minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 2px;
 }
 
-.history-row[aria-expanded='true'] {
+.history-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.history-row.is-menu-open {
   background: var(--surface-soft);
 }
 
@@ -1411,6 +1475,50 @@ kbd {
 
 .history-row:hover {
   background: var(--surface-soft);
+}
+
+.history-actions {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.history-action {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.history-action:hover,
+.history-action:focus-visible {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  outline: none;
+}
+
+.history-action.is-active.is-warning {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.history-action.is-active.is-danger {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .history-time {
@@ -2552,16 +2660,10 @@ kbd {
   }
 
   .settings-button {
-    gap: 6px;
-    padding: 5px 7px;
-  }
-
-  .settings-button-hint {
-    display: none;
-  }
-
-  .settings-button-label {
-    font-size: 0.63rem;
+    width: 30px;
+    height: 30px;
+    gap: 0;
+    padding: 0;
   }
 
   .workspace {
@@ -2575,7 +2677,7 @@ kbd {
   }
 
   .scramble-panel {
-    padding: 9px 11px 0;
+    padding: 9px 8px 0;
   }
 
   .scramble-header {
@@ -2785,9 +2887,18 @@ kbd {
   }
 
   .history-row {
-    grid-template-columns: minmax(52px, auto) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 5px;
     padding: 7px 4px;
+  }
+
+  .history-main {
+    grid-template-columns: minmax(46px, auto) minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .history-actions {
+    gap: 2px;
   }
 
   .history-time {
@@ -2837,7 +2948,9 @@ kbd {
   }
 
   .settings-button {
-    padding: 5px 6px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
   }
 
   .timer-display {
@@ -2893,8 +3006,9 @@ kbd {
   text-align: center;
 }
 
-.scramble-text[role='button'] {
-  cursor: pointer;
+.scramble-text {
+  width: 100%;
+  max-width: 100%;
 }
 
 .app-shell.is-decimal-small .timer-decimal {

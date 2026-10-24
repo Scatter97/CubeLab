@@ -137,14 +137,14 @@ export function inspectionWarningEvents(
       key: '12s',
       elapsedMs:
         direction === 'down' ? INSPECTION_LIMIT_MS - 12_000 : 12_000,
-      label: '12 seconds',
+      label: direction === 'down' ? '12 seconds remaining' : '12 seconds',
     })
   }
   if (warnAt8s) {
     events.push({
       key: '8s',
       elapsedMs: direction === 'down' ? INSPECTION_LIMIT_MS - 8_000 : 8_000,
-      label: '8 seconds',
+      label: direction === 'down' ? '8 seconds remaining' : '8 seconds',
     })
   }
 

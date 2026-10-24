@@ -40,8 +40,8 @@ describe('alert tone gains', () => {
 describe('inspection warning events', () => {
   it('fires countdown warnings when the display reaches 12s and 8s remaining', () => {
     expect(inspectionWarningEvents('down', true, true)).toEqual([
-      { key: '12s', elapsedMs: 3_000, label: '12 seconds' },
-      { key: '8s', elapsedMs: 7_000, label: '8 seconds' },
+      { key: '12s', elapsedMs: 3_000, label: '12 seconds remaining' },
+      { key: '8s', elapsedMs: 7_000, label: '8 seconds remaining' },
     ])
   })
 
@@ -55,10 +55,10 @@ describe('inspection warning events', () => {
   it('honors each warning toggle independently', () => {
     expect(inspectionWarningEvents('down', false, false)).toEqual([])
     expect(inspectionWarningEvents('down', true, false)).toEqual([
-      { key: '8s', elapsedMs: 7_000, label: '8 seconds' },
+      { key: '8s', elapsedMs: 7_000, label: '8 seconds remaining' },
     ])
     expect(inspectionWarningEvents('down', false, true)).toEqual([
-      { key: '12s', elapsedMs: 3_000, label: '12 seconds' },
+      { key: '12s', elapsedMs: 3_000, label: '12 seconds remaining' },
     ])
   })
 })

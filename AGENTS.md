@@ -83,13 +83,14 @@ the production build because it tests the service worker and offline reload.
   in the header or History panel. Settings opens only while the timer is idle and
   blocks timing while open. Do not reintroduce a header inspection toggle or an
   inline History clear/delete control.
-- **Settings persistence is versioned.** `v1`–`v4` settings records migrate to
-  `v5` with documented defaults and field-level corruption recovery.
+- **Settings persistence is versioned.** `v1`–`v5` settings records migrate to
+  `v6` with documented defaults and field-level corruption recovery.
   `parseSettingsData` accepts only valid fields, rejects records without
   `inspectionEnabled`, and upgrades older backups during import. Alerts,
   appearance, and statistics preferences must not alter raw times or WCA
   calculations. Enabled inspection warnings always show their visual text;
-  sound and haptic follow the configured feedback channel.
+  sound and haptic follow the configured feedback channel. Settings may also
+  enable `stopWithAnyKey` for stopping a running timer with any non-modifier key.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent('333')`.
   Unit tests verify real random-state generation.
 - **Statistics follow WCA semantics.** Averages are newest-first; every trimmed
@@ -105,15 +106,17 @@ the production build because it tests the service worker and offline reload.
   `CLEAR THIS SESSION`; deleting requires `DELETE THIS SESSION`. A per-session
   inspection override takes precedence over the global setting; sessions without
   one follow the global value.
-- **Solve history actions stay in the row menu.** Clicking a row or pressing
-  Enter opens the floating menu for `+2`, DNF, delete/undo, copy actions, and
-  comments. Do not reintroduce inline penalty/delete buttons or a History clear
-  action. Comments are plain text, limited to 500 characters, persist on the
-  solve, and never affect timing or statistics. Space remains timer input even
-  while a row or menu action is focused; only text-entry fields may consume it.
+- **Solve history actions.** Each row has inline `+2` and `DNF` controls and opens
+  a floating menu for delete/undo, copy actions, and comments. Do not reintroduce
+  inline delete or a History clear action. Comments are plain text, limited to
+  500 characters, persist on the solve, and never affect timing or statistics.
+  Space remains timer input even while a row or menu action is focused; only
+  text-entry fields may consume it.
+- **Inspection warnings** follow the displayed direction. Count-up labels use 8
+  and 12 seconds elapsed; count-down labels use 12 and 8 seconds remaining.
 - **Persistence is versioned.** Keys are `cubelab:sessions:v1` (active session
   plus all named sessions, optional inspection overrides, solves, and comments)
-  and `cubelab:settings:v1`. Sessions use schema `v2`; settings use schema `v5`.
+  and `cubelab:settings:v1`. Sessions use schema `v2`; settings use schema `v6`.
   The original `cubelab:solves:v1` key is read only for migration into
   **Session 1**. Validate and recover from corrupt records; never silently
   discard a valid session. Any schema change needs a migration and tests.

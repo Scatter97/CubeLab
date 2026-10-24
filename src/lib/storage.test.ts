@@ -584,7 +584,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 6, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 7, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })

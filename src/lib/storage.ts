@@ -31,13 +31,14 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 2
-export const SETTINGS_STORAGE_VERSION = 5
+export const SETTINGS_STORAGE_VERSION = 6
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
   inspectionCountDirection: 'down',
   timerUpdateMode: 'live',
   holdDurationMs: 300,
+  stopWithAnyKey: false,
   showTimerDecimalSmall: false,
   uiZoomPercent: 100,
   scrambleAlignment: 'center',
@@ -316,6 +317,10 @@ export function parseSettingsData(value: unknown): Settings | null {
       value.holdDurationMs <= 10000
         ? value.holdDurationMs
         : DEFAULT_SETTINGS.holdDurationMs,
+    stopWithAnyKey:
+      typeof value.stopWithAnyKey === 'boolean'
+        ? value.stopWithAnyKey
+        : DEFAULT_SETTINGS.stopWithAnyKey,
     showTimerDecimalSmall:
       typeof value.showTimerDecimalSmall === 'boolean'
         ? value.showTimerDecimalSmall

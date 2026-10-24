@@ -69,6 +69,7 @@ export interface Settings {
   inspectionCountDirection: InspectionCountDirection
   timerUpdateMode: TimerUpdateMode
   holdDurationMs: number
+  stopWithAnyKey: boolean
   showTimerDecimalSmall: boolean
   uiZoomPercent: number
   scrambleAlignment: ScrambleAlignment

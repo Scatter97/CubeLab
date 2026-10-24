@@ -158,8 +158,8 @@ export function SettingsDialog({
                   })
                 }
               >
-                <option value="down">Count down (15 → 0)</option>
-                <option value="up">Count up (0 → 17)</option>
+                <option value="down">Count down</option>
+                <option value="up">Count up</option>
               </select>
             </label>
 
@@ -197,6 +197,30 @@ export function SettingsDialog({
                 }
               />
             </label>
+
+            <div className="settings-row settings-row-spaced">
+              <div className="settings-row-copy">
+                <label
+                  className="settings-row-label"
+                  htmlFor="stop-with-any-key"
+                >
+                  Stop with any key
+                </label>
+                <span className="settings-row-description">
+                  While the timer is running, any non-modifier key stops it.
+                  Space always works.
+                </span>
+              </div>
+              <input
+                id="stop-with-any-key"
+                data-testid="stop-with-any-key"
+                type="checkbox"
+                checked={settings.stopWithAnyKey}
+                onChange={(event) =>
+                  onChange({ stopWithAnyKey: event.target.checked })
+                }
+              />
+            </div>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-alerts-title">
@@ -248,32 +272,56 @@ export function SettingsDialog({
                 Inspection warnings
               </legend>
               <div className="settings-checkbox-grid">
-                <label className="settings-checkbox">
-                  <input
-                    type="checkbox"
-                    data-testid="inspection-warning-8s"
-                    checked={settings.inspectionWarning8s}
-                    onChange={(event) =>
-                      onChange({ inspectionWarning8s: event.target.checked })
-                    }
-                  />
-                  <span>8 seconds</span>
-                </label>
-                <label className="settings-checkbox">
-                  <input
-                    type="checkbox"
-                    data-testid="inspection-warning-12s"
-                    checked={settings.inspectionWarning12s}
-                    onChange={(event) =>
-                      onChange({ inspectionWarning12s: event.target.checked })
-                    }
-                  />
-                  <span>12 seconds</span>
-                </label>
+                {(
+                  settings.inspectionCountDirection === 'up'
+                    ? [
+                        {
+                          key: '8s' as const,
+                          label: '8 seconds',
+                          checked: settings.inspectionWarning8s,
+                        },
+                        {
+                          key: '12s' as const,
+                          label: '12 seconds',
+                          checked: settings.inspectionWarning12s,
+                        },
+                      ]
+                    : [
+                        {
+                          key: '12s' as const,
+                          label: '12 seconds remaining',
+                          checked: settings.inspectionWarning12s,
+                        },
+                        {
+                          key: '8s' as const,
+                          label: '8 seconds remaining',
+                          checked: settings.inspectionWarning8s,
+                        },
+                      ]
+                ).map(({ key, label, checked }) => (
+                  <label className="settings-checkbox" key={key}>
+                    <input
+                      type="checkbox"
+                      data-testid={`inspection-warning-${key}`}
+                      checked={checked}
+                      onChange={(event) =>
+                        onChange(
+                          key === '8s'
+                            ? { inspectionWarning8s: event.target.checked }
+                            : { inspectionWarning12s: event.target.checked },
+                        )
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
               </div>
             </fieldset>
 
             <p className="settings-note">
+              {settings.inspectionCountDirection === 'up'
+                ? 'Count up warns at 8 and 12 seconds elapsed.'
+                : 'Count down warns with 12 and 8 seconds remaining.'}{' '}
               Warnings always show their text when enabled and follow the
               inspection timer direction. Sound and haptic follow the feedback
               channel above; volume applies to sound, and haptic support varies

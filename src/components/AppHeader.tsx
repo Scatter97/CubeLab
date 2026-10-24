@@ -70,12 +70,6 @@ export function AppHeader({
           <span className="settings-button-icon">
             <SettingsIcon size={17} />
           </span>
-          <span className="settings-button-copy">
-            <span className="settings-button-label">Settings</span>
-            <span className="settings-button-hint">
-              Inspection {inspectionLabel}
-            </span>
-          </span>
         </button>
       </div>
     </header>
