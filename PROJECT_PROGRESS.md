@@ -1,6 +1,6 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23 19:49 (local)
+**Last verified:** 2026-10-23 20:16 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
@@ -8,7 +8,7 @@
 **Phase 2A.2:** In progress — versioned settings schema and core preferences
 **Phase 2B:** Not started — 0% (Google Drive backup)
 **Phase 2C:** Not started — 0% (multi-device sync)
-**Repository state:** Phase 2A.2 implementation in progress; timer/display/scramble settings are wired, with more preferences pending.
+**Repository state:** Phase 2A.2 core settings are implemented and covered by dedicated production E2E tests; additional csTimer-style preference groups remain pending.
 
 ## Scope delivered
 
@@ -24,8 +24,8 @@ dialog without adding a new persisted preference or changing timing behavior.
   switcher, session statistics, and solve history in the left rail; scramble
   across the timer area; and an oversized central clock with quick ao5/ao12
   values beneath it.
-- Monotonic timer using `performance.now()`, launched by a 300 ms hold and stopped
-  by a single press or tap.
+- Monotonic timer using `performance.now()`, launched by a configurable hold
+  (300 ms default) and stopped by a single press or tap.
 - Global <kbd>Space</kbd> control with OS key-repeat suppression and page-scroll
   prevention. Focused buttons and switches remain keyboard-operable with Enter.
 - Pointer controls on the timer surface for mouse, pen, and touch input.
@@ -86,24 +86,28 @@ dialog without adding a new persisted preference or changing timing behavior.
 - Phase 2A.2 introduced settings schema v2 with migration and typed defaults. The
   current implemented controls are timer-update mode, custom Space-hold timing,
   interface zoom, small-decimal display, and scramble alignment/height limit/
-  click action. The redundant inspection facts
-  block was removed. The dialog and persistence are ready for further
-  csTimer-style preference groups.
+  click action. The redundant inspection facts block was removed. Interface zoom
+  now scales the app shell with `zoom` plus viewport-relative dimensions instead
+  of leaving blank layout space, dialogs compensate for the scale, history
+  effective-time labels wrap instead of ellipsizing, and the scramble click
+  action is keyboard-activatable with Enter. The dialog and persistence are ready
+  for further csTimer-style preference groups.
 
 ## Verification evidence
 
-Run at 2026-10-23 19:49 (local), after the Phase 2A.2 settings work:
+Run at 2026-10-23 20:16 (local), after the Phase 2A.2 zoom, history-label, and
+settings-test fixes:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **84/84 passed**, 7 test files |
+| Unit tests | `npm test` | **87/87 passed**, 7 test files |
 | Production build | `npm run build` | Passed; 74 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,149.09 KiB** |
-| Production E2E | `npm run test:e2e` | **12/12 passed**, Chromium |
-| Visual QA | production preview screenshots | Phase 2A.1 checked 1440×1000, 390×844, and the Settings dialog at 320×700; no horizontal overflow; desktop/mobile screenshots refreshed and `docs/cubelab-settings.png` added |
-| Performance | seeded 2,000-solve production session | Not re-measured for Phase 2A.1; the Phase 2A profile below remains the latest. The Settings change touches the header and modal UI, not the timer or history data path. |
+| PWA generation | included in build | 22 precache entries, **2,154.78 KiB** |
+| Production E2E | `npm run test:e2e` | **16/16 passed**, Chromium |
+| Visual QA | production preview screenshots | Refreshed `docs/cubelab-settings.png`; verified 1440×1000 at 70%, 100%, and 150% zoom, plus 390×844 and 320×700 mobile zoom states; no horizontal overflow |
+| Performance | seeded 2,000-solve production session | Not re-measured; the changes are presentation-only and do not touch the timer or persistence path. The Phase 2A profile below remains the latest. |
 
 The Playwright suite runs against the production preview and covers:
 
@@ -126,6 +130,12 @@ The Playwright suite runs against the production preview and covers:
 11. Scramble failure disabling timing and offering a retry.
 12. Full offline reload with service-worker precache and offline `cubing.js`
     scramble generation.
+13. Custom Space-hold timing changing the arm threshold and persisting.
+14. Interface zoom filling the viewport at 70% and 150% without horizontal
+    overflow, with the Settings footer remaining usable.
+15. Small-decimal rendering, scramble alignment/height, keyboard activation of
+    the scramble click action, and Space remaining reserved for the timer.
+16. Effective `+2` history labels remaining fully visible instead of clipping.
 
 Visual artifacts are checked in at `docs/cubelab-desktop.png`,
 `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`.
@@ -155,14 +165,15 @@ substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~274.10 kB (~83.02 kB gzip)
-- CSS: ~34.95 kB (~9.45 kB gzip)
+- Main application bundle: ~278.27 kB (~84.12 kB gzip)
+- CSS: ~36.61 kB (~9.76 kB gzip)
 - Cubing.js chunk: ~1.21 MB (~335.13 kB gzip)
-- Precache total: ~2.10 MiB (2,149.09 KiB)
+- Precache total: ~2.10 MiB (2,154.78 KiB)
 - PWA: generated Workbox service worker and web manifest
 
-Phase 2A.1 added about 6 kB of application JavaScript and 4.5 kB of CSS for the
-Settings dialog. Vite reports the expected informational warning about the large
+Phase 2A.2 adds the expanded Settings controls and supporting CSS; the main
+bundle remains below 280 kB before gzip. Vite reports the expected informational
+warning about the large
 cubing.js chunk. It is a single cached dependency chunk, not duplicated
 application code.
 
@@ -186,6 +197,11 @@ application code.
 - The v2 settings schema stores presentation and interaction preferences as
   typed fields with documented defaults. Unknown or corrupt values fall back to
   defaults, while old v1 records upgrade automatically.
+- Interface zoom uses CSS `zoom` with a reciprocal viewport width/height and a
+  scale-adjusted dialog cap. This keeps the app filling the viewport at reduced
+  zoom without introducing blank scroll space or horizontal overflow.
+- Effective-time annotations in history wrap onto a second metadata line when
+  the rail is narrow; they must never be ellipsized or clipped.
 - New timer settings can only affect interaction behavior. WCA timing and
   statistics rules remain fixed.
 - The palette is flat light gray and white with a pale green timer surface and a
@@ -226,7 +242,7 @@ application code.
 
 ### Timer and inspection
 
-- Hold threshold: 300 ms.
+- Hold threshold: 300 ms by default; configurable from 0–10,000 ms in Settings.
 - Inspection penalty thresholds: `> 15,000 ms` gives `+2`;
   `> 17,000 ms` gives DNF. The penalty is captured when the solve starts.
 - Inspection must be started with one press, then armed/started with a second
@@ -313,9 +329,10 @@ offline Playwright test and must not be undone casually.
 ## Known limitations
 
 - Only the 3×3 event is implemented.
-- The Settings dialog currently exposes only the existing inspection preference.
-  Additional csTimer-style timer, display, or alert options would need a
-  versioned settings-schema migration and focused tests.
+- The Settings dialog currently exposes inspection plus the Phase 2A.2 timer,
+  display, and scramble preferences. Additional csTimer-style groups such as
+  alerts, colors, and statistics options would need a versioned settings-schema
+  migration and focused tests.
 - Phase 2A import is replace-only; there is no merge, conflict resolution,
   Google Drive backup, or multi-device sync yet.
 - Backup files are unencrypted JSON. They contain solve history and settings and
@@ -408,9 +425,11 @@ All requested Milestone 1 functionality is implemented and verified:
 - [x] Storage and backup validation for upgraded settings records
 - [x] Timer-update and custom Space-hold (0–10 s) controls
 - [x] Display scaling, small-decimal controls, and scramble click/alignment/height controls
-- [x] +2 difference label control
+- [x] Interface zoom fills the viewport without blank scroll or horizontal overflow
+- [x] Effective-time history labels wrap instead of clipping
+- [x] Scramble click action supports Enter while Space remains reserved for timing
+- [x] Dedicated Playwright coverage for the new settings
 - [x] Accessibility, docs, visual QA, and full verification rerun
-- [ ] Additional csTimer-style preference groups pending
 - [ ] Additional csTimer-style preference groups pending
 
 ### Phase 2B — Not started
@@ -454,9 +473,9 @@ replace-only; no merge or conflict-resolution logic exists yet.
 
 ## Git status
 
-The Phase 2A.1 Settings work, refreshed screenshots, and documentation update
-are committed as `feat: add Phase 2A.1 settings dialog`. The working tree was
-clean after the final `npm run check` pass. Verify with:
+Phase 2A.2 settings work is committed across the schema/core-preferences,
+feedback-refinement, and difference-label-removal commits. The current zoom,
+history-label, and settings-test fixes are the next commit. Verify with:
 
 ```bash
 git status --short

@@ -8,6 +8,7 @@ import {
   loadSessions,
   loadSettings,
   loadSolves,
+  parseSettingsData,
   saveSessions,
   saveSettings,
   type StorageLike,
@@ -283,6 +284,39 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     saveSettings({ ...DEFAULT_SETTINGS, inspectionEnabled: true }, storage)
     expect(loadSettings(storage)).toEqual({
+      ...DEFAULT_SETTINGS,
+      inspectionEnabled: true,
+    })
+  })
+
+  it('accepts custom hold and zoom values inside their supported ranges', () => {
+    expect(
+      parseSettingsData({
+        inspectionEnabled: false,
+        holdDurationMs: 1_200,
+        uiZoomPercent: 125,
+      }),
+    ).toMatchObject({
+      holdDurationMs: 1_200,
+      uiZoomPercent: 125,
+    })
+  })
+
+  it('falls back for out-of-range hold and zoom values', () => {
+    expect(
+      parseSettingsData({
+        inspectionEnabled: false,
+        holdDurationMs: 10_001,
+        uiZoomPercent: 200,
+      }),
+    ).toMatchObject({
+      holdDurationMs: DEFAULT_SETTINGS.holdDurationMs,
+      uiZoomPercent: DEFAULT_SETTINGS.uiZoomPercent,
+    })
+  })
+
+  it('upgrades a v1 record with defaults for newer preferences', () => {
+    expect(parseSettingsData({ inspectionEnabled: true })).toEqual({
       ...DEFAULT_SETTINGS,
       inspectionEnabled: true,
     })

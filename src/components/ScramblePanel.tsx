@@ -56,6 +56,14 @@ export function ScramblePanel({
     }
   }
 
+  const activateScramble = () => {
+    if (scrambleAction === 'copy') {
+      void handleCopy()
+    } else if (scrambleAction === 'next' && canRegenerate) {
+      onRegenerate()
+    }
+  }
+
   return (
     <section className="panel scramble-panel" aria-labelledby="scramble-title">
       <div className="scramble-header">
@@ -106,12 +114,13 @@ export function ScramblePanel({
             role={scrambleAction && scrambleAction !== 'none' ? 'button' : undefined}
             tabIndex={scrambleAction && scrambleAction !== 'none' ? 0 : undefined}
             aria-live="polite"
-            onClick={() => {
-              if (scrambleAction === 'copy') {
-                void handleCopy()
-              } else if (scrambleAction === 'next' && canRegenerate) {
-                onRegenerate()
-              }
+            onClick={activateScramble}
+            onKeyDown={(event) => {
+              // Space remains reserved for the timer; Enter activates the
+              // scramble action for keyboard users.
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              activateScramble()
             }}
           >
             {scramble}

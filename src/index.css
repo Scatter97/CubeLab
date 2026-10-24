@@ -116,14 +116,23 @@ kbd {
 }
 
 .app-shell {
+  --ui-dialog-scale: 1;
   display: flex;
   flex-direction: column;
-  width: min(calc(1920px / var(--ui-scale, 1)), calc(100% / var(--ui-scale, 1)));
-  min-height: calc(100svh / var(--ui-scale, 1));
+  width: 100%;
+  min-height: 100svh;
   margin: 0 auto;
   background: var(--bg);
-  transform: scale(var(--ui-scale, 1));
-  transform-origin: top left;
+}
+
+@supports (zoom: 1) {
+  .app-shell {
+    --ui-dialog-scale: var(--ui-scale, 1);
+    width: calc(100vw / var(--ui-scale, 1));
+    max-width: calc(1920px / var(--ui-scale, 1));
+    min-height: calc(100svh / var(--ui-scale, 1));
+    zoom: var(--ui-scale, 1);
+  }
 }
 
 /* Header */
@@ -1289,20 +1298,26 @@ kbd {
 
 .history-meta {
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 1px 4px;
   align-items: center;
-  overflow: hidden;
+  overflow: visible;
   font-family: var(--font-mono);
   font-size: 0.49rem;
   line-height: 1.35;
   color: var(--text-faint);
+  white-space: normal;
+}
+
+.history-meta > * {
   white-space: nowrap;
 }
 
 .effective-time {
-  overflow: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
   color: var(--text-muted);
-  text-overflow: ellipsis;
+  text-overflow: clip;
 }
 
 .history-scramble {
@@ -1432,7 +1447,9 @@ kbd {
 
 .confirm-dialog {
   width: min(420px, calc(100vw - 24px));
+  max-height: calc((100svh - 24px) / var(--ui-dialog-scale, 1));
   padding: 0;
+  overflow-y: auto;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--line-strong);
@@ -1583,16 +1600,16 @@ kbd {
 
 .settings-dialog {
   width: min(600px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
-  max-height: calc(100svh - 24px);
+  max-height: calc((100vh - 24px) / var(--ui-dialog-scale, 1));
+  max-height: calc((100svh - 24px) / var(--ui-dialog-scale, 1));
   overflow: hidden;
 }
 
 .settings-content {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 24px);
-  max-height: calc(100svh - 24px);
+  max-height: calc((100vh - 24px) / var(--ui-dialog-scale, 1));
+  max-height: calc((100svh - 24px) / var(--ui-dialog-scale, 1));
   overflow: hidden;
 }
 
@@ -2234,13 +2251,13 @@ kbd {
 
   .settings-dialog {
     width: calc(100vw - 16px);
-    max-height: calc(100vh - 16px);
-    max-height: calc(100svh - 16px);
+    max-height: calc((100vh - 16px) / var(--ui-dialog-scale, 1));
+    max-height: calc((100svh - 16px) / var(--ui-dialog-scale, 1));
   }
 
   .settings-content {
-    max-height: calc(100vh - 16px);
-    max-height: calc(100svh - 16px);
+    max-height: calc((100vh - 16px) / var(--ui-dialog-scale, 1));
+    max-height: calc((100svh - 16px) / var(--ui-dialog-scale, 1));
   }
 
   .settings-header {
@@ -2444,15 +2461,13 @@ kbd {
   -webkit-line-clamp: 3;
 }
 
-
 .scramble-text {
   width: 100%;
   text-align: center;
 }
 
-.scramble-text.is-height-limited {
-  max-height: 4.2em;
-  overflow: hidden;
+.scramble-text[role='button'] {
+  cursor: pointer;
 }
 
 .app-shell.is-decimal-small .timer-decimal {

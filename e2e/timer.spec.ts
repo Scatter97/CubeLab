@@ -230,6 +230,196 @@ test('settings dialog contains focus and restores it to the header button', asyn
   await expect(page.getByTestId('settings-button')).toBeFocused()
 })
 
+test('custom Space hold time changes the arm threshold and persists', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  const holdDuration = settings.getByTestId('hold-duration')
+  await expect(holdDuration).toHaveValue('300')
+  await holdDuration.fill('1000')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  // A hold shorter than the configured threshold must cancel.
+  await page.keyboard.down('Space')
+  await page.waitForTimeout(350)
+  await page.keyboard.up('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
+
+  // A hold beyond the threshold arms; release starts timing.
+  await page.keyboard.down('Space')
+  await page.waitForTimeout(1_100)
+  await page.keyboard.up('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'running')
+  await page.waitForTimeout(100)
+  await stopWithSpace(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  await page.reload()
+  await waitForApp(page)
+  const reopened = await openSettings(page)
+  await expect(reopened.getByTestId('hold-duration')).toHaveValue('1000')
+})
+
+test('interface zoom fills the viewport and keeps dialogs usable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('ui-zoom').selectOption('70')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  const zoomedOut = await page.evaluate(() => {
+    const shell = document.querySelector('.app-shell')
+    if (!shell) throw new Error('Missing app shell')
+    const rect = shell.getBoundingClientRect()
+    return {
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      shell: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    }
+  })
+  expect(zoomedOut.scrollWidth).toBeLessThanOrEqual(zoomedOut.innerWidth + 1)
+  expect(zoomedOut.scrollHeight).toBeLessThanOrEqual(zoomedOut.innerHeight + 1)
+  expect(zoomedOut.shell.x).toBeCloseTo(0, 0)
+  expect(zoomedOut.shell.width).toBeCloseTo(zoomedOut.innerWidth, 0)
+  expect(zoomedOut.shell.height).toBeGreaterThanOrEqual(zoomedOut.innerHeight - 1)
+
+  const zoomedSettings = await openSettings(page)
+  await zoomedSettings.getByTestId('ui-zoom').selectOption('150')
+  await zoomedSettings.getByTestId('settings-done').click()
+  await expect(zoomedSettings).toBeHidden()
+
+  const zoomedIn = await page.evaluate(() => {
+    const shell = document.querySelector('.app-shell')
+    if (!shell) throw new Error('Missing app shell')
+    const rect = shell.getBoundingClientRect()
+    return {
+      innerWidth: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      shell: { x: rect.x, width: rect.width },
+    }
+  })
+  expect(zoomedIn.scrollWidth).toBeLessThanOrEqual(zoomedIn.innerWidth + 1)
+  expect(zoomedIn.shell.x).toBeCloseTo(0, 0)
+  expect(zoomedIn.shell.width).toBeCloseTo(zoomedIn.innerWidth, 0)
+
+  // The Settings dialog must still fit and expose its footer at 150%.
+  const largeSettings = await openSettings(page)
+  const done = largeSettings.getByTestId('settings-done')
+  await expect(done).toBeVisible()
+  const doneBox = await done.boundingBox()
+  expect(doneBox).not.toBeNull()
+  if (!doneBox) throw new Error('Settings Done button has no bounding box')
+  expect(doneBox.y + doneBox.height).toBeLessThanOrEqual(
+    page.viewportSize()?.height ?? 1000,
+  )
+  await done.click()
+  await expect(largeSettings).toBeHidden()
+})
+
+test('display and scramble preferences apply and keyboard activation works', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  await settings.locator('#decimal-small').check()
+  await settings.getByTestId('scramble-alignment').selectOption('right')
+  await settings.locator('#scramble-limit-height').check()
+  await settings.getByTestId('scramble-action').selectOption('next')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  const decimal = page.locator('.timer-decimal')
+  await expect(decimal).toHaveText('.00')
+  const fontSizes = await page.evaluate(() => {
+    const display = document.querySelector('.timer-display')
+    const decimalPart = document.querySelector('.timer-decimal')
+    if (!display || !decimalPart) throw new Error('Missing timer decimal')
+    return {
+      display: Number.parseFloat(getComputedStyle(display).fontSize),
+      decimal: Number.parseFloat(getComputedStyle(decimalPart).fontSize),
+    }
+  })
+  expect(fontSizes.decimal).toBeLessThan(fontSizes.display)
+
+  const scramble = page.locator('.scramble-text')
+  await expect(scramble).toHaveClass(/is-aligned-right/)
+  await expect(scramble).toHaveClass(/is-height-limited/)
+  expect(
+    await scramble.evaluate((element) => getComputedStyle(element).textAlign),
+  ).toBe('right')
+
+  const before = await scramble.innerText()
+  await scramble.focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => scramble.innerText()).not.toBe(before)
+  await waitForApp(page)
+
+  // Space must still belong to the timer even while the scramble is focused.
+  await holdSpace(page)
+  await stopWithSpace(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+})
+
+test('effective +2 labels are not clipped in the history rail', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 1000 })
+  await page.addInitScript(() => {
+    const now = Date.now()
+    localStorage.setItem(
+      'cubelab:sessions:v1',
+      JSON.stringify({
+        version: 1,
+        activeSessionId: 'history-session',
+        sessions: [
+          {
+            id: 'history-session',
+            name: 'Session 1',
+            createdAt: now - 60_000,
+            updatedAt: now,
+            solves: [
+              {
+                id: 'history-solve',
+                event: '333',
+                rawMs: 10_250,
+                penalty: '+2',
+                scramble: "R U R' U' F2 D2 L2 B2 R2 U2",
+                createdAt: now - 86_400_000 * 400,
+              },
+            ],
+          },
+        ],
+      }),
+    )
+  })
+
+  await page.goto('/')
+  await waitForApp(page)
+
+  const effective = page.locator('.effective-time')
+  await expect(effective).toHaveText('Effective 12.25')
+  const dimensions = await effective.evaluate((element) => ({
+    display: getComputedStyle(element).display,
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }))
+  expect(dimensions.display).not.toBe('none')
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
 test('mobile layout supports hold-to-time pointer controls', async ({
   browser,
 }) => {
