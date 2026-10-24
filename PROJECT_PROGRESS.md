@@ -8,7 +8,7 @@
 **Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v4
 **Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
-**Phase 2C:** Complete — local-first Google Drive synchronization with automatic startup, exit, reconnect, time/solve/combined scheduling, ID-based merging, tombstones, conflict recovery, sync settings UI, and mock-based coverage
+**Phase 2C:** Complete — local-first Google Drive synchronization with automatic startup, exit, reconnect, combined scheduling, ID-based merging, tombstones, conflict recovery, session redirects, empty-default adoption, duplicate-name detection, manual session merges, per-field conflict resolution, sync settings UI, and mock-based coverage
 **Repository state:** Phase 2B manual Google Drive backup and Phase 2C local-first synchronization are implemented, documented, and verified.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 

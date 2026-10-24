@@ -182,7 +182,17 @@ describe('solve mutations', () => {
       sessions: [session(), session({ id: 'session-2', name: 'Evening' })],
     })
     const next = addSolve(current, solve(), 5)
-    expect(next.sessions[0]?.solves).toEqual([solve({ updatedAt: 5 })])
+    expect(next.sessions[0]?.solves).toEqual([
+      solve({
+        updatedAt: 5,
+        fieldUpdates: {
+          rawMs: { updatedAt: 1_700_000_000_000, editorId: 'legacy' },
+          penalty: { updatedAt: 1_700_000_000_000, editorId: 'legacy' },
+          scramble: { updatedAt: 1_700_000_000_000, editorId: 'legacy' },
+          comment: { updatedAt: 5, editorId: 'legacy' },
+        },
+      }),
+    ])
     expect(next.sessions[1]?.solves).toEqual([])
     expect(next.sessions[0]?.updatedAt).toBe(5)
 

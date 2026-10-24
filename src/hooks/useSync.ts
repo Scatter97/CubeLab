@@ -23,6 +23,7 @@ import {
   parseRemoteSyncEnvelope,
   createTombstone,
 } from '../lib/sync'
+import { normalizeSessionRedirects, applySessionRedirects } from '../lib/sessionRedirects'
 
 interface UseSyncOptions {
   transport: DriveTransport | null
@@ -33,6 +34,7 @@ interface UseSyncOptions {
   onReplaceSessions: (data: SessionsData) => void
   onReplaceSettings: (settings: Settings) => void
   onNotify: (message: string) => void
+  onDuplicateSessionDetected?: (names: string[]) => void
 }
 
 export interface UseSyncResult {
@@ -41,6 +43,8 @@ export interface UseSyncResult {
   pendingCount: number
   error: string | null
   conflictsCount: number
+  duplicateNames: string[]
+  approveSessionMerge: (sourceId: string, targetId: string) => void
   preferences: SyncPreferences
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
@@ -73,6 +77,7 @@ export function useSync({
   onReplaceSessions,
   onReplaceSettings,
   onNotify,
+  onDuplicateSessionDetected,
 }: UseSyncOptions): UseSyncResult {
   const [sync, setSync] = useState<SyncStorageData>(() => loadSyncStorage())
   const sessionsRef = useRef(sessions)
@@ -224,6 +229,40 @@ export function useSync({
     [persist],
   )
 
+  const approveSessionMerge = useCallback(
+    (sourceId: string, targetId: string) => {
+      const now = Date.now()
+      const combined = normalizeSessionRedirects([
+        ...(syncRef.current.runtime.sessionRedirects ?? []),
+        {
+          fromId: sourceId,
+          toId: targetId,
+          approvedAt: now,
+          byDeviceId: syncRef.current.runtime.deviceId,
+        },
+      ])
+      const redirectedSessions = applySessionRedirects(sessionsRef.current, combined)
+      lastSyncedSessionsRef.current = redirectedSessions
+      sessionsRef.current = redirectedSessions
+      onReplaceSessions(redirectedSessions)
+
+      persist({
+        ...syncRef.current,
+        runtime: {
+          ...syncRef.current.runtime,
+          sessionRedirects: combined,
+          pendingDuplicateNames: (syncRef.current.runtime.pendingDuplicateNames ?? []).filter(
+            (name) =>
+              name !== redirectedSessions.sessions.find((session) => session.id === targetId)?.name,
+          ),
+        },
+      })
+
+      window.setTimeout(() => void syncNowRef.current?.('merge'), 0)
+    },
+    [onReplaceSessions, persist],
+  )
+
   const updatePreferences = useCallback(
     (next: Partial<SyncPreferences>) => {
       const enabled = next.enabled ?? syncRef.current.preferences.enabled
@@ -319,11 +358,17 @@ export function useSync({
             remoteEnvelope = parsed.backup.sync ?? parseRemoteSyncEnvelope(parsed.backup.sync)
           }
 
+          const existingRedirects = syncRef.current.runtime.sessionRedirects ?? []
+          const combinedRedirects = normalizeSessionRedirects([
+            ...existingRedirects,
+            ...(remoteEnvelope?.sessionRedirects ?? []),
+          ])
           const local = sessionsRef.current
           const merged = mergeSessionsData({
             local,
             remote: remoteSessions,
             tombstones: [...syncRef.current.runtime.tombstones, ...(remoteEnvelope?.tombstones ?? [])],
+            sessionRedirects: combinedRedirects,
             deviceId: syncRef.current.runtime.deviceId,
             manualConflictReview: syncRef.current.preferences.manualConflictReview,
           })
@@ -350,6 +395,7 @@ export function useSync({
             nextRevision,
             mergedTombstones,
             merged.conflicts,
+            merged.sessionRedirects,
           )
 
           const backup = createBackup(merged.merged, mergedSettings, new Date(), envelope)
@@ -380,6 +426,8 @@ export function useSync({
               lastRemoteRevision: nextRevision,
               tombstones: mergedTombstones,
               conflicts: trimmedConflicts,
+              sessionRedirects: merged.sessionRedirects,
+              pendingDuplicateNames: merged.duplicateSessionNames,
             },
           }
           persist(next)
@@ -403,7 +451,20 @@ export function useSync({
 
           if (reason === 'reconnect' || reason === 'manual') {
             const messages: string[] = []
+            if (merged.adoptedLocalDefault) {
+              messages.push('Cloud sessions imported')
+            }
             if (merged.addedSolves > 0) messages.push(`${merged.addedSolves} new local solve${merged.addedSolves === 1 ? '' : 's'} uploaded`)
+            if (merged.duplicateSessionNames.length > 0 && onDuplicateSessionDetected) {
+              onDuplicateSessionDetected(merged.duplicateSessionNames)
+            }
+            if (merged.duplicateSessionNames.length > 0) {
+              messages.push(
+                `CubeLab found two separate sessions named ${merged.duplicateSessionNames
+                  .map((name) => `'${name}'`)
+                  .join(', ')}.`,
+              )
+            }
             if (addedRemote > 0) messages.push(`${addedRemote} cloud solve${addedRemote === 1 ? '' : 's'} merged`)
             if (merged.conflicts.length > 0 && !syncRef.current.preferences.manualConflictReview) {
               messages.push(`${merged.conflicts.length} conflict${merged.conflicts.length === 1 ? '' : 's'} automatically resolved`)
@@ -437,7 +498,7 @@ export function useSync({
         runningRef.current = null
       })
     },
-    [persist, transport, onReplaceSessions, onReplaceSettings, onNotify],
+    [persist, transport, onReplaceSessions, onReplaceSettings, onNotify, onDuplicateSessionDetected],
   )
 
   useEffect(() => {
@@ -619,6 +680,7 @@ export function useSync({
     pendingCount,
     error: sync.runtime.lastError,
     conflictsCount,
+    duplicateNames: sync.runtime.pendingDuplicateNames ?? [],
     preferences: sync.preferences,
     updatePreferences,
     syncNow: async (reason?: string) => {
@@ -631,5 +693,6 @@ export function useSync({
     recordDeletion,
     clearDeletion,
     resetBase,
+    approveSessionMerge,
   }
 }

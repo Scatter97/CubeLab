@@ -16,6 +16,7 @@ import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
+import { MergeSessionsDialog } from './components/MergeSessionsDialog'
 import { useSync } from './hooks/useSync'
 import {
   inspectionWarningEvents,
@@ -31,7 +32,7 @@ import {
   type Backup,
 } from './lib/backup'
 import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
-import { countSolves } from './lib/sessions'
+import { countSolves, mergeSessionsById } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
 import { createDriveTransport } from './lib/driveTransport'
 import { loadDriveBackupState, saveDriveBackupState } from './lib/driveStorage'
@@ -145,6 +146,7 @@ export default function App() {
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
+  const [mergeSessionsOpen, setMergeSessionsOpen] = useState(false)
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [timerAlert, setTimerAlert] = useState<TimerAlert | null>(null)
@@ -256,6 +258,15 @@ export default function App() {
     onReplaceSessions: replaceSessions,
     onReplaceSettings: replaceSettings,
     onNotify: (message) => showToast({ message }),
+    onDuplicateSessionDetected: (names) => {
+      showToast({
+        message: `CubeLab found two separate sessions named ${names
+          .map((name) => `'${name}'`)
+          .join(', ')}.`,
+        actionLabel: 'Review Merge',
+        onAction: () => setMergeSessionsOpen(true),
+      })
+    },
   })
 
   useEffect(() => {
@@ -539,6 +550,22 @@ export default function App() {
     setPendingImport(null)
     showToast({ message: 'Backup imported' })
   }, [pendingImport, replaceSessions, replaceSettings, showToast, sync])
+
+  const handleMergeSessions = useCallback(
+    (sourceId: string, targetId: string) => {
+      const merged = mergeSessionsById(
+        { activeSessionId, sessions },
+        targetId,
+        sourceId,
+      )
+      if (!merged) return false
+      replaceSessions(merged)
+      sync.approveSessionMerge(sourceId, targetId)
+      showToast({ message: 'Sessions merged' })
+      return true
+    },
+    [activeSessionId, sessions, replaceSessions, showToast, sync],
+  )
 
   const cancelConfirm = useCallback(() => {
     setClearOpen(false)
@@ -920,6 +947,13 @@ export default function App() {
         requireText={confirmContent?.requireText}
         onCancel={cancelConfirm}
         onConfirm={handleConfirm}
+      />
+
+      <MergeSessionsDialog
+        open={mergeSessionsOpen}
+        sessions={{ activeSessionId, sessions }}
+        onClose={() => setMergeSessionsOpen(false)}
+        onMerge={handleMergeSessions}
       />
 
       <Toast

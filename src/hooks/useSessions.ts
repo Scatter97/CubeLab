@@ -17,6 +17,7 @@ import {
   type RemovedSolve,
 } from '../lib/sessions'
 import { loadSessions, saveSessions } from '../lib/storage'
+import { loadSyncStorage } from '../lib/syncStorage'
 
 export interface UseSessionsResult {
   sessions: Session[]
@@ -50,6 +51,7 @@ export function useSessions(): UseSessionsResult {
   const dataRef = useRef(data)
   const [storageOk, setStorageOk] = useState(true)
   const initialWrite = useRef(true)
+  const syncDeviceId = loadSyncStorage().runtime.deviceId
 
   const commit = useCallback(
     (update: (current: SessionsData) => SessionsData): boolean => {
@@ -99,24 +101,24 @@ export function useSessions(): UseSessionsResult {
         comment: '',
         createdAt: Date.now(),
       }
-      commit((current) => addSolveToData(current, solve))
+      commit((current) => addSolveToData(current, solve, undefined, syncDeviceId))
       return solve
     },
-    [commit],
+    [commit, syncDeviceId],
   )
 
-  const setPenalty = useCallback(
+    const setPenalty = useCallback(
     (id: string, penalty: Penalty) => {
-      commit((current) => setSolvePenalty(current, id, penalty))
+      commit((current) => setSolvePenalty(current, id, penalty, undefined, syncDeviceId))
     },
-    [commit],
+    [commit, syncDeviceId],
   )
 
   const setComment = useCallback(
     (id: string, comment: string) => {
-      commit((current) => setSolveCommentInData(current, id, comment))
+      commit((current) => setSolveCommentInData(current, id, comment, undefined, syncDeviceId))
     },
-    [commit],
+    [commit, syncDeviceId],
   )
 
   const setInspection = useCallback(

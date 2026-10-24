@@ -2,6 +2,7 @@ import type {
   AccentColor,
   AlertChannel,
   CustomAverageSetting,
+  FieldUpdate,
   InspectionCountDirection,
   Penalty,
   ScrambleAction,
@@ -105,6 +106,19 @@ function isPositiveTimestamp(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
+function parseFieldUpdate(value: unknown): FieldUpdate | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.updatedAt !== 'number' ||
+    !Number.isFinite(value.updatedAt) ||
+    value.updatedAt < 0
+  ) {
+    return null
+  }
+  if (typeof value.editorId !== 'string' || value.editorId.length === 0) return null
+  return { updatedAt: value.updatedAt, editorId: value.editorId }
+}
+
 function parseSolve(value: unknown): Solve | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
@@ -136,6 +150,24 @@ function parseSolve(value: unknown): Solve | null {
     // updatedAt is optional; sync code resolves missing values to createdAt.
     ...(isPositiveTimestamp(value.updatedAt)
       ? { updatedAt: value.updatedAt }
+      : {}),
+    ...(isRecord(value.fieldUpdates)
+      ? {
+          fieldUpdates: {
+            ...(parseFieldUpdate(value.fieldUpdates.rawMs)
+              ? { rawMs: parseFieldUpdate(value.fieldUpdates.rawMs)! }
+              : {}),
+            ...(parseFieldUpdate(value.fieldUpdates.penalty)
+              ? { penalty: parseFieldUpdate(value.fieldUpdates.penalty)! }
+              : {}),
+            ...(parseFieldUpdate(value.fieldUpdates.scramble)
+              ? { scramble: parseFieldUpdate(value.fieldUpdates.scramble)! }
+              : {}),
+            ...(parseFieldUpdate(value.fieldUpdates.comment)
+              ? { comment: parseFieldUpdate(value.fieldUpdates.comment)! }
+              : {}),
+          },
+        }
       : {}),
   }
 }

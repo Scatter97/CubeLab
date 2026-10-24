@@ -45,6 +45,13 @@ export interface SyncConflict {
   updatedAt: number
 }
 
+export interface SessionRedirect {
+  fromId: string
+  toId: string
+  approvedAt: number
+  byDeviceId?: string
+}
+
 export interface SyncStorageData {
   version: 1
   preferences: SyncPreferences
@@ -57,6 +64,8 @@ export interface SyncStorageData {
     lastRemoteRevision: number | null
     tombstones: Tombstone[]
     conflicts: SyncConflict[]
+    sessionRedirects: SessionRedirect[]
+    pendingDuplicateNames: string[]
   }
 }
 
@@ -145,6 +154,8 @@ export function createDefaultSyncStorage(deviceId = createDeviceId()): SyncStora
       lastRemoteRevision: null,
       tombstones: [],
       conflicts: [],
+      sessionRedirects: [],
+      pendingDuplicateNames: [],
     },
   }
 }
@@ -163,6 +174,21 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
     : []
   const conflicts = Array.isArray(sourceRuntime.conflicts)
     ? sourceRuntime.conflicts.filter(isConflict)
+    : []
+  const isRedirect = (value: unknown): value is SessionRedirect =>
+    isRecord(value) &&
+    typeof value.fromId === 'string' &&
+    value.fromId.length > 0 &&
+    typeof value.toId === 'string' &&
+    value.toId.length > 0 &&
+    value.fromId !== value.toId &&
+    typeof value.approvedAt === 'number' &&
+    Number.isFinite(value.approvedAt)
+  const sessionRedirects = Array.isArray(sourceRuntime.sessionRedirects)
+    ? sourceRuntime.sessionRedirects.filter(isRedirect)
+    : []
+  const pendingDuplicateNames = Array.isArray(sourceRuntime.pendingDuplicateNames)
+    ? sourceRuntime.pendingDuplicateNames.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : []
   const lastSyncStatus =
     sourceRuntime.lastSyncStatus === 'disabled' ||
@@ -202,6 +228,8 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
           : null,
       tombstones,
       conflicts,
+      sessionRedirects,
+      pendingDuplicateNames,
     },
   }
 }

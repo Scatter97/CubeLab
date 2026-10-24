@@ -190,14 +190,33 @@ export function addSolve(
   data: SessionsData,
   solve: Solve,
   now = Date.now(),
+  editorId = 'legacy',
 ): SessionsData {
   return updateActiveSession(data, (session) => {
     if (session.solves.some((candidate) => candidate.id === solve.id)) {
       return session
     }
+    const fieldUpdates = solve.fieldUpdates ?? {
+      rawMs: { updatedAt: solve.createdAt ?? now, editorId },
+      penalty: { updatedAt: solve.createdAt ?? now, editorId },
+      scramble: { updatedAt: solve.createdAt ?? now, editorId },
+      comment: { updatedAt: now, editorId },
+    }
     return {
       ...session,
-      solves: [{ ...solve, updatedAt: solve.updatedAt ?? now }, ...session.solves],
+      solves: [
+        {
+          ...solve,
+          updatedAt: solve.updatedAt ?? now,
+          fieldUpdates: {
+            rawMs: fieldUpdates.rawMs ?? { updatedAt: solve.createdAt ?? now, editorId },
+            penalty: fieldUpdates.penalty ?? { updatedAt: solve.createdAt ?? now, editorId },
+            scramble: fieldUpdates.scramble ?? { updatedAt: solve.createdAt ?? now, editorId },
+            comment: fieldUpdates.comment ?? { updatedAt: now, editorId },
+          },
+        },
+        ...session.solves,
+      ],
       updatedAt: now,
     }
   })
@@ -208,6 +227,7 @@ export function setSolveComment(
   solveId: string,
   comment: string,
   now = Date.now(),
+  editorId = 'legacy',
 ): SessionsData {
   const normalized = comment.slice(0, MAX_SOLVE_COMMENT_LENGTH)
   return updateActiveSession(data, (session) => {
@@ -218,7 +238,15 @@ export function setSolveComment(
       ...session,
       solves: session.solves.map((candidate) =>
         candidate.id === solveId
-          ? { ...candidate, comment: normalized, updatedAt: now }
+          ? {
+              ...candidate,
+              comment: normalized,
+              updatedAt: now,
+              fieldUpdates: {
+                ...(candidate.fieldUpdates ?? {}),
+                comment: { updatedAt: now, editorId },
+              },
+            }
           : candidate,
       ),
       updatedAt: now,
@@ -250,6 +278,7 @@ export function setSolvePenalty(
   solveId: string,
   penalty: Penalty,
   now = Date.now(),
+  editorId = 'legacy',
 ): SessionsData {
   return updateActiveSession(data, (session) => {
     const solve = session.solves.find((candidate) => candidate.id === solveId)
@@ -258,7 +287,17 @@ export function setSolvePenalty(
     return {
       ...session,
       solves: session.solves.map((candidate) =>
-        candidate.id === solveId ? { ...candidate, penalty, updatedAt: now } : candidate,
+        candidate.id === solveId
+          ? {
+              ...candidate,
+              penalty,
+              updatedAt: now,
+              fieldUpdates: {
+                ...(candidate.fieldUpdates ?? {}),
+                penalty: { updatedAt: now, editorId },
+              },
+            }
+          : candidate,
       ),
       updatedAt: now,
     }
@@ -329,4 +368,46 @@ export function clearActiveSolves(
       ? session
       : { ...session, solves: [], updatedAt: now },
   )
+}
+
+export function mergeSessionsById(
+  data: SessionsData,
+  targetId: string,
+  sourceId: string,
+  now = Date.now(),
+): SessionsData | null {
+  if (targetId === sourceId) return null
+  const target = data.sessions.find((session) => session.id === targetId)
+  const source = data.sessions.find((session) => session.id === sourceId)
+  if (!target || !source) return null
+
+  const solvesById = new Map<string, Solve>()
+  for (const solve of target.solves) solvesById.set(solve.id, solve)
+  for (const solve of source.solves) {
+    const existing = solvesById.get(solve.id)
+    if (
+      !existing ||
+      solve.updatedAt !== undefined &&
+        existing.updatedAt !== undefined &&
+        (solve.updatedAt ?? solve.createdAt) > (existing.updatedAt ?? existing.createdAt)
+    ) {
+      solvesById.set(solve.id, solve)
+    }
+  }
+
+  const mergedSolves = [...solvesById.values()].sort((a, b) => {
+    if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
+    return b.id.localeCompare(a.id)
+  })
+
+  return {
+    activeSessionId: targetId,
+    sessions: data.sessions
+      .map((session) =>
+        session.id === targetId
+          ? { ...session, solves: mergedSolves, updatedAt: now }
+          : session,
+      )
+      .filter((session) => session.id !== sourceId),
+  }
 }

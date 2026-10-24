@@ -4,6 +4,11 @@ export type PuzzleEvent = '333'
 /** A WCA penalty. Penalties are mutually exclusive. */
 export type Penalty = 'none' | '+2' | 'dnf'
 
+export interface FieldUpdate {
+  updatedAt: number
+  editorId: string
+}
+
 /**
  * A single completed solve.
  *
@@ -23,6 +28,16 @@ export interface Solve {
    * it never controls whether a solve is included in a merge.
    */
   updatedAt?: number
+  /**
+   * Per-field modification metadata used to resolve independent edits during sync.
+   * Fields without metadata fall back to createdAt/updatedAt conservatively.
+   */
+  fieldUpdates?: Partial<{
+    rawMs: FieldUpdate
+    penalty: FieldUpdate
+    scramble: FieldUpdate
+    comment: FieldUpdate
+  }>
 }
 
 export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'

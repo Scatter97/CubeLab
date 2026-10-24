@@ -1,5 +1,7 @@
-import type { Session, SessionsData, Settings, Solve } from '../types'
-import type { SyncConflict, Tombstone } from './syncStorage'
+import type { FieldUpdate, Session, SessionsData, Settings, Solve } from '../types'
+import { DEFAULT_SESSION_NAME, normalizeSessionName } from './sessions'
+import { applySessionRedirects, normalizeSessionRedirects } from './sessionRedirects'
+import type { SyncConflict, Tombstone, SessionRedirect } from './syncStorage'
 
 
 export const SYNC_PROTOCOL_VERSION = 1
@@ -11,10 +13,23 @@ export interface SyncEnvelope {
   updatedAt: number
   tombstones: Tombstone[]
   conflicts: SyncConflict[]
+  sessionRedirects: SessionRedirect[]
+}
+
+function isUntouchedDefaultSession(session: Session): boolean {
+  return (
+    normalizeSessionName(session.name) === DEFAULT_SESSION_NAME &&
+    session.solves.length === 0 &&
+    session.inspectionEnabled === undefined &&
+    session.createdAt === session.updatedAt
+  )
 }
 
 export interface SyncMergeResult {
   merged: SessionsData
+  adoptedLocalDefault: boolean
+  duplicateSessionNames: string[]
+  sessionRedirects: SessionRedirect[]
   addedSolves: number
   updatedSolves: number
   removedSolves: number
@@ -45,116 +60,193 @@ function solvesEqual(left: Solve, right: Solve): boolean {
   )
 }
 
+function getFieldUpdate(
+  solve: Solve,
+  field: 'rawMs' | 'penalty' | 'scramble' | 'comment',
+): FieldUpdate {
+  const existing = solve.fieldUpdates?.[field]
+  if (existing && Number.isFinite(existing.updatedAt) && typeof existing.editorId === 'string') {
+    return existing
+  }
+  const fallbackTime = solve.updatedAt ?? solve.createdAt ?? 0
+  return { updatedAt: fallbackTime, editorId: 'legacy' }
+}
+
+function pickFieldWinner(
+  local: Solve,
+  remote: Solve,
+  field: 'rawMs' | 'penalty' | 'scramble' | 'comment',
+): 'local' | 'remote' {
+  const localUpdate = getFieldUpdate(local, field)
+  const remoteUpdate = getFieldUpdate(remote, field)
+  if (localUpdate.updatedAt !== remoteUpdate.updatedAt) {
+    return localUpdate.updatedAt > remoteUpdate.updatedAt ? 'local' : 'remote'
+  }
+  if (localUpdate.editorId !== remoteUpdate.editorId) {
+    return localUpdate.editorId < remoteUpdate.editorId ? 'local' : 'remote'
+  }
+  // Equal modification metadata: remain deterministic in either merge order.
+  const localValue =
+    field === 'rawMs' ? local.rawMs :
+    field === 'penalty' ? local.penalty :
+    field === 'scramble' ? local.scramble : local.comment
+  const remoteValue =
+    field === 'rawMs' ? remote.rawMs :
+    field === 'penalty' ? remote.penalty :
+    field === 'scramble' ? remote.scramble : remote.comment
+  return String(localValue) <= String(remoteValue) ? 'local' : 'remote'
+}
+
 function mergeSolveFields(
   local: Solve,
   remote: Solve,
   manualConflictReview: boolean,
   conflicts: SyncConflict[],
 ): Solve {
-  const localTime = recordTime(local)
-  const remoteTime = recordTime(remote)
-  const fieldValues: Pick<Solve, 'rawMs' | 'penalty' | 'scramble' | 'comment'> = {
+  const fields: Array<'rawMs' | 'penalty' | 'scramble' | 'comment'> = [
+    'rawMs',
+    'penalty',
+    'scramble',
+    'comment',
+  ]
+  const values = {
     rawMs: local.rawMs,
-    penalty: local.penalty,
+    penalty: local.penalty as 'none' | '+2' | 'dnf',
     scramble: local.scramble,
     comment: local.comment,
   }
+  const fieldUpdates: NonNullable<Solve['fieldUpdates']> = { ...(local.fieldUpdates ?? {}) }
 
-  const conflicted: string[] = []
-  if (local.rawMs !== remote.rawMs) {
-    conflicted.push('rawMs')
-    fieldValues.rawMs = remoteTime > localTime ? remote.rawMs : local.rawMs
-  }
-  if (local.penalty !== remote.penalty) {
-    conflicted.push('penalty')
-    fieldValues.penalty =
-      remoteTime > localTime ? remote.penalty : local.penalty
-  }
-  if (local.scramble !== remote.scramble) {
-    conflicted.push('scramble')
-    fieldValues.scramble =
-      remoteTime > localTime ? remote.scramble : local.scramble
-  }
-  if (local.comment !== remote.comment) {
-    conflicted.push('comment')
-    fieldValues.comment =
-      remoteTime > localTime ? remote.comment : local.comment
-  }
-
-  // Field-level preservation for non-conflicting edits. When both records
-  // changed different fields, keep each field from the side that can be safely
-  // attributed to that change. This prevents a newer remote record from
-  // overwriting a local penalty edit or vice versa.
-  if (local.penalty !== remote.penalty && local.comment !== remote.comment) {
-    fieldValues.penalty = local.penalty
-    fieldValues.comment = remote.comment
-  }
-
-  if (conflicted.length > 0) {
-    for (const field of conflicted) {
-      const conflict: SyncConflict = {
-        id: local.id,
-        kind: 'solve',
-        sessionId: undefined,
-        field,
-        localValue:
-          field === 'rawMs'
-            ? local.rawMs
-            : field === 'penalty'
-              ? local.penalty
-              : field === 'scramble'
-                ? local.scramble
-                : local.comment,
-        remoteValue:
-          field === 'rawMs'
-            ? remote.rawMs
-            : field === 'penalty'
-              ? remote.penalty
-              : field === 'scramble'
-                ? remote.scramble
-                : remote.comment,
-        localUpdatedAt: localTime,
-        remoteUpdatedAt: remoteTime,
-        resolution:
-          manualConflictReview && (field === 'comment' || field === 'penalty')
-            ? 'manual-pending'
-            : remoteTime > localTime
-              ? 'remote'
-              : 'local',
-        updatedAt: Math.max(localTime, remoteTime, Date.now()),
-      }
-      conflicts.push(conflict)
+  for (const field of fields) {
+    const winner = pickFieldWinner(local, remote, field)
+    const localValue =
+      field === 'rawMs' ? local.rawMs :
+      field === 'penalty' ? local.penalty :
+      field === 'scramble' ? local.scramble : local.comment
+    const remoteValue =
+      field === 'rawMs' ? remote.rawMs :
+      field === 'penalty' ? remote.penalty :
+      field === 'scramble' ? remote.scramble : remote.comment
+    if (localValue === remoteValue) {
+      const updates = local.fieldUpdates?.[field] ? [getFieldUpdate(local, field)] : []
+      const remoteUpdate = getFieldUpdate(remote, field)
+      const latest =
+        updates.length > 0
+          ? updates.reduce((best, current) =>
+              current.updatedAt > best.updatedAt ||
+              (current.updatedAt === best.updatedAt && current.editorId < best.editorId)
+                ? current
+                : best,
+            )
+          : remoteUpdate
+      fieldUpdates[field] = latest ?? remoteUpdate
+      continue
     }
+
+    const winningUpdate =
+      winner === 'local'
+        ? getFieldUpdate(local, field)
+        : getFieldUpdate(remote, field)
+    if (field === 'rawMs') values.rawMs = winner === 'local' ? local.rawMs : remote.rawMs
+    if (field === 'penalty') values.penalty = winner === 'local' ? local.penalty : remote.penalty
+    if (field === 'scramble') values.scramble = winner === 'local' ? local.scramble : remote.scramble
+    if (field === 'comment') values.comment = winner === 'local' ? local.comment : remote.comment
+    fieldUpdates[field] = winningUpdate
+
+    const localUpdate = getFieldUpdate(local, field)
+    const remoteUpdate = getFieldUpdate(remote, field)
+    const resolutionWinner =
+      manualConflictReview && winner !== undefined ? 'manual-pending' : winner === 'local' ? 'local' : 'remote'
+    conflicts.push({
+      id: local.id,
+      kind: 'solve',
+      sessionId: undefined,
+      field,
+      localValue,
+      remoteValue,
+      localUpdatedAt: localUpdate.updatedAt,
+      remoteUpdatedAt: remoteUpdate.updatedAt,
+      resolution: resolutionWinner,
+      updatedAt: Math.max(localUpdate.updatedAt, remoteUpdate.updatedAt, Date.now()),
+    })
   }
 
   return {
     id: local.id,
     event: local.event === '333' ? local.event : remote.event,
-    rawMs: fieldValues.rawMs,
-    penalty: fieldValues.penalty,
-    scramble: fieldValues.scramble,
-    comment: fieldValues.comment,
+    rawMs: values.rawMs,
+    penalty: values.penalty,
+    scramble: values.scramble,
+    comment: values.comment,
     createdAt: Math.min(local.createdAt, remote.createdAt),
-    updatedAt: Math.max(localTime, remoteTime),
+    updatedAt: Math.max(recordTime(local), recordTime(remote)),
+    fieldUpdates,
   }
 }
+
 
 export function mergeSessionsData(input: {
   local: SessionsData
   remote: SessionsData | null
   tombstones: Tombstone[]
+  sessionRedirects?: SessionRedirect[]
   deviceId: string
   manualConflictReview: boolean
 }): SyncMergeResult {
-  const { local, remote, tombstones, manualConflictReview } = input
+  const redirects = input.sessionRedirects ?? []
+  const local = redirects.length > 0 ? applySessionRedirects(input.local, redirects) : input.local
+  const remote = input.remote && redirects.length > 0 ? applySessionRedirects(input.remote, redirects) : input.remote
+  const { tombstones, manualConflictReview } = input
   const conflicts: SyncConflict[] = []
 
-  const deletedSolveIds = new Set(
-    tombstones.filter((t) => t.kind === 'solve').map((t) => t.id),
-  )
-  const deletedSessionIds = new Set(
-    tombstones.filter((t) => t.kind === 'session').map((t) => t.id),
-  )
+  const localSession = local.sessions[0]
+  const isFreshLocalDefault = local.sessions.length === 1 && localSession && isUntouchedDefaultSession(localSession)
+
+  const deletedSolveIds = new Set((tombstones ?? []).filter((t) => t.kind === 'solve').map((t) => t.id))
+  const deletedSessionIds = new Set((tombstones ?? []).filter((t) => t.kind === 'session').map((t) => t.id))
+
+  const hasRelevantCloudContent =
+    !!remote &&
+    remote.sessions.length > 0 &&
+    remote.sessions.some((session) => {
+      if (deletedSessionIds.has(session.id)) return false
+      return session.solves.length > 0 && session.solves.some((solve) => !deletedSolveIds.has(solve.id))
+    })
+
+  // Phase 2C safety: if the local device has only an untouched, generated
+  // default session, adopt the cloud session collection instead of keeping an
+  // unnecessary duplicate placeholder. Tombstoned cloud records are retained in
+  // the tombstone set, but they are never resurrected through adoption.
+  if (remote && hasRelevantCloudContent && isFreshLocalDefault) {
+    const adoptedSessions = remote.sessions
+      .filter((session) => !deletedSessionIds.has(session.id))
+      .map((session) => ({
+        ...session,
+        solves: session.solves.filter((solve) => !deletedSolveIds.has(solve.id)).map((solve) => ({ ...solve })),
+      }))
+
+    if (adoptedSessions.length > 0) {
+      return {
+      merged: {
+        activeSessionId:
+          remote.activeSessionId && adoptedSessions.some((session) => session.id === remote.activeSessionId)
+            ? remote.activeSessionId
+            : adoptedSessions[0]?.id ?? local.activeSessionId,
+        sessions: adoptedSessions,
+      },
+      adoptedLocalDefault: true,
+      duplicateSessionNames: [],
+      sessionRedirects: normalizeSessionRedirects(input.sessionRedirects ?? []),
+      addedSolves: remote.sessions.reduce((total, session) => total + session.solves.length, 0),
+      updatedSolves: 0,
+      removedSolves: 0,
+      addedSessions: adoptedSessions.length,
+      remoteWins: 0,
+      conflicts: [],
+      mergedTombstones: [...tombstones],
+    }
+    }
+  }
 
   const localSessions = new Map(local.sessions.map((session) => [session.id, session]))
   const remoteSessions = new Map(
@@ -316,7 +408,20 @@ export function mergeSessionsData(input: {
     if (tombstone.kind === 'solve') removedSolves += 1
   }
 
+  const duplicates = new Map<string, Set<string>>()
+  for (const session of mergedSessions) {
+    const normalized = normalizeSessionName(session.name).toLowerCase()
+    if (!duplicates.has(normalized)) duplicates.set(normalized, new Set())
+    duplicates.get(normalized)?.add(session.id)
+  }
+  const duplicateSessionNames = [...duplicates.entries()]
+    .filter(([, ids]) => ids.size > 1)
+    .map(([name]) => name)
+
   const result: SyncMergeResult = {
+    adoptedLocalDefault: false,
+    duplicateSessionNames,
+    sessionRedirects: normalizeSessionRedirects(input.sessionRedirects ?? []),
     merged: {
       activeSessionId:
         mergedSessions.some((session) => session.id === local.activeSessionId)
@@ -356,6 +461,7 @@ export function createSyncEnvelope(
   revision: number,
   tombstones: Tombstone[],
   conflicts: SyncConflict[],
+  sessionRedirects: SessionRedirect[] = [],
 ): SyncEnvelope {
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
@@ -364,6 +470,7 @@ export function createSyncEnvelope(
     updatedAt: Date.now(),
     tombstones: [...tombstones],
     conflicts: [...conflicts],
+    sessionRedirects: normalizeSessionRedirects(sessionRedirects),
   }
 }
 
@@ -381,6 +488,9 @@ export function parseRemoteSyncEnvelope(value: unknown): SyncEnvelope | null {
     updatedAt: record.updatedAt,
     tombstones: Array.isArray(record.tombstones) ? (record.tombstones as Tombstone[]) : [],
     conflicts: Array.isArray(record.conflicts) ? (record.conflicts as SyncConflict[]) : [],
+    sessionRedirects: Array.isArray(record.sessionRedirects)
+      ? normalizeSessionRedirects(record.sessionRedirects as SessionRedirect[])
+      : [],
   }
 }
 
