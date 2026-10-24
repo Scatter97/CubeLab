@@ -216,6 +216,11 @@ export function SolveHistory({
 
   const handleOpenMenu = useCallback(
     (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => {
+      if (openMenu?.solve.id === solve.id) {
+        closeMenu(true)
+        return
+      }
+
       setCommentDraft(solve.comment)
       setCommentEditing(false)
       setOpenMenu({
@@ -225,7 +230,7 @@ export function SolveHistory({
         trigger,
       })
     },
-    [],
+    [closeMenu, openMenu],
   )
 
   useEffect(() => {
