@@ -1339,6 +1339,7 @@ test('google drive backup and restore work in mock mode', async ({ page }) => {
   await drive.getByTestId('sync-now').click()
   await expect(drive).toContainText('Last sync')
 
+  await drive.getByRole('button', { name: /Advanced settings/ }).click()
   await drive.getByTestId('drive-delete-remote').click()
   const deleteDialog = page.getByRole('dialog', {
     name: 'Delete the Google Drive backup?',

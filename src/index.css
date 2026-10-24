@@ -3047,3 +3047,64 @@ kbd {
   gap: 10px;
   padding-top: 6px;
 }
+
+.settings-action-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.sync-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.sync-field-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 0;
+  font-weight: 600;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+
+.settings-advanced-header span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.settings-row-stacked {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.compact-select {
+  width: 160px;
+  max-width: 100%;
+}
+
+@media (max-width: 520px) {
+  .sync-field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-select {
+    width: 100%;
+  }
+}

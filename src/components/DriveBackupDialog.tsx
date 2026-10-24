@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { useDriveBackup } from '../hooks/useDriveBackup'
-import type { Backup } from '../lib/backup'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { DriveTransport } from '../lib/driveTransport'
-import { loadDriveBackupState } from '../lib/driveStorage'
 import type { UseSyncResult } from '../hooks/useSync'
 import { CloseIcon } from './Icons'
 import type { SessionsData, Settings } from '../types'
+import { loadDriveBackupState } from '../lib/driveStorage'
 
 interface DriveBackupDialogProps {
   open: boolean
@@ -18,7 +17,7 @@ interface DriveBackupDialogProps {
   sync: UseSyncResult
   onClose: () => void
   onNotify: (message: string) => void
-  onPendingRestore: (backup: Backup) => void
+  onPendingRestore: (backup: import('../lib/backup').Backup) => void
 }
 
 export function DriveBackupDialog({
@@ -55,7 +54,7 @@ export function DriveBackupDialog({
     phase === 'deleting'
   const persistedDriveState = loadDriveBackupState()
   const remoteFileId =
-    persistedDriveState.remoteFileId || drive.metadata.remoteFileId
+    persistedDriveState.remoteFileId ?? drive.metadata.remoteFileId
 
   return (
     <>
@@ -91,8 +90,7 @@ export function DriveBackupDialog({
           </header>
 
           <p id="drive-backup-description" className="settings-intro">
-            Google Drive uses the same app-data file, cubelab-backup.json, for
-            manual backup metadata and automatic synchronization.
+            Automatic local-first synchronization with Google Drive app data.
           </p>
 
           <div className="settings-body">
@@ -116,7 +114,7 @@ export function DriveBackupDialog({
                       : phase === 'connecting'
                         ? 'Connecting…'
                         : phase === 'connected'
-                          ? 'Connected.'
+                          ? 'Connected'
                           : phase === 'backing-up'
                             ? 'Backing up…'
                             : phase === 'restoring'
@@ -124,15 +122,15 @@ export function DriveBackupDialog({
                               : phase === 'deleting'
                                 ? 'Deleting remote backup…'
                                 : phase === 'error'
-                                  ? 'Error.'
-                                  : 'Disconnected.'}
+                                  ? 'Error'
+                                  : 'Disconnected'}
                   </span>
                 </div>
                 <span
                   className={`settings-storage ${drive.connected ? 'is-ok' : 'is-error'}`}
                 >
                   <span className="status-dot" aria-hidden="true" />
-                  {drive.connected ? 'Connected' : 'Offline'}
+                  {drive.connected ? 'Online' : 'Offline'}
                 </span>
               </div>
 
@@ -141,54 +139,15 @@ export function DriveBackupDialog({
                   className="settings-note"
                   data-testid="drive-account-label"
                 >
-                  Account: {drive.metadata.connectedAccountLabel}
+                  Connected account: {drive.metadata.connectedAccountLabel}
                 </p>
               ) : null}
 
-              {remoteFileId ? (
-                <p className="settings-note">
-                  Remote file: {remoteFileId}
-                </p>
-              ) : (
+              {!remoteFileId ? (
                 <p className="settings-note">No remote backup found yet.</p>
-              )}
+              ) : null}
 
-              <div className="settings-row">
-                <div className="settings-row-copy">
-                  <span className="settings-row-label">Connection</span>
-                  <span className="settings-row-description">
-                    {drive.connected ? 'Google Drive is connected.' : 'Sign in to Google Drive.'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {!drive.connected ? (
-                    <button
-                      type="button"
-                      className="button button-secondary button-small"
-                      data-testid="drive-connect"
-                      disabled={!drive.configured || busy}
-                      onClick={() => void drive.connect()}
-                    >
-                      Connect Google Drive
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="button button-secondary button-small"
-                      data-testid="drive-disconnect"
-                      disabled={busy}
-                      onClick={drive.disconnect}
-                    >
-                      Disconnect
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <p
-                className="settings-note"
-                data-testid="sync-status"
-              >
+              <p className="settings-note" data-testid="sync-status">
                 Status: {sync.phase} · Pending: {sync.pendingCount}
                 {sync.lastSyncAt
                   ? ` · Last sync ${new Date(sync.lastSyncAt).toLocaleString()}`
@@ -219,12 +178,45 @@ export function DriveBackupDialog({
                   {sync.conflictsCount === 1 ? '' : 's'} need review.
                 </p>
               ) : null}
+
               {!drive.configured ? (
                 <p className="settings-note">
                   Set <code>VITE_GOOGLE_CLIENT_ID</code> at build time to enable
                   Google Drive.
                 </p>
               ) : null}
+
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Connection</span>
+                  <span className="settings-row-description">
+                    Start or end Google Drive access for this browser.
+                  </span>
+                </div>
+                <div className="settings-action-inline">
+                  {!drive.connected ? (
+                    <button
+                      type="button"
+                      className="button button-secondary button-small"
+                      data-testid="drive-connect"
+                      disabled={!drive.configured || busy}
+                      onClick={() => void drive.connect()}
+                    >
+                      Connect Google Drive
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button button-secondary button-small"
+                      data-testid="drive-disconnect"
+                      disabled={busy}
+                      onClick={drive.disconnect}
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                </div>
+              </div>
             </section>
 
             <section
@@ -241,7 +233,7 @@ export function DriveBackupDialog({
                     Automatic synchronization
                   </span>
                   <span className="settings-row-description">
-                    Enable cloud sync for this browser.
+                    Keep this browser synchronized through Google Drive.
                   </span>
                 </div>
                 <input
@@ -254,17 +246,20 @@ export function DriveBackupDialog({
                 />
               </div>
 
-              <div className="settings-field">
-                <span>Time interval</span>
+              <div className="sync-field-row">
+                <div className="sync-field-copy">
+                  <span className="settings-row-label">Time interval</span>
+                  <span className="settings-row-description">
+                    How often CubeLab checks for changes.
+                  </span>
+                </div>
                 <select
                   aria-label="Time interval"
                   className="compact-select"
                   value={sync.preferences.intervalMinutes}
                   onChange={(event) =>
                     sync.updatePreferences({
-                      intervalMinutes: Number(
-                        event.target.value,
-                      ) as never,
+                      intervalMinutes: Number(event.target.value) as never,
                     })
                   }
                 >
@@ -276,17 +271,20 @@ export function DriveBackupDialog({
                 </select>
               </div>
 
-              <div className="settings-field">
-                <span>Solve threshold</span>
+              <div className="sync-field-row">
+                <div className="sync-field-copy">
+                  <span className="settings-row-label">Solve threshold</span>
+                  <span className="settings-row-description">
+                    Sync after this many new solves.
+                  </span>
+                </div>
                 <select
                   aria-label="Solve threshold"
                   className="compact-select"
                   value={sync.preferences.solveThreshold}
                   onChange={(event) =>
                     sync.updatePreferences({
-                      solveThreshold: Number(
-                        event.target.value,
-                      ) as never,
+                      solveThreshold: Number(event.target.value) as never,
                     })
                   }
                 >
@@ -310,29 +308,35 @@ export function DriveBackupDialog({
                   className="button button-primary button-small"
                   data-testid="sync-now"
                   disabled={
-                    !sync.preferences.enabled ||
-                    phase === 'deleting' ||
-                    transport === null
+                    !sync.preferences.enabled || phase === 'deleting'
                   }
                   onClick={() => void sync.syncNow('manual')}
                 >
                   Sync now
                 </button>
               </div>
+            </section>
 
-              <div className="advanced-toggle">
-                <button
-                  type="button"
-                  className="button button-secondary button-small"
-                  aria-expanded={advancedOpen}
-                  onClick={() => setAdvancedOpen((value) => !value)}
-                >
-                  {advancedOpen ? 'Hide advanced settings' : 'Advanced settings'}
-                </button>
-              </div>
+            <section
+              className="settings-section sync-advanced-section"
+              aria-labelledby="drive-advanced-title"
+            >
+              <button
+                type="button"
+                className="settings-advanced-header"
+                aria-expanded={advancedOpen}
+                aria-controls="drive-advanced-body"
+                onClick={() => setAdvancedOpen((value) => !value)}
+              >
+                <span>Advanced settings</span>
+                <span aria-hidden="true">{advancedOpen ? '▾' : '▸'}</span>
+              </button>
 
               {advancedOpen ? (
-                <div className="settings-field-group">
+                <div
+                  id="drive-advanced-body"
+                  className="settings-section-body"
+                >
                   <div className="settings-row">
                     <div className="settings-row-copy">
                       <span className="settings-row-label">
@@ -359,9 +363,7 @@ export function DriveBackupDialog({
                       aria-label="Sync on exit"
                       checked={sync.preferences.syncOnExit}
                       onChange={(event) =>
-                        sync.updatePreferences({
-                          syncOnExit: event.target.checked,
-                        })
+                        sync.updatePreferences({ syncOnExit: event.target.checked })
                       }
                     />
                   </div>
@@ -402,46 +404,34 @@ export function DriveBackupDialog({
                       }
                     />
                   </div>
+                  <div className="settings-row settings-row-stacked">
+                    <div className="settings-row-copy">
+                      <span className="settings-row-label">
+                        Delete remote backup
+                      </span>
+                      <span className="settings-row-description">
+                        Remove cubelab-backup.json from Google Drive. Local data
+                        is not changed. Future automatic sync may recreate the
+                        remote file.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="button button-danger button-small"
+                      data-testid="drive-delete-remote"
+                      disabled={
+                        !remoteFileId ||
+                        drive.configured === false ||
+                        busy ||
+                        !remoteFileId
+                      }
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      Delete remote backup
+                    </button>
+                  </div>
                 </div>
               ) : null}
-            </section>
-
-            <section
-              className="settings-section"
-              aria-labelledby="drive-manual-title"
-            >
-              <div className="settings-section-heading">
-                <h3 id="drive-manual-title">Manual data actions</h3>
-              </div>
-
-              <div className="settings-row">
-                <div className="settings-row-copy">
-                  <span className="settings-row-label">
-                    Delete remote backup
-                  </span>
-                  <span className="settings-row-description">
-                    Remove cubelab-backup.json from Google Drive.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="button button-danger button-small"
-                  data-testid="drive-delete-remote"
-                  disabled={
-                    !drive.configured ||
-                    busy ||
-                    !remoteFileId
-                  }
-                  onClick={() => setDeleteConfirmOpen(true)}
-                >
-                  Delete remote backup
-                </button>
-              </div>
-
-              <p className="settings-note">
-                Syncing replaces the manual backup/upload workflow. There is no
-                separate Restore from Drive button.
-              </p>
             </section>
           </div>
 
