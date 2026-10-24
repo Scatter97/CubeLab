@@ -325,8 +325,11 @@ application code.
 - Inspection penalty thresholds: `> 15,000 ms` gives `+2`;
   `> 17,000 ms` gives DNF. The penalty is captured when the solve starts.
 - Inspection displays a countdown from 15 to 0 by default, or a count-up from 0
-  to 17. The 8-second and 12-second warnings are independent and fire at 12/8
-  seconds remaining in countdown mode, or 8/12 seconds elapsed in count-up mode.
+  to 17. The 8-second and 12-second warnings are independent; count-up warns at
+  8 and 12 seconds elapsed, while count-down now warns at 7 and 3 seconds
+  remaining, matching the same elapsed points. The count-down warning can pulse
+  the timer surface or entire screen based on **Settings → Alerts → Inspection
+  warning display**, and the visual warning no longer shows overlapping text.
 - Inspection must be started with one press, then armed/started with a second
   hold.
 - Losing window focus cancels an incomplete hold, but never stops an actively
