@@ -39,11 +39,12 @@ local-data work:
 - offline-capable PWA
 - responsive, accessible UI
 
-Phase 2A, the Phase 2A.1 Settings design update, Phase 2A.2 settings groups, and
-Phase 2A.3 timer/history/session refinements are complete. Do **not** begin
-Phase 2B (Google Drive backup), Phase 2C (multi-device sync), or any other
-cloud/account feature without an explicit user instruction. Do not broaden to
-other puzzle events or social features as drive-by additions.
+Phase 2A, the Phase 2A.1 Settings design update, Phase 2A.2 settings groups,
+Phase 2A.3 timer/history/session refinements, Phase 2B optional manual Google
+Drive backup, and Phase 2C local-first Google Drive synchronization are
+complete. Do not begin Phase 3, Phase 4, or any other cloud/account feature
+without an explicit user instruction. Do not broaden to other puzzle events or
+social features as drive-by additions.
 
 ## Commands
 

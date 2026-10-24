@@ -26,7 +26,12 @@ verification evidence.
 - Phase 2B (Google Drive backup) is complete: manual backup/restore, typed
   restore confirmation, remote deletion, mock E2E coverage, and final
   verification are in place.
-- Phase 2C (multi-device sync) is not started and remains a separate approval.## Product principles
+- Phase 2B (Google Drive backup) is complete.
+- Phase 2C (multi-device sync) is implemented as local-first optional Google Drive
+  synchronization: time, solve-count, and combined schedules, startup/exit/reconnect
+  sync, ID-based merging, tombstones, automatic conflict resolution with manual
+  review opt-in, status UI, and mock-based coverage. Real cross-device behavior
+  still requires real Google Drive validation.## Product principles
 
 1. **Timer correctness first.** Timing transitions stay in the pure timer
    machine. Use monotonic time only; never derive solve duration from wall-clock

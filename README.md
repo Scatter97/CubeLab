@@ -165,6 +165,19 @@ that Drive is not configured. OAuth tokens are kept in memory only and are not
 stored in `localStorage`. The connected account label is stored locally. Deleting
 the remote backup does not change local sessions or settings.
 
+### Google Drive synchronization
+
+Open **Settings → Data → Google Drive backup** and enable **Automatic
+synchronization**. Choose time-based, solve-count, or combined scheduling. The
+minimum interval is 1 minute and the minimum solve threshold is 1 solve. The
+recommended default is combined mode at 5 minutes or 10 solves, whichever comes
+first. CubeLab always saves locally first, then downloads, merges, and uploads
+cloud changes without interrupting the timer. Synchronization can also run on
+startup, on exit, and after internet reconnection. Deletions use tombstones. By
+default, same-field conflicts are resolved automatically by edit time; manual
+conflict review is available as an opt-in. Automatic synchronization is disabled
+by default and requires explicit user opt-in.
+
 ### Inspection rules
 
 When inspection is enabled, the first press starts the 15-second inspection.

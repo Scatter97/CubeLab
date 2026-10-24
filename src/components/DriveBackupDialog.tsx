@@ -4,6 +4,7 @@ import { useDriveBackup } from '../hooks/useDriveBackup'
 import type { Backup } from '../lib/backup'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { DriveTransport } from '../lib/driveTransport'
+import type { UseSyncResult } from '../hooks/useSync'
 import { CloseIcon } from './Icons'
 import type { SessionsData, Settings } from '../types'
 
@@ -13,6 +14,7 @@ interface DriveBackupDialogProps {
   sessions: SessionsData
   settings: Settings
   storageOk: boolean
+  sync: UseSyncResult
   onClose: () => void
   onNotify: (message: string) => void
   onPendingRestore: (backup: Backup) => void
@@ -24,6 +26,7 @@ export function DriveBackupDialog({
   sessions,
   settings,
   storageOk,
+  sync,
   onClose,
   onNotify,
   onPendingRestore,
@@ -253,6 +256,175 @@ export function DriveBackupDialog({
                   app data as <code>cubelab-backup.json</code>.
                 </p>
               )}
+            </section>
+
+            <section className="settings-section" aria-labelledby="drive-sync-title">
+              <div className="settings-section-heading">
+                <h3 id="drive-sync-title">Synchronization</h3>
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Automatic synchronization</span>
+                  <span className="settings-row-description">
+                    Keep this browser synchronized through Google Drive.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Automatic synchronization"
+                  checked={sync.preferences.enabled}
+                  onChange={(event) =>
+                    sync.updatePreferences({ enabled: event.target.checked })
+                  }
+                />
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Mode</span>
+                  <span className="settings-row-description">
+                    Time-based, solve-count, or combined.
+                  </span>
+                </div>
+                <select
+                  aria-label="Synchronization mode"
+                  value={sync.preferences.mode}
+                  onChange={(event) =>
+                    sync.updatePreferences({ mode: event.target.value as 'time' | 'solve' | 'combined' })
+                  }
+                >
+                  <option value="time">Time-based</option>
+                  <option value="solve">Solve-count</option>
+                  <option value="combined">Combined</option>
+                </select>
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Time interval</span>
+                  <span className="settings-row-description">Minutes between checks.</span>
+                </div>
+                <select
+                  aria-label="Time interval"
+                  value={sync.preferences.intervalMinutes}
+                  onChange={(event) =>
+                    sync.updatePreferences({ intervalMinutes: Number(event.target.value) as never })
+                  }
+                >
+                  {[1, 2, 3, 5, 10, 15, 30, 60].map((value) => (
+                    <option key={value} value={value}>{value} minute{value === 1 ? '' : 's'}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Solve threshold</span>
+                  <span className="settings-row-description">New solves before sync.</span>
+                </div>
+                <select
+                  aria-label="Solve threshold"
+                  value={sync.preferences.solveThreshold}
+                  onChange={(event) =>
+                    sync.updatePreferences({ solveThreshold: Number(event.target.value) as never })
+                  }
+                >
+                  {[1, 2, 3, 5, 10, 20, 25, 50, 100].map((value) => (
+                    <option key={value} value={value}>{value} solve{value === 1 ? '' : 's'}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Sync on startup</span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Sync on startup"
+                  checked={sync.preferences.syncOnStartup}
+                  onChange={(event) =>
+                    sync.updatePreferences({ syncOnStartup: event.target.checked })
+                  }
+                />
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Sync on exit</span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Sync on exit"
+                  checked={sync.preferences.syncOnExit}
+                  onChange={(event) =>
+                    sync.updatePreferences({ syncOnExit: event.target.checked })
+                  }
+                />
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Sync after reconnect</span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Sync after reconnect"
+                  checked={sync.preferences.syncOnReconnect}
+                  onChange={(event) =>
+                    sync.updatePreferences({ syncOnReconnect: event.target.checked })
+                  }
+                />
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Manual conflict review</span>
+                  <span className="settings-row-description">
+                    Ask before applying same-field conflicts. Default resolves automatically.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Manual conflict review"
+                  checked={sync.preferences.manualConflictReview}
+                  onChange={(event) =>
+                    sync.updatePreferences({ manualConflictReview: event.target.checked })
+                  }
+                />
+              </div>
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Status</span>
+                  <span className="settings-row-description" data-testid="sync-status">
+                    {sync.phase}
+                  </span>
+                </div>
+                <span className="settings-note">
+                  Pending: {sync.pendingCount}
+                  {sync.lastSyncAt ? ` · Last sync ${new Date(sync.lastSyncAt).toLocaleString()}` : ''}
+                </span>
+              </div>
+              {sync.error ? (
+                <p className="settings-error" role="alert" data-testid="sync-error">
+                  {sync.error}
+                </p>
+              ) : null}
+              {sync.conflictsCount > 0 ? (
+                <p className="settings-note" data-testid="sync-conflicts">
+                  {sync.conflictsCount} conflict{sync.conflictsCount === 1 ? '' : 's'} need review.
+                </p>
+              ) : null}
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Sync now</span>
+                  <span className="settings-row-description">
+                    Push local changes and merge cloud changes immediately.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="button button-primary button-small"
+                  data-testid="sync-now"
+                  disabled={!sync.preferences.enabled || phase === 'backing-up' || phase === 'restoring'}
+                  onClick={() => void sync.syncNow('manual')}
+                >
+                  Sync now
+                </button>
+              </div>
             </section>
 
           </div>

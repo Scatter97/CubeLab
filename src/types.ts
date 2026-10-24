@@ -18,6 +18,11 @@ export interface Solve {
   scramble: string
   comment: string
   createdAt: number
+  /**
+   * Wall-clock edit timestamp. Used only for conflict comparison during sync;
+   * it never controls whether a solve is included in a merge.
+   */
+  updatedAt?: number
 }
 
 export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'

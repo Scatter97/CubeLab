@@ -1,5 +1,7 @@
 import type { SessionsData, Settings } from '../types'
 import { parseSessionsData, parseSettingsData } from './storage'
+import type { SyncEnvelope } from './sync'
+import { parseRemoteSyncEnvelope } from './sync'
 
 export const BACKUP_APP = 'CubeLab'
 export const BACKUP_FORMAT = 'cubelab-backup'
@@ -13,6 +15,11 @@ export interface Backup {
   exportedAt: string
   sessions: SessionsData
   settings: Settings
+  /**
+   * Optional synchronization envelope used by Phase 2C. Manual backups created
+   * by older versions omit this and remain fully compatible.
+   */
+  sync?: SyncEnvelope
 }
 
 export type BackupParseResult =
@@ -28,6 +35,7 @@ export function createBackup(
   sessions: SessionsData,
   settings: Settings,
   exportedAt = new Date(),
+  sync?: SyncEnvelope,
 ): Backup {
   return {
     app: BACKUP_APP,
@@ -42,6 +50,7 @@ export function createBackup(
       })),
     },
     settings: { ...settings },
+    ...(sync ? { sync } : {}),
   }
 }
 
@@ -89,6 +98,11 @@ export function parseBackup(raw: string): BackupParseResult {
     return { ok: false, error: 'The backup is missing valid settings.' }
   }
 
+  const sync =
+    parsed.sync === undefined
+      ? undefined
+      : (parseRemoteSyncEnvelope(parsed.sync) ?? undefined)
+
   return {
     ok: true,
     backup: {
@@ -98,6 +112,7 @@ export function parseBackup(raw: string): BackupParseResult {
       exportedAt: parsed.exportedAt,
       sessions,
       settings,
+      ...(sync ? { sync } : {}),
     },
   }
 }

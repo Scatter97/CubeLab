@@ -197,7 +197,7 @@ export function addSolve(
     }
     return {
       ...session,
-      solves: [solve, ...session.solves],
+      solves: [{ ...solve, updatedAt: solve.updatedAt ?? now }, ...session.solves],
       updatedAt: now,
     }
   })
@@ -217,7 +217,9 @@ export function setSolveComment(
     return {
       ...session,
       solves: session.solves.map((candidate) =>
-        candidate.id === solveId ? { ...candidate, comment: normalized } : candidate,
+        candidate.id === solveId
+          ? { ...candidate, comment: normalized, updatedAt: now }
+          : candidate,
       ),
       updatedAt: now,
     }
@@ -256,7 +258,7 @@ export function setSolvePenalty(
     return {
       ...session,
       solves: session.solves.map((candidate) =>
-        candidate.id === solveId ? { ...candidate, penalty } : candidate,
+        candidate.id === solveId ? { ...candidate, penalty, updatedAt: now } : candidate,
       ),
       updatedAt: now,
     }

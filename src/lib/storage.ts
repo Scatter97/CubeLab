@@ -133,6 +133,10 @@ function parseSolve(value: unknown): Solve | null {
         ? value.comment.slice(0, MAX_SOLVE_COMMENT_LENGTH)
         : '',
     createdAt: value.createdAt,
+    // updatedAt is optional; sync code resolves missing values to createdAt.
+    ...(isPositiveTimestamp(value.updatedAt)
+      ? { updatedAt: value.updatedAt }
+      : {}),
   }
 }
 

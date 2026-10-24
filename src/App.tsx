@@ -16,6 +16,7 @@ import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
+import { useSync } from './hooks/useSync'
 import {
   inspectionWarningEvents,
   playAlertSound,
@@ -246,6 +247,17 @@ export default function App() {
     onSolve: handleSolve,
   })
 
+  const sync = useSync({
+    transport: driveTransport,
+    sessions: { activeSessionId, sessions },
+    settings,
+    storageOk: storageOk && settingsStorageOk,
+    timerActive: timer.state.status !== 'idle',
+    onReplaceSessions: replaceSessions,
+    onReplaceSettings: replaceSettings,
+    onNotify: (message) => showToast({ message }),
+  })
+
   useEffect(() => {
     const startedAt = activeInspectionStartedAt(timer.state)
     if (startedAt === null) {
@@ -388,15 +400,18 @@ export default function App() {
     (id: string) => {
       const removed = deleteSolve(id)
       if (!removed) return
+      sync.recordDeletion('solve', id, removed.sessionId)
 
       showToast({
         message: 'Solve deleted',
         actionLabel: 'Undo',
-        onAction: () =>
-          restoreSolve(removed.solve, removed.index, removed.sessionId),
+        onAction: () => {
+          sync.clearDeletion('solve', removed.solve.id)
+          restoreSolve(removed.solve, removed.index, removed.sessionId)
+        },
       })
     },
-    [deleteSolve, restoreSolve, showToast],
+    [deleteSolve, restoreSolve, showToast, sync],
   )
 
   const requestClear = useCallback(() => {
@@ -406,11 +421,14 @@ export default function App() {
   }, [solves.length, timer.state.status])
 
   const confirmClear = useCallback(() => {
+    for (const solve of activeSession.solves) {
+      sync.recordDeletion('solve', solve.id, activeSession.id)
+    }
     clearSolves()
     setClearOpen(false)
     setSessionSettingsOpen(false)
     showToast({ message: 'Session cleared' })
-  }, [clearSolves, showToast])
+  }, [activeSession.id, activeSession.solves, clearSolves, showToast, sync])
 
   const handleCreateSession = useCallback(
     (name: string): boolean => {
@@ -448,11 +466,12 @@ export default function App() {
 
   const confirmDeleteSession = useCallback(() => {
     if (!sessionToDelete) return
+    sync.recordDeletion('session', sessionToDelete.id)
     const deleted = deleteSession(sessionToDelete.id)
     setSessionToDelete(null)
     setSessionSettingsOpen(false)
     if (deleted) showToast({ message: 'Session deleted' })
-  }, [deleteSession, sessionToDelete, showToast])
+  }, [deleteSession, sessionToDelete, showToast, sync])
 
   const handleOpenBackup = useCallback(() => {
     if (timer.state.status !== 'idle') return
@@ -864,14 +883,15 @@ export default function App() {
 
       <DriveBackupDialog
         open={driveOpen}
-          transport={driveTransport}
-          sessions={{ activeSessionId, sessions }}
-          settings={settings}
-          storageOk={storageHealthy}
-          onClose={() => setDriveOpen(false)}
-          onNotify={(message) => showToast({ message })}
-          onPendingRestore={handleDriveRestorePending}
-        />
+        transport={driveTransport}
+        sessions={{ activeSessionId, sessions }}
+        settings={settings}
+        storageOk={storageHealthy}
+        sync={sync}
+        onClose={() => setDriveOpen(false)}
+        onNotify={(message) => showToast({ message })}
+        onPendingRestore={handleDriveRestorePending}
+      />
 
       {pendingDriveRestore ? (
         <ConfirmDialog
