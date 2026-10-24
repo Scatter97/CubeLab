@@ -298,12 +298,12 @@ export function SettingsDialog({
                     ? [
                         {
                           key: '8s' as const,
-                          label: '8 seconds',
+                          label: '8 seconds elapsed',
                           checked: settings.inspectionWarning8s,
                         },
                         {
                           key: '12s' as const,
-                          label: '12 seconds',
+                          label: '12 seconds elapsed',
                           checked: settings.inspectionWarning12s,
                         },
                       ]
