@@ -1,4 +1,4 @@
-import type { Penalty, Solve } from '../types'
+import type { Penalty, Solve, StatPrecision } from '../types'
 import type { StatResult } from './stats'
 
 /** Formats a centisecond timer reading. Minutes are shown when needed. */
@@ -37,14 +37,42 @@ export function formatSolveRaw(solve: Solve): string {
   return formatTime(solve.rawMs)
 }
 
-export function formatStatValue(result: StatResult): string {
-  if (result === null) return '—'
-  if (result.status === 'dnf') return 'DNF'
-  return formatTime(result.ms)
+function formatTimeTenths(ms: number): string {
+  const safeMs = Number.isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0
+  const tenths = Math.floor(safeMs / 100)
+  const minutes = Math.floor(tenths / 600)
+  const secondsPart = Math.floor((tenths % 600) / 10)
+  const tenthsPart = tenths % 10
+
+  if (minutes > 0) {
+    return `${minutes}:${String(secondsPart).padStart(2, '0')}.${tenthsPart}`
+  }
+
+  return `${secondsPart}.${tenthsPart}`
 }
 
-export function formatOptionalTime(ms: number | null): string {
-  return ms === null ? '—' : formatTime(ms)
+/** Formats statistics without changing the stored centisecond value. */
+export function formatTimeWithPrecision(
+  ms: number,
+  precision: StatPrecision = 'centiseconds',
+): string {
+  return precision === 'tenths' ? formatTimeTenths(ms) : formatTime(ms)
+}
+
+export function formatStatValue(
+  result: StatResult,
+  precision: StatPrecision = 'centiseconds',
+): string {
+  if (result === null) return '—'
+  if (result.status === 'dnf') return 'DNF'
+  return formatTimeWithPrecision(result.ms, precision)
+}
+
+export function formatOptionalTime(
+  ms: number | null,
+  precision: StatPrecision = 'centiseconds',
+): string {
+  return ms === null ? '—' : formatTimeWithPrecision(ms, precision)
 }
 
 export function formatSolveCount(count: number): string {

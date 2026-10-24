@@ -19,7 +19,7 @@ Settings dialog in a responsive layout built around the clock. See
   with a prefetched next scramble.
 - **Keyboard and pointer controls** that work reliably from anywhere on the page.
 - **Optional WCA inspection** with automatic `+2` and DNF penalties.
-- **csTimer-inspired Settings dialog** with Timer, Display, Scramble, Controls, Data, and About sections. It now covers inspection, timer updates, Space-hold time, display scaling, scramble presentation, local-data status, and backup/restore access, and changes save automatically.
+- **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About sections. It covers inspection, timer updates, Space-hold time, visual/sound/haptic solve and inspection alerts, accent color, visible statistics and display precision, display scaling, scramble presentation, local-data status, and backup/restore access. Changes save automatically.
 - **Named local sessions** with create, switch, rename, and confirmed delete.
   Each session has independent solves and statistics.
 - **Session statistics**: best/latest single, mo3, ao5, and ao12, including full
@@ -41,18 +41,19 @@ Settings dialog in a responsive layout built around the clock. See
 The layout follows the familiar speedcubing-timer structure: a session switcher,
 session statistics, and solve history in the left rail; the scramble above the
 timer; and the clock as the dominant element. The flat light theme uses neutral
-panels, a pale green timer surface, and a solid green accent. There are no
-decorative gradients, glows, or background effects. On narrow screens the timer
-comes first, with the session controls, statistics, and history stacked below it.
+panels, a pale accent-tinted timer surface, and a solid accent available in
+green, blue, violet, or amber. There are no decorative gradients, glows, or
+background effects. On narrow screens the timer comes first, with the session
+controls, statistics, and history stacked below it.
 
 The header **Settings** button opens a csTimer-inspired preferences dialog. The
-dialog groups timer, display, scramble, controls, data, and about preferences in
-one place, with progressive migration from older settings records. At 320 px the
-Settings dialog keeps the inspection label and its switch touch target visible,
-and its body scrolls independently so the Done button stays reachable. The
-desktop history rail scrolls internally rather than stretching the page.
-Offscreen history rows are skipped during rendering and memoized, so long
-sessions remain usable.
+dialog groups timer, alerts, display, appearance, statistics, scramble, controls,
+data, and about preferences in one place, with progressive migration from older
+settings records. At 320 px the Settings dialog keeps the inspection label and
+its switch touch target visible, and its body scrolls independently so the Done
+button stays reachable. The desktop history rail scrolls internally rather than
+stretching the page. Offscreen history rows are skipped during rendering and
+memoized, so long sessions remain usable.
 
 ![CubeLab Settings dialog](docs/cubelab-settings.png)
 
@@ -72,6 +73,9 @@ sessions remain usable.
 | Open Settings | Use the **Settings** button in the header; it is unavailable while timing |
 | Change inspection | Open **Settings**, then toggle **Inspection** under **Timer** |
 | Tune timer updates, Space hold, scramble layout, and display scaling | Open **Settings**, then adjust **Timer**, **Display**, or **Scramble** |
+| Choose solve/DNF and inspection feedback | Open **Settings → Alerts** and choose visual, sound, haptic, or a combination |
+| Change the accent color | Open **Settings → Appearance** and choose green, blue, violet, or amber |
+| Show or hide statistic cards and choose precision | Open **Settings → Statistics** |
 | Switch session | Choose a name in the session select; use arrow keys and <kbd>Enter</kbd> from the keyboard |
 | Create, rename, or delete a session | Use the buttons beside the session select |
 | Export or import a backup | Open **Settings → Data → Backup & restore** |
@@ -100,9 +104,9 @@ synchronized, so use one tab when changing sessions or importing a backup.
 ### Backup and restore
 
 Open **Settings → Data → Backup & restore**. **Backup** exports a readable JSON
-file containing every session, every solve, the active session, and the
-inspection setting. The file is created locally with the browser download API;
-CubeLab never uploads it.
+file containing every session, every solve, the active session, and all
+settings. The file is created locally with the browser download API; CubeLab
+never uploads it.
 
 Import validates the application marker, format version, sessions, solves, and
 settings before changing anything. Valid data replaces the local sessions and
@@ -135,6 +139,10 @@ All times are stored as raw milliseconds and penalties are applied afterward.
   trimmed; two or more DNFs make the average a DNF.
 - **Best** values scan every valid window in the session; a DNF is never reported
   as a personal best.
+
+**Settings → Statistics** can hide individual cards and switch the displayed
+precision between hundredths and tenths. This is presentation only: stored raw
+times, penalties, and WCA calculations always use centiseconds.
 
 ## Getting started
 
@@ -178,7 +186,10 @@ scrolling, legacy single-session migration, named-session create/switch/rename/
 delete, timer locking of session controls and Settings, backup export,
 invalid-file handling, import cancellation, confirmed restore of sessions and
 settings, the scramble-failure recovery state, and full offline scramble
-generation through the installed service worker.
+generation through the installed service worker. It also covers visual solve,
+DNF, and inspection alerts, accent persistence, the Controls reference,
+statistics visibility and tenths precision, and the inspection warning
+threshold.
 
 ## Architecture
 
@@ -195,9 +206,11 @@ src/
   lib/scramble.ts        cubing.js random-state integration
   lib/stats.ts           WCA single, mo3, ao5, and ao12 calculations
   lib/storage.ts         Versioned localStorage validation and migration
+  lib/alerts.ts          Web Audio, vibration, and inspection-warning helpers
   lib/format.ts          Display formatting
   components/            Timer, scramble, sessions, stats, history, and dialogs
-  components/SettingsDialog.tsx  Timer, Controls, Data, and About preferences
+  components/SettingsDialog.tsx  Timer, Alerts, Display, Appearance, Statistics,
+                                 Scramble, Controls, Data, and About preferences
   App.tsx                Integration, global input, session/backup orchestration
   index.css              Flat csTimer-inspired theme and responsive layout
 e2e/timer.spec.ts        Production browser and offline tests
@@ -224,6 +237,10 @@ individually. Corrupt session JSON falls back to the legacy record and then to a
 fresh empty session; a valid session collection is never silently discarded.
 The active session is normalized to an existing session on load.
 
+Settings are stored at schema version 3. Version 1 and version 2 records are
+upgraded in place with defaults for alert, appearance, and statistics fields;
+invalid individual values fall back without discarding the rest of the record.
+
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
 exportedAt, sessions, settings }`. The parser validates the marker, version,
 sessions, solves, and settings before the confirmation step.
@@ -246,12 +263,13 @@ data or backups anywhere and has no account or telemetry.
 
 ## Scope
 
-CubeLab Milestone 1, Phase 2A, and the Phase 2A.1 Settings design update are
-complete. Phase 2A adds local named sessions and JSON backup/restore. Phase 2A.1
-adds the csTimer-inspired Settings dialog, centralizing the inspection
-preference and local-data controls. The app covers the 3×3 event only. Google
-Drive backup, multi-device sync, accounts, and additional puzzle events are
-intentionally outside the current scope and have not been started.
+CubeLab Milestone 1, Phase 2A, Phase 2A.1, and Phase 2A.2 are complete. Phase 2A
+adds local named sessions and JSON backup/restore. Phase 2A.1 adds the
+csTimer-inspired Settings dialog, centralizing the inspection preference and
+local-data controls. Phase 2A.2 adds alert feedback, accent colors, statistics
+display controls, and the Controls reference. The app covers the 3×3 event only.
+Google Drive backup, multi-device sync, accounts, and additional puzzle events
+are intentionally outside the current scope and have not been started.
 
 For implementation status and handoff details, see
 [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md). Contributors and future agents

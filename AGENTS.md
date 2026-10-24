@@ -29,15 +29,17 @@ local-data work:
 - multiple named local sessions with create/switch/rename/delete
 - JSON export/import of all sessions and settings
 - automatic migration from the original single-session storage key
-- a Settings dialog centralizing inspection, controls reference, local data, and
+- a Settings dialog centralizing inspection, alerts, accent color, statistics
+  display, scramble presentation, controls reference, local data, and
   backup/restore access
 - offline-capable PWA
 - responsive, accessible UI
 
-Phase 2A and the Phase 2A.1 Settings design update are complete. Do **not** begin
-Phase 2B (Google Drive backup), Phase 2C (multi-device sync), or any other
-cloud/account feature without an explicit user instruction. Do not broaden to
-other puzzle events or social features as drive-by additions.
+Phase 2A, the Phase 2A.1 Settings design update, and Phase 2A.2 settings groups
+are complete. Do **not** begin Phase 2B (Google Drive backup), Phase 2C
+(multi-device sync), or any other cloud/account feature without an explicit user
+instruction. Do not broaden to other puzzle events or social features as
+drive-by additions.
 
 ## Commands
 
@@ -70,13 +72,16 @@ the production build because it tests the service worker and offline reload.
   remain usable with Enter and arrow keys. Do not let a focused session select
   swallow Space.
 - **Settings are centralized.** The header Settings button opens the Settings
-  dialog. Inspection lives there, along with the controls reference, local-data
-  status, and backup/restore access. Settings opens only while the timer is idle
-  and blocks timing while open. Do not reintroduce a header inspection toggle.
-- **Settings persistence is versioned.** `v1` settings records migrate to `v2`
-  with documented defaults and corruption recovery. `parseSettingsData` accepts
-  only valid fields, rejects records without `inspectionEnabled`, and upgrades
-  older backups during import.
+  dialog. Inspection, alerts, accent color, statistics display, scramble
+  presentation, the controls reference, local-data status, and backup/restore
+  access live there. Settings opens only while the timer is idle and blocks
+  timing while open. Do not reintroduce a header inspection toggle.
+- **Settings persistence is versioned.** `v1` and `v2` settings records migrate
+  to `v3` with documented defaults and field-level corruption recovery.
+  `parseSettingsData` accepts only valid fields, rejects records without
+  `inspectionEnabled`, and upgrades older backups during import. Alerts,
+  appearance, and statistics preferences must not alter raw times or WCA
+  calculations.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent('333')`.
   Unit tests verify real random-state generation.
 - **Statistics follow WCA semantics.** Averages are newest-first; ao5/ao12 remove
@@ -114,12 +119,14 @@ the production build because it tests the service worker and offline reload.
 For a behavior change:
 
 - Add or update focused unit tests for pure logic. Session/name mutations belong
-  in `src/lib/sessions.test.ts`; storage and migration in
-  `src/lib/storage.test.ts`; backup validation in `src/lib/backup.test.ts`.
+  in `src/lib/sessions.test.ts`; storage, settings migration, and validation in
+  `src/lib/storage.test.ts`; backup validation in `src/lib/backup.test.ts`;
+  statistic display precision in `src/lib/format.test.ts`.
 - Add or update a Playwright test for user-visible flows, including settings
   open/close and focus restoration, inspection persistence, session
   create/switch/rename/delete, timer locking, export, invalid import, import
-  cancellation, and confirmed replacement.
+  cancellation, confirmed replacement, alert feedback, accent persistence,
+  statistic visibility/precision, and the Controls reference.
 - Test failure paths, not only the happy path.
 - Keep tests deterministic. Avoid asserting exact wall-clock durations from live
   timing; use ranges or state-machine timestamps.

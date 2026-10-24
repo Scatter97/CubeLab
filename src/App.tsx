@@ -15,6 +15,13 @@ import { useSettings } from './hooks/useSettings'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
 import {
+  inspectionWarningMs,
+  playAlertSound,
+  primeAlertAudio,
+  vibrateAlert,
+  type AlertTone,
+} from './lib/alerts'
+import {
   backupFileName,
   createBackup,
   serializeBackup,
@@ -23,7 +30,13 @@ import {
 import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
-import type { Penalty, Session, TimerUpdateMode } from './types'
+import type {
+  AlertChannel,
+  Penalty,
+  Session,
+  TimerUpdateMode,
+} from './types'
+import type { TimerInput, TimerState } from './timer/machine'
 
 function roundTimerElapsed(
   elapsedMs: number | null,
@@ -40,6 +53,19 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
     target instanceof Element &&
     target.closest('input, textarea, [contenteditable="true"]') !== null
   )
+}
+
+function activeInspectionStartedAt(state: TimerState): number | null {
+  if (state.status === 'inspection') return state.inspectionStartedAt
+  if (state.status === 'holding' || state.status === 'ready') {
+    return state.inspectionStartedAt
+  }
+  return null
+}
+
+interface TimerAlert {
+  tone: AlertTone
+  id: number
 }
 
 function downloadJsonFile(contents: string, fileName: string): void {
@@ -95,11 +121,48 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  const [timerAlert, setTimerAlert] = useState<TimerAlert | null>(null)
   const scrambleRef = useRef(scramble)
+  const alertIdRef = useRef(0)
+  const alertTimeoutRef = useRef<number | null>(null)
+  const inspectionWarningRef = useRef<{
+    startedAt: number | null
+    warned: boolean
+  }>({ startedAt: null, warned: false })
 
   useEffect(() => {
     scrambleRef.current = scramble
   }, [scramble])
+
+  useEffect(
+    () => () => {
+      if (alertTimeoutRef.current !== null) {
+        window.clearTimeout(alertTimeoutRef.current)
+      }
+    },
+    [],
+  )
+
+  const triggerAlert = useCallback(
+    (tone: AlertTone, channel: AlertChannel) => {
+      if (channel === 'off') return
+
+      if (channel.includes('sound')) playAlertSound(tone)
+      if (channel.includes('haptic')) vibrateAlert(tone)
+      if (!channel.includes('visual')) return
+
+      alertIdRef.current += 1
+      setTimerAlert({ tone, id: alertIdRef.current })
+      if (alertTimeoutRef.current !== null) {
+        window.clearTimeout(alertTimeoutRef.current)
+      }
+      alertTimeoutRef.current = window.setTimeout(
+        () => setTimerAlert(null),
+        tone === 'warning' ? 900 : 650,
+      )
+    },
+    [],
+  )
 
   const handleSolve = useCallback(
     (completion: { rawMs: number; penalty: Penalty }) => {
@@ -122,9 +185,13 @@ export default function App() {
         setAnnouncement(`Solve recorded. ${formatTime(completion.rawMs)}.`)
       }
 
+      triggerAlert(
+        completion.penalty === 'dnf' ? 'danger' : 'success',
+        settings.alertChannel,
+      )
       advanceScramble()
     },
-    [addSolve, advanceScramble],
+    [addSolve, advanceScramble, settings.alertChannel, triggerAlert],
   )
 
   const timer = useTimer({
@@ -132,6 +199,37 @@ export default function App() {
     holdDurationMs: settings.holdDurationMs,
     onSolve: handleSolve,
   })
+
+  useEffect(() => {
+    const startedAt = activeInspectionStartedAt(timer.state)
+    if (startedAt === null) {
+      inspectionWarningRef.current = { startedAt: null, warned: false }
+      return
+    }
+
+    if (inspectionWarningRef.current.startedAt !== startedAt) {
+      inspectionWarningRef.current = { startedAt, warned: false }
+    }
+
+    const thresholdMs = inspectionWarningMs(settings.inspectionWarning)
+    if (
+      thresholdMs === null ||
+      inspectionWarningRef.current.warned ||
+      (timer.inspectionElapsedMs ?? 0) < thresholdMs
+    ) {
+      return
+    }
+
+    inspectionWarningRef.current.warned = true
+    setAnnouncement(`${thresholdMs / 1_000} seconds of inspection remaining.`)
+    triggerAlert('warning', settings.alertChannel)
+  }, [
+    settings.alertChannel,
+    settings.inspectionWarning,
+    timer.inspectionElapsedMs,
+    timer.state,
+    triggerAlert,
+  ])
 
   const displayElapsed = roundTimerElapsed(
     timer.runningElapsedMs,
@@ -146,7 +244,14 @@ export default function App() {
     sessionToDelete !== null ||
     pendingImport !== null
   const timerCancel = timer.cancel
-  const timerPress = timer.press
+  const timerPressBase = timer.press
+  const timerPress = useCallback(
+    (input: TimerInput) => {
+      if (settings.alertChannel.includes('sound')) primeAlertAudio()
+      timerPressBase(input)
+    },
+    [settings.alertChannel, timerPressBase],
+  )
   const timerRelease = timer.release
   const canStart = scramble !== null
   const stats = useMemo(() => getSessionStats(solves), [solves])
@@ -437,6 +542,7 @@ export default function App() {
   return (
     <div
       className={appShellClassName}
+      data-accent={settings.accentColor}
       style={
         {
           '--ui-scale': `${settings.uiZoomPercent / 100}`,
@@ -482,7 +588,8 @@ export default function App() {
             }
             showTimerDecimalSmall={settings.showTimerDecimalSmall}
             inspectionEnabled={settings.inspectionEnabled}
-            onPress={timer.press}
+            alert={timerAlert}
+            onPress={timerPress}
             onRelease={timer.release}
             onCancel={handleCancel}
           />
@@ -493,16 +600,32 @@ export default function App() {
                 ? 'No solves yet'
                 : `${stats.count === 1 ? '1 solve' : `${stats.count} solves`} this session`}
             </span>
-            <span className="quick-stats" aria-label="Current averages">
-              <span>
-                <span>ao5</span>
-                <strong>{formatStatValue(stats.latestAverage5)}</strong>
+            {settings.statVisibility.ao5 || settings.statVisibility.ao12 ? (
+              <span className="quick-stats" aria-label="Current averages">
+                {settings.statVisibility.ao5 ? (
+                  <span>
+                    <span>ao5</span>
+                    <strong>
+                      {formatStatValue(
+                        stats.latestAverage5,
+                        settings.statPrecision,
+                      )}
+                    </strong>
+                  </span>
+                ) : null}
+                {settings.statVisibility.ao12 ? (
+                  <span>
+                    <span>ao12</span>
+                    <strong>
+                      {formatStatValue(
+                        stats.latestAverage12,
+                        settings.statPrecision,
+                      )}
+                    </strong>
+                  </span>
+                ) : null}
               </span>
-              <span>
-                <span>ao12</span>
-                <strong>{formatStatValue(stats.latestAverage12)}</strong>
-              </span>
-            </span>
+            ) : null}
             <span className="caption-shortcuts">
               <kbd>Space</kbd> hold to arm · release to start
               {settings.inspectionEnabled ? (
@@ -526,7 +649,11 @@ export default function App() {
             onRequestDelete={requestDeleteSession}
           />
 
-          <StatsPanel stats={stats} />
+          <StatsPanel
+            stats={stats}
+            visibleStats={settings.statVisibility}
+            precision={settings.statPrecision}
+          />
 
           <SolveHistory
             solves={solves}

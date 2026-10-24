@@ -315,10 +315,98 @@ describe('settings persistence', () => {
     })
   })
 
+  it('parses alert, appearance, and statistics preferences', () => {
+    expect(
+      parseSettingsData({
+        inspectionEnabled: true,
+        alertChannel: 'sound-haptic',
+        inspectionWarning: '12s',
+        accentColor: 'violet',
+        statPrecision: 'tenths',
+        statVisibility: {
+          single: false,
+          mo3: true,
+          ao5: false,
+          ao12: true,
+        },
+      }),
+    ).toMatchObject({
+      alertChannel: 'sound-haptic',
+      inspectionWarning: '12s',
+      accentColor: 'violet',
+      statPrecision: 'tenths',
+      statVisibility: {
+        single: false,
+        mo3: true,
+        ao5: false,
+        ao12: true,
+      },
+    })
+  })
+
+  it('falls back field-by-field for invalid newer preferences', () => {
+    expect(
+      parseSettingsData({
+        inspectionEnabled: true,
+        alertChannel: 'telepathy',
+        inspectionWarning: '5s',
+        accentColor: 'red',
+        statPrecision: 'minutes',
+        statVisibility: {
+          single: false,
+          mo3: 'yes',
+          ao5: null,
+        },
+      }),
+    ).toMatchObject({
+      alertChannel: DEFAULT_SETTINGS.alertChannel,
+      inspectionWarning: DEFAULT_SETTINGS.inspectionWarning,
+      accentColor: DEFAULT_SETTINGS.accentColor,
+      statPrecision: DEFAULT_SETTINGS.statPrecision,
+      statVisibility: {
+        single: false,
+        mo3: true,
+        ao5: true,
+        ao12: true,
+      },
+    })
+  })
+
   it('upgrades a v1 record with defaults for newer preferences', () => {
     expect(parseSettingsData({ inspectionEnabled: true })).toEqual({
       ...DEFAULT_SETTINGS,
       inspectionEnabled: true,
+    })
+  })
+
+  it('upgrades a v2 record with defaults for v3 preferences', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        settings: {
+          inspectionEnabled: true,
+          timerUpdateMode: 'tenths',
+          holdDurationMs: 500,
+          showTimerDecimalSmall: true,
+          uiZoomPercent: 90,
+          scrambleAlignment: 'right',
+          scrambleLimitHeight: true,
+          scrambleAction: 'next',
+        },
+      }),
+    )
+    expect(loadSettings(storage)).toEqual({
+      ...DEFAULT_SETTINGS,
+      inspectionEnabled: true,
+      timerUpdateMode: 'tenths',
+      holdDurationMs: 500,
+      showTimerDecimalSmall: true,
+      uiZoomPercent: 90,
+      scrambleAlignment: 'right',
+      scrambleLimitHeight: true,
+      scrambleAction: 'next',
     })
   })
 
@@ -332,7 +420,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 3, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 4, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })

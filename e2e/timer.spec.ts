@@ -420,6 +420,149 @@ test('effective +2 labels are not clipped in the history rail', async ({
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
+test('alerts, accent, and controls settings apply and persist', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  await expect(settings.getByText('Controls', { exact: true })).toBeVisible()
+  await expect(
+    settings.getByText('Hold to arm, release to start; press again to stop.'),
+  ).toBeVisible()
+
+  await settings.getByTestId('alert-channel').selectOption('visual')
+  await settings.getByTestId('inspection-warning').selectOption('8s')
+  await settings.getByTestId('accent-color').selectOption('blue')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  const shell = page.locator('.app-shell')
+  await expect(shell).toHaveAttribute('data-accent', 'blue')
+  expect(
+    await shell.evaluate((element) =>
+      getComputedStyle(element).getPropertyValue('--accent').trim(),
+    ),
+  ).toBe('#1f5f99')
+
+  await recordSolve(page)
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-success/)
+
+  await page.reload()
+  await waitForApp(page)
+  const reopened = await openSettings(page)
+  await expect(reopened.getByTestId('alert-channel')).toHaveValue('visual')
+  await expect(reopened.getByTestId('inspection-warning')).toHaveValue('8s')
+  await expect(reopened.getByTestId('accent-color')).toHaveValue('blue')
+})
+
+test('inspection warning fires at the configured threshold', async ({ page }) => {
+  await page.goto('/')
+  await waitForApp(page)
+  await page.clock.install()
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('inspection-setting').click()
+  await settings.getByTestId('inspection-warning').selectOption('8s')
+  await settings.getByTestId('alert-channel').selectOption('visual')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await page.keyboard.press('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
+  await page.clock.fastForward(8_100)
+
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-warning/)
+  await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
+    '8 seconds of inspection remaining.',
+  )
+})
+
+test('DNF feedback uses the danger visual alert', async ({ page }) => {
+  await page.goto('/')
+  await waitForApp(page)
+  await page.clock.install()
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('inspection-setting').click()
+  await settings.getByTestId('alert-channel').selectOption('visual')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await page.keyboard.press('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
+  await page.clock.fastForward(17_100)
+
+  await page.keyboard.down('Space')
+  await page.clock.fastForward(350)
+  await page.keyboard.up('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'running')
+
+  await page.clock.fastForward(1_000)
+  await page.keyboard.press('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-danger/)
+  await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
+    'Solve recorded. DNF.',
+  )
+})
+
+test('statistics visibility and precision are display-only', async ({ page }) => {
+  const now = Date.now()
+  await page.addInitScript(
+    ({ now }) => {
+      const solves = Array.from({ length: 12 }, (_, index) => ({
+        id: `stats-solve-${index}`,
+        event: '333',
+        rawMs: 10_000 + index * 1_000,
+        penalty: 'none',
+        scramble: "R U R' U'",
+        createdAt: now - index * 1_000,
+      }))
+      localStorage.setItem(
+        'cubelab:sessions:v1',
+        JSON.stringify({
+          version: 1,
+          activeSessionId: 'stats-session',
+          sessions: [
+            {
+              id: 'stats-session',
+              name: 'Session 1',
+              createdAt: now - 60_000,
+              updatedAt: now,
+              solves,
+            },
+          ],
+        }),
+      )
+    },
+    { now },
+  )
+
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('stat-visible-mo3').uncheck()
+  await settings.getByTestId('stat-precision').selectOption('tenths')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await expect(page.getByTestId('best-mo3')).toHaveCount(0)
+  await expect(page.getByTestId('best-single')).toHaveText('10.0')
+
+  const reopened = await openSettings(page)
+  await reopened.getByTestId('stat-visible-single').uncheck()
+  await reopened.getByTestId('stat-visible-ao5').uncheck()
+  await reopened.getByTestId('stat-visible-ao12').uncheck()
+  await reopened.getByTestId('settings-done').click()
+  await expect(reopened).toBeHidden()
+
+  await expect(page.locator('.stats-empty')).toBeVisible()
+  await expect(page.locator('.quick-stats')).toHaveCount(0)
+})
+
 test('mobile layout supports hold-to-time pointer controls', async ({
   browser,
 }) => {

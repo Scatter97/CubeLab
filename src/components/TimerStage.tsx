@@ -1,5 +1,6 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { Solve } from '../types'
+import type { AlertTone } from '../lib/alerts'
 import { formatSolveTime, formatTime } from '../lib/format'
 import {
   INSPECTION_DNF_MS,
@@ -31,6 +32,7 @@ interface TimerStageProps {
   disabledHint?: string
   inspectionEnabled: boolean
   showTimerDecimalSmall?: boolean
+  alert?: { tone: AlertTone; id: number } | null
   onPress: (input: TimerInput) => void
   onRelease: (input: TimerInput) => void
   onCancel: () => void
@@ -96,6 +98,7 @@ export function TimerStage({
   disabledHint = 'Generating scramble…',
   inspectionEnabled,
   showTimerDecimalSmall = false,
+  alert = null,
   onPress,
   onRelease,
   onCancel,
@@ -258,6 +261,13 @@ export function TimerStage({
 
   return (
     <section className={stageClass} aria-labelledby="timer-phase">
+      {alert ? (
+        <span
+          key={alert.id}
+          className={`timer-alert is-${alert.tone}`}
+          aria-hidden="true"
+        />
+      ) : null}
       <button
         type="button"
         className="timer-surface"

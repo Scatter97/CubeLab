@@ -1,4 +1,7 @@
 import type {
+  AccentColor,
+  AlertChannel,
+  InspectionWarning,
   Penalty,
   ScrambleAction,
   ScrambleAlignment,
@@ -6,6 +9,8 @@ import type {
   SessionsData,
   Settings,
   Solve,
+  StatPrecision,
+  StatVisibility,
   TimerUpdateMode,
 } from '../types'
 import { createId } from './id'
@@ -16,7 +21,7 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 1
-export const SETTINGS_STORAGE_VERSION = 2
+export const SETTINGS_STORAGE_VERSION = 3
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -27,6 +32,23 @@ export const DEFAULT_SETTINGS: Settings = {
   scrambleAlignment: 'center',
   scrambleLimitHeight: false,
   scrambleAction: 'copy',
+  alertChannel: 'off',
+  inspectionWarning: 'off',
+  accentColor: 'green',
+  statVisibility: {
+    single: true,
+    mo3: true,
+    ao5: true,
+    ao12: true,
+  },
+  statPrecision: 'centiseconds',
+}
+
+function cloneDefaultSettings(): Settings {
+  return {
+    ...DEFAULT_SETTINGS,
+    statVisibility: { ...DEFAULT_SETTINGS.statVisibility },
+  }
 }
 
 export interface StorageLike {
@@ -167,6 +189,45 @@ function isValidScrambleAction(value: unknown): value is ScrambleAction {
   return value === 'none' || value === 'copy' || value === 'next'
 }
 
+function isValidAlertChannel(value: unknown): value is AlertChannel {
+  return (
+    value === 'off' ||
+    value === 'visual' ||
+    value === 'sound' ||
+    value === 'haptic' ||
+    value === 'sound-haptic'
+  )
+}
+
+function isValidInspectionWarning(value: unknown): value is InspectionWarning {
+  return value === 'off' || value === '8s' || value === '12s'
+}
+
+function isValidAccentColor(value: unknown): value is AccentColor {
+  return (
+    value === 'green' ||
+    value === 'blue' ||
+    value === 'violet' ||
+    value === 'amber'
+  )
+}
+
+function isValidStatPrecision(value: unknown): value is StatPrecision {
+  return value === 'centiseconds' || value === 'tenths'
+}
+
+function parseStatVisibility(value: unknown): StatVisibility {
+  const fallback = DEFAULT_SETTINGS.statVisibility
+  if (!isRecord(value)) return { ...fallback }
+
+  return {
+    single: typeof value.single === 'boolean' ? value.single : fallback.single,
+    mo3: typeof value.mo3 === 'boolean' ? value.mo3 : fallback.mo3,
+    ao5: typeof value.ao5 === 'boolean' ? value.ao5 : fallback.ao5,
+    ao12: typeof value.ao12 === 'boolean' ? value.ao12 : fallback.ao12,
+  }
+}
+
 export function parseSettingsData(value: unknown): Settings | null {
   if (!isRecord(value)) return null
   if (typeof value.inspectionEnabled !== 'boolean') return null
@@ -206,6 +267,19 @@ export function parseSettingsData(value: unknown): Settings | null {
     scrambleAction: isValidScrambleAction(value.scrambleAction)
       ? value.scrambleAction
       : DEFAULT_SETTINGS.scrambleAction,
+    alertChannel: isValidAlertChannel(value.alertChannel)
+      ? value.alertChannel
+      : DEFAULT_SETTINGS.alertChannel,
+    inspectionWarning: isValidInspectionWarning(value.inspectionWarning)
+      ? value.inspectionWarning
+      : DEFAULT_SETTINGS.inspectionWarning,
+    accentColor: isValidAccentColor(value.accentColor)
+      ? value.accentColor
+      : DEFAULT_SETTINGS.accentColor,
+    statVisibility: parseStatVisibility(value.statVisibility),
+    statPrecision: isValidStatPrecision(value.statPrecision)
+      ? value.statPrecision
+      : DEFAULT_SETTINGS.statPrecision,
   }
 }
 
@@ -323,23 +397,27 @@ export function loadSolves(storage = getDefaultStorage()): Solve[] {
 }
 
 export function loadSettings(storage = getDefaultStorage()): Settings {
-  if (!storage) return { ...DEFAULT_SETTINGS }
+  if (!storage) return cloneDefaultSettings()
 
   try {
     const raw = storage.getItem(SETTINGS_STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS }
+    if (!raw) return cloneDefaultSettings()
     const parsed: unknown = JSON.parse(raw)
     if (!isRecord(parsed) || !isRecord(parsed.settings)) {
-      return { ...DEFAULT_SETTINGS }
+      return cloneDefaultSettings()
     }
 
-    if (parsed.version === 1 || parsed.version === SETTINGS_STORAGE_VERSION) {
-      return parseSettingsData(parsed.settings) ?? { ...DEFAULT_SETTINGS }
+    if (
+      typeof parsed.version === 'number' &&
+      parsed.version >= 1 &&
+      parsed.version <= SETTINGS_STORAGE_VERSION
+    ) {
+      return parseSettingsData(parsed.settings) ?? cloneDefaultSettings()
     }
 
-    return { ...DEFAULT_SETTINGS }
+    return cloneDefaultSettings()
   } catch {
-    return { ...DEFAULT_SETTINGS }
+    return cloneDefaultSettings()
   }
 }
 

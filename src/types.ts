@@ -22,6 +22,18 @@ export interface Solve {
 export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'
 export type ScrambleAlignment = 'left' | 'center' | 'right'
 export type ScrambleAction = 'none' | 'copy' | 'next'
+export type AlertChannel = 'off' | 'visual' | 'sound' | 'haptic' | 'sound-haptic'
+export type InspectionWarning = 'off' | '8s' | '12s'
+export type AccentColor = 'green' | 'blue' | 'violet' | 'amber'
+export type StatPrecision = 'centiseconds' | 'tenths'
+export type StatKey = 'single' | 'mo3' | 'ao5' | 'ao12'
+
+export interface StatVisibility {
+  single: boolean
+  mo3: boolean
+  ao5: boolean
+  ao12: boolean
+}
 
 /**
  * User preferences. Settings are local first and are intentionally small in
@@ -36,6 +48,11 @@ export interface Settings {
   scrambleAlignment: ScrambleAlignment
   scrambleLimitHeight: boolean
   scrambleAction: ScrambleAction
+  alertChannel: AlertChannel
+  inspectionWarning: InspectionWarning
+  accentColor: AccentColor
+  statVisibility: StatVisibility
+  statPrecision: StatPrecision
 }
 
 /**

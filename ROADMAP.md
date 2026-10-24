@@ -2,7 +2,7 @@
 
 **Status:** Active planning document  
 **Last updated:** 2026-10-23  
-**Current release line:** Phase 2A.2 settings
+**Current release line:** Phase 2A.2 complete; Phase 2B next, not started
 
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
@@ -17,8 +17,9 @@ verification evidence.
   migration, and local persistence.
 - Phase 2A.1 is complete: centralized Settings dialog, modal focus handling, and
   inspection/backup entry points.
-- Phase 2A.2 is in progress: settings schema v2, custom Space hold time, timer
-  update modes, interface zoom, small decimals, scramble presentation, and
+- Phase 2A.2 is complete: settings schema v3, custom Space hold time, timer
+  update modes, interface zoom, small decimals, scramble presentation, alerts,
+  accent colors, statistics display controls, the Controls reference, and
   dedicated production E2E coverage are in place.
 - Phase 2B (Google Drive backup) and Phase 2C (multi-device sync) are not
   started. Neither may begin without an explicit user instruction.
@@ -37,37 +38,37 @@ verification evidence.
 5. **No drive-by scope.** Cloud sync, new puzzle events, and social features each
    require an explicit brief and approval.
 
-## Phase 2A.2 — Finish settings
+## Phase 2A.2 — Finish settings — Complete
 
 **Goal:** Finish the csTimer-inspired settings surface without weakening timer or
 statistics correctness.
 
-**Candidate groups, in order:**
+**Delivered groups:**
 
 1. **Alerts**
    - Optional inspection warning at 8/12 seconds.
    - Optional solve-complete and DNF feedback.
-   - Sound and haptic preferences with a visual fallback.
-   - Respect reduced-motion and accessibility preferences.
+   - Visual, sound, haptic, and sound+haptic preferences.
+   - Visual feedback respects reduced-motion through the global motion query.
 2. **Appearance**
-   - Theme/accent choices with WCAG AA contrast checks.
-   - Optional timer-surface and scramble presentation variants.
+   - Green, blue, violet, and amber accent choices with WCAG AA contrast checks.
+   - Accent-tinted timer surface and ready/holding states.
 3. **Statistics**
    - Show/hide individual statistic cards.
-   - Display-precision preferences that do not alter stored raw times or WCA
-     calculations.
+   - Hundredths/tenths display precision that does not alter stored raw times or
+     WCA calculations.
 4. **Controls**
    - Expanded keyboard reference in Settings.
-   - Shortcut conflict handling and focus behavior tests.
+   - Focus and Space-reservation behavior covered by production E2E tests.
 
-**Acceptance gate:**
+**Acceptance gate — met:**
 
-- New preferences have typed defaults and validation.
-- Settings schema changes include a documented migration and unit tests.
-- Every new control has focused Playwright coverage, including failure and
-  persistence paths.
-- `npm run check` passes.
-- `README.md`, `PROJECT_PROGRESS.md`, and the Settings screenshot are refreshed.
+- [x] New preferences have typed defaults and validation.
+- [x] Settings schema v3 includes documented v1/v2 migration and unit tests.
+- [x] Every new control has focused Playwright coverage, including persistence
+      and failure paths.
+- [x] `npm run check` passes.
+- [x] `README.md`, `PROJECT_PROGRESS.md`, and the Settings screenshot are refreshed.
 
 ## Phase 2B — Google Drive backup
 

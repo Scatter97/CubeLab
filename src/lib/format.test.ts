@@ -49,6 +49,15 @@ describe('time formatting', () => {
     expect(formatOptionalTime(null)).toBe('—')
   })
 
+  it('formats statistics at tenths precision without changing the value', () => {
+    expect(
+      formatStatValue({ status: 'value', ms: 12_345 }, 'tenths'),
+    ).toBe('12.3')
+    expect(formatOptionalTime(83_456, 'tenths')).toBe('1:23.4')
+    expect(formatOptionalTime(60_000, 'tenths')).toBe('1:00.0')
+    expect(formatOptionalTime(null, 'tenths')).toBe('—')
+  })
+
   it('formats relative timestamps', () => {
     const now = 1_700_000_000_000
     expect(formatRelativeTime(now, now)).toBe('Just now')

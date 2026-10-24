@@ -59,8 +59,8 @@ export function SettingsDialog({
         </header>
 
         <p id="settings-description" className="settings-intro">
-          Timer, display, scramble, and local-data preferences. Changes save
-          automatically in this browser.
+          Timer, alerts, appearance, statistics, scramble, and local-data
+          preferences. Changes save automatically in this browser.
         </p>
 
         <div className="settings-body">
@@ -131,6 +131,54 @@ export function SettingsDialog({
             </label>
           </section>
 
+          <section className="settings-section" aria-labelledby="settings-alerts-title">
+            <div className="settings-section-heading">
+              <h3 id="settings-alerts-title">Alerts</h3>
+            </div>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Solve / DNF feedback</span>
+              <select
+                data-testid="alert-channel"
+                value={settings.alertChannel}
+                onChange={(event) =>
+                  onChange({
+                    alertChannel: event.target.value as Settings['alertChannel'],
+                  })
+                }
+              >
+                <option value="off">Off</option>
+                <option value="visual">Visual only</option>
+                <option value="sound">Sound</option>
+                <option value="haptic">Haptic</option>
+                <option value="sound-haptic">Sound + haptic</option>
+              </select>
+            </label>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Inspection warning</span>
+              <select
+                data-testid="inspection-warning"
+                value={settings.inspectionWarning}
+                onChange={(event) =>
+                  onChange({
+                    inspectionWarning: event.target
+                      .value as Settings['inspectionWarning'],
+                  })
+                }
+              >
+                <option value="off">Off</option>
+                <option value="8s">At 8 seconds</option>
+                <option value="12s">At 12 seconds</option>
+              </select>
+            </label>
+
+            <p className="settings-note">
+              Feedback flashes the timer. Sound and haptic output depend on
+              browser and device support.
+            </p>
+          </section>
+
           <section className="settings-section" aria-labelledby="settings-display-title">
             <div className="settings-section-heading">
               <h3 id="settings-display-title">Display</h3>
@@ -159,6 +207,88 @@ export function SettingsDialog({
               />
             </label>
 
+          </section>
+
+          <section className="settings-section" aria-labelledby="settings-appearance-title">
+            <div className="settings-section-heading">
+              <h3 id="settings-appearance-title">Appearance</h3>
+            </div>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Accent color</span>
+              <select
+                data-testid="accent-color"
+                value={settings.accentColor}
+                onChange={(event) =>
+                  onChange({
+                    accentColor: event.target.value as Settings['accentColor'],
+                  })
+                }
+              >
+                <option value="green">Green</option>
+                <option value="blue">Blue</option>
+                <option value="violet">Violet</option>
+                <option value="amber">Amber</option>
+              </select>
+            </label>
+          </section>
+
+          <section className="settings-section" aria-labelledby="settings-statistics-title">
+            <div className="settings-section-heading">
+              <h3 id="settings-statistics-title">Statistics</h3>
+            </div>
+
+            <fieldset className="settings-fieldset">
+              <legend className="settings-field-label">Visible cards</legend>
+              <div className="settings-checkbox-grid">
+                {(
+                  [
+                    ['single', 'Best single'],
+                    ['mo3', 'Best mo3'],
+                    ['ao5', 'Best ao5'],
+                    ['ao12', 'Best ao12'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className="settings-checkbox">
+                    <input
+                      type="checkbox"
+                      data-testid={`stat-visible-${key}`}
+                      checked={settings.statVisibility[key]}
+                      onChange={(event) =>
+                        onChange({
+                          statVisibility: {
+                            ...settings.statVisibility,
+                            [key]: event.target.checked,
+                          },
+                        })
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Stat precision</span>
+              <select
+                data-testid="stat-precision"
+                value={settings.statPrecision}
+                onChange={(event) =>
+                  onChange({
+                    statPrecision: event.target.value as Settings['statPrecision'],
+                  })
+                }
+              >
+                <option value="centiseconds">Hundredths (12.34)</option>
+                <option value="tenths">Tenths (12.3)</option>
+              </select>
+            </label>
+
+            <p className="settings-note">
+              Display only. WCA calculations always use the stored centisecond
+              value.
+            </p>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-scramble-title">
@@ -207,6 +337,34 @@ export function SettingsDialog({
             </label>
           </section>
 
+          <section className="settings-section" aria-labelledby="settings-controls-title">
+            <div className="settings-section-heading">
+              <h3 id="settings-controls-title">Controls</h3>
+            </div>
+            <dl className="settings-controls">
+              <div>
+                <dt><kbd>Space</kbd></dt>
+                <dd>Hold to arm, release to start; press again to stop.</dd>
+              </div>
+              <div>
+                <dt><kbd>Esc</kbd></dt>
+                <dd>Cancel a hold or inspection, or reset the timer stage.</dd>
+              </div>
+              <div>
+                <dt><kbd>Enter</kbd></dt>
+                <dd>Activate the focused button, switch, or scramble action.</dd>
+              </div>
+              <div>
+                <dt><kbd>Tab</kbd></dt>
+                <dd>Move focus through the timer, sessions, and settings.</dd>
+              </div>
+              <div>
+                <dt><kbd>←</kbd> <kbd>→</kbd></dt>
+                <dd>Change the focused session or select value.</dd>
+              </div>
+            </dl>
+          </section>
+
           <section className="settings-section" aria-labelledby="settings-data-title">
             <div className="settings-section-heading">
               <h3 id="settings-data-title">Data</h3>
@@ -239,7 +397,7 @@ export function SettingsDialog({
               </span>
               <ChevronRightIcon size={16} />
             </button>
-            <p className="dialog-content settings-note">
+            <p className="settings-note">
               Backups stay on this device. CubeLab never uploads them.
             </p>
           </section>

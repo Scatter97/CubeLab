@@ -1,14 +1,14 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-23 20:16 (local)
+**Last verified:** 2026-10-23 20:41 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
 **Phase 2A.1:** Complete — csTimer-inspired Settings dialog
-**Phase 2A.2:** In progress — versioned settings schema and core preferences
+**Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v3
 **Phase 2B:** Not started — 0% (Google Drive backup)
 **Phase 2C:** Not started — 0% (multi-device sync)
-**Repository state:** Phase 2A.2 core settings are implemented and covered by dedicated production E2E tests; additional csTimer-style preference groups remain pending.
+**Repository state:** Phase 2A.2 is implemented, documented, and verified. Phase 2B has not been started.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
 ## Scope delivered
@@ -18,6 +18,9 @@ timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS
 Phase 2A adds named local sessions and validated JSON backup/restore without
 changing the timer or statistics rules. Phase 2A.1 adds a centralized Settings
 dialog without adding a new persisted preference or changing timing behavior.
+Phase 2A.2 adds typed alert, appearance, and statistics preferences plus a
+Controls reference. None of those display preferences changes raw times,
+penalties, or WCA calculations.
 
 ### Product
 
@@ -34,12 +37,20 @@ dialog without adding a new persisted preference or changing timing behavior.
   `cubing.js` (`randomScrambleForEvent('333')`), with a prefetched next scramble.
 - Optional WCA inspection with 15-second / 17-second boundaries and automatic
   `+2` or DNF penalty at solve start.
-- csTimer-inspired Settings dialog with Timer, Controls, Data, and About
-  sections. It centralizes the inspection preference, keyboard reference,
-  local-storage status, and backup/restore access.
+- Optional visual, sound, haptic, or combined feedback for completed solves and
+  DNFs, plus an optional inspection warning at 8 or 12 seconds.
+- Four accent colors with WCAG AA contrast, applied to controls and the timer
+  surface.
+- csTimer-inspired Settings dialog with Timer, Alerts, Display, Appearance,
+  Statistics, Scramble, Controls, Data, and About sections. It centralizes
+  inspection, feedback, accent, statistic visibility/precision, scramble
+  presentation, keyboard reference, local-storage status, and backup/restore
+  access.
 - Solve penalties (`+2`, DNF), deletion with undo, and confirmed full-session
   clearing.
-- Best and latest single, mo3, ao5, and ao12 with correct DNF handling.
+- Best and latest single, mo3, ao5, and ao12 with correct DNF handling. Cards
+  can be hidden and displayed at hundredths or tenths precision without changing
+  the underlying centisecond calculations.
 - Named local sessions with create, switch, rename, and confirmed delete. Each
   session owns independent solves, statistics, and history.
 - Versioned JSON backup/restore covering every session, solve, active session,
@@ -84,30 +95,32 @@ dialog without adding a new persisted preference or changing timing behavior.
 - Phase 2A.1 moved inspection and backup entry points into the Settings dialog,
   added a responsive grouped-sections layout, and covered focus restoration and
   narrow-width touch targets in production E2E tests.
-- Phase 2A.2 introduced settings schema v2 with migration and typed defaults. The
-  current implemented controls are timer-update mode, custom Space-hold timing,
-  interface zoom, small-decimal display, and scramble alignment/height limit/
-  click action. The redundant inspection facts block was removed. Interface zoom
-  now scales the app shell with `zoom` plus viewport-relative dimensions instead
-  of leaving blank layout space, dialogs compensate for the scale, history
-  effective-time labels wrap instead of ellipsizing, and the scramble click
-  action is keyboard-activatable with Enter. The dialog and persistence are ready
-  for further csTimer-style preference groups.
+- Phase 2A.2 introduced settings schema v3 with v1/v2 migration and typed
+  defaults. Implemented controls cover timer-update mode, custom Space-hold
+  timing, interface zoom, small-decimal display, scramble alignment/height
+  limit/click action, visual/sound/haptic solve and DNF feedback, inspection
+  warnings at 8 or 12 seconds, accent color, statistic-card visibility, and
+  tenths/hundredths display precision. Interface zoom scales the app shell with
+  `zoom` plus viewport-relative dimensions instead of leaving blank layout space,
+  dialogs compensate for the scale, history effective-time labels wrap instead
+  of ellipsizing, and the scramble click action is keyboard-activatable with
+  Enter. Web Audio is primed during a user gesture so inspection warnings remain
+  reliable, and visual alert overlays use the accent/danger/warning tokens.
 
 ## Verification evidence
 
-Run at 2026-10-23 20:16 (local), after the Phase 2A.2 zoom, history-label, and
-settings-test fixes:
+Run at 2026-10-23 20:41 (local), after the Phase 2A.2 alerts, appearance,
+statistics, controls, documentation, and screenshot updates:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **87/87 passed**, 7 test files |
-| Production build | `npm run build` | Passed; 74 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,154.78 KiB** |
-| Production E2E | `npm run test:e2e` | **16/16 passed**, Chromium |
-| Visual QA | production preview screenshots | Refreshed `docs/cubelab-settings.png`; verified 1440×1000 at 70%, 100%, and 150% zoom, plus 390×844 and 320×700 mobile zoom states; no horizontal overflow |
+| Unit tests | `npm test` | **91/91 passed**, 7 test files |
+| Production build | `npm run build` | Passed; 75 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,165.33 KiB** |
+| Production E2E | `npm run test:e2e` | **20/20 passed**, Chromium |
+| Visual QA | production preview screenshots | Refreshed `docs/cubelab-settings.png`; verified the new settings groups at 1440×1000 and the narrow layout at 320 px with no horizontal overflow |
 | Performance | seeded 2,000-solve production session | Not re-measured; the changes are presentation-only and do not touch the timer or persistence path. The Phase 2A profile below remains the latest. |
 
 The Playwright suite runs against the production preview and covers:
@@ -137,6 +150,13 @@ The Playwright suite runs against the production preview and covers:
 15. Small-decimal rendering, scramble alignment/height, keyboard activation of
     the scramble click action, and Space remaining reserved for the timer.
 16. Effective `+2` history labels remaining fully visible instead of clipping.
+17. Visual solve feedback, accent application, the Controls reference, and
+    alert/accent persistence across reload.
+18. The 8-second inspection warning firing at the configured threshold under
+    Playwright's mocked clock.
+19. DNF feedback using the danger visual alert after an inspection overrun.
+20. Statistics card visibility, tenths display precision, and the all-hidden
+    empty state without changing stored values.
 
 Visual artifacts are checked in at `docs/cubelab-desktop.png`,
 `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`.
@@ -144,8 +164,9 @@ Visual artifacts are checked in at `docs/cubelab-desktop.png`,
 ### Performance evidence
 
 A production session seeded with 2,000 solves was measured in Chromium at
-1440×1000 and 390×844 after Phase 2A. Phase 2A.1 did not change the timer,
-history rendering, or persistence path, so this profile was not re-measured:
+1440×1000 and 390×844 after Phase 2A. Phase 2A.1 and Phase 2A.2 did not change
+the timer, history rendering, or persistence path, so this profile was not
+re-measured:
 
 - Desktop: ~1.35 s to queue-ready with all rows present, 28,206 DOM nodes,
   ~20.5 MB JS heap, 86,006 px of history content in a 456 px scroll viewport,
@@ -166,17 +187,16 @@ substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~278.27 kB (~84.12 kB gzip)
-- CSS: ~36.61 kB (~9.76 kB gzip)
+- Main application bundle: ~287.21 kB (~86.30 kB gzip)
+- CSS: ~38.46 kB (~10.20 kB gzip)
 - Cubing.js chunk: ~1.21 MB (~335.13 kB gzip)
-- Precache total: ~2.10 MiB (2,154.78 KiB)
+- Precache total: ~2.11 MiB (2,165.33 KiB)
 - PWA: generated Workbox service worker and web manifest
 
-Phase 2A.2 adds the expanded Settings controls and supporting CSS; the main
-bundle remains below 280 kB before gzip. Vite reports the expected informational
-warning about the large
-cubing.js chunk. It is a single cached dependency chunk, not duplicated
-application code.
+Phase 2A.2 adds alert, appearance, statistics, and controls UI plus supporting
+CSS; the main bundle remains below 290 kB before gzip. Vite reports the expected
+informational warning about the large cubing.js chunk. It is a single cached
+dependency chunk, not duplicated application code.
 
 ## Key decisions and invariants
 
@@ -193,11 +213,12 @@ application code.
   secondary label and accessible name expose the current inspection state; the
   desktop header context also reads “Inspection on/off”.
 - The Settings dialog follows csTimer's grouped-options approach with Timer,
-  Controls, Data, and About sections. It uses the shared native modal, a fixed
-  footer, and an independently scrolling body on short screens.
-- The v2 settings schema stores presentation and interaction preferences as
-  typed fields with documented defaults. Unknown or corrupt values fall back to
-  defaults, while old v1 records upgrade automatically.
+  Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About
+  sections. It uses the shared native modal, a fixed footer, and an
+  independently scrolling body on short screens.
+- The v3 settings schema stores presentation and interaction preferences as
+  typed fields with documented defaults. Unknown or corrupt values fall back
+  field-by-field, while v1 and v2 records upgrade automatically.
 - Interface zoom uses CSS `zoom` with a reciprocal viewport width/height and a
   scale-adjusted dialog cap. This keeps the app filling the viewport at reduced
   zoom without introducing blank scroll space or horizontal overflow.
@@ -205,8 +226,14 @@ application code.
   the rail is narrow; they must never be ellipsized or clipped.
 - New timer settings can only affect interaction behavior. WCA timing and
   statistics rules remain fixed.
-- The palette is flat light gray and white with a pale green timer surface and a
-  solid muted green accent. Penalties use amber and red.
+- Alert feedback is opt-in and uses the configured channel for both solve/DNF
+  events and inspection warnings. Web Audio is primed on timer press so a
+  timer-driven warning is not blocked by autoplay policy. Statistics precision
+  changes only formatting, never the stored raw time or calculated result.
+- The palette is flat light gray and white with a pale accent-tinted timer
+  surface. The accent can be green, blue, violet, or amber; each choice meets
+  WCAG AA contrast against white and its soft background. Penalties use amber and
+  red.
 - Decorative gradients, glows, grid/ambient backgrounds, and oversized rounded
   cards were removed. The interface uses 3 px panel radii, 1 px borders, and
   solid fills.
@@ -232,8 +259,8 @@ application code.
   solves.
 - Session controls are disabled while the timer is armed, running, or in
   inspection.
-- Export includes every session, every solve, the active session ID, and the
-  inspection setting. The backup is a detached snapshot.
+- Export includes every session, every solve, the active session ID, and all
+  settings. The backup is a detached snapshot.
 - Import is replace-only in Phase 2A. It validates the file, then shows current
   and incoming session/solve counts before applying anything. Cancelling leaves
   local data untouched. Merging and cloud sync are deferred to Phase 2C.
@@ -281,6 +308,11 @@ ignored, and invalid JSON or unsupported schema versions fall back to the legacy
 record and then to a fresh empty session. The active session is normalized to an
 existing session. A valid session collection is never silently discarded.
 
+Settings are stored at schema version 3. Loading accepts versions 1–3, upgrades
+older records with defaults, and validates each new field independently. A
+record without `inspectionEnabled` is rejected as invalid, matching the original
+settings contract.
+
 Backups are versioned separately as `cubelab-backup` version 1. They are
 validated before the confirmation dialog; import replaces local data only after
 explicit confirmation.
@@ -312,7 +344,10 @@ offline Playwright test and must not be undone casually.
   control, including when the session select is focused.
 - Focused buttons, switches, and the session select remain keyboard-operable with
   Enter and arrow keys.
-- Timer state changes and solve recording are announced through a live region.
+- Timer state changes, solve recording, and inspection warnings are announced
+  through a live region.
+- Visual solve/DNF/inspection feedback uses a non-interactive timer overlay, and
+  the selected accent colors meet WCAG AA contrast.
 - Controls have visible focus styles, accessible names, and disabled states.
 - The Settings, confirmation, and backup dialogs trap Tab/Shift+Tab focus,
   close on Escape or backdrop click, and return focus to their trigger. The
@@ -330,10 +365,10 @@ offline Playwright test and must not be undone casually.
 ## Known limitations
 
 - Only the 3×3 event is implemented.
-- The Settings dialog currently exposes inspection plus the Phase 2A.2 timer,
-  display, and scramble preferences. Additional csTimer-style groups such as
-  alerts, colors, and statistics options would need a versioned settings-schema
-  migration and focused tests.
+- Appearance currently offers accent colors rather than a full dark theme.
+  Adding a theme would require a broader palette audit and contrast tests.
+- Sound and haptic alerts depend on browser/device support. The visual feedback
+  and live-region announcement remain available when those channels are absent.
 - Phase 2A import is replace-only; there is no merge, conflict resolution,
   Google Drive backup, or multi-device sync yet.
 - Backup files are unencrypted JSON. They contain solve history and settings and
@@ -420,18 +455,24 @@ All requested Milestone 1 functionality is implemented and verified:
 
 **Completion estimate: 100% of authorized Phase 2A.1 scope.**
 
-### Phase 2A.2 — In progress
+### Phase 2A.2 — Complete
 
-- [x] Settings schema v2 and migration path
+- [x] Settings schema v3 with v1/v2 migration and field-level validation
 - [x] Storage and backup validation for upgraded settings records
 - [x] Timer-update and custom Space-hold (0–10 s) controls
 - [x] Display scaling, small-decimal controls, and scramble click/alignment/height controls
+- [x] Visual, sound, haptic, and combined solve/DNF feedback
+- [x] Inspection warning at 8 or 12 seconds with audio priming
+- [x] Green, blue, violet, and amber accent colors with WCAG AA contrast
+- [x] Statistic-card visibility and hundredths/tenths display precision
+- [x] Expanded Controls reference in Settings
 - [x] Interface zoom fills the viewport without blank scroll or horizontal overflow
 - [x] Effective-time history labels wrap instead of clipping
 - [x] Scramble click action supports Enter while Space remains reserved for timing
-- [x] Dedicated Playwright coverage for the new settings
+- [x] Dedicated Playwright coverage for every new settings group
 - [x] Accessibility, docs, visual QA, and full verification rerun
-- [ ] Additional csTimer-style preference groups pending
+
+**Completion estimate: 100% of authorized Phase 2A.2 scope.**
 
 ### Phase 2B — Not started
 
@@ -449,12 +490,14 @@ replace-only; no merge or conflict-resolution logic exists yet.
 
 ### Safe next work
 
-- Phase 2A.1 is complete. Implement Phase 2B only after an explicit instruction.
+- Phase 2A.2 is complete. Implement Phase 2B only after an explicit instruction.
   Start with an OAuth and Drive API design, a versioned remote backup envelope,
   restore semantics, and failure-path tests before writing cloud code.
 - If more timer preferences are requested, extend the Settings dialog and the
   versioned settings schema together, with migration and E2E coverage. Do not
   duplicate the inspection control back into the header.
+- If a full dark theme is requested, audit every surface/text pair and add
+  contrast tests before extending the accent-only appearance setting.
 - Add WebKit/Firefox browser coverage if those engines become available.
 - Profile and virtualize history for extremely large local sessions.
 - Run a formal accessibility and physical-device touch audit.
@@ -474,9 +517,8 @@ replace-only; no merge or conflict-resolution logic exists yet.
 
 ## Git status
 
-Phase 2A.2 settings work is committed across the schema/core-preferences,
-feedback-refinement, difference-label-removal, and final behavior/coverage
-commits. The roadmap is tracked separately in `ROADMAP.md`. Verify with:
+Phase 2A.2 settings work, documentation, and the refreshed Settings screenshot
+are committed. The roadmap is tracked separately in `ROADMAP.md`. Verify with:
 
 ```bash
 git status --short
