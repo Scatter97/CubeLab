@@ -41,6 +41,7 @@ interface SolveRowProps {
   solve: Solve
   number: number
   menuOpen: boolean
+  popupOpen: boolean
   onOpenMenu: (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => void
   onSetPenalty: (id: string, penalty: Penalty) => void
 }
@@ -61,6 +62,7 @@ const SolveRow = memo(function SolveRow({
   solve,
   number,
   menuOpen,
+  popupOpen,
   onOpenMenu,
   onSetPenalty,
 }: SolveRowProps) {
@@ -98,6 +100,12 @@ const SolveRow = memo(function SolveRow({
         aria-expanded={menuOpen}
         aria-label={`Solve ${number}, ${time.display}${time.suffix ?? ''}. Open solve actions.`}
         onClick={(event) => openMenu(event.currentTarget)}
+        onMouseEnter={(event) => {
+          // While a row menu is open, hovering another solve promotes it into
+          // the same popup instead of leaving the previous solve selected.
+          if (!popupOpen || menuOpen) return
+          openMenu(event.currentTarget)
+        }}
       >
         <span
           className={`history-time ${
@@ -520,6 +528,7 @@ export function SolveHistory({
                 solve={solve}
                 number={solves.length - index}
                 menuOpen={openMenu?.solve.id === solve.id}
+                popupOpen={openMenu !== null}
                 onOpenMenu={handleOpenMenu}
                 onSetPenalty={onSetPenalty}
               />
