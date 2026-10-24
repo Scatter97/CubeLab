@@ -889,6 +889,12 @@ kbd {
   animation-duration: 900ms;
 }
 
+.timer-alert.is-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
 .stage-top {
   display: flex;
   gap: 10px;

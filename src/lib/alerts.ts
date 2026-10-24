@@ -122,8 +122,8 @@ export interface InspectionWarningEvent {
 
 /**
  * Maps the two optional warnings to elapsed inspection times. Countdown
- * warnings fire when the display reaches 12s and 8s remaining; count-up
- * warnings fire at 8s and 12s elapsed.
+ * warnings fire when the display reaches 8s and 3s remaining (8s and 12s
+ * elapsed); count-up warnings fire at 8s and 12s elapsed.
  */
 export function inspectionWarningEvents(
   direction: InspectionCountDirection,
@@ -132,19 +132,20 @@ export function inspectionWarningEvents(
 ): InspectionWarningEvent[] {
   const events: InspectionWarningEvent[] = []
 
+  if (warnAt8s) {
+    events.push({
+      key: '8s',
+      elapsedMs:
+        direction === 'down' ? INSPECTION_LIMIT_MS - 7_000 : 8_000,
+      label: direction === 'down' ? '7 seconds remaining' : '8 seconds',
+    })
+  }
   if (warnAt12s) {
     events.push({
       key: '12s',
       elapsedMs:
-        direction === 'down' ? INSPECTION_LIMIT_MS - 12_000 : 12_000,
-      label: direction === 'down' ? '12 seconds remaining' : '12 seconds',
-    })
-  }
-  if (warnAt8s) {
-    events.push({
-      key: '8s',
-      elapsedMs: direction === 'down' ? INSPECTION_LIMIT_MS - 8_000 : 8_000,
-      label: direction === 'down' ? '8 seconds remaining' : '8 seconds',
+        direction === 'down' ? INSPECTION_LIMIT_MS - 3_000 : 12_000,
+      label: direction === 'down' ? '3 seconds remaining' : '12 seconds',
     })
   }
 

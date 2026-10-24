@@ -1,5 +1,5 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import type { InspectionCountDirection, Solve } from '../types'
+import type { InspectionCountDirection, InspectionWarningVisualScope, Solve } from '../types'
 import type { AlertTone } from '../lib/alerts'
 import { formatSolveTime, formatTime } from '../lib/format'
 import {
@@ -33,7 +33,8 @@ interface TimerStageProps {
   inspectionEnabled: boolean
   inspectionCountDirection: InspectionCountDirection
   showTimerDecimalSmall?: boolean
-  alert?: { tone: AlertTone; id: number; message?: string } | null
+  alert?: { tone: AlertTone; id: number; message?: string; visualTone?: AlertTone } | null
+  inspectionWarningVisualScope?: InspectionWarningVisualScope
   onPress: (input: TimerInput) => void
   onRelease: (input: TimerInput) => void
   onCancel: () => void
@@ -113,6 +114,7 @@ export function TimerStage({
   inspectionCountDirection,
   showTimerDecimalSmall = false,
   alert = null,
+  inspectionWarningVisualScope = 'timer',
   onPress,
   onRelease,
   onCancel,
@@ -280,7 +282,9 @@ export function TimerStage({
       {alert ? (
         <span
           key={alert.id}
-          className={`timer-alert is-${alert.tone}`}
+          className={`timer-alert is-${alert.visualTone ?? alert.tone}${
+            inspectionWarningVisualScope === 'screen' ? ' is-screen' : ''
+          }`}
           aria-hidden="true"
         >
           {alert.message ? (

@@ -238,11 +238,11 @@ test('inspection supports count-down, count-up, and independent warnings', async
   let settings = await openSettings(page)
   await settings.getByTestId('inspection-setting').click()
   await settings.getByTestId('inspection-direction').selectOption('down')
-  await expect(settings.getByTestId('inspection-warning-12s').locator('..')).toContainText(
-    '12 seconds remaining',
-  )
   await expect(settings.getByTestId('inspection-warning-8s').locator('..')).toContainText(
-    '8 seconds remaining',
+    '7 seconds remaining',
+  )
+  await expect(settings.getByTestId('inspection-warning-12s').locator('..')).toContainText(
+    '3 seconds remaining',
   )
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('inspection-warning-12s').check()
@@ -255,16 +255,19 @@ test('inspection supports count-down, count-up, and independent warnings', async
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
   await expect(page.getByTestId('timer-display')).toHaveText('15')
 
-  await page.clock.fastForward(3_100)
-  await expect(page.getByTestId('timer-display')).toHaveText('12')
-  await expect(page.locator('.timer-alert-message')).toHaveText('12 seconds remaining')
+  await page.clock.fastForward(8_100)
+  await expect(page.getByTestId('timer-display')).toHaveText('7')
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-warning/)
   await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
-    '12 seconds remaining',
+    '7 seconds remaining',
   )
 
   await page.clock.fastForward(4_000)
-  await expect(page.getByTestId('timer-display')).toHaveText('8')
-  await expect(page.locator('.timer-alert-message')).toHaveText('8 seconds remaining')
+  await expect(page.getByTestId('timer-display')).toHaveText('3')
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-danger/)
+  await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
+    '3 seconds remaining',
+  )
 
   await page.keyboard.press('Escape')
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
@@ -278,11 +281,12 @@ test('inspection supports count-down, count-up, and independent warnings', async
   await expect(page.getByTestId('timer-display')).toHaveText('0')
   await page.clock.fastForward(8_100)
   await expect(page.getByTestId('timer-display')).toHaveText('8')
-  await expect(page.locator('.timer-alert-message')).toHaveText('8 seconds')
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-warning/)
+  await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText('8 seconds')
 
   await page.clock.fastForward(4_000)
   await expect(page.getByTestId('timer-display')).toHaveText('12')
-  await expect(page.locator('.timer-alert-message')).toHaveText('12 seconds')
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-danger/)
 
   await page.keyboard.press('Escape')
   const stored = await page.evaluate(() => {

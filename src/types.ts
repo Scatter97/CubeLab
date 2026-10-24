@@ -25,6 +25,7 @@ export type ScrambleAlignment = 'left' | 'center' | 'right'
 export type ScrambleAction = 'none' | 'copy' | 'next'
 export type AlertChannel = 'off' | 'visual' | 'sound' | 'haptic' | 'sound-haptic'
 export type InspectionCountDirection = 'down' | 'up'
+export type InspectionWarningVisualScope = 'timer' | 'screen'
 export type AccentColor = 'green' | 'blue' | 'violet' | 'amber'
 export type StatPrecision = 'centiseconds' | 'tenths'
 export type StatKey =
@@ -79,6 +80,7 @@ export interface Settings {
   alertVolume: number
   inspectionWarning8s: boolean
   inspectionWarning12s: boolean
+  inspectionWarningVisualScope: InspectionWarningVisualScope
   accentColor: AccentColor
   statVisibility: StatVisibility
   customAverages: CustomAverageSetting[]

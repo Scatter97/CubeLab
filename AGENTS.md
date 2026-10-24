@@ -88,9 +88,12 @@ the production build because it tests the service worker and offline reload.
   `parseSettingsData` accepts only valid fields, rejects records without
   `inspectionEnabled`, and upgrades older backups during import. Alerts,
   appearance, and statistics preferences must not alter raw times or WCA
-  calculations. Enabled inspection warnings always show their visual text;
-  sound and haptic follow the configured feedback channel. Settings may also
+  calculations. Enabled inspection warnings always show their direction-aware
+  visual pulse and live-region announcement; sound and haptic follow the
+  configured feedback channel. Settings may also
   enable `stopWithAnyKey` for stopping a running timer with any non-modifier key.
+  Settings may also choose whether inspection-warning color pulses use the timer
+  surface or the entire screen.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent('333')`.
   Unit tests verify real random-state generation.
 - **Statistics follow WCA semantics.** Averages are newest-first; every trimmed
@@ -113,7 +116,11 @@ the production build because it tests the service worker and offline reload.
   Space remains timer input even while a row or menu action is focused; only
   text-entry fields may consume it.
 - **Inspection warnings** follow the displayed direction. Count-up labels use 8
-  and 12 seconds elapsed; count-down labels use 12 and 8 seconds remaining.
+  and 12 seconds elapsed; count-down now warns at 7 and 3 seconds remaining,
+  matching 8 and 12 seconds elapsed. Visual, sound, haptic, and visual-plus-sound
+  channels remain configurable. The warning can pulse the timer surface or the
+  entire screen per the Alerts setting, and visual alert text no longer overlaps
+  the timer.
 - **Persistence is versioned.** Keys are `cubelab:sessions:v1` (active session
   plus all named sessions, optional inspection overrides, solves, and comments)
   and `cubelab:settings:v1`. Sessions use schema `v2`; settings use schema `v6`.

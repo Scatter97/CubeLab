@@ -269,6 +269,24 @@ export function SettingsDialog({
               </span>
             </div>
 
+            <label className="settings-field">
+              <span className="settings-field-label">Inspection warning display</span>
+              <select
+                data-testid="inspection-warning-display"
+                value={settings.inspectionWarningVisualScope}
+                onChange={(event) =>
+                  onChange({
+                    inspectionWarningVisualScope: event.target.value as
+                      | 'timer'
+                      | 'screen',
+                  })
+                }
+              >
+                <option value="timer">Timer surface</option>
+                <option value="screen">Entire screen</option>
+              </select>
+            </label>
+
             <fieldset className="settings-fieldset">
               <legend className="settings-field-label">
                 Inspection warnings
@@ -290,14 +308,14 @@ export function SettingsDialog({
                       ]
                     : [
                         {
-                          key: '12s' as const,
-                          label: '12 seconds remaining',
-                          checked: settings.inspectionWarning12s,
+                          key: '8s' as const,
+                          label: '7 seconds remaining',
+                          checked: settings.inspectionWarning8s,
                         },
                         {
-                          key: '8s' as const,
-                          label: '8 seconds remaining',
-                          checked: settings.inspectionWarning8s,
+                          key: '12s' as const,
+                          label: '3 seconds remaining',
+                          checked: settings.inspectionWarning12s,
                         },
                       ]
                 ).map(({ key, label, checked }) => (
@@ -323,7 +341,7 @@ export function SettingsDialog({
             <p className="settings-note">
               {settings.inspectionCountDirection === 'up'
                 ? 'Count up warns at 8 and 12 seconds elapsed.'
-                : 'Count down warns with 12 and 8 seconds remaining.'}{' '}
+                : 'Count down warns at 7 and 3 seconds remaining.'}{' '}
               Warnings always show their text when enabled and follow the
               inspection timer direction. Sound and haptic follow the feedback
               channel above; volume applies to sound, and haptic support varies

@@ -176,8 +176,11 @@ The solve starts from a second hold:
 
 Inspection can display a countdown from 15 to 0, or count up from 0 to 17. The
 optional **8 seconds** and **12 seconds** warnings are independent and follow the
-displayed direction: countdown warns at 12 seconds remaining and 8 seconds
-remaining; count-up warns at 8 seconds elapsed and 12 seconds elapsed. The
+displayed direction: count-up warns at 8 seconds and 12 seconds elapsed;
+count-down warns at 7 seconds and 3 seconds remaining, matching the same
+elapsed points. The visual warning can pulse the timer surface or the entire
+screen according to **Settings → Alerts → Inspection warning display**. The
+penalty is determined at the moment timing starts. `Esc` cancels inspection
 penalty is determined at the moment timing starts. `Esc` cancels inspection
 before the solve begins. Inspection cannot be changed while timing is active;
 the header Settings button is disabled until the timer returns to idle.

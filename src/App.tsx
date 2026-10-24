@@ -84,6 +84,7 @@ interface TimerAlert {
   tone: AlertTone
   id: number
   message?: string
+  visualTone?: AlertTone
 }
 
 function downloadJsonFile(contents: string, fileName: string): void {
@@ -177,6 +178,7 @@ export default function App() {
       volume: number,
       message?: string,
       forceVisual = false,
+      visualTone?: AlertTone,
     ) => {
       if (channel !== 'off') {
         if (channel.includes('sound')) playAlertSound(tone, volume)
@@ -185,7 +187,7 @@ export default function App() {
       if (!forceVisual && !channel.includes('visual')) return
 
       alertIdRef.current += 1
-      setTimerAlert({ tone, id: alertIdRef.current, message })
+      setTimerAlert({ tone, id: alertIdRef.current, message, visualTone })
       if (alertTimeoutRef.current !== null) {
         window.clearTimeout(alertTimeoutRef.current)
       }
@@ -282,8 +284,9 @@ export default function App() {
         'warning',
         settings.alertChannel,
         settings.alertVolume,
-        event.label,
+        undefined,
         true,
+        event.key === '12s' ? 'danger' : 'warning',
       )
     }
   }, [
@@ -743,6 +746,7 @@ export default function App() {
             inspectionEnabled={activeInspectionEnabled}
             inspectionCountDirection={settings.inspectionCountDirection}
             alert={timerAlert}
+            inspectionWarningVisualScope={settings.inspectionWarningVisualScope}
             onPress={timerPress}
             onRelease={timer.release}
             onCancel={handleCancel}

@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   alertVolume: 70,
   inspectionWarning8s: false,
   inspectionWarning12s: false,
+  inspectionWarningVisualScope: 'timer',
   accentColor: 'green',
   statVisibility: {
     single: true,
@@ -360,6 +361,11 @@ export function parseSettingsData(value: unknown): Settings | null {
       typeof value.inspectionWarning12s === 'boolean'
         ? value.inspectionWarning12s
         : value.inspectionWarning === '12s',
+    inspectionWarningVisualScope:
+      value.inspectionWarningVisualScope === 'timer' ||
+      value.inspectionWarningVisualScope === 'screen'
+        ? value.inspectionWarningVisualScope
+        : DEFAULT_SETTINGS.inspectionWarningVisualScope,
     accentColor: isValidAccentColor(value.accentColor)
       ? value.accentColor
       : DEFAULT_SETTINGS.accentColor,
