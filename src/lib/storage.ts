@@ -227,6 +227,7 @@ function isValidAlertChannel(value: unknown): value is AlertChannel {
     value === 'off' ||
     value === 'visual' ||
     value === 'sound' ||
+    value === 'sound-visual' ||
     value === 'haptic' ||
     value === 'sound-haptic'
   )
@@ -349,8 +350,8 @@ export function parseSettingsData(value: unknown): Settings | null {
     alertVolume:
       typeof value.alertVolume === 'number' &&
       Number.isFinite(value.alertVolume) &&
-      value.alertVolume >= 0 &&
-      value.alertVolume <= 100
+      value.alertVolume >= 50 &&
+      value.alertVolume <= 150
         ? Math.round(value.alertVolume)
         : DEFAULT_SETTINGS.alertVolume,
     inspectionWarning8s:

@@ -285,7 +285,7 @@ export default function App() {
         settings.alertChannel,
         settings.alertVolume,
         undefined,
-        true,
+        false,
         event.key === '12s' ? 'danger' : 'warning',
       )
     }

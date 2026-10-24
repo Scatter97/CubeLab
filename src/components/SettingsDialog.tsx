@@ -243,7 +243,8 @@ export function SettingsDialog({
               >
                 <option value="off">Off</option>
                 <option value="visual">Visual only</option>
-                <option value="sound">Sound</option>
+                <option value="sound">Sound only</option>
+                <option value="sound-visual">Sound + visual</option>
                 <option value="haptic">Haptic</option>
                 <option value="sound-haptic">Sound + haptic</option>
               </select>
@@ -256,8 +257,8 @@ export function SettingsDialog({
                   id="alert-volume"
                   data-testid="alert-volume"
                   type="range"
-                  min={0}
-                  max={100}
+                  min={50}
+                  max={150}
                   step={5}
                   value={settings.alertVolume}
                   aria-label="Alert volume"

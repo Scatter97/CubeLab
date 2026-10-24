@@ -51,7 +51,7 @@ statistics correctness.
    - Optional inspection warning at 8/12 seconds.
    - Optional solve-complete and DNF feedback.
    - Visual, sound, haptic, and sound+haptic preferences.
-   - Adjustable 0–100% alert volume with a louder 70% default.
+   - Adjustable 50–150% alert volume with a louder 70% default.
    - Visual feedback respects reduced-motion through the global motion query.
 2. **Appearance**
    - Green, blue, violet, and amber accent choices with WCAG AA contrast checks.

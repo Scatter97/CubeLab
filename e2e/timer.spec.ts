@@ -246,8 +246,8 @@ test('inspection supports count-down, count-up, and independent warnings', async
   )
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('inspection-warning-12s').check()
-  // Warning text is visual even when solve/DNF feedback is off.
-  await settings.getByTestId('alert-channel').selectOption('off')
+  // Inspection warnings follow the alert channel; use visual feedback here.
+  await settings.getByTestId('alert-channel').selectOption('visual')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 

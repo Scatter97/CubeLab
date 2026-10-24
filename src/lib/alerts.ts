@@ -14,10 +14,10 @@ const TONE_GAIN_MULTIPLIER: Record<AlertTone, number> = {
 
 let audioContext: AudioContext | null = null
 
-/** Maps the 0–100 preference to a safe Web Audio gain. */
+/** Maps the 50–150% preference to a safe Web Audio gain. */
 export function alertGainForVolume(volume: number): number {
   if (!Number.isFinite(volume)) return 0
-  const normalized = Math.min(100, Math.max(0, volume)) / 100
+  const normalized = Math.min(150, Math.max(50, volume)) / 100
   return normalized * ALERT_MAX_GAIN
 }
 

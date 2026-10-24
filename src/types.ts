@@ -23,7 +23,7 @@ export interface Solve {
 export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'
 export type ScrambleAlignment = 'left' | 'center' | 'right'
 export type ScrambleAction = 'none' | 'copy' | 'next'
-export type AlertChannel = 'off' | 'visual' | 'sound' | 'haptic' | 'sound-haptic'
+export type AlertChannel = 'off' | 'visual' | 'sound' | 'sound-visual' | 'haptic' | 'sound-haptic'
 export type InspectionCountDirection = 'down' | 'up'
 export type InspectionWarningVisualScope = 'timer' | 'screen'
 export type AccentColor = 'green' | 'blue' | 'violet' | 'amber'

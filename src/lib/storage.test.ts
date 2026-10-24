@@ -405,7 +405,7 @@ describe('settings persistence', () => {
       parseSettingsData({
         inspectionEnabled: true,
         alertChannel: 'telepathy',
-        alertVolume: 101,
+        alertVolume: 0,
         inspectionWarning: '5s',
         accentColor: 'red',
         statPrecision: 'minutes',
