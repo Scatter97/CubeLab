@@ -1,4 +1,4 @@
-import type { Penalty, Session, SessionsData, Solve } from '../types'
+import type { Penalty, PuzzleEvent, Session, SessionsData, Solve } from '../types'
 import { createId } from './id'
 
 export const MAX_SESSION_NAME_LENGTH = 40
@@ -101,6 +101,7 @@ export function createSession(
   options: {
     id?: string
     now?: number
+    event?: PuzzleEvent
     inspectionEnabled?: boolean
   } = {},
 ): CreatedSession | null {
@@ -114,6 +115,7 @@ export function createSession(
   const session: Session = {
     id,
     name: normalized,
+    event: options.event ?? '333',
     createdAt: now,
     updatedAt: now,
     solves: [],

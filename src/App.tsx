@@ -40,6 +40,7 @@ import { BUILT_IN_STAT_DEFINITIONS } from './lib/statDefinitions'
 import type {
   AlertChannel,
   Penalty,
+  PuzzleEvent,
   Session,
   TimerUpdateMode,
 } from './types'
@@ -122,6 +123,10 @@ export default function App() {
     replaceSessions,
   } = useSessions()
   const solves = activeSession.solves
+  const activeEvent = activeSession.event ?? '333'
+  const visibleSessions = sessions.filter(
+    (session) => (session.event ?? '333') === activeEvent,
+  )
   const {
     settings,
     settingsStorageOk,
@@ -135,7 +140,7 @@ export default function App() {
     error: scrambleError,
     advance: advanceScramble,
     retry: retryScramble,
-  } = useScramble()
+  } = useScramble(activeEvent)
   const { toast, showToast, dismissToast } = useToast()
   const driveTransport = useMemo(() => createDriveTransport(), [])
 
@@ -208,11 +213,14 @@ export default function App() {
       const activeScramble = scrambleRef.current
       if (!activeScramble) return
 
-      addSolve({
-        rawMs: completion.rawMs,
-        penalty: completion.penalty,
-        scramble: activeScramble,
-      })
+      addSolve(
+        {
+          rawMs: completion.rawMs,
+          penalty: completion.penalty,
+          scramble: activeScramble,
+        },
+        activeEvent,
+      )
 
       if (completion.penalty === 'dnf') {
         setAnnouncement('Solve recorded. DNF.')
@@ -234,6 +242,7 @@ export default function App() {
     [
       addSolve,
       advanceScramble,
+      activeEvent,
       settings.alertChannel,
       settings.alertVolume,
       triggerAlert,
@@ -463,6 +472,25 @@ export default function App() {
       selectSession(id)
     },
     [selectSession, timer.state.status],
+  )
+
+  const handleSelectEvent = useCallback(
+    (event: PuzzleEvent) => {
+      if (timer.state.status !== 'idle') return
+      const existing = sessions.find(
+        (session) => (session.event ?? '333') === event,
+      )
+      if (existing) {
+        selectSession(existing.id)
+        return true
+      }
+      const id = createSession('Session 1', activeInspectionEnabled, event)
+      if (id) {
+        selectSession(id)
+      }
+      return Boolean(id)
+    },
+    [activeInspectionEnabled, createSession, selectSession, sessions, timer.state.status],
   )
 
   const handleOpenSessionSettings = useCallback(() => {
@@ -840,12 +868,14 @@ export default function App() {
 
         <aside className="side-column" aria-label="Sessions and solve insights">
           <SessionPanel
-            sessions={sessions}
+            sessions={visibleSessions}
             activeSessionId={activeSessionId}
             locked={timerActive}
+            event={activeEvent}
             onCreate={handleCreateSession}
             onRename={handleRenameSession}
             onSelect={handleSelectSession}
+            onSelectEvent={handleSelectEvent}
             onOpenSessionSettings={handleOpenSessionSettings}
           />
 

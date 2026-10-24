@@ -6,6 +6,7 @@ import type {
   InspectionCountDirection,
   Penalty,
   ScrambleAction,
+  PuzzleEvent,
   ScrambleAlignment,
   Session,
   SessionsData,
@@ -31,7 +32,7 @@ export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
 export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
-export const SESSIONS_VERSION = 2
+export const SESSIONS_VERSION = 3
 export const SETTINGS_STORAGE_VERSION = 6
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -172,6 +173,10 @@ function parseSolve(value: unknown): Solve | null {
   }
 }
 
+function isPuzzleEvent(value: unknown): value is PuzzleEvent {
+  return value === '333' || value === '222' || value === '444' || value === '333oh'
+}
+
 function parseSession(value: unknown): Session | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
@@ -196,6 +201,7 @@ function parseSession(value: unknown): Session | null {
   return {
     id: value.id,
     name,
+    event: isPuzzleEvent(value.event) ? value.event : '333',
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     solves,
@@ -466,7 +472,9 @@ export function loadSessions(storage = getDefaultStorage()): SessionsData {
       const parsed: unknown = JSON.parse(raw)
       if (
         isRecord(parsed) &&
-        (parsed.version === 1 || parsed.version === SESSIONS_VERSION)
+        (parsed.version === 1 ||
+          parsed.version === 2 ||
+          parsed.version === SESSIONS_VERSION)
       ) {
         const data = parseSessionsData(parsed)
         if (data) return data

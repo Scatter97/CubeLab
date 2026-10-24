@@ -13,7 +13,7 @@ describe('scramble generation', () => {
   it(
     'generates an official random-state 3x3 scramble with cubing.js',
     async () => {
-      const scramble = await generateScramble()
+      const scramble = await generateScramble('333')
       expect(scramble.length).toBeGreaterThan(20)
       expect(isPlausibleScramble(scramble)).toBe(true)
       expect(scramble).toMatch(/^[URFDLB]/)
@@ -25,8 +25,8 @@ describe('scramble generation', () => {
     'does not repeat the previous scramble',
     async () => {
       const [first, second] = await Promise.all([
-        generateScramble(),
-        generateScramble(),
+        generateScramble('333'),
+        generateScramble('333'),
       ])
       expect(first).not.toBe(second)
     },

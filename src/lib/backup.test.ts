@@ -31,6 +31,7 @@ function sessions(): SessionsData {
       {
         id: 'session-1',
         name: 'Morning',
+        event: '333',
         createdAt: 1_700_000_000_000,
         updatedAt: 1_700_000_001_000,
         solves: [solve()],
@@ -38,6 +39,7 @@ function sessions(): SessionsData {
       {
         id: 'session-2',
         name: 'Evening',
+        event: '333',
         createdAt: 1_700_000_002_000,
         updatedAt: 1_700_000_003_000,
         solves: [solve({ id: 'solve-2', penalty: '+2' })],

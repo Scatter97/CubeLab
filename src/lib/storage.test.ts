@@ -48,6 +48,7 @@ function session(overrides: Partial<Session> = {}): Session {
   return {
     id: 'session-1',
     name: DEFAULT_SESSION_NAME,
+    event: '333',
     createdAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_000,
     solves: [],

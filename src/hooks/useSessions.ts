@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { NewSolve, Penalty, Session, SessionsData, Solve } from '../types'
+import type { NewSolve, Penalty, PuzzleEvent, Session, SessionsData, Solve } from '../types'
 import { createId } from '../lib/id'
 import {
   addSolve as addSolveToData,
@@ -24,14 +24,18 @@ export interface UseSessionsResult {
   activeSession: Session
   activeSessionId: string
   storageOk: boolean
-  addSolve: (input: NewSolve) => Solve
+  addSolve: (input: NewSolve, event?: PuzzleEvent) => Solve
   setPenalty: (id: string, penalty: Penalty) => void
   setComment: (id: string, comment: string) => void
   setInspection: (id: string, enabled: boolean) => void
   deleteSolve: (id: string) => RemovedSolve | null
   restoreSolve: (solve: Solve, index: number, sessionId: string) => void
   clearSolves: () => void
-  createSession: (name: string, inspectionEnabled?: boolean) => string | null
+  createSession: (
+    name: string,
+    inspectionEnabled?: boolean,
+    event?: PuzzleEvent,
+  ) => string | null
   renameSession: (id: string, name: string) => boolean
   deleteSession: (id: string) => boolean
   selectSession: (id: string) => void
@@ -91,10 +95,11 @@ export function useSessions(): UseSessionsResult {
   const activeSession = requireActiveSession(data)
 
   const addSolve = useCallback(
-    (input: NewSolve): Solve => {
+    (input: NewSolve, event?: PuzzleEvent): Solve => {
+      const resolvedEvent = event ?? '333'
       const solve: Solve = {
         id: createId(),
-        event: '333',
+        event: resolvedEvent,
         rawMs: Math.max(0, Math.floor(input.rawMs)),
         penalty: input.penalty,
         scramble: input.scramble,
@@ -155,9 +160,14 @@ export function useSessions(): UseSessionsResult {
   }, [commit])
 
   const createSession = useCallback(
-    (name: string, inspectionEnabled?: boolean): string | null => {
+    (
+      name: string,
+      inspectionEnabled?: boolean,
+      event?: PuzzleEvent,
+    ): string | null => {
       const result = createSessionInData(dataRef.current, name, {
         inspectionEnabled,
+        event,
       })
       if (!result) return null
 

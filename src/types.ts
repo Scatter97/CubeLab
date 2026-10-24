@@ -1,5 +1,5 @@
 /** The puzzles CubeLab can currently record solves for. */
-export type PuzzleEvent = '333'
+export type PuzzleEvent = '333' | '222' | '444' | '333oh'
 
 /** A WCA penalty. Penalties are mutually exclusive. */
 export type Penalty = 'none' | '+2' | 'dnf'
@@ -115,6 +115,8 @@ export interface Settings {
 export interface Session {
   id: string
   name: string
+  /** The WCA puzzle event for every solve in this session. */
+  event?: PuzzleEvent
   createdAt: number
   updatedAt: number
   solves: Solve[]

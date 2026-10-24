@@ -395,6 +395,7 @@ export function mergeSessionsData(input: {
     const mergedSession: Session = {
       id: sessionId,
       name,
+      event: (localSession ?? remoteSession)?.event ?? '333',
       createdAt,
       updatedAt,
       solves: sessionSolves.sort((a, b) => b.createdAt - a.createdAt),
