@@ -31,11 +31,13 @@ export function SessionSetupDialog({
     defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled,
   )
   const [error, setError] = useState<string | null>(null)
+  const [nameTouched, setNameTouched] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open) return
-    setName(nextSessionName(sessions as { id: string; name: string }[]))
+    setName(CUBELAB_EVENTS.find((item) => item.id === defaultEvent)?.label ?? 'Session 1')
+    setNameTouched(false)
     setEvent(defaultEvent)
     setInspectionEnabled(defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled)
     setError(null)
@@ -130,7 +132,10 @@ export function SessionSetupDialog({
               aria-label="Session name"
               ref={inputRef}
               value={name}
-              onChange={(eventTarget) => setName(eventTarget.target.value)}
+              onChange={(eventTarget) => {
+                  setName(eventTarget.target.value)
+                  setNameTouched(true)
+                }}
               autoFocus
             />
           </div>
@@ -140,9 +145,23 @@ export function SessionSetupDialog({
             <select
               className="compact-select"
               value={event}
-              onChange={(eventTarget) =>
-                setEvent(eventTarget.target.value as PuzzleEvent)
-              }
+              onChange={(eventTarget) => {
+                  const next = eventTarget.target.value as PuzzleEvent
+                  const previous = event
+                  setEvent(next)
+                  if (!nameTouched) {
+                    const nextLabel =
+                      CUBELAB_EVENTS.find((item) => item.id === next)?.label ?? next
+                    setName(nextLabel)
+                  } else {
+                    const current = name.trim()
+                    const previousLabel =
+                      CUBELAB_EVENTS.find((item) => item.id === previous)?.label ?? previous
+                    if (current === previousLabel || current === '' || /^Session\s+\d+$/.test(current)) {
+                      setName(CUBELAB_EVENTS.find((item) => item.id === next)?.label ?? next)
+                    }
+                  }
+                }}
             >
               {CUBELAB_EVENTS.map((item) => (
                 <option key={item.id} value={item.id}>

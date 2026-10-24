@@ -935,7 +935,7 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await page.getByTestId('new-session').click()
   const input = page.getByRole('textbox', { name: 'Session name' })
   await expect(input).toBeVisible()
-  await expect(input).toHaveValue('Session 2')
+  await expect(input).toHaveValue('3×3')
   await expect(input).toBeFocused()
 
   // Duplicate names are rejected case-insensitively without closing the dialog.
