@@ -7,15 +7,13 @@ import type { PuzzleEvent, SessionPreferences } from '../types'
 
 interface SessionSetupDialogProps {
   open: boolean
-  sessions: readonly { name: string }[]
+  sessions: readonly { id?: string; name: string }[]
   defaultEvent: PuzzleEvent
   defaultInspectionEnabled: boolean
   defaultPreferences?: SessionPreferences
   onClose: () => void
   onCreate: (name: string, event: PuzzleEvent, preferences: SessionPreferences) => boolean
 }
-
-
 
 export function SessionSetupDialog({
   open,
@@ -27,45 +25,31 @@ export function SessionSetupDialog({
   onCreate,
 }: SessionSetupDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
-  const [name, setName] = useState(nextSessionName(sessions as any))
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [name, setName] = useState(nextSessionName(sessions as { id: string; name: string }[]))
   const [event, setEvent] = useState<PuzzleEvent>(defaultEvent)
   const [inspectionEnabled, setInspectionEnabled] = useState(
     defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled,
   )
-  const [inspectionDirection, setInspectionDirection] = useState(
-    defaultPreferences?.inspectionCountDirection ?? 'down',
-  )
-  const [warning8s, setWarning8s] = useState(defaultPreferences?.inspectionWarning8s ?? false)
-  const [warning12s, setWarning12s] = useState(defaultPreferences?.inspectionWarning12s ?? false)
   const [scrambleAction, setScrambleAction] = useState(
     defaultPreferences?.scrambleAction ?? 'copy',
   )
   const [scrambleAlignment, setScrambleAlignment] = useState(
     defaultPreferences?.scrambleAlignment ?? 'center',
   )
-  const [timerMode, setTimerMode] = useState(defaultPreferences?.timerUpdateMode ?? 'live')
-  const [holdDuration, setHoldDuration] = useState(
-    defaultPreferences?.holdDurationMs ?? 300,
-  )
-  const [stopWithAnyKey, setStopWithAnyKey] = useState(
-    defaultPreferences?.stopWithAnyKey ?? false,
+  const [scrambleLimitHeight, setScrambleLimitHeight] = useState(
+    defaultPreferences?.scrambleLimitHeight ?? false,
   )
   const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open) return
-    setName(nextSessionName(sessions as any))
+    setName(nextSessionName(sessions as { id: string; name: string }[]))
     setEvent(defaultEvent)
     setInspectionEnabled(defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled)
-    setInspectionDirection(defaultPreferences?.inspectionCountDirection ?? 'down')
-    setWarning8s(defaultPreferences?.inspectionWarning8s ?? false)
-    setWarning12s(defaultPreferences?.inspectionWarning12s ?? false)
     setScrambleAction(defaultPreferences?.scrambleAction ?? 'copy')
     setScrambleAlignment(defaultPreferences?.scrambleAlignment ?? 'center')
-    setTimerMode(defaultPreferences?.timerUpdateMode ?? 'live')
-    setHoldDuration(defaultPreferences?.holdDurationMs ?? 300)
-    setStopWithAnyKey(defaultPreferences?.stopWithAnyKey ?? false)
+    setScrambleLimitHeight(defaultPreferences?.scrambleLimitHeight ?? false)
     setError(null)
   }, [open, sessions, defaultEvent, defaultInspectionEnabled, defaultPreferences])
 
@@ -97,16 +81,9 @@ export function SessionSetupDialog({
     setError(null)
     const preferences: SessionPreferences = {
       inspectionEnabled,
-      inspectionCountDirection: inspectionDirection,
-      inspectionWarning8s: warning8s,
-      inspectionWarning12s: warning12s,
-      inspectionWarningVisualScope: defaultPreferences?.inspectionWarningVisualScope ?? 'timer',
       scrambleAction,
       scrambleAlignment,
-      scrambleLimitHeight: defaultPreferences?.scrambleLimitHeight ?? false,
-      timerUpdateMode: timerMode,
-      holdDurationMs: holdDuration,
-      stopWithAnyKey,
+      scrambleLimitHeight,
     }
     const ok = onCreate(trimmed, event, preferences)
     if (!ok) {
@@ -119,7 +96,7 @@ export function SessionSetupDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="confirm-dialog settings-dialog"
+      className="confirm-dialog session-settings-dialog"
       aria-labelledby="create-session-title"
       aria-describedby="create-session-description"
       onKeyDown={handleKeyDown}
@@ -131,11 +108,17 @@ export function SessionSetupDialog({
         if (eventTarget.target === dialogRef.current) onClose()
       }}
     >
-      <div className="dialog-content settings-content">
+      <div className="dialog-content session-settings-content">
         <header className="settings-header">
           <div>
-            <span className="eyebrow">Sessions</span>
+            <span className="eyebrow">Session</span>
             <h2 id="create-session-title">Create new session</h2>
+            <p
+              id="create-session-description"
+              className="session-settings-meta"
+            >
+              Name, event, and essential session behavior
+            </p>
           </div>
           <button
             type="button"
@@ -148,107 +131,65 @@ export function SessionSetupDialog({
           </button>
         </header>
 
-        <p id="create-session-description" className="settings-intro">
-          Configure the session before creating it.
-        </p>
-
         {error ? (
-          <p
-            role="alert"
-            className="settings-error"
-            data-testid="session-error"
-          >
+          <p role="alert" className="settings-error" data-testid="session-error">
             {error}
           </p>
         ) : null}
 
-        <div className="settings-body">
-          <section className="settings-section">
-            <div className="settings-section-heading">
-              <h3>General</h3>
-            </div>
-            <div className="settings-field">
-              <span>Session name</span>
-              <input
-                type="text"
-                aria-label="Session name"
-                ref={inputRef}
-                value={name}
-                onChange={(eventTarget) => setName(eventTarget.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="settings-field">
-              <span>Puzzle event</span>
-              <select
-                className="compact-select"
-                value={event}
-                onChange={(eventTarget) =>
-                  setEvent(eventTarget.target.value as PuzzleEvent)
-                }
-              >
-                {CUBELAB_EVENTS.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </section>
+        <div className="session-settings-body">
+          <div className="settings-field">
+            <span>Session name</span>
+            <input
+              type="text"
+              aria-label="Session name"
+              ref={inputRef}
+              value={name}
+              onChange={(eventTarget) => setName(eventTarget.target.value)}
+              autoFocus
+            />
+          </div>
 
-          <details className="settings-field-group">
-            <summary>Inspection</summary>
-            <div className="settings-row">
-              <div className="settings-row-copy">
-                <span className="settings-row-label">Enable inspection</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={inspectionEnabled}
-                onChange={(eventTarget) =>
-                  setInspectionEnabled(eventTarget.target.checked)
-                }
-              />
-            </div>
-            <div className="settings-field">
-              <span>Inspection direction</span>
-              <select
-                className="compact-select"
-                value={inspectionDirection}
-                onChange={(eventTarget) =>
-                  setInspectionDirection(
-                    eventTarget.target.value as 'down' | 'up',
-                  )
-                }
-              >
-                <option value="down">Count down</option>
-                <option value="up">Count up</option>
-              </select>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-copy">
-                <span className="settings-row-label">8-second warning</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={warning8s}
-                onChange={(eventTarget) => setWarning8s(eventTarget.target.checked)}
-              />
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-copy">
-                <span className="settings-row-label">12-second warning</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={warning12s}
-                onChange={(eventTarget) => setWarning12s(eventTarget.target.checked)}
-              />
-            </div>
-          </details>
+          <div className="settings-field">
+            <span>Puzzle event</span>
+            <select
+              className="compact-select"
+              value={event}
+              onChange={(eventTarget) =>
+                setEvent(eventTarget.target.value as PuzzleEvent)
+              }
+            >
+              {CUBELAB_EVENTS.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <details className="settings-field-group">
-            <summary>Scramble</summary>
+          <div className="settings-row">
+            <div className="settings-row-copy">
+              <span className="settings-row-label">Enable inspection</span>
+              <span className="settings-row-description">
+                Use this session’s inspection override.
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={inspectionEnabled}
+              aria-label="Enable inspection"
+              className="settings-switch"
+              onClick={() => setInspectionEnabled(!inspectionEnabled)}
+            >
+              <span className="switch-track" aria-hidden="true">
+                <span className="switch-thumb" />
+              </span>
+            </button>
+          </div>
+
+          <div className="session-settings-group">
+            <h3>Scramble</h3>
             <div className="settings-field">
               <span>Click action</span>
               <select
@@ -277,55 +218,31 @@ export function SessionSetupDialog({
                 <option value="right">Right</option>
               </select>
             </div>
-          </details>
-
-          <details className="settings-field-group">
-            <summary>Timer</summary>
-            <div className="settings-field">
-              <span>Timer mode</span>
-              <select
-                className="compact-select"
-                value={timerMode}
-                onChange={(eventTarget) =>
-                  setTimerMode(eventTarget.target.value as any)
-                }
-              >
-                <option value="live">Live</option>
-                <option value="tenths">Tenths</option>
-                <option value="seconds">Seconds</option>
-              </select>
-            </div>
-            <div className="settings-field">
-              <span>Hold duration</span>
-              <input
-                type="number"
-                min="0"
-                max="10000"
-                value={holdDuration}
-                onChange={(eventTarget) =>
-                  setHoldDuration(Number(eventTarget.target.value))
-                }
-              />
-            </div>
             <div className="settings-row">
               <div className="settings-row-copy">
-                <span className="settings-row-label">Stop with any key</span>
+                <span className="settings-row-label">Limit height</span>
+                <span className="settings-row-description">
+                  Restrict scramble panel height.
+                </span>
               </div>
-              <input
-                type="checkbox"
-                checked={stopWithAnyKey}
-                onChange={(eventTarget) =>
-                  setStopWithAnyKey(eventTarget.target.checked)
-                }
-              />
+              <button
+                type="button"
+                role="switch"
+                aria-checked={scrambleLimitHeight}
+                aria-label="Limit scramble height"
+                className="settings-switch"
+                onClick={() => setScrambleLimitHeight(!scrambleLimitHeight)}
+              >
+                <span className="switch-track" aria-hidden="true">
+                  <span className="switch-thumb" />
+                </span>
+              </button>
             </div>
-          </details>
+          </div>
         </div>
 
-        <footer className="settings-footer">
-          <span className="settings-footer-note">
-            Advanced options are saved on this session only.
-          </span>
+        <footer className="session-settings-footer">
+          <span>Changes save automatically.</span>
           <button
             type="button"
             className="button button-secondary"

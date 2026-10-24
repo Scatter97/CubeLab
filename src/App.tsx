@@ -1050,7 +1050,7 @@ export default function App() {
 
       <SessionSetupDialog
         open={createSessionOpen}
-        sessions={sessions.map((session) => ({ name: session.name }))}
+        sessions={sessions.map((session) => ({ id: session.id, name: session.name }))}
         defaultEvent={activeEvent}
         defaultInspectionEnabled={activeInspectionEnabled}
         onClose={() => setCreateSessionOpen(false)}
