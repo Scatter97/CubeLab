@@ -69,7 +69,7 @@ sessions remain usable.
 | Regenerate the scramble | Use the regenerate button in the scramble panel |
 | Open Settings | Use the **Settings** button in the header; it is unavailable while timing |
 | Change inspection | Open **Settings**, then toggle **Inspection** under **Timer** |
-| Tune timer updates, Space hold, scramble layout, monospaced output, and display scaling | Open **Settings**, then adjust **Timer**, **Display**, or **Scramble** |
+| Tune timer updates, Space hold, scramble layout, and display scaling | Open **Settings**, then adjust **Timer**, **Display**, or **Scramble** |
 | Switch session | Choose a name in the session select; use arrow keys and <kbd>Enter</kbd> from the keyboard |
 | Create, rename, or delete a session | Use the buttons beside the session select |
 | Export or import a backup | Open **Settings → Data → Backup & restore** |

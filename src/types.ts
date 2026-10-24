@@ -36,7 +36,6 @@ export interface Settings {
   scrambleAlignment: ScrambleAlignment
   scrambleLimitHeight: boolean
   scrambleAction: ScrambleAction
-  showDifferenceLabels: boolean
 }
 
 /**

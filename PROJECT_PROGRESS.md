@@ -85,8 +85,8 @@ dialog without adding a new persisted preference or changing timing behavior.
   narrow-width touch targets in production E2E tests.
 - Phase 2A.2 introduced settings schema v2 with migration and typed defaults. The
   current implemented controls are timer-update mode, custom Space-hold timing,
-  interface zoom, small-decimal display, scramble alignment/height limit,
-  scramble click action, and +2 difference labels. The redundant inspection facts
+  interface zoom, small-decimal display, and scramble alignment/height limit/
+  click action. The redundant inspection facts
   block was removed. The dialog and persistence are ready for further
   csTimer-style preference groups.
 

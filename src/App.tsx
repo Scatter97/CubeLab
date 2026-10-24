@@ -534,7 +534,6 @@ export default function App() {
             onDelete={handleDelete}
             onRequestClear={requestClear}
             clearDisabled={timerActive}
-            showDifferenceLabels={settings.showDifferenceLabels}
           />
         </aside>
       </main>

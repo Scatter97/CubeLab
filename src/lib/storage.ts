@@ -27,7 +27,6 @@ export const DEFAULT_SETTINGS: Settings = {
   scrambleAlignment: 'center',
   scrambleLimitHeight: false,
   scrambleAction: 'copy',
-  showDifferenceLabels: true,
 }
 
 export interface StorageLike {
@@ -207,10 +206,6 @@ export function parseSettingsData(value: unknown): Settings | null {
     scrambleAction: isValidScrambleAction(value.scrambleAction)
       ? value.scrambleAction
       : DEFAULT_SETTINGS.scrambleAction,
-    showDifferenceLabels:
-      typeof value.showDifferenceLabels === 'boolean'
-        ? value.showDifferenceLabels
-        : DEFAULT_SETTINGS.showDifferenceLabels,
   }
 }
 

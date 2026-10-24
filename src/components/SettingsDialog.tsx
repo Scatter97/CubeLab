@@ -159,15 +159,6 @@ export function SettingsDialog({
               />
             </label>
 
-            <label className="settings-field" htmlFor="difference-labels">
-              <span className="settings-field-label">Show +2 difference labels</span>
-              <input
-                id="difference-labels"
-                type="checkbox"
-                checked={settings.showDifferenceLabels}
-                onChange={(event) => onChange({ showDifferenceLabels: event.target.checked })}
-              />
-            </label>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-scramble-title">
