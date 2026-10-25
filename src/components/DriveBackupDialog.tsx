@@ -7,6 +7,28 @@ import type { UseSyncResult } from '../hooks/useSync'
 import { CloseIcon } from './Icons'
 import type { SessionsData, Settings } from '../types'
 import { loadDriveBackupState } from '../lib/driveStorage'
+import type { SyncConflict } from '../lib/syncStorage'
+
+function conflictFieldLabel(field: string): string {
+  if (field === 'rawMs') return 'time'
+  if (field === 'penalty') return 'penalty'
+  if (field === 'scramble') return 'scramble'
+  if (field === 'comment') return 'comment'
+  return field
+}
+
+function formatConflictValue(field: string, value: unknown): string {
+  if (value === undefined) return 'not set'
+  if (value === null) return 'null'
+  const text = String(value)
+  if (field === 'rawMs' && typeof value === 'number') return `${value} ms`
+  if (text.length === 0) return '(empty)'
+  return text.length > 80 ? `${text.slice(0, 77)}…` : text
+}
+
+function conflictKey(conflict: SyncConflict): string {
+  return `${conflict.kind}:${conflict.id}:${conflict.field}`
+}
 
 interface DriveBackupDialogProps {
   open: boolean
@@ -148,7 +170,7 @@ export function DriveBackupDialog({
               ) : null}
 
               <p className="settings-note" data-testid="sync-status">
-                Status: {sync.phase} · New local solves since last sync: {sync.pendingCount}
+                Status: {sync.phase} · New local solves since last sync: {sync.newSolvesSinceLastSync}
                 {sync.lastSyncAt
                   ? ` · Last sync ${new Date(sync.lastSyncAt).toLocaleString()}`
                   : ''}
@@ -172,11 +194,51 @@ export function DriveBackupDialog({
                   {drive.error}
                 </p>
               ) : null}
-              {sync.conflictsCount > 0 ? (
-                <p className="settings-note" data-testid="sync-conflicts">
-                  {sync.conflictsCount} conflict
-                  {sync.conflictsCount === 1 ? '' : 's'} need review.
-                </p>
+              {sync.pendingConflicts.length > 0 ? (
+                <div className="sync-conflict-list" data-testid="sync-conflicts">
+                  <p className="settings-note">
+                    Synchronization is paused. Choose which version to keep for
+                    each conflicting edit.
+                  </p>
+                  {sync.pendingConflicts.map((conflict) => (
+                    <div
+                      className="sync-conflict-item"
+                      key={conflictKey(conflict)}
+                      data-testid="sync-conflict"
+                    >
+                      <div className="sync-conflict-copy">
+                        <span className="settings-row-label">
+                          Solve {conflict.id.slice(0, 8)} ·{' '}
+                          {conflictFieldLabel(conflict.field)}
+                        </span>
+                        <span className="settings-row-description">
+                          This device: {formatConflictValue(conflict.field, conflict.localValue)} ·
+                          Cloud: {formatConflictValue(conflict.field, conflict.remoteValue)}
+                        </span>
+                      </div>
+                      <div className="sync-conflict-actions">
+                        <button
+                          type="button"
+                          className="button button-secondary button-small"
+                          onClick={() =>
+                            sync.resolveConflict(conflict.id, conflict.field, 'local')
+                          }
+                        >
+                          Use this device
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-secondary button-small"
+                          onClick={() =>
+                            sync.resolveConflict(conflict.id, conflict.field, 'remote')
+                          }
+                        >
+                          Use cloud
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : null}
 
               {!drive.configured ? (
@@ -372,6 +434,9 @@ export function DriveBackupDialog({
                       <span className="settings-row-label">
                         Sync after reconnect
                       </span>
+                      <span className="settings-row-description">
+                        Merge changes when this browser comes back online.
+                      </span>
                     </div>
                     <input
                       type="checkbox"
@@ -384,6 +449,11 @@ export function DriveBackupDialog({
                       }
                     />
                   </div>
+                  <p className="settings-note">
+                    Google Drive does not provide verified atomic compare-and-swap
+                    here. Avoid syncing two devices at the same moment; a
+                    simultaneous upload can still overwrite the other device.
+                  </p>
                   <div className="settings-row">
                     <div className="settings-row-copy">
                       <span className="settings-row-label">

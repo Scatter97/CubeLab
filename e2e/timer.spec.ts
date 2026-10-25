@@ -1389,3 +1389,97 @@ test('invalid google drive backup is rejected', async ({ page }) => {
   await expect(drive).toBeHidden()
 })
 
+test('manual conflict review pauses and resumes after choosing a version', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await page.goto('/')
+  await waitForApp(page)
+  await recordSolve(page, 120)
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-drive-button').click()
+  const drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive).toBeVisible()
+  await drive.getByTestId('drive-connect').click()
+  await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+
+  // Seed a cloud backup with the same solve but a conflicting penalty.
+  await page.evaluate(() => {
+    const storedSessions = JSON.parse(
+      localStorage.getItem('cubelab:sessions:v1') ?? '{}',
+    ) as {
+      activeSessionId: string
+      sessions: Array<{
+        solves: Array<Record<string, unknown>>
+      }>
+    }
+    const storedSettings = JSON.parse(
+      localStorage.getItem('cubelab:settings:v1') ?? '{}',
+    ) as { settings: Record<string, unknown> }
+    const remoteAt = Date.now() + 60_000
+    const remoteSessions = {
+      activeSessionId: storedSessions.activeSessionId,
+      sessions: storedSessions.sessions.map((session) => ({
+        ...session,
+        solves: session.solves.map((solve) => ({
+          ...solve,
+          penalty: '+2',
+          updatedAt: remoteAt,
+          fieldUpdates: {
+            ...((solve.fieldUpdates as Record<string, unknown> | undefined) ?? {}),
+            penalty: { updatedAt: remoteAt, editorId: 'remote-device' },
+          },
+        })),
+      })),
+    }
+    const backup = {
+      app: 'CubeLab',
+      format: 'cubelab-backup',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      sessions: remoteSessions,
+      settings: storedSettings.settings,
+      sync: {
+        protocolVersion: 1,
+        revision: 1,
+        deviceId: 'remote-device',
+        updatedAt: remoteAt,
+        tombstones: [],
+        conflicts: [],
+        sessionRedirects: [],
+      },
+    }
+    const mockDrive = (
+      window as {
+        __cubeLabMockDrive?: {
+          uploadBackup: (content: string, id: string | null) => Promise<unknown>
+        }
+      }
+    ).__cubeLabMockDrive
+    return mockDrive?.uploadBackup(JSON.stringify(backup), null)
+  })
+
+  await drive.getByRole('button', { name: /Advanced settings/ }).click()
+  await drive.getByLabel('Manual conflict review').check()
+  await drive.getByTestId('sync-now').click()
+
+  const conflicts = drive.getByTestId('sync-conflicts')
+  await expect(conflicts).toBeVisible()
+  await expect(drive.getByTestId('sync-conflict')).toHaveCount(1)
+  await expect(conflicts).toContainText('penalty')
+  await expect(conflicts).toContainText('This device: none')
+  await expect(conflicts).toContainText('Cloud: +2')
+
+  await drive.getByRole('button', { name: 'Use this device' }).click()
+  await expect(drive.getByTestId('sync-conflicts')).toHaveCount(0)
+  await expect(drive.getByTestId('sync-status')).toContainText('synced', {
+    timeout: 15_000,
+  })
+
+  const solves = await storedSolves(page)
+  expect(solves[0]?.penalty).toBe('none')
+  await drive.getByTestId('drive-done').click()
+  await expect(drive).toBeHidden()
+})
+

@@ -63,6 +63,40 @@ describe('normalizeSessionRedirects', () => {
     // The newest approval is retained; the older one would close a cycle.
     expect(redirects[0]).toMatchObject({ fromId: 'B', toId: 'A' })
   })
+
+  it('normalizes the same approval set identically regardless of input order', () => {
+    const input = [
+      { fromId: 'A', toId: 'B', approvedAt: 1, byDeviceId: 'laptop' },
+      { fromId: 'A', toId: 'C', approvedAt: 2, byDeviceId: 'phone' },
+      { fromId: 'B', toId: 'D', approvedAt: 1, byDeviceId: 'phone' },
+      { fromId: 'D', toId: 'A', approvedAt: 4, byDeviceId: 'tablet' },
+      { fromId: 'E', toId: 'C', approvedAt: 2, byDeviceId: 'laptop' },
+    ]
+    const expected = normalizeSessionRedirects(input)
+
+    const permutations = [
+      [...input].reverse(),
+      [input[2]!, input[4]!, input[0]!, input[3]!, input[1]!],
+      [input[4]!, input[3]!, input[2]!, input[1]!, input[0]!],
+    ]
+    for (const permutation of permutations) {
+      expect(normalizeSessionRedirects(permutation)).toEqual(expected)
+    }
+  })
+
+  it('resolves divergent approvals for one source deterministically', () => {
+    const laptop = normalizeSessionRedirects([
+      { fromId: 'A', toId: 'B', approvedAt: 10, byDeviceId: 'laptop' },
+      { fromId: 'A', toId: 'C', approvedAt: 20, byDeviceId: 'phone' },
+    ])
+    const phone = normalizeSessionRedirects([
+      { fromId: 'A', toId: 'C', approvedAt: 20, byDeviceId: 'phone' },
+      { fromId: 'A', toId: 'B', approvedAt: 10, byDeviceId: 'laptop' },
+    ])
+
+    expect(laptop).toEqual(phone)
+    expect(laptop[0]).toMatchObject({ fromId: 'A', toId: 'C' })
+  })
 })
 
 describe('applySessionRedirects', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Session, SessionsData, Solve } from '../types'
 import { mergeSessionsData } from './sync'
-import type { Tombstone } from './syncStorage'
+import type { SyncConflict, Tombstone } from './syncStorage'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
   return {
@@ -394,5 +394,194 @@ describe('cross-device session ownership safety', () => {
     const local = sessionsData({ sessions: [session({ id: 'local-333', event: '333', solves: [solve({ id: 'bad-owner' })] })] })
     const remote = sessionsData({ sessions: [session({ id: 'remote-444', event: '444', solves: [solve({ id: 'bad-owner' })] })] })
     expect(() => mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })).toThrow(/does not match its session event/)
+  })
+})
+
+describe('manual conflict resolution', () => {
+  const localSolve = solve({
+    penalty: 'none',
+    fieldUpdates: { penalty: { updatedAt: 100, editorId: 'local-device' } },
+  })
+  const remoteSolve = solve({
+    penalty: '+2',
+    fieldUpdates: { penalty: { updatedAt: 200, editorId: 'remote-device' } },
+  })
+  const local = sessionsData({ sessions: [session({ solves: [localSolve] })] })
+  const remote = sessionsData({ sessions: [session({ solves: [remoteSolve] })] })
+  const pending: SyncConflict = {
+    id: 'solve-1',
+    kind: 'solve',
+    field: 'penalty',
+    localValue: 'none',
+    remoteValue: '+2',
+    localUpdatedAt: 100,
+    remoteUpdatedAt: 200,
+    resolution: 'manual-pending',
+    updatedAt: 300,
+  }
+
+  it('raises a pending conflict without publishing an automatic winner', () => {
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+    })
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]?.resolution).toBe('manual-pending')
+  })
+
+  it('honors an approved local value and stamps it as the newest edit', () => {
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [{ ...pending, resolution: 'local', updatedAt: 400 }],
+    })
+
+    expect(result.conflicts).toHaveLength(0)
+    const merged = result.merged.sessions[0]?.solves[0]
+    expect(merged?.penalty).toBe('none')
+    expect(merged?.fieldUpdates?.penalty?.updatedAt).toBe(400)
+  })
+
+  it('honors an approved cloud value', () => {
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [{ ...pending, resolution: 'remote', updatedAt: 400 }],
+    })
+
+    expect(result.conflicts).toHaveLength(0)
+    expect(result.merged.sessions[0]?.solves[0]?.penalty).toBe('+2')
+  })
+
+  it('raises a new conflict when either side changes after approval', () => {
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+      // The approval predates the current remote edit, so it no longer applies.
+      resolvedConflicts: [{ ...pending, resolution: 'local', updatedAt: 150 }],
+    })
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]?.resolution).toBe('manual-pending')
+  })
+})
+
+describe('deletion versus offline edits', () => {
+  const deletedAt = 1_700_000_005_000
+  const tombstones: Tombstone[] = [
+    { kind: 'session', id: 'session-deleted', deletedAt, deletedByDeviceId: 'other-device' },
+  ]
+
+  it('recovers only solves created after the session deletion', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          solves: [
+            solve({ id: 'pre-existing', createdAt: deletedAt - 1_000 }),
+            solve({ id: 'offline-new', createdAt: deletedAt + 1_000 }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({ sessions: [] })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.recoveredSolves).toBe(1)
+    expect(result.merged.sessions.map((item) => item.id)).toEqual([
+      'recovered:session-deleted',
+    ])
+    expect(result.merged.sessions[0]?.name).toBe('Gone (recovered)')
+    expect(result.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'offline-new',
+    ])
+  })
+
+  it('keeps recovery idempotent across repeated merges', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          solves: [solve({ id: 'offline-new', createdAt: deletedAt + 1_000 })],
+        }),
+      ],
+    })
+    const remote = sessionsData({ sessions: [] })
+    const first = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    const second = mergeSessionsData({
+      local: first.merged,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(second.recoveredSolves).toBe(0)
+    expect(second.merged.sessions.map((item) => item.id)).toEqual([
+      'recovered:session-deleted',
+    ])
+    expect(totalSolves(second.merged)).toBe(1)
+  })
+
+  it('does not duplicate a recovered solve that also exists in a live session', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          solves: [solve({ id: 'moved-solve', createdAt: deletedAt + 1_000 })],
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({
+          id: 'session-live',
+          name: 'Live',
+          solves: [solve({ id: 'moved-solve', createdAt: deletedAt + 1_000 })],
+        }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.recoveredSolves).toBe(0)
+    expect(totalSolves(result.merged)).toBe(1)
+    expect(result.merged.sessions[0]?.id).toBe('session-live')
   })
 })

@@ -168,17 +168,21 @@ are available as advanced options.
 There is no separate manual **Backup now** button and no
 **Restore from Drive** button. Synchronization is the reconciliation path:
 **Sync now**, startup sync, and automatic scheduling all merge local and cloud
-sessions and solves. Deletions use tombstones. Same-field conflicts are resolved
-automatically unless manual review is enabled; while a conflict is pending,
-CubeLab pauses cloud publication and preserves both sides rather than overwriting
-either.
+sessions and solves. Deletions use tombstones. Same-field solve edits are merged
+automatically unless manual review is enabled. With manual review, CubeLab pauses
+cloud publication and lists each pending conflict with **Use this device** and
+**Use cloud** actions; it resumes after the last one is resolved. If a device adds
+solves to a session after another device deleted it, those solves are moved into
+a clearly labelled **Session (recovered)** rather than being lost.
 
 Synchronization is not a substitute for the local JSON backup. The Drive transport
 does not currently provide verified atomic compare-and-swap protection, so two
 devices uploading at the same moment can still race. In-flight guards prevent a
 download from replacing solves recorded while it was running, but they cannot
-make the remote write atomic. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md)
-for the remaining sync limitations.
+make the remote write atomic. Conflict review covers solve fields only, not
+session names, preferences, redirects, or global settings. See
+[`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync
+limitations.
 
 Google Drive synchronization is optional; all timer, session, storage, and local
 JSON backup features work without it. Build with `VITE_GOOGLE_CLIENT_ID` to

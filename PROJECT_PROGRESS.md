@@ -1,6 +1,6 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-25 12:37 (local)
+**Last verified:** 2026-10-25 15:48 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
@@ -9,7 +9,7 @@
 **Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
 **Phase 2C:** Complete — local-first Google Drive synchronization with automatic startup, exit, reconnect, combined scheduling, ID-based merging, tombstones, conflict recovery, session redirects, empty-default adoption, duplicate-name detection, manual session merges, per-field conflict resolution, sync settings UI, and mock-based coverage
-**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. Google Drive still has no verified atomic compare-and-swap; see [Sync hardening patch](#sync-hardening-patch--2026-10-25) and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The audit follow-up adds manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. Google Drive still has no verified atomic compare-and-swap; see [Sync hardening patch](#sync-hardening-patch--2026-10-25) and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 **Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserves the active-session event.
 **Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, and the 2026-10-25 hardening patch are implemented and verified with mocks. Real concurrent Drive-write safety remains unproven.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
@@ -145,7 +145,8 @@ calculations.
 
 ## Verification evidence
 
-Run at 2026-10-25 12:37 (local), after the synchronization hardening patch,
+Run at 2026-10-25 15:48 (local), after the synchronization hardening patch,
+audit follow-up (conflict resolution, deletion recovery, pending-count rename),
 session-dialog refactor, duplicate-name validation update, and documentation
 refresh:
 
@@ -153,12 +154,12 @@ refresh:
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **150/150 passed**, 14 test files |
+| Unit tests | `npm test` | **160/160 passed**, 14 test files |
 | Production build | `npm run build` | Passed; 89 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,250.55 KiB** |
-| Production E2E | `npm run test:e2e` | **23/23 passed**, Chromium |
+| PWA generation | included in build | 22 precache entries, **2,255.33 KiB** |
+| Production E2E | `npm run test:e2e` | **24/24 passed**, Chromium |
 | Whitespace | `git diff --check` | Passed with no errors |
-| Visual QA | production E2E at 320, 390, and desktop widths | Session dialogs, inline duplicate-name error/icon, and focus handling verified; primary layout unchanged, so checked-in screenshots were not refreshed |
+| Visual QA | production E2E at 320, 390, and desktop widths | Conflict queue, session dialogs, duplicate-name error/icon, and focus handling verified; primary layout unchanged, so checked-in screenshots were not refreshed |
 | Performance | seeded 2,000-solve production session | Not re-measured; the Phase 2A profile below remains the latest. Large-average calculation still has a Fenwick-tree fast path and brute-force comparison coverage. |
 
 The Playwright suite runs against the production preview and covers:
@@ -200,6 +201,8 @@ The Playwright suite runs against the production preview and covers:
 21. Google Drive backup/restore through the mock transport, including connection,
     synchronization, and restore confirmation.
 22. Invalid Google Drive backup rejection without local mutation.
+23. Manual conflict review pausing publication and resuming after the user
+    chooses the local solve-field version.
 
 Visual artifacts are checked in at `docs/cubelab-desktop.png`,
 `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`.
@@ -265,23 +268,59 @@ the unresolved items are listed in [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md
 
 **Verification**
 
-The full chain above passed on 2026-10-25: typecheck, clean lint, 150/150 unit
-tests, production build, 23/23 Playwright tests, and `git diff --check`.
-Concurrency and adoption coverage uses the deterministic in-memory Drive
-transport; no real Google Drive data was modified.
+The full chain above passed on 2026-10-25: typecheck, clean lint, 160/160 unit
+tests, production build, 24/24 Playwright tests, and `git diff --check`.
+Concurrency, conflict-resolution, and adoption coverage uses the deterministic
+in-memory Drive transport; no real Google Drive data was modified.
 
 **Remaining sync limitations**
 
 - The Drive transport still has no verified atomic compare-and-swap. Two devices
   can still overwrite a remote backup in a write race.
-- Manual conflict review now blocks publication, but there is no complete
-  approve-and-resume workflow for every conflict type.
-- Sync-on-exit, deletion-versus-offline-edit rescue, field-level session
+- Manual conflict review blocks publication. The audit follow-up adds solve-field
+  approve-and-resume, but session, preference, redirect, and global-settings
+  conflicts still have no queue.
+- Sync-on-exit, pre-deletion offline edits under clock skew, field-level session
   preference conflicts, concurrent redirect approvals, and global settings
-  provenance still need design and tests.
+  provenance still need design and tests. The audit follow-up recovers solves
+  created after a tombstone.
 - Real multi-device behavior has not been revalidated after this patch.
 
-### Performance evidence
+### Audit follow-up — 2026-10-25
+
+A static audit of the uploaded archive identified additional synchronization
+gaps. This follow-up addresses the findings that can be fixed safely without a
+verified remote concurrency protocol:
+
+1. **Manual conflict resolution workflow.** Pending solve-field conflicts now
+   render in the Drive dialog with **Use this device** and **Use cloud** actions.
+   The chosen resolution is persisted, applied by the next merge, stamped newer
+   than both reviewed versions (including clock-skewed remote timestamps), and
+   synchronization resumes automatically once no conflicts remain. A new
+   conflict is raised if either side changes after the approval.
+2. **Deletion versus offline edits.** Solves created after a session tombstone
+   are copied into a deterministic, clearly named `(recovered)` session. This is
+   idempotent, preserves the puzzle event and session preferences, and does not
+   duplicate solves that already exist in a live session.
+3. **Honest pending semantics.** `pendingCount` is now
+   `newSolvesSinceLastSync`, matching its actual meaning. Session renames,
+   penalty edits, deletions, and preference changes are not presented as counted
+   pending operations.
+4. **Status message clarity.** Manual completion now reports that no new solves
+   were exchanged rather than implying every metadata edit was synchronized.
+5. **Redirect determinism.** Tests now cover shuffled approval input and
+   divergent approvals for the same source. This is deterministic normalization,
+   not a consensus protocol.
+6. **User-visible concurrency warning.** The Drive dialog states that Google
+   Drive has no verified atomic compare-and-swap and that simultaneous uploads
+   can overwrite another device.
+
+**Still unresolved:** atomic remote CAS, session/preference/redirect conflict
+queues, recovery of pre-deletion offline edits under clock skew, per-preference
+timestamps, redirect consensus/recovery, guaranteed sync-on-exit, and detection
+of in-place state mutation. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+
+
 
 A production session seeded with 2,000 solves was measured in Chromium at
 1440×1000 and 390×844 after Phase 2A. Phase 2A.1–2A.3 did not change the timer or
@@ -308,16 +347,16 @@ substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~365.35 kB (~105.90 kB gzip)
-- CSS: ~47.60 kB (~11.74 kB gzip)
-- Cubing.js chunk: ~1,207.02 kB (~333.04 kB gzip)
-- Precache total: ~2.20 MiB (2,250.55 KiB)
+- Main application bundle: ~369.71 kB (~107.15 kB gzip)
+- CSS: ~48.14 kB (~11.82 kB gzip)
+- Cubing.js chunk: ~1,207.02 kB (~335.13 kB gzip)
+- Precache total: ~2.20 MiB (2,255.33 KiB)
 - PWA: generated Workbox service worker and web manifest
 
-The 2026-10-25 hardening patch and multi-event session setup add validation UI,
-dialog content, and shared session helpers; the main bundle remains roughly
-357 KiB before gzip. Vite reports the expected informational warning about the
-large cubing.js chunk. It is a single cached dependency chunk, not duplicated
+The 2026-10-25 audit follow-up and multi-event session setup add conflict-queue
+UI, validation UI, dialog content, and shared session helpers; the main bundle is
+about 370 KiB before gzip. Vite reports the expected informational warning about
+the large cubing.js chunk. It is a single cached dependency chunk, not duplicated
 application code.
 
 ## Key decisions and invariants
@@ -542,10 +581,24 @@ offline Playwright test and must not be undone casually.
 - Google Drive has no verified atomic compare-and-swap. Two devices syncing at
   the same moment can still overwrite a remote backup; the in-flight guards
   protect local state, not the remote write race.
-- Manual conflict review can pause publication, but the UI does not yet provide a
-  complete approve-and-resume workflow for every conflict type. Sync-on-exit,
-  deletion-versus-offline-edit rescue, field-level session preference conflicts,
-  concurrent redirect approvals, and global settings provenance remain open.
+- Manual conflict review now pauses publication and offers **Use this device** /
+  **Use cloud** for solve-field conflicts. It does not yet cover session names,
+  session preferences, redirects, or global settings, and there is no resolution
+  audit log.
+- Deletion recovery is time-based: solves created after a session tombstone are
+  moved into a `(recovered)` session. An offline edit created before the deletion
+  with a skewed clock can still be lost.
+- Session preferences are merged as a session-wide value. Independent edits to
+  different preference fields on two devices can still lose one edit because
+  there are no per-preference timestamps.
+- Redirect normalization is deterministic for a shared approval set but is not a
+  consensus protocol. Devices holding different approval sets can resolve
+  differently until they exchange the same set.
+- Sync-on-exit is best effort. Browsers may terminate async OAuth and network work
+  during close; local persistence remains the durability boundary.
+- In-flight local-edit guards compare React object identity. The application
+  state is treated as immutable; an accidental in-place mutation would bypass the
+  guard.
 - Multiple open tabs are not synchronized with each other. Each tab holds its own
   in-memory state and writes it independently, so the last write wins. Google
   Drive sync does not change this; use one tab when changing sessions or
@@ -716,13 +769,18 @@ the Phase 2B manual backup path.
   duplicate-session-name detection.
 - Empty-default cloud adoption that preserves deliberately created local
   sessions and tombstoned solves.
-- Manual session merge and per-field conflict resolution, with a manual-review
-  mode that pauses publication when a same-field conflict is pending.
+- Manual session merge and per-field solve conflict resolution. Manual review
+  pauses publication, shows **Use this device** / **Use cloud** choices, and
+  resumes after the last pending conflict is resolved.
+- Solves created after a session tombstone are moved into a deterministic
+  `(recovered)` session instead of being silently dropped.
 - Sync settings and status UI, plus deterministic mock-transport unit and E2E
   coverage.
 - The 2026-10-25 hardening patch fixed legacy migration scope, adoption
   semantics, solve-owner event compatibility, directional counts, duplicate-name
-  validation, and in-flight local-edit protection.
+  validation, and in-flight local-edit protection. The audit follow-up added the
+  conflict workflow, deletion recovery, honest solve-count semantics, and redirect
+  determinism tests.
 
 **Not proven:** Google Drive does not expose a verified atomic compare-and-swap
 in this implementation, so a simultaneous two-device upload can still race. The
@@ -736,8 +794,10 @@ not describe Phase 2C as data-loss-proof.
 - Phase 2B and Phase 2C are implemented. Do not add telemetry, non-Google cloud
   providers, or a different sync protocol without an explicit brief.
 - The highest-value sync work is real remote concurrency protection: a verified
-  compare-and-swap/ETag update path, a complete manual conflict approve-and-resume
-  workflow, sync-on-exit hardening, and deletion-versus-offline-edit rescue.
+  compare-and-swap/ETag update path and a stale-writer test. Then extend the
+  conflict queue to session metadata, preferences, redirects, and global
+  settings; add per-preference timestamps; harden sync-on-exit; and design
+  recovery for pre-deletion offline edits with clock skew.
   Extend the Drive transport, metadata store, and failure-path tests together.
 - If more timer preferences are requested, extend the Settings dialog and the
   versioned settings schema together, with migration and E2E coverage. Do not

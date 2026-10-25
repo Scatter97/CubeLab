@@ -15,6 +15,7 @@ import {
   type SyncPreferences,
   type SyncStatus,
   type SyncStorageData,
+  type SyncConflict,
 } from '../lib/syncStorage'
 import {
   createSyncEnvelope,
@@ -40,11 +41,13 @@ interface UseSyncOptions {
 export interface UseSyncResult {
   phase: SyncStatus
   lastSyncAt: number | null
-  pendingCount: number
+  newSolvesSinceLastSync: number
   error: string | null
   conflictsCount: number
+  pendingConflicts: SyncConflict[]
   duplicateNames: string[]
   approveSessionMerge: (sourceId: string, targetId: string) => void
+  resolveConflict: (id: string, field: string, resolution: 'local' | 'remote') => void
   preferences: SyncPreferences
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
@@ -62,6 +65,24 @@ function toMessage(error: unknown): string {
 
 function countSolvesInData(data: SessionsData): number {
   return countSolves(data.sessions)
+}
+
+/**
+ * Keeps one record per solve/field. A newly raised conflict replaces an older
+ * resolution for the same field; otherwise user resolutions survive a sync.
+ */
+function mergeConflictRecords(
+  existing: readonly SyncConflict[],
+  incoming: readonly SyncConflict[],
+): SyncConflict[] {
+  const records = new Map<string, SyncConflict>()
+  for (const conflict of existing) {
+    records.set(`${conflict.kind}:${conflict.id}:${conflict.field}`, conflict)
+  }
+  for (const conflict of incoming) {
+    records.set(`${conflict.kind}:${conflict.id}:${conflict.field}`, conflict)
+  }
+  return [...records.values()].sort((left, right) => left.updatedAt - right.updatedAt).slice(-100)
 }
 
 function getRemoteFileId(): string | null {
@@ -266,6 +287,50 @@ export function useSync({
     [onReplaceSessions, persist],
   )
 
+  const resolveConflict = useCallback(
+    (id: string, field: string, resolution: 'local' | 'remote') => {
+      const conflicts = syncRef.current.runtime.conflicts.map((conflict) => {
+        if (
+          conflict.kind !== 'solve' ||
+          conflict.id !== id ||
+          conflict.field !== field ||
+          conflict.resolution !== 'manual-pending'
+        ) {
+          return conflict
+        }
+        // The approval must outrank both reviewed versions, including a remote
+        // timestamp that is ahead because of clock skew.
+        return {
+          ...conflict,
+          resolution,
+          updatedAt: Math.max(
+            Date.now(),
+            conflict.updatedAt,
+            conflict.localUpdatedAt,
+            conflict.remoteUpdatedAt,
+          ),
+        }
+      })
+      const stillPending = conflicts.some((conflict) => conflict.resolution === 'manual-pending')
+      persist({
+        ...syncRef.current,
+        runtime: {
+          ...syncRef.current.runtime,
+          conflicts,
+          lastSyncStatus: stillPending ? 'conflict' : 'pending',
+          lastError: stillPending
+            ? syncRef.current.runtime.lastError
+            : null,
+        },
+      })
+
+      if (!stillPending) {
+        window.setTimeout(() => void syncNowRef.current?.('conflict-resolution'), 0)
+      }
+    },
+    [persist],
+  )
+
   const updatePreferences = useCallback(
     (next: Partial<SyncPreferences>) => {
       const enabled = next.enabled ?? syncRef.current.preferences.enabled
@@ -373,6 +438,7 @@ export function useSync({
             sessionRedirects: combinedRedirects,
             deviceId: syncRef.current.runtime.deviceId,
             manualConflictReview: syncRef.current.preferences.manualConflictReview,
+            resolvedConflicts: syncRef.current.runtime.conflicts,
           })
 
           // Settings merge.
@@ -399,7 +465,7 @@ export function useSync({
               ...syncRef.current,
               runtime: {
                 ...syncRef.current.runtime,
-                conflicts: [...syncRef.current.runtime.conflicts, ...pendingConflicts].slice(-100),
+                conflicts: mergeConflictRecords(syncRef.current.runtime.conflicts, pendingConflicts),
                 lastSyncStatus: 'conflict',
                 lastError: 'Resolve same-field conflicts before publishing a cloud backup. Local and cloud data were not overwritten.',
               },
@@ -457,7 +523,7 @@ export function useSync({
           const now = Date.now()
           const updatedConflicts =
             syncRef.current.preferences.manualConflictReview
-              ? [...syncRef.current.runtime.conflicts, ...merged.conflicts]
+              ? mergeConflictRecords(syncRef.current.runtime.conflicts, merged.conflicts)
               : syncRef.current.runtime.conflicts.filter((c) => c.resolution !== 'local' && c.resolution !== 'remote').concat(
                   merged.conflicts.map((conflict) => ({ ...conflict, resolution: conflict.resolution === 'manual-pending' ? 'local' : conflict.resolution })),
                 )
@@ -517,13 +583,18 @@ export function useSync({
               )
             }
             if (addedRemote > 0) messages.push(`${addedRemote} cloud solve${addedRemote === 1 ? '' : 's'} merged`)
+            if (merged.recoveredSolves > 0) {
+              messages.push(
+                `${merged.recoveredSolves} solve${merged.recoveredSolves === 1 ? '' : 's'} recovered from a deleted session`,
+              )
+            }
             if (merged.conflicts.length > 0 && !syncRef.current.preferences.manualConflictReview) {
               messages.push(`${merged.conflicts.length} conflict${merged.conflicts.length === 1 ? '' : 's'} automatically resolved`)
             }
             if (messages.length > 0) {
               onNotify(messages.join(' · ') + '.')
             } else if (reason === 'manual') {
-              onNotify('Synchronization complete.')
+              onNotify('Synchronization complete. No new solves were exchanged.')
             }
           }
         } catch (caught) {
@@ -710,19 +781,24 @@ export function useSync({
     syncNow,
   ])
 
-  const pendingCount = useMemo(() => {
+  const newSolvesSinceLastSync = useMemo(() => {
     if (!sync.preferences.enabled) return 0
     return Math.max(0, countSolvesInData(sessions) - sync.runtime.solveCountAtLastSync)
   }, [sessions, sync.preferences.enabled, sync.runtime.solveCountAtLastSync])
 
-  const conflictsCount = sync.runtime.conflicts.filter((c) => c.resolution === 'manual-pending').length
+  const pendingConflicts = useMemo(
+    () => sync.runtime.conflicts.filter((conflict) => conflict.resolution === 'manual-pending'),
+    [sync.runtime.conflicts],
+  )
+  const conflictsCount = pendingConflicts.length
 
   return {
     phase: sync.preferences.enabled ? sync.runtime.lastSyncStatus : 'disabled',
     lastSyncAt: sync.runtime.lastSyncAt,
-    pendingCount,
+    newSolvesSinceLastSync,
     error: sync.runtime.lastError,
     conflictsCount,
+    pendingConflicts,
     duplicateNames: sync.runtime.pendingDuplicateNames ?? [],
     preferences: sync.preferences,
     updatePreferences,
@@ -737,5 +813,6 @@ export function useSync({
     clearDeletion,
     resetBase,
     approveSessionMerge,
+    resolveConflict,
   }
 }

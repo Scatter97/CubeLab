@@ -2314,6 +2314,49 @@ kbd {
   color: var(--danger);
 }
 
+.sync-conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sync-conflict-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  background: var(--surface-soft);
+}
+
+.sync-conflict-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sync-conflict-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .sync-conflict-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sync-conflict-actions {
+    justify-content: flex-end;
+  }
+}
+
 /* Session settings */
 
 .session-settings-dialog {

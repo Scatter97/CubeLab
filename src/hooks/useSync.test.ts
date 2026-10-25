@@ -9,7 +9,10 @@ import {
   createDefaultSyncStorage,
   saveSyncStorage,
   SYNC_STORAGE_KEY,
+  type SyncPreferences,
 } from '../lib/syncStorage'
+import { createBackup } from '../lib/backup'
+import { createSyncEnvelope } from '../lib/sync'
 import { useSync } from './useSync'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
@@ -84,7 +87,7 @@ function createDeferredTransport() {
   }
 }
 
-function enableSync() {
+function enableSync(preferences: Partial<SyncPreferences> = {}) {
   const sync = createDefaultSyncStorage('device-test')
   saveSyncStorage({
     ...sync,
@@ -95,6 +98,7 @@ function enableSync() {
       syncOnExit: false,
       syncOnReconnect: false,
       mode: 'combined',
+      ...preferences,
     },
     runtime: { ...sync.runtime, lastSyncStatus: 'pending' },
   })
@@ -164,5 +168,100 @@ describe('useSync in-flight safety', () => {
         'recorded-during-upload',
       )
     }
+  })
+})
+
+describe('useSync manual conflict resolution', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('pauses on a conflicting solve field and resumes with the chosen side', async () => {
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+
+    const remoteSessions = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: '+2',
+              fieldUpdates: {
+                penalty: { updatedAt: Date.now() + 60_000, editorId: 'remote-device' },
+              },
+            }),
+          ],
+        }),
+      ],
+    })
+    await transport.uploadBackup(
+      JSON.stringify(
+        createBackup(
+          remoteSessions,
+          DEFAULT_SETTINGS,
+          new Date(),
+          createSyncEnvelope('remote-device', 1, [], []),
+        ),
+      ),
+      null,
+    )
+
+    const localSessions = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'none',
+              fieldUpdates: { penalty: { updatedAt: 100, editorId: 'local-device' } },
+            }),
+          ],
+        }),
+      ],
+    })
+    const onReplaceSessions = vi.fn()
+    const onNotify = vi.fn()
+
+    const { result } = renderHook(() =>
+      useSync({
+        transport,
+        sessions: localSessions,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions,
+        onReplaceSettings: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('conflict')
+    expect(result.current.pendingConflicts).toHaveLength(1)
+    expect(result.current.pendingConflicts[0]).toMatchObject({
+      id: 'solve-1',
+      field: 'penalty',
+      localValue: 'none',
+      remoteValue: '+2',
+    })
+    expect(result.current.newSolvesSinceLastSync).toBe(1)
+
+    await act(async () => {
+      result.current.resolveConflict('solve-1', 'penalty', 'local')
+      await result.current.syncNow('manual')
+    })
+
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    expect(result.current.pendingConflicts).toHaveLength(0)
+
+    const remoteFile = await transport.findBackup()
+    const uploaded = await transport.downloadBackup(remoteFile!.id)
+    expect(uploaded).toContain('"penalty":"none"')
+    expect(onReplaceSessions).toHaveBeenCalled()
+    const replacement = onReplaceSessions.mock.calls.at(-1)?.[0] as SessionsData | undefined
+    expect(replacement?.sessions[0]?.solves[0]?.penalty).toBe('none')
   })
 })

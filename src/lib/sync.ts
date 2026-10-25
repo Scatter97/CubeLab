@@ -1,5 +1,5 @@
 import type { Session, SessionsData, Settings, Solve } from '../types'
-import { DEFAULT_SESSION_NAME, normalizeSessionName } from './sessions'
+import { DEFAULT_SESSION_NAME, MAX_SESSION_NAME_LENGTH, normalizeSessionName } from './sessions'
 import { DEFAULT_SETTINGS } from './storage'
 import { applySessionRedirects, normalizeSessionRedirects } from './sessionRedirects'
 import { mergeSolveFields, recordTime, solvesEqual } from './solveMerge'
@@ -47,6 +47,24 @@ function hasUserSessionContent(session: Session): boolean {
   )
 }
 
+function recoveredSessionName(baseName: string, usedNames: Set<string>): string {
+  const suffix = ' (recovered)'
+  let root = normalizeSessionName(baseName) || 'Session'
+  if (root.length + suffix.length > MAX_SESSION_NAME_LENGTH) {
+    root = root.slice(0, MAX_SESSION_NAME_LENGTH - suffix.length).trim()
+  }
+  let candidate = `${root}${suffix}`
+  let counter = 2
+  while (usedNames.has(candidate.toLowerCase())) {
+    const numbered = ` ${counter}`
+    const maxRoot = MAX_SESSION_NAME_LENGTH - suffix.length - numbered.length
+    candidate = `${root.slice(0, maxRoot).trim()}${suffix}${numbered}`
+    counter += 1
+  }
+  usedNames.add(candidate.toLowerCase())
+  return candidate
+}
+
 export interface SyncMergeResult {
   merged: SessionsData
   adoptedLocalDefault: boolean
@@ -59,6 +77,7 @@ export interface SyncMergeResult {
   remoteWins: number
   conflicts: SyncConflict[]
   mergedTombstones: Tombstone[]
+  recoveredSolves: number
 }
 
 export function mergeSessionsData(input: {
@@ -68,11 +87,13 @@ export function mergeSessionsData(input: {
   sessionRedirects?: SessionRedirect[]
   deviceId: string
   manualConflictReview: boolean
+  resolvedConflicts?: SyncConflict[]
 }): SyncMergeResult {
   const redirects = input.sessionRedirects ?? []
   const local = redirects.length > 0 ? applySessionRedirects(input.local, redirects) : input.local
   const remote = input.remote && redirects.length > 0 ? applySessionRedirects(input.remote, redirects) : input.remote
   const { tombstones, manualConflictReview } = input
+  const resolvedConflicts = input.resolvedConflicts ?? []
   const conflicts: SyncConflict[] = []
 
   const localSession = local.sessions[0]
@@ -123,6 +144,7 @@ export function mergeSessionsData(input: {
       remoteWins: 0,
       conflicts: [],
       mergedTombstones: [...tombstones],
+      recoveredSolves: 0,
     }
     }
   }
@@ -138,10 +160,25 @@ export function mergeSessionsData(input: {
   const solveToSession = new Map<string, string>()
   const solveById = new Map<string, { local?: Solve; remote?: Solve }>()
   const ownership = new Map<string, {local?: string;remote?: string}>()
+  // A session tombstone deliberately removes its session, but solves created on
+  // an offline device after that deletion must not vanish silently. Keep those
+  // candidates aside and move them into a clearly labelled recovered session.
+  const deletedSessionSnapshots = new Map<string, Session>()
+  const orphanSolvesBySession = new Map<string, Map<string, Solve>>()
   for (const [side, data] of [['local', local], ['remote', remote]] as const) {
     if (!data) continue
     for (const session of data.sessions) {
-      if (deletedSessionIds.has(session.id)) continue
+      if (deletedSessionIds.has(session.id)) {
+        if (!deletedSessionSnapshots.has(session.id)) deletedSessionSnapshots.set(session.id, session)
+        const orphans = orphanSolvesBySession.get(session.id) ?? new Map<string, Solve>()
+        for (const solve of session.solves) {
+          if (deletedSolveIds.has(solve.id)) continue
+          const existing = orphans.get(solve.id)
+          orphans.set(solve.id, existing ? mergeSolveFields(existing, solve, false, []) : solve)
+        }
+        orphanSolvesBySession.set(session.id, orphans)
+        continue
+      }
       for (const solve of session.solves) {
         if (deletedSolveIds.has(solve.id)) continue
         if (solve.event !== (session.event ?? '333')) {
@@ -149,7 +186,9 @@ export function mergeSessionsData(input: {
         }
         const pair = solveById.get(solve.id) ?? {}
         const existing = pair[side]
-        pair[side] = existing ? mergeSolveFields(existing, solve, manualConflictReview, conflicts) : solve
+        pair[side] = existing
+          ? mergeSolveFields(existing, solve, manualConflictReview, conflicts, resolvedConflicts)
+          : solve
         solveById.set(solve.id, pair)
         const owners = ownership.get(solve.id) ?? {}
         owners[side] = session.id
@@ -251,10 +290,10 @@ export function mergeSessionsData(input: {
       } else if (!remoteSolve) {
         sessionSolves.push(localSolve)
       } else if (solvesEqual(localSolve, remoteSolve)) {
-        sessionSolves.push(mergeSolveFields(localSolve, remoteSolve, false, []))
+        sessionSolves.push(mergeSolveFields(localSolve, remoteSolve, false, [], resolvedConflicts))
       } else {
         updatedSolves += 1
-        sessionSolves.push(mergeSolveFields(localSolve, remoteSolve, manualConflictReview, conflicts))
+        sessionSolves.push(mergeSolveFields(localSolve, remoteSolve, manualConflictReview, conflicts, resolvedConflicts))
       }
     }
 
@@ -281,6 +320,57 @@ export function mergeSessionsData(input: {
       ...(chosenPreferences && Object.keys(chosenPreferences).length ? { preferences: chosenPreferences } : {}),
     }
     mergedSessions.push(mergedSession)
+  }
+
+  // Restore offline edits that were created after another device deleted their
+  // session. Solves that predate the tombstone are treated as intentionally
+  // deleted; solves that also exist in a live session are already merged.
+  const deletedAtBySessionId = new Map(
+    tombstones
+      .filter((tombstone) => tombstone.kind === 'session')
+      .map((tombstone) => [tombstone.id, tombstone.deletedAt]),
+  )
+  const usedSessionNames = new Set(
+    mergedSessions.map((session) => normalizeSessionName(session.name).toLowerCase()),
+  )
+  let recoveredSolves = 0
+  for (const [deletedSessionId, orphans] of orphanSolvesBySession) {
+    const snapshot = deletedSessionSnapshots.get(deletedSessionId)
+    if (!snapshot) continue
+    const deletedAt = deletedAtBySessionId.get(deletedSessionId) ?? 0
+    const candidates = [...orphans.values()].filter((solve) => {
+      if (solveById.has(solve.id)) return false
+      return solve.createdAt > deletedAt || (solve.updatedAt ?? 0) > deletedAt
+    })
+    if (candidates.length === 0) continue
+
+    const recoveredId = `recovered:${deletedSessionId}`
+    if (sessionIds.has(recoveredId)) continue
+    const event = snapshot.event ?? candidates[0]!.event ?? '333'
+    if (candidates.some((solve) => solve.event !== event)) {
+      throw new Error(
+        `Offline edits in deleted session ${deletedSessionId} mix puzzle events; sync stopped to preserve data.`,
+      )
+    }
+
+    const recovered: Session = {
+      id: recoveredId,
+      name: recoveredSessionName(snapshot.name, usedSessionNames),
+      event,
+      createdAt: snapshot.createdAt,
+      updatedAt: Math.max(snapshot.updatedAt, ...candidates.map((solve) => recordTime(solve))),
+      solves: [...candidates].sort(
+        (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
+      ),
+      ...(typeof snapshot.inspectionEnabled === 'boolean'
+        ? { inspectionEnabled: snapshot.inspectionEnabled }
+        : {}),
+      ...(snapshot.preferences && Object.keys(snapshot.preferences).length > 0
+        ? { preferences: { ...snapshot.preferences } }
+        : {}),
+    }
+    mergedSessions.push(recovered)
+    recoveredSolves += candidates.length
   }
 
   // Count removed solves from tombstones.
@@ -318,6 +408,7 @@ export function mergeSessionsData(input: {
     remoteWins: conflicts.filter((conflict) => conflict.resolution === 'remote').length,
     conflicts,
     mergedTombstones: [...tombstones],
+    recoveredSolves,
   }
 
   return result

@@ -55,11 +55,34 @@ function pickFieldWinner(
   return String(localValue) <= String(remoteValue) ? 'local' : 'remote'
 }
 
+function findResolvedConflict(
+  local: Solve,
+  field: 'rawMs' | 'penalty' | 'scramble' | 'comment',
+  localUpdatedAt: number,
+  remoteUpdatedAt: number,
+  resolvedConflicts: readonly SyncConflict[],
+): SyncConflict | undefined {
+  // A user resolution applies only while both sides still hold the versions
+  // that were shown for review. A later edit on either side is a new conflict.
+  return resolvedConflicts
+    .filter(
+      (conflict) =>
+        conflict.kind === 'solve' &&
+        conflict.id === local.id &&
+        conflict.field === field &&
+        conflict.resolution !== 'manual-pending' &&
+        localUpdatedAt <= conflict.updatedAt &&
+        remoteUpdatedAt <= conflict.updatedAt,
+    )
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+}
+
 export function mergeSolveFields(
   local: Solve,
   remote: Solve,
   manualConflictReview: boolean,
   conflicts: SyncConflict[],
+  resolvedConflicts: readonly SyncConflict[] = [],
 ): Solve {
   const fields: Array<'rawMs' | 'penalty' | 'scramble' | 'comment'> = [
     'rawMs',
@@ -74,9 +97,9 @@ export function mergeSolveFields(
     comment: local.comment,
   }
   const fieldUpdates: NonNullable<Solve['fieldUpdates']> = { ...(local.fieldUpdates ?? {}) }
+  let latestResolvedUpdate = 0
 
   for (const field of fields) {
-    const winner = pickFieldWinner(local, remote, field)
     const localValue =
       field === 'rawMs' ? local.rawMs :
       field === 'penalty' ? local.penalty :
@@ -96,20 +119,39 @@ export function mergeSolveFields(
       continue
     }
 
-    const winningUpdate =
-      winner === 'local'
-        ? getFieldUpdate(local, field)
-        : getFieldUpdate(remote, field)
+    const localUpdate = getFieldUpdate(local, field)
+    const remoteUpdate = getFieldUpdate(remote, field)
+    const resolved = findResolvedConflict(
+      local,
+      field,
+      localUpdate.updatedAt,
+      remoteUpdate.updatedAt,
+      resolvedConflicts,
+    )
+    const winner = resolved
+      ? resolved.resolution
+      : pickFieldWinner(local, remote, field)
     if (field === 'rawMs') values.rawMs = winner === 'local' ? local.rawMs : remote.rawMs
     if (field === 'penalty') values.penalty = winner === 'local' ? local.penalty : remote.penalty
     if (field === 'scramble') values.scramble = winner === 'local' ? local.scramble : remote.scramble
     if (field === 'comment') values.comment = winner === 'local' ? local.comment : remote.comment
-    fieldUpdates[field] = winningUpdate
 
-    const localUpdate = getFieldUpdate(local, field)
-    const remoteUpdate = getFieldUpdate(remote, field)
+    if (resolved) {
+      // Stamp the approved value as newer so a third device that receives the
+      // uploaded result also converges on the user's choice.
+      latestResolvedUpdate = Math.max(latestResolvedUpdate, resolved.updatedAt)
+      fieldUpdates[field] = {
+        updatedAt: resolved.updatedAt,
+        editorId: winner === 'local' ? localUpdate.editorId : remoteUpdate.editorId,
+      }
+      continue
+    }
+
+    fieldUpdates[field] =
+      winner === 'local' ? localUpdate : remoteUpdate
+
     const resolutionWinner =
-      manualConflictReview && winner !== undefined ? 'manual-pending' : winner === 'local' ? 'local' : 'remote'
+      manualConflictReview ? 'manual-pending' : winner === 'local' ? 'local' : 'remote'
     conflicts.push({
       id: local.id,
       kind: 'solve',
@@ -135,7 +177,7 @@ export function mergeSolveFields(
     scramble: values.scramble,
     comment: values.comment,
     createdAt: Math.min(local.createdAt, remote.createdAt),
-    updatedAt: Math.max(recordTime(local), recordTime(remote)),
+    updatedAt: Math.max(recordTime(local), recordTime(remote), latestResolvedUpdate),
     fieldUpdates,
   }
 }
