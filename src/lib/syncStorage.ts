@@ -30,6 +30,12 @@ export interface Tombstone {
   deletedAt: number
   deletedByDeviceId: string
   revision?: number
+  /**
+   * Session tombstones: solve IDs known to the deleting device at deletion time.
+   * Unknown solve IDs from another offline device are recoverable even when
+   * clock skew would otherwise make them look older than the deletion.
+   */
+  knownSolveIds?: string[]
 }
 
 export interface SyncConflict {
@@ -104,6 +110,13 @@ function isTombstone(value: unknown): value is Tombstone {
   if (typeof value.id !== 'string' || value.id.length === 0) return false
   if (typeof value.deletedAt !== 'number' || !Number.isFinite(value.deletedAt)) return false
   if (typeof value.deletedByDeviceId !== 'string' || value.deletedByDeviceId.length === 0) return false
+  if (
+    value.knownSolveIds !== undefined &&
+    (!Array.isArray(value.knownSolveIds) ||
+      !value.knownSolveIds.every((id) => typeof id === 'string' && id.length > 0))
+  ) {
+    return false
+  }
   return true
 }
 

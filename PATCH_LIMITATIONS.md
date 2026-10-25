@@ -2,18 +2,37 @@
 
 This patch is deliberately **not** a claim that every audit finding is fixed.
 
-## Addressed in the 2026-10-25 audit follow-up
+## Addressed
 
-- **Manual conflict resolution:** pending same-field conflicts now block cloud
-  publication and appear in the Drive dialog with **Use this device** and **Use
-  cloud** actions. The choice is stored, applied on the next merge, stamped as
-  newer than both reviewed versions, and synchronization resumes automatically
-  after the last pending conflict is resolved.
-- **Deletion versus offline edits:** solves created after a session tombstone are
-  copied into a clearly named `(recovered)` session instead of disappearing.
-  Recovery is idempotent, preserves the puzzle event, and does not duplicate
-  solves that already exist in a live session.
-- **Pending count semantics:** the internal counter is now
+### Manual conflict resolution and stale approvals
+
+- Pending same-field conflicts block cloud publication and appear in the Drive
+  dialog with **Use this device** and **Use cloud** actions. The choice is
+  stored, applied on the next merge, stamped newer than both reviewed versions,
+  and synchronization resumes automatically after the last pending conflict is
+  resolved.
+- An approval applies only while both sides still hold the exact field values and
+  modification timestamps that were displayed for review. A third edit made
+  between review and approval raises a fresh conflict instead of being silently
+  overwritten by the stale choice.
+
+### Deletion recovery across successive devices
+
+- Solves belonging to a deleted session can be copied into a clearly named
+  `(recovered)` session instead of disappearing.
+- If a recovered session already exists, later eligible solves are merged into it
+  by stable solve ID. A second or third offline device cannot lose its solves
+  because the recovered session was created earlier.
+- Recovery preserves the puzzle event, existing recovered-session preferences,
+  and inspection override. Repeated synchronization is idempotent.
+- New session tombstones record the solve IDs known to the deleting device.
+  Unknown solve IDs from another device are recoverable even if clock skew makes
+  them look older than the deletion. Legacy tombstones without that snapshot fall
+  back to wall-clock comparison.
+
+### Other hardening
+
+- **Pending count semantics:** the internal counter is
   `newSolvesSinceLastSync`, matching the UI label. It does not claim to count
   renamed sessions, penalty edits, deletions, or preference changes.
 - **Status messages:** manual completion now says that no new solves were
@@ -27,16 +46,23 @@ This patch is deliberately **not** a claim that every audit finding is fixed.
 
 - **No verified atomic compare-and-swap.** The Drive transport uses direct media
   `PATCH` without an atomic revision precondition. Two devices can still overwrite
-  a remote backup in a write race. A monotonic JSON revision is not a CAS.
+  a remote backup in a write race. A monotonic JSON revision is not a CAS, and
+  Google Drive v3 does not expose a verified conditional-write token through this
+  transport. This requires a provider-supported protocol or backend guarantee.
 - **No server-side write serialization.** In-flight guards protect local data, not
   the remote write.
 - **Conflict workflow is minimal.** It resolves solve-field conflicts only. There
   is no conflict queue for session names, preferences, redirects, or global
   settings, and no audit log of past resolutions.
-- **Deletion recovery is time-based.** A solve is recovered only when its
-  `createdAt` or `updatedAt` is later than the session tombstone. An offline edit
-  made before the deletion with a skewed clock can still be lost. Pre-existing
-  solves in a deliberately deleted session are not restored.
+- **Legacy deletion tombstones still use wall-clock comparison.** Session
+  tombstones created before the known-solve snapshot cannot distinguish an
+  unknown offline edit from an intentionally deleted solve, so ambiguous
+  pre-existing edits can still be lost. New tombstones remove the clock-skew
+  dependence by recovering IDs the deleting device did not know, which is
+  conservative: an old solve that never reached the deleting device can be
+  recovered rather than silently deleted.
+- **Explicit deletion wins.** If a recovered session is itself tombstoned, later
+  recovery passes do not resurrect it.
 - **Session preferences remain session-wide.** Independent edits to different
   preference fields on two devices can still lose one edit because there are no
   per-preference timestamps.

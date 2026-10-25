@@ -264,4 +264,164 @@ describe('useSync manual conflict resolution', () => {
     const replacement = onReplaceSessions.mock.calls.at(-1)?.[0] as SessionsData | undefined
     expect(replacement?.sessions[0]?.solves[0]?.penalty).toBe('none')
   })
+
+  it('re-raises review when local data changes before approval', async () => {
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+
+    const remoteSessions = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: '+2',
+              fieldUpdates: {
+                penalty: { updatedAt: 200, editorId: 'remote-device' },
+              },
+            }),
+          ],
+        }),
+      ],
+    })
+    await transport.uploadBackup(
+      JSON.stringify(
+        createBackup(
+          remoteSessions,
+          DEFAULT_SETTINGS,
+          new Date(),
+          createSyncEnvelope('remote-device', 1, [], []),
+        ),
+      ),
+      null,
+    )
+
+    const initialSessions = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'none',
+              fieldUpdates: { penalty: { updatedAt: 100, editorId: 'local-device' } },
+            }),
+          ],
+        }),
+      ],
+    })
+    const editedSessions = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'dnf',
+              fieldUpdates: { penalty: { updatedAt: 400, editorId: 'local-device' } },
+            }),
+          ],
+        }),
+      ],
+    })
+
+    const { result, rerender } = renderHook(
+      ({ sessions }: { sessions: SessionsData }) =>
+        useSync({
+          transport,
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: false,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { sessions: initialSessions } },
+    )
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.pendingConflicts).toHaveLength(1)
+
+    // The user edits the local penalty after the conflict was displayed but
+    // before choosing a side.
+    await act(async () => {
+      rerender({ sessions: editedSessions })
+    })
+    await act(async () => {
+      result.current.resolveConflict('solve-1', 'penalty', 'local')
+      await result.current.syncNow('manual')
+    })
+
+    await vi.waitFor(() => {
+      expect(result.current.phase).toBe('conflict')
+      expect(result.current.pendingConflicts[0]).toMatchObject({
+        resolution: 'manual-pending',
+        localValue: 'dnf',
+        remoteValue: '+2',
+        localUpdatedAt: 400,
+      })
+    })
+
+    const remoteFile = await transport.findBackup()
+    const stillCloud = await transport.downloadBackup(remoteFile!.id)
+    expect(stillCloud).toContain('"penalty":"+2"')
+    expect(stillCloud).not.toContain('"penalty":"dnf"')
+  })
+})
+
+describe('useSync deletion tombstones', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('records the deleted session solve snapshot for clock-skew-safe recovery', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    const initial = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({ id: 'known-a' }),
+            solve({ id: 'known-b' }),
+          ],
+        }),
+      ],
+    })
+    const { rerender } = renderHook(
+      ({ sessions }: { sessions: SessionsData }) =>
+        useSync({
+          transport,
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: false,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { sessions: initial } },
+    )
+
+    await act(async () => {
+      rerender({ sessions: sessionsData({ sessions: [] }) })
+    })
+
+    await vi.waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(SYNC_STORAGE_KEY) ?? '{}') as {
+        runtime?: {
+          tombstones?: Array<{
+            kind: string
+            id: string
+            knownSolveIds?: string[]
+          }>
+        }
+      }
+      const sessionTombstone = stored.runtime?.tombstones?.find(
+        (tombstone) => tombstone.kind === 'session' && tombstone.id === 'session-1',
+      )
+      expect(sessionTombstone?.knownSolveIds?.sort()).toEqual([
+        'known-a',
+        'known-b',
+      ])
+    })
+  })
 })

@@ -171,9 +171,15 @@ There is no separate manual **Backup now** button and no
 sessions and solves. Deletions use tombstones. Same-field solve edits are merged
 automatically unless manual review is enabled. With manual review, CubeLab pauses
 cloud publication and lists each pending conflict with **Use this device** and
-**Use cloud** actions; it resumes after the last one is resolved. If a device adds
-solves to a session after another device deleted it, those solves are moved into
-a clearly labelled **Session (recovered)** rather than being lost.
+**Use cloud** actions; it resumes after the last one is resolved. An approval only
+applies to the exact values that were displayed, so an edit made after the prompt
+creates a fresh conflict instead of being overwritten. If a device adds solves to
+a session after another device deleted it, those solves are moved into a clearly
+labelled **Session (recovered)** rather than being lost. Later offline devices
+merge their solves into that recovered session by solve ID. New session tombstones
+record the deleting device's known solve IDs, allowing unknown offline solves to be
+recovered even when device clocks disagree; legacy tombstones use the timestamp
+fallback.
 
 Synchronization is not a substitute for the local JSON backup. The Drive transport
 does not currently provide verified atomic compare-and-swap protection, so two
@@ -333,17 +339,18 @@ Each solve contains `id`, `event`, `rawMs`, `penalty`, `scramble`, `comment`, an
 solves, and duplicate IDs are skipped individually. Corrupt session JSON falls
 back to the legacy record and then to a fresh empty session; a valid session
 collection is never silently discarded. The active session is normalized to an
-existing session on load. Sessions are stored at schema version 2; version 1
-records migrate with empty comments and no inspection override.
+existing session on load. Sessions are stored at schema version 3; version 1 and
+2 records migrate with defaults for newer solve fields and preferences.
 
-Settings are stored at schema version 5. Version 1–4 records are upgraded in
-place with defaults for inspection direction, independent warnings, expanded
-statistics, and custom averages; invalid individual values fall back without
-discarding the rest of the record.
+Settings are stored at schema version 6. Version 1–5 records are upgraded in
+place with field-level defaults for newer settings; invalid individual values
+fall back without discarding the rest of the record.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
-exportedAt, sessions, settings }`. The parser validates the marker, version,
-sessions, solves, and settings before the confirmation step.
+exportedAt, sessions, settings, sync? }`. The parser validates the marker,
+version, sessions, solves, and settings before the confirmation step. The optional
+sync envelope carries the cloud revision, tombstones, conflict records, and session
+redirects.
 
 ### Production worker note
 

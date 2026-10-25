@@ -124,7 +124,7 @@ the production build because it tests the service worker and offline reload.
   the timer.
 - **Persistence is versioned.** Keys are `cubelab:sessions:v1` (active session
   plus all named sessions, optional inspection overrides, solves, and comments)
-  and `cubelab:settings:v1`. Sessions use schema `v2`; settings use schema `v6`.
+  and `cubelab:settings:v1`. Sessions use schema `v3`; settings use schema `v6`.
   The original `cubelab:solves:v1` key is read only for migration into
   **Session 1**. Validate and recover from corrupt records; never silently
   discard a valid session. Any schema change needs a migration and tests.
@@ -138,6 +138,12 @@ the production build because it tests the service worker and offline reload.
   file name, remote metadata in `cubelab:drive:v1`, typed restore phrase, and no
   background sync or telemetry. Keep the 10 MB import cap unless large-backup
   behavior is deliberately designed and tested.
+- **Sync recovery is ID-based and approval-fresh.** Session tombstones record the
+  deleting device's `knownSolveIds`; recovery extends an existing
+  `recovered:<sessionId>` session by stable solve ID, preserves event and
+  preferences, and uses wall-clock comparison only for legacy tombstones. A
+  manual conflict approval applies only to the exact reviewed values and field
+  timestamps; a later edit must raise a new conflict.
 - **Raw data is immutable by default.** Store raw milliseconds plus a penalty
   value. Do not overwrite raw time when applying `+2`.
 - **Keep the production worker isolation.** `vite.config.ts` isolates cubing

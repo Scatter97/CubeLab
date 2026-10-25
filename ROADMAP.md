@@ -34,9 +34,11 @@ verification evidence.
 - The 2026-10-25 hardening patch fixed legacy 3×3-only migration, empty-default
   adoption, solve-owner/event compatibility, directional sync counts,
   duplicate-name validation, in-flight local-edit protection, and two React lint
-  warnings. The audit follow-up added manual solve-field conflict resolution,
-  deletion/offline-edit recovery, honest solve-count semantics, and deterministic
-  redirect tests. See `PATCH_LIMITATIONS.md` for what remains open.
+  warnings. The audit follow-ups added manual solve-field conflict resolution,
+  deletion/offline-edit recovery, honest solve-count semantics, deterministic
+  redirect tests, repeated recovered-session extension, stale-approval protection,
+  and known-solve snapshots on new session tombstones. See
+  `PATCH_LIMITATIONS.md` for what remains open.
 
 ## Product principles
 
@@ -165,15 +167,21 @@ proven.
   merges.
 - Per-field solve conflict resolution with a manual review queue. Pending
   conflicts pause cloud publication and offer **Use this device** / **Use cloud**
-  before synchronization resumes.
-- Solves created after a session tombstone are moved into a deterministic
-  `(recovered)` session rather than disappearing.
+  before synchronization resumes. An approval applies only to the exact reviewed
+  values; a later edit raises a new conflict.
+- Solves belonging to a deleted session are moved into a deterministic
+  `(recovered)` session rather than disappearing. Existing recovered sessions are
+  extended by solve ID when later offline devices reconnect.
+- New session tombstones record the deleting device's known solve IDs, so unknown
+  offline solves can be recovered even when clocks disagree; legacy tombstones use
+  the timestamp fallback.
 - Time-based, solve-count-based, and combined schedules plus startup, exit, and
   reconnect triggers.
 - Sync settings/status UI and deterministic mock-transport unit and E2E tests.
 - 2026-10-25 hardening for legacy migration, adoption, event-compatible ownership,
   directional counts, duplicate-name validation, in-flight local edits, honest
-  solve-count semantics, and deterministic redirect normalization.
+  solve-count semantics, deterministic redirect normalization, repeated
+  recovered-session extension, and stale-approval protection.
 
 **Acceptance gate — partially met:**
 
@@ -181,17 +189,20 @@ proven.
       session-selection conflicts.
 - [x] Sync failures leave local data intact and recoverable in the tested paths.
 - [x] Solve-field conflicts can be reviewed and resolved before publication.
-- [x] Offline solves created after a session deletion are preserved.
+- [x] Stale approvals cannot silently override edits made after review.
+- [x] Offline solves belonging to a deleted session are preserved across
+      successive devices without duplication.
+- [x] New session tombstones recover unknown solves independently of clock skew.
 - [ ] The user can understand and reverse the result of every merge.
 - [ ] A documented recovery path exists for corrupted or partially applied syncs.
 - [ ] Remote writes have verified atomic compare-and-swap protection.
 
 **Remaining work:** A verified CAS/ETag update path for the Drive file, a stale
 writer test against the real provider, conflict queues for session metadata and
-preferences, per-preference timestamps, guaranteed sync-on-exit, recovery for
-pre-deletion offline edits with clock skew, redirect consensus/recovery, and
-global settings provenance. Until those are addressed, do not describe
-synchronization as data-loss-proof.
+preferences, per-preference timestamps, guaranteed sync-on-exit, explicit recovery
+for ambiguous legacy-tombstone edits, redirect consensus/recovery, and global
+settings provenance. Until those are addressed, do not describe synchronization as
+data-loss-proof.
 
 ## Phase 3 — More WCA events
 

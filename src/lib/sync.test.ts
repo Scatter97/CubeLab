@@ -477,6 +477,99 @@ describe('manual conflict resolution', () => {
     expect(result.conflicts).toHaveLength(1)
     expect(result.conflicts[0]?.resolution).toBe('manual-pending')
   })
+
+  it('does not apply a stale approval to a local edit made between review and approval', () => {
+    const editedLocal = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'dnf',
+              // The edit occurs after the conflict was displayed but before the
+              // approval timestamp, so a timestamp-only check would accept it.
+              fieldUpdates: { penalty: { updatedAt: 400, editorId: 'local-device' } },
+            }),
+          ],
+        }),
+      ],
+    })
+    const result = mergeSessionsData({
+      local: editedLocal,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [{ ...pending, resolution: 'local', updatedAt: 500 }],
+    })
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]).toMatchObject({
+      resolution: 'manual-pending',
+      localValue: 'dnf',
+      remoteValue: '+2',
+      localUpdatedAt: 400,
+    })
+    expect(result.merged.sessions[0]?.solves[0]?.penalty).toBe('dnf')
+  })
+
+  it('does not apply a stale approval to a remote edit made between review and approval', () => {
+    const editedRemote = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'dnf',
+              fieldUpdates: { penalty: { updatedAt: 400, editorId: 'remote-device' } },
+            }),
+          ],
+        }),
+      ],
+    })
+    const result = mergeSessionsData({
+      local,
+      remote: editedRemote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [{ ...pending, resolution: 'remote', updatedAt: 500 }],
+    })
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]).toMatchObject({
+      resolution: 'manual-pending',
+      localValue: 'none',
+      remoteValue: 'dnf',
+      remoteUpdatedAt: 400,
+    })
+    expect(result.merged.sessions[0]?.solves[0]?.penalty).toBe('dnf')
+  })
+
+  it('does not apply an approval when a value changed without a newer timestamp', () => {
+    const editedLocal = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'dnf',
+              fieldUpdates: { penalty: { updatedAt: 100, editorId: 'local-device' } },
+            }),
+          ],
+        }),
+      ],
+    })
+    const result = mergeSessionsData({
+      local: editedLocal,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [{ ...pending, resolution: 'local', updatedAt: 500 }],
+    })
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]?.resolution).toBe('manual-pending')
+    expect(result.conflicts[0]?.localValue).toBe('dnf')
+  })
 })
 
 describe('deletion versus offline edits', () => {
@@ -550,6 +643,281 @@ describe('deletion versus offline edits', () => {
       'recovered:session-deleted',
     ])
     expect(totalSolves(second.merged)).toBe(1)
+  })
+
+  it('extends an existing recovered session when a second offline device reconnects', () => {
+    const recoveredSession = session({
+      id: 'recovered:session-deleted',
+      name: 'Gone (recovered)',
+      event: '333',
+      createdAt: deletedAt - 1_000,
+      updatedAt: deletedAt + 1_000,
+      inspectionEnabled: true,
+      preferences: { holdDurationMs: 500 },
+      solves: [solve({ id: 'offline-one', createdAt: deletedAt + 1_000 })],
+    })
+    const staleDeletedSession = session({
+      id: 'session-deleted',
+      name: 'Gone',
+      event: '333',
+      solves: [solve({ id: 'offline-two', createdAt: deletedAt + 2_000 })],
+    })
+
+    const result = mergeSessionsData({
+      local: sessionsData({
+        activeSessionId: recoveredSession.id,
+        sessions: [recoveredSession],
+      }),
+      remote: sessionsData({
+        activeSessionId: staleDeletedSession.id,
+        sessions: [staleDeletedSession],
+      }),
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.recoveredSolves).toBe(1)
+    expect(result.merged.sessions.map((item) => item.id)).toEqual([
+      'recovered:session-deleted',
+    ])
+    const recovered = result.merged.sessions[0]!
+    expect(recovered.solves.map((item) => item.id)).toEqual([
+      'offline-two',
+      'offline-one',
+    ])
+    expect(recovered.name).toBe('Gone (recovered)')
+    expect(recovered.inspectionEnabled).toBe(true)
+    expect(recovered.preferences).toEqual({ holdDurationMs: 500 })
+  })
+
+  it('extends recovery regardless of which device supplies the recovered session', () => {
+    const recoveredSession = session({
+      id: 'recovered:session-deleted',
+      name: 'Gone (recovered)',
+      event: '333',
+      solves: [solve({ id: 'offline-one', createdAt: deletedAt + 1_000 })],
+    })
+    const staleDeletedSession = session({
+      id: 'session-deleted',
+      name: 'Gone',
+      event: '333',
+      solves: [solve({ id: 'offline-two', createdAt: deletedAt + 2_000 })],
+    })
+    const recoveredLocal = sessionsData({
+      activeSessionId: recoveredSession.id,
+      sessions: [recoveredSession],
+    })
+    const staleRemote = sessionsData({
+      activeSessionId: staleDeletedSession.id,
+      sessions: [staleDeletedSession],
+    })
+
+    const first = mergeSessionsData({
+      local: recoveredLocal,
+      remote: staleRemote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+    const reversed = mergeSessionsData({
+      local: staleRemote,
+      remote: recoveredLocal,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(first.merged.sessions).toEqual(reversed.merged.sessions)
+    expect(first.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'offline-two',
+      'offline-one',
+    ])
+  })
+
+  it('merges several late solves deterministically in different arrival orders', () => {
+    const recoveredSession = session({
+      id: 'recovered:session-deleted',
+      name: 'Gone (recovered)',
+      event: '333',
+      solves: [solve({ id: 'offline-one', createdAt: deletedAt + 1_000 })],
+    })
+    const lateSolves = [
+      solve({ id: 'offline-three', createdAt: deletedAt + 3_000 }),
+      solve({ id: 'offline-two', createdAt: deletedAt + 2_000 }),
+    ]
+    const staleA = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          event: '333',
+          solves: lateSolves,
+        }),
+      ],
+    })
+    const staleB = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          event: '333',
+          solves: [...lateSolves].reverse(),
+        }),
+      ],
+    })
+    const recovered = sessionsData({
+      activeSessionId: recoveredSession.id,
+      sessions: [recoveredSession],
+    })
+
+    const first = mergeSessionsData({
+      local: recovered,
+      remote: staleA,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+    const second = mergeSessionsData({
+      local: staleB,
+      remote: recovered,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    const expected = ['offline-three', 'offline-two', 'offline-one']
+    expect(first.recoveredSolves).toBe(2)
+    expect(second.recoveredSolves).toBe(2)
+    expect(first.merged.sessions[0]?.solves.map((item) => item.id)).toEqual(expected)
+    expect(second.merged.sessions[0]?.solves.map((item) => item.id)).toEqual(expected)
+  })
+
+  it('does not duplicate late solves during repeated synchronization', () => {
+    const recoveredSession = session({
+      id: 'recovered:session-deleted',
+      name: 'Gone (recovered)',
+      event: '333',
+      solves: [solve({ id: 'offline-one', createdAt: deletedAt + 1_000 })],
+    })
+    const recovered = sessionsData({
+      activeSessionId: recoveredSession.id,
+      sessions: [recoveredSession],
+    })
+    const stale = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          event: '333',
+          solves: [
+            solve({ id: 'offline-one', createdAt: deletedAt + 1_000 }),
+            solve({ id: 'offline-two', createdAt: deletedAt + 2_000 }),
+          ],
+        }),
+      ],
+    })
+
+    const first = mergeSessionsData({
+      local: recovered,
+      remote: stale,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+    const second = mergeSessionsData({
+      local: first.merged,
+      remote: stale,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(first.recoveredSolves).toBe(1)
+    expect(second.recoveredSolves).toBe(0)
+    expect(second.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'offline-two',
+      'offline-one',
+    ])
+    expect(totalSolves(second.merged)).toBe(2)
+  })
+
+  it('uses the deletion snapshot instead of wall-clock time for new tombstones', () => {
+    const snapshotTombstones: Tombstone[] = [
+      {
+        kind: 'session',
+        id: 'session-deleted',
+        deletedAt,
+        deletedByDeviceId: 'other-device',
+        knownSolveIds: ['known-old'],
+      },
+    ]
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          event: '333',
+          inspectionEnabled: true,
+          preferences: { holdDurationMs: 500 },
+          solves: [
+            // Known at deletion time: intentionally deleted even though its
+            // timestamp is skewed ahead of the tombstone.
+            solve({ id: 'known-old', createdAt: deletedAt + 1_000 }),
+            // Unknown to the deleting device: recover despite an older clock.
+            solve({ id: 'unknown-old', createdAt: deletedAt - 1_000 }),
+          ],
+        }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote: sessionsData({ sessions: [] }),
+      tombstones: snapshotTombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.recoveredSolves).toBe(1)
+    expect(result.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'unknown-old',
+    ])
+    expect(result.merged.sessions[0]?.inspectionEnabled).toBe(true)
+    expect(result.merged.sessions[0]?.preferences).toEqual({ holdDurationMs: 500 })
+  })
+
+  it('rejects a late solve that does not match the existing recovered event', () => {
+    const recoveredSession = session({
+      id: 'recovered:session-deleted',
+      name: 'Gone (recovered)',
+      event: '333',
+      solves: [solve({ id: 'offline-one', createdAt: deletedAt + 1_000 })],
+    })
+    const staleDeletedSession = session({
+      id: 'session-deleted',
+      name: 'Gone',
+      event: '333',
+      solves: [
+        solve({ id: 'offline-222', event: '222', createdAt: deletedAt + 2_000 }),
+      ],
+    })
+
+    expect(() =>
+      mergeSessionsData({
+        local: sessionsData({
+          activeSessionId: recoveredSession.id,
+          sessions: [recoveredSession],
+        }),
+        remote: sessionsData({
+          activeSessionId: staleDeletedSession.id,
+          sessions: [staleDeletedSession],
+        }),
+        tombstones,
+        deviceId: 'd',
+        manualConflictReview: false,
+      }),
+    ).toThrow(/mix puzzle events/)
   })
 
   it('does not duplicate a recovered solve that also exists in a live session', () => {

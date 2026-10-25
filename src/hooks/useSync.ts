@@ -177,13 +177,21 @@ export function useSync({
             (tombstone) => tombstone.kind === 'session' && tombstone.id === id,
           )
           if (!already) {
+            const deletedSession = previous.sessions.find((session) => session.id === id)
             const next = {
               ...syncRef.current,
               runtime: {
                 ...syncRef.current.runtime,
                 tombstones: [
                   ...syncRef.current.runtime.tombstones,
-                  createTombstone('session', id, undefined, syncRef.current.runtime.deviceId),
+                  createTombstone(
+                    'session',
+                    id,
+                    undefined,
+                    syncRef.current.runtime.deviceId,
+                    undefined,
+                    deletedSession?.solves.map((solve) => solve.id),
+                  ),
                 ],
               },
             }
@@ -201,13 +209,24 @@ export function useSync({
         (tombstone) => tombstone.kind === kind && tombstone.id === id,
       )
       if (already) return
+      const deletedSession =
+        kind === 'session'
+          ? sessionsRef.current.sessions.find((session) => session.id === id)
+          : undefined
       const next = {
         ...syncRef.current,
         runtime: {
           ...syncRef.current.runtime,
           tombstones: [
             ...syncRef.current.runtime.tombstones,
-            createTombstone(kind, id, sessionId, syncRef.current.runtime.deviceId),
+            createTombstone(
+              kind,
+              id,
+              sessionId,
+              syncRef.current.runtime.deviceId,
+              undefined,
+              deletedSession?.solves.map((solve) => solve.id),
+            ),
           ],
         },
       }

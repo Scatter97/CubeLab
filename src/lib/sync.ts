@@ -322,14 +322,19 @@ export function mergeSessionsData(input: {
     mergedSessions.push(mergedSession)
   }
 
-  // Restore offline edits that were created after another device deleted their
-  // session. Solves that predate the tombstone are treated as intentionally
-  // deleted; solves that also exist in a live session are already merged.
-  const deletedAtBySessionId = new Map(
-    tombstones
-      .filter((tombstone) => tombstone.kind === 'session')
-      .map((tombstone) => [tombstone.id, tombstone.deletedAt]),
-  )
+  // Restore offline edits associated with a deleted session. Tombstones created
+  // by current builds carry a known-solve snapshot, which distinguishes solves
+  // the deleting device already had (intentionally deleted) from unknown solves
+  // that arrived from another device (preserve). Legacy tombstones fall back to
+  // wall-clock comparison. Existing recovered sessions are extended in place so
+  // successive offline devices cannot lose later arrivals.
+  const sessionTombstonesById = new Map<string, Tombstone[]>()
+  for (const tombstone of tombstones) {
+    if (tombstone.kind !== 'session') continue
+    const list = sessionTombstonesById.get(tombstone.id) ?? []
+    list.push(tombstone)
+    sessionTombstonesById.set(tombstone.id, list)
+  }
   const usedSessionNames = new Set(
     mergedSessions.map((session) => normalizeSessionName(session.name).toLowerCase()),
   )
@@ -337,15 +342,81 @@ export function mergeSessionsData(input: {
   for (const [deletedSessionId, orphans] of orphanSolvesBySession) {
     const snapshot = deletedSessionSnapshots.get(deletedSessionId)
     if (!snapshot) continue
-    const deletedAt = deletedAtBySessionId.get(deletedSessionId) ?? 0
+    const deletionTombstones = sessionTombstonesById.get(deletedSessionId) ?? []
+    const deletedAt = Math.max(0, ...deletionTombstones.map((tombstone) => tombstone.deletedAt))
+    const knownSolveIdsAvailable = deletionTombstones.some(
+      (tombstone) => Array.isArray(tombstone.knownSolveIds),
+    )
+    const knownSolveIds = new Set(
+      deletionTombstones.flatMap((tombstone) =>
+        Array.isArray(tombstone.knownSolveIds)
+          ? tombstone.knownSolveIds.filter(
+              (id): id is string => typeof id === 'string' && id.length > 0,
+            )
+          : [],
+      ),
+    )
     const candidates = [...orphans.values()].filter((solve) => {
-      if (solveById.has(solve.id)) return false
+      if (solveById.has(solve.id) || deletedSolveIds.has(solve.id)) return false
+      if (knownSolveIdsAvailable) return !knownSolveIds.has(solve.id)
       return solve.createdAt > deletedAt || (solve.updatedAt ?? 0) > deletedAt
     })
     if (candidates.length === 0) continue
 
     const recoveredId = `recovered:${deletedSessionId}`
-    if (sessionIds.has(recoveredId)) continue
+    // A tombstone for the recovered session itself is an explicit later
+    // deletion. Do not resurrect it through another recovery pass.
+    if (deletedSessionIds.has(recoveredId)) continue
+    const existingRecovered = mergedSessions.find((session) => session.id === recoveredId)
+    if (existingRecovered) {
+      if (candidates.some((solve) => solve.event !== existingRecovered.event)) {
+        throw new Error(
+          `Offline edits in deleted session ${deletedSessionId} mix puzzle events; sync stopped to preserve data.`,
+        )
+      }
+      const solvesById = new Map(existingRecovered.solves.map((solve) => [solve.id, solve]))
+      let added = 0
+      for (const candidate of candidates) {
+        if (solvesById.has(candidate.id)) continue
+        solvesById.set(candidate.id, candidate)
+        added += 1
+      }
+      if (added === 0) continue
+      const updatedRecovered: Session = {
+        ...existingRecovered,
+        updatedAt: Math.max(
+          existingRecovered.updatedAt,
+          snapshot.updatedAt,
+          ...candidates.map((solve) => recordTime(solve)),
+        ),
+        solves: [...solvesById.values()].sort(
+          (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
+        ),
+      }
+      // Preserve preferences already attached to the recovered session. Only
+      // fill missing metadata from the deleted session snapshot.
+      if (
+        updatedRecovered.inspectionEnabled === undefined &&
+        typeof snapshot.inspectionEnabled === 'boolean'
+      ) {
+        updatedRecovered.inspectionEnabled = snapshot.inspectionEnabled
+      }
+      if (
+        (updatedRecovered.preferences === undefined ||
+          Object.keys(updatedRecovered.preferences).length === 0) &&
+        snapshot.preferences &&
+        Object.keys(snapshot.preferences).length > 0
+      ) {
+        updatedRecovered.preferences = { ...snapshot.preferences }
+      }
+      const recoveredIndex = mergedSessions.findIndex(
+        (session) => session.id === recoveredId,
+      )
+      mergedSessions[recoveredIndex] = updatedRecovered
+      recoveredSolves += added
+      continue
+    }
+
     const event = snapshot.event ?? candidates[0]!.event ?? '333'
     if (candidates.some((solve) => solve.event !== event)) {
       throw new Error(
@@ -476,6 +547,7 @@ export function createTombstone(
   sessionId: string | undefined,
   deviceId: string,
   revision?: number,
+  knownSolveIds?: readonly string[],
 ): Tombstone {
   return {
     kind,
@@ -484,5 +556,8 @@ export function createTombstone(
     deletedAt: Date.now(),
     deletedByDeviceId: deviceId,
     revision,
+    ...(knownSolveIds
+      ? { knownSolveIds: [...new Set(knownSolveIds)] }
+      : {}),
   }
 }

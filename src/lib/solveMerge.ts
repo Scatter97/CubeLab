@@ -58,12 +58,17 @@ function pickFieldWinner(
 function findResolvedConflict(
   local: Solve,
   field: 'rawMs' | 'penalty' | 'scramble' | 'comment',
+  localValue: unknown,
+  remoteValue: unknown,
   localUpdatedAt: number,
   remoteUpdatedAt: number,
   resolvedConflicts: readonly SyncConflict[],
 ): SyncConflict | undefined {
-  // A user resolution applies only while both sides still hold the versions
-  // that were shown for review. A later edit on either side is a new conflict.
+  // A user resolution applies only while both sides still hold the exact
+  // versions that were shown for review. A third edit made between review and
+  // approval must raise a new conflict instead of being silently overridden by
+  // a stale approval. Compare both modification times and values so equal
+  // timestamps from a coarse clock cannot bypass the check.
   return resolvedConflicts
     .filter(
       (conflict) =>
@@ -72,7 +77,11 @@ function findResolvedConflict(
         conflict.field === field &&
         conflict.resolution !== 'manual-pending' &&
         localUpdatedAt <= conflict.updatedAt &&
-        remoteUpdatedAt <= conflict.updatedAt,
+        remoteUpdatedAt <= conflict.updatedAt &&
+        localUpdatedAt === conflict.localUpdatedAt &&
+        remoteUpdatedAt === conflict.remoteUpdatedAt &&
+        Object.is(localValue, conflict.localValue) &&
+        Object.is(remoteValue, conflict.remoteValue),
     )
     .sort((left, right) => right.updatedAt - left.updatedAt)[0]
 }
@@ -124,6 +133,8 @@ export function mergeSolveFields(
     const resolved = findResolvedConflict(
       local,
       field,
+      localValue,
+      remoteValue,
       localUpdate.updatedAt,
       remoteUpdate.updatedAt,
       resolvedConflicts,
