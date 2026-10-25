@@ -18,14 +18,32 @@ export interface SyncEnvelope {
   sessionRedirects: SessionRedirect[]
 }
 
+function hasPreferences(session: Session): boolean {
+  return Boolean(session.preferences && Object.keys(session.preferences).length > 0)
+}
+
 function isUntouchedDefaultSession(session: Session): boolean {
+  // Older generated placeholders did not persist `isAutoCreatedDefault`.
+  // Treat the missing marker as generated only when every other signal agrees;
+  // an explicit `false` always means the session was deliberately created.
+  if (session.isAutoCreatedDefault === false) return false
+
   return (
-    session.isAutoCreatedDefault === true &&
     normalizeSessionName(session.name) === DEFAULT_SESSION_NAME &&
+    (session.event === undefined || session.event === '333') &&
     session.solves.length === 0 &&
     session.inspectionEnabled === undefined &&
-    !session.preferences &&
+    !hasPreferences(session) &&
     session.createdAt === session.updatedAt
+  )
+}
+
+function hasUserSessionContent(session: Session): boolean {
+  return (
+    normalizeSessionName(session.name) !== DEFAULT_SESSION_NAME ||
+    (session.event !== undefined && session.event !== '333') ||
+    session.inspectionEnabled !== undefined ||
+    hasPreferences(session)
   )
 }
 
@@ -63,9 +81,16 @@ export function mergeSessionsData(input: {
   const deletedSolveIds = new Set((tombstones ?? []).filter((t) => t.kind === 'solve').map((t) => t.id))
   const deletedSessionIds = new Set((tombstones ?? []).filter((t) => t.kind === 'session').map((t) => t.id))
 
-  const hasRelevantCloudContent = !!remote && remote.sessions.some(
-    (session) => !deletedSessionIds.has(session.id),
-  )
+  const hasRelevantCloudContent = !!remote && remote.sessions.some((session) => {
+    if (deletedSessionIds.has(session.id)) return false
+    // A live solve or any customized session metadata represents real cloud
+    // content. A bare default-named session whose only solves are tombstoned
+    // does not justify replacing the local placeholder.
+    return (
+      session.solves.some((solve) => !deletedSolveIds.has(solve.id)) ||
+      hasUserSessionContent(session)
+    )
+  })
 
   // Phase 2C safety: if the local device has only an untouched, generated
   // default session, adopt the cloud session collection instead of keeping an
@@ -91,7 +116,7 @@ export function mergeSessionsData(input: {
       adoptedLocalDefault: true,
       duplicateSessionNames: [],
       sessionRedirects: normalizeSessionRedirects(input.sessionRedirects ?? []),
-      addedSolves: remote.sessions.reduce((total, session) => total + session.solves.length, 0),
+      addedSolves: adoptedSessions.reduce((total, session) => total + session.solves.length, 0),
       updatedSolves: 0,
       removedSolves: 0,
       addedSessions: adoptedSessions.length,
@@ -143,7 +168,22 @@ export function mergeSessionsData(input: {
     if (localOwner && remoteOwner && localOwner !== remoteOwner) {
       const l = pair.local!
       const r = pair.remote!
-      winner = recordTime(r) > recordTime(l) ? remoteOwner : localOwner
+      // The chosen owner must be compatible with the solve's puzzle event.
+      // A newer edit timestamp does not authorize moving a 3x3 solve into a
+      // 4x4 session. Prefer the compatible owner; reject only if neither fits.
+      const solveEvent = l.event
+      const localOwnerEvent = localSessions.get(localOwner)?.event ?? '333'
+      const remoteOwnerEvent = remoteSessions.get(remoteOwner)?.event ?? '333'
+      const localCompatible = localOwnerEvent === solveEvent
+      const remoteCompatible = remoteOwnerEvent === solveEvent
+      if (!localCompatible && !remoteCompatible) {
+        throw new Error(`Solve ${solveId} has no compatible session owner; sync stopped to protect data.`)
+      }
+      winner = localCompatible && !remoteCompatible
+        ? localOwner
+        : remoteCompatible && !localCompatible
+          ? remoteOwner
+          : recordTime(r) > recordTime(l) ? remoteOwner : localOwner
       conflicts.push({
         id: solveId, kind: 'solve', sessionId: winner, field: 'sessionId',
         localValue: localOwner, remoteValue: remoteOwner,

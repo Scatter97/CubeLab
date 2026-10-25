@@ -148,7 +148,7 @@ export function DriveBackupDialog({
               ) : null}
 
               <p className="settings-note" data-testid="sync-status">
-                Status: {sync.phase} · Pending: {sync.pendingCount}
+                Status: {sync.phase} · New local solves since last sync: {sync.pendingCount}
                 {sync.lastSyncAt
                   ? ` · Last sync ${new Date(sync.lastSyncAt).toLocaleString()}`
                   : ''}
@@ -390,7 +390,7 @@ export function DriveBackupDialog({
                         Manual conflict review
                       </span>
                       <span className="settings-row-description">
-                        Ask before applying same-field conflicts.
+                        Pause synchronization when same-field conflicts require review. No automatic cloud upload.
                       </span>
                     </div>
                     <input

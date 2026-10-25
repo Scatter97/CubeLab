@@ -117,6 +117,23 @@ describe('legacy solve persistence', () => {
     ])
   })
 
+  it('rejects legacy records tagged with a non-3x3 event', () => {
+    const storage = new MemoryStorage()
+    seedLegacy(storage, [
+      solve({ id: 'legacy-333' }),
+      solve({ id: 'legacy-222', event: '222' }),
+      solve({ id: 'legacy-444', event: '444' }),
+      solve({ id: 'legacy-oh', event: '333oh' }),
+    ])
+
+    expect(loadSolves(storage).map((item) => item.id)).toEqual([
+      'legacy-333',
+    ])
+    expect(loadSessions(storage).sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'legacy-333',
+    ])
+  })
+
   it('recovers safely from corrupt legacy JSON', () => {
     const storage = new MemoryStorage()
     storage.seed(SOLVES_STORAGE_KEY, '{not valid json')
@@ -163,6 +180,25 @@ describe('session persistence', () => {
           inspectionEnabled: true,
         }),
       ],
+    })
+
+    expect(saveSessions(original, storage)).toBe(true)
+    expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('round-trips every supported puzzle event in modern sessions', () => {
+    const storage = new MemoryStorage()
+    const events = ['333', '222', '444', '333oh'] as const
+    const original = sessionsData({
+      activeSessionId: 'session-333oh',
+      sessions: events.map((event) =>
+        session({
+          id: `session-${event}`,
+          name: `Event ${event}`,
+          event,
+          solves: [solve({ id: `solve-${event}`, event })],
+        }),
+      ),
     })
 
     expect(saveSessions(original, storage)).toBe(true)

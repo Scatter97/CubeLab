@@ -164,6 +164,43 @@ describe('mergeSessionsData', () => {
     expect(result.merged.sessions).toHaveLength(2)
     expect(totalSolves(result.merged)).toBe(2)
   })
+
+  it('removes a session deleted on either device and keeps its solve tombstones', () => {
+    const local = sessionsData({
+      sessions: [
+        session({ id: 'session-keep', solves: [solve({ id: 'keep' })] }),
+        session({ id: 'session-deleted', name: 'Gone', solves: [solve({ id: 'gone' })] }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({ id: 'session-keep', solves: [solve({ id: 'keep' })] }),
+        session({ id: 'session-deleted', name: 'Gone', solves: [solve({ id: 'gone' })] }),
+      ],
+    })
+    const tombstones: Tombstone[] = [
+      { kind: 'session', id: 'session-deleted', deletedAt: Date.now(), deletedByDeviceId: 'd' },
+    ]
+
+    const result = mergeSessionsData({ local, remote, tombstones, deviceId: 'd', manualConflictReview: false })
+
+    expect(result.merged.sessions.map((item) => item.id)).toEqual(['session-keep'])
+    expect(totalSolves(result.merged)).toBe(1)
+    expect(result.removedSolves).toBe(2)
+  })
+
+  it('stops instead of mixing sessions whose puzzle events disagree', () => {
+    const local = sessionsData({
+      sessions: [session({ id: 'shared', event: '333', solves: [solve({ id: 'A' })] })],
+    })
+    const remote = sessionsData({
+      sessions: [session({ id: 'shared', event: '444', solves: [solve({ id: 'B', event: '444' })] })],
+    })
+
+    expect(() =>
+      mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false }),
+    ).toThrow(/incompatible puzzle events/)
+  })
 })
 
 describe('empty default session adoption', () => {
@@ -188,6 +225,103 @@ describe('empty default session adoption', () => {
     expect(result.merged.activeSessionId).toBe('remote-session')
     expect(result.merged.sessions[0]?.solves.map((solve) => solve.id)).toEqual(['A'])
     expect(result.conflicts).toHaveLength(0)
+  })
+
+  it('adopts generated defaults that carry the explicit auto-created marker', () => {
+    const local = sessionsData({
+      activeSessionId: 'local-default',
+      sessions: [defaultSession({ isAutoCreatedDefault: true })],
+    })
+    const remote = sessionsData({
+      activeSessionId: 'remote-session',
+      sessions: [session({ id: 'remote-session', name: 'Session 1', solves: [solve({ id: 'A' })] })],
+    })
+
+    const result = mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })
+
+    expect(result.adoptedLocalDefault).toBe(true)
+    expect(result.addedSolves).toBe(1)
+    expect(result.merged.sessions.map((item) => item.id)).toEqual(['remote-session'])
+  })
+
+  it('adopts a generated default collection idempotently without duplicating sessions', () => {
+    const local = sessionsData({
+      activeSessionId: 'local-default',
+      sessions: [defaultSession()],
+    })
+    const remote = sessionsData({
+      activeSessionId: 'remote-session',
+      sessions: [session({ id: 'remote-session', name: 'Session 1', solves: [solve({ id: 'A' })] })],
+    })
+
+    const first = mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })
+    const second = mergeSessionsData({
+      local: first.merged,
+      remote,
+      tombstones: first.mergedTombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(first.adoptedLocalDefault).toBe(true)
+    expect(second.adoptedLocalDefault).toBe(false)
+    expect(second.merged.sessions).toHaveLength(1)
+    expect(second.merged.sessions[0]?.id).toBe('remote-session')
+    expect(totalSolves(second.merged)).toBe(1)
+  })
+
+  it('preserves a deliberately created empty default-named session', () => {
+    const local = sessionsData({
+      activeSessionId: 'local-default',
+      sessions: [
+        defaultSession({
+          inspectionEnabled: false,
+          preferences: { holdDurationMs: 500 },
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      activeSessionId: 'remote-session',
+      sessions: [session({ id: 'remote-session', name: 'Session 1', solves: [solve({ id: 'A' })] })],
+    })
+
+    const result = mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })
+
+    expect(result.adoptedLocalDefault).toBe(false)
+    expect(result.merged.sessions).toHaveLength(2)
+    expect(result.merged.sessions.find((item) => item.id === 'local-default')).toBeDefined()
+  })
+
+  it('does not adopt an untouched-looking session with an explicit false marker', () => {
+    const local = sessionsData({
+      activeSessionId: 'local-default',
+      sessions: [defaultSession({ isAutoCreatedDefault: false })],
+    })
+    const remote = sessionsData({
+      activeSessionId: 'remote-session',
+      sessions: [session({ id: 'remote-session', name: 'Session 1', solves: [solve({ id: 'A' })] })],
+    })
+
+    const result = mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })
+
+    expect(result.adoptedLocalDefault).toBe(false)
+    expect(result.merged.sessions).toHaveLength(2)
+  })
+
+  it('does not adopt a non-3x3 placeholder with no solves', () => {
+    const local = sessionsData({
+      activeSessionId: 'local-default',
+      sessions: [defaultSession({ event: '222' })],
+    })
+    const remote = sessionsData({
+      activeSessionId: 'remote-session',
+      sessions: [session({ id: 'remote-session', name: 'Session 1', solves: [solve({ id: 'A' })] })],
+    })
+
+    const result = mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })
+
+    expect(result.adoptedLocalDefault).toBe(false)
+    expect(result.merged.sessions).toHaveLength(2)
   })
 
   it('does not adopt when the default session has solves', () => {
@@ -237,5 +371,28 @@ describe('empty default session adoption', () => {
 
     expect(result.adoptedLocalDefault).toBe(false)
     expect(result.merged.sessions.flatMap((session) => session.solves)).toHaveLength(0)
+  })
+})
+
+describe('cross-device session ownership safety', () => {
+  it('keeps a shared solve in a compatible event session when owners disagree', () => {
+    const shared = solve({ id: 'shared-333', event: '333', updatedAt: 7 })
+    const local = sessionsData({
+      activeSessionId: 'local-333',
+      sessions: [session({ id: 'local-333', event: '333', solves: [shared] })],
+    })
+    const remote = sessionsData({
+      activeSessionId: 'remote-333',
+      sessions: [session({ id: 'remote-333', event: '333', solves: [{ ...shared, updatedAt: 9 }] })],
+    })
+    const result = mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })
+    expect(totalSolves(result.merged)).toBe(1)
+    expect(result.merged.sessions.find((s) => s.id === 'remote-333')?.solves.map((s) => s.id)).toEqual(['shared-333'])
+  })
+
+  it('rejects invalid cross-event solve ownership without mixing event statistics', () => {
+    const local = sessionsData({ sessions: [session({ id: 'local-333', event: '333', solves: [solve({ id: 'bad-owner' })] })] })
+    const remote = sessionsData({ sessions: [session({ id: 'remote-444', event: '444', solves: [solve({ id: 'bad-owner' })] })] })
+    expect(() => mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })).toThrow(/does not match its session event/)
   })
 })

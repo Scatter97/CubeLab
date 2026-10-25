@@ -65,7 +65,7 @@ describe('session names', () => {
       /40 characters or fewer/,
     )
     expect(getSessionNameError(' morning ', sessions)).toBe(
-      'Session names must be unique.',
+      'Session name already exists. Please choose a different name.',
     )
     expect(getSessionNameError('Morning', sessions, 'session-1')).toBeNull()
   })
@@ -100,6 +100,42 @@ describe('session collection', () => {
       updatedAt: 1_700_000_100_000,
       solves: [],
     })
+  })
+
+  it('creates and switches between event-specific sessions', () => {
+    const twoByTwo = createSession(data(), '2×2', {
+      id: 'session-222',
+      event: '222',
+    })
+    expect(twoByTwo).not.toBeNull()
+    if (!twoByTwo) return
+
+    const fourByFour = createSession(twoByTwo.data, '4×4', {
+      id: 'session-444',
+      event: '444',
+    })
+    expect(fourByFour).not.toBeNull()
+    if (!fourByFour) return
+
+    expect(
+      fourByFour.data.sessions.map((item) => [item.id, item.event ?? '333']),
+    ).toEqual([
+      ['session-1', '333'],
+      ['session-222', '222'],
+      ['session-444', '444'],
+    ])
+    expect(fourByFour.data.activeSessionId).toBe('session-444')
+
+    const switched = setActiveSession(fourByFour.data, 'session-222')
+    expect(switched.activeSessionId).toBe('session-222')
+    expect(getActiveSession(switched)?.event).toBe('222')
+
+    const deleted = deleteSession(switched, 'session-222')
+    expect(deleted?.activeSessionId).toBe('session-444')
+    expect(deleted?.sessions.map((item) => item.id)).toEqual([
+      'session-1',
+      'session-444',
+    ])
   })
 
   it('inherits the requested inspection value when creating a session', () => {

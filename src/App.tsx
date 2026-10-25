@@ -255,7 +255,9 @@ export default function App() {
   )
 
   const activeInspectionEnabled =
-    activeSession.inspectionEnabled ?? settings.inspectionEnabled
+    activeSession.inspectionEnabled ??
+    activeSession.preferences?.inspectionEnabled ??
+    settings.inspectionEnabled
   const effectiveSettings = {
     ...settings,
     inspectionEnabled: activeInspectionEnabled,

@@ -55,7 +55,7 @@ export function getSessionNameError(
       session.id !== currentSessionId &&
       normalizeSessionName(session.name).toLowerCase() === normalized,
   )
-  return duplicate ? 'Session names must be unique.' : null
+  return duplicate ? 'Session name already exists. Please choose a different name.' : null
 }
 
 /** Finds the smallest unused "Session N" name. */

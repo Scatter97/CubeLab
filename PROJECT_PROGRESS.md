@@ -1,6 +1,6 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-24 11:05 (local)
+**Last verified:** 2026-10-25 12:37 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
@@ -9,10 +9,9 @@
 **Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
 **Phase 2C:** Complete — local-first Google Drive synchronization with automatic startup, exit, reconnect, combined scheduling, ID-based merging, tombstones, conflict recovery, session redirects, empty-default adoption, duplicate-name detection, manual session merges, per-field conflict resolution, sync settings UI, and mock-based coverage
-**Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserve active-session event.
-**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event support, and the new session-setup preference flow are implemented, documented, and verified.
-**Repository state:** Phase 2B manual Google Drive backup, Phase 2C local-first synchronization, and Phase 3 multi-event support are implemented, documented, and verified.
-**Repository state:** Phase 2B manual Google Drive backup and Phase 2C local-first synchronization are implemented, documented, and verified.
+**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. Google Drive still has no verified atomic compare-and-swap; see [Sync hardening patch](#sync-hardening-patch--2026-10-25) and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+**Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserves the active-session event.
+**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, and the 2026-10-25 hardening patch are implemented and verified with mocks. Real concurrent Drive-write safety remains unproven.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
 ## Scope delivered
@@ -82,7 +81,9 @@ calculations.
   recovery.
 - Installable PWA that works fully offline after the first visit, including
   scramble generation.
-- No backend, account, analytics, or remote data storage.
+- No CubeLab backend, account, analytics, or telemetry. Optional Google Drive
+  synchronization stores the versioned backup in the user's own Drive app-data
+  folder and runs only after an explicit connection.
 
 ### Engineering
 
@@ -144,18 +145,21 @@ calculations.
 
 ## Verification evidence
 
-Run at 2026-10-23 22:44 (local), after the Phase 2A.3 inspection, statistics,
-session-settings, solve-menu, comment, documentation, and screenshot updates:
+Run at 2026-10-25 12:37 (local), after the synchronization hardening patch,
+session-dialog refactor, duplicate-name validation update, and documentation
+refresh:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **119/119 passed**, 12 test files || Production build | `npm run build` | Passed; 77 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,185.41 KiB** |
+| Unit tests | `npm test` | **150/150 passed**, 14 test files |
+| Production build | `npm run build` | Passed; 89 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,250.55 KiB** |
 | Production E2E | `npm run test:e2e` | **23/23 passed**, Chromium |
-| Visual QA | production preview screenshots | Refreshed `docs/cubelab-desktop.png`, `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`; verified the session gear, floating solve menu, expanded statistics, and Settings warning/custom-average controls at 1440×1000, 390×844, and 320×700 with no horizontal overflow |
-| Performance | seeded 2,000-solve production session | Not re-measured; the Phase 2A profile below remains the latest. Large-average calculation now has a Fenwick-tree fast path and brute-force comparison coverage. |
+| Whitespace | `git diff --check` | Passed with no errors |
+| Visual QA | production E2E at 320, 390, and desktop widths | Session dialogs, inline duplicate-name error/icon, and focus handling verified; primary layout unchanged, so checked-in screenshots were not refreshed |
+| Performance | seeded 2,000-solve production session | Not re-measured; the Phase 2A profile below remains the latest. Large-average calculation still has a Fenwick-tree fast path and brute-force comparison coverage. |
 
 The Playwright suite runs against the production preview and covers:
 
@@ -182,7 +186,8 @@ The Playwright suite runs against the production preview and covers:
 14. A long desktop session scrolling inside the history rail, including automatic
     migration from the legacy single-session key.
 15. Named-session create/switch/rename/delete with typed `DELETE THIS SESSION`
-    confirmation and persistence of the active session.
+    confirmation, an inline duplicate-name error with icon and `aria-invalid`,
+    fresh form state on every open, and persistence of the active session.
 16. Per-session inspection overrides, inheritance for new sessions, global-default
     isolation, and persistence across reload.
 17. Session controls and Settings locking while the timer is active.
@@ -192,9 +197,89 @@ The Playwright suite runs against the production preview and covers:
 19. Scramble failure disabling timing and offering a retry.
 20. Full offline reload with service-worker precache and offline `cubing.js`
     scramble generation.
+21. Google Drive backup/restore through the mock transport, including connection,
+    synchronization, and restore confirmation.
+22. Invalid Google Drive backup rejection without local mutation.
 
 Visual artifacts are checked in at `docs/cubelab-desktop.png`,
 `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`.
+
+### Sync hardening patch — 2026-10-25
+
+This patch addresses the concrete regressions found during the post-Phase-2C
+stress pass. It is deliberately **not** a complete data-loss-proof sync design;
+the unresolved items are listed in [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+
+**Fixed**
+
+1. **TypeScript build error.** Removed the unused `total` variable in
+   `src/hooks/useSync.ts`; the replacement count is now computed from solve IDs.
+2. **Legacy migration scope.** `cubelab:solves:v1` is a pre-multi-event record
+   that only ever held 3×3 solves. `loadSolves` now migrates only `event: '333'`
+   records into the legacy **Session 1** path, while `cubelab:sessions:v1` still
+   preserves every event. Regression tests cover both directions.
+3. **Empty-default cloud adoption.** Adoption now requires at least one live
+   remote solve or customized session metadata. A remote session containing only
+   tombstoned solves no longer replaces a local placeholder. An untouched default
+   is accepted when `isAutoCreatedDefault` is missing, but an explicit `false`,
+   a non-3×3 event, preferences, an inspection override, solves, or modified
+   timestamps always block adoption.
+4. **Cloud merge ownership.** When the same solve ID appears under different
+   session owners, the merge now prefers an owner whose event matches the solve's
+   event and refuses to move a solve into an incompatible session. Adopted cloud
+   session IDs and solves are retained, and repeated merges remain idempotent.
+5. **Upload/local-edit race.** The hook snapshots the local sessions and settings
+   before the merge, re-checks after the download and again before upload, and
+   schedules a follow-up sync instead of publishing an adopted snapshot when a
+   local edit lands during a request. This protects local solves from being
+   silently replaced; it does not add server-side atomicity.
+6. **Pending conflicts block publication.** If manual conflict review produces a
+   `manual-pending` resolution, the sync pauses before upload, preserves both
+   sides, records the conflict, and reports that neither local nor cloud data was
+   replaced.
+7. **Directional counts.** Imported and uploaded solve counts are derived from
+   local, remote, and merged ID sets, so "new local solves uploaded" and "cloud
+   solves imported" no longer share a misleading total.
+8. **Duplicate-name validation.** Shared validation and the session-settings
+   dialog now report `Session name already exists. Please choose a different
+   name.` The create and settings dialogs render the same inline red message,
+   alert icon, and `aria-invalid` field state. The Playwright assertion was
+   updated to the current message.
+9. **React lint warnings.** `SessionSetupDialog` and `SessionSettingsDialog` now
+   use an always-mounted native `<dialog>` shell with keyed, conditionally
+   mounted content, so each opening starts with fresh local state without
+   resetting state inside an effect. `useSync` uses a render-commit-timed
+   `useLayoutEffect` to keep its latest props available to in-flight guards.
+   `npm run lint` is clean without rule suppression.
+
+**Changed files**
+
+`src/lib/sync.ts`, `src/hooks/useSync.ts`, `src/lib/storage.ts`,
+`src/components/SessionSetupDialog.tsx`,
+`src/components/SessionSettingsDialog.tsx`, `src/components/DriveBackupDialog.tsx`,
+`src/components/Icons.tsx`, `src/lib/sessions.ts`, `src/App.tsx`, `src/index.css`,
+`e2e/timer.spec.ts`, and the focused unit tests in `src/lib/sync.test.ts`,
+`src/lib/storage.test.ts`, `src/lib/backup.test.ts`,
+`src/lib/sessions.test.ts`, `src/hooks/useSync.test.ts`, and
+`src/lib/sessionRedirects.test.ts`.
+
+**Verification**
+
+The full chain above passed on 2026-10-25: typecheck, clean lint, 150/150 unit
+tests, production build, 23/23 Playwright tests, and `git diff --check`.
+Concurrency and adoption coverage uses the deterministic in-memory Drive
+transport; no real Google Drive data was modified.
+
+**Remaining sync limitations**
+
+- The Drive transport still has no verified atomic compare-and-swap. Two devices
+  can still overwrite a remote backup in a write race.
+- Manual conflict review now blocks publication, but there is no complete
+  approve-and-resume workflow for every conflict type.
+- Sync-on-exit, deletion-versus-offline-edit rescue, field-level session
+  preference conflicts, concurrent redirect approvals, and global settings
+  provenance still need design and tests.
+- Real multi-device behavior has not been revalidated after this patch.
 
 ### Performance evidence
 
@@ -223,16 +308,16 @@ substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~303.06 kB (~90.14 kB gzip)
-- CSS: ~43.19 kB (~10.94 kB gzip)
-- Cubing.js chunk: ~1,207.02 kB (~335.13 kB gzip)
-- Precache total: ~2.13 MiB (2,185.41 KiB)
+- Main application bundle: ~365.35 kB (~105.90 kB gzip)
+- CSS: ~47.60 kB (~11.74 kB gzip)
+- Cubing.js chunk: ~1,207.02 kB (~333.04 kB gzip)
+- Precache total: ~2.20 MiB (2,250.55 KiB)
 - PWA: generated Workbox service worker and web manifest
 
-Phase 2A.3 adds the solve menu, session-settings dialog, custom-average controls,
-and expanded statistics UI plus supporting CSS; the main bundle remains just
-over 300 kB before gzip. Vite reports the expected informational warning about
-the large cubing.js chunk. It is a single cached dependency chunk, not duplicated
+The 2026-10-25 hardening patch and multi-event session setup add validation UI,
+dialog content, and shared session helpers; the main bundle remains roughly
+357 KiB before gzip. Vite reports the expected informational warning about the
+large cubing.js chunk. It is a single cached dependency chunk, not duplicated
 application code.
 
 ## Key decisions and invariants
@@ -315,9 +400,10 @@ application code.
   disabled while the timer is armed, running, or in inspection.
 - Export includes every session, every solve, the active session ID, and all
   settings. The backup is a detached snapshot.
-- Import is replace-only in Phase 2A. It validates the file, then shows current
-  and incoming session/solve counts before applying anything. Cancelling leaves
-  local data untouched. Merging and cloud sync are deferred to Phase 2C.
+- Import is replace-only. It validates the file, then shows current and incoming
+  session/solve counts before applying anything. Cancelling leaves local data
+  untouched. Merging lives in the separate Google Drive synchronization path and
+  never changes the replace-only local-file import contract.
 - The backup file format is versioned (`cubelab-backup`, version 1) and capped at
   10 MB. Invalid JSON, wrong markers, unsupported versions, empty sessions, and
   invalid settings are rejected before confirmation.
@@ -363,18 +449,21 @@ Keys:
   solves.
 - `cubelab:settings:v1` — local preferences.
 - `cubelab:solves:v1` — original single-session key, read only for migration into
-  **Session 1**.
+  **Session 1**; only `event: '333'` records are migrated because that key
+  predates multi-event sessions.
 
-Each session stores `id`, `name`, `createdAt`, `updatedAt`, `solves`, and an
-optional `inspectionEnabled` override. Each solve stores `id`, `event`, `rawMs`,
-`penalty`, `scramble`, `comment`, and `createdAt`. Raw time is always preserved;
-penalties are applied for display and statistics. Record-by-record validation
-skips corrupt sessions and solves, duplicate IDs are ignored, and invalid JSON or
-unsupported schema versions fall back to the legacy record and then to a fresh
-empty session. The active session is normalized to an existing session. A valid
-session collection is never silently discarded. Sessions are stored at schema
-version 2; version 1 records migrate with empty comments and no inspection
-override.
+Each session stores `id`, `name`, optional `event` and `preferences`,
+`createdAt`, `updatedAt`, `solves`, and an optional `inspectionEnabled` override.
+Each solve stores `id`, `event`, `rawMs`, `penalty`, `scramble`, `comment`, and
+`createdAt`. Raw time is always preserved; penalties are applied for display and
+statistics. Record-by-record validation skips corrupt sessions and solves,
+duplicate IDs are ignored, and invalid JSON or unsupported schema versions fall
+back to the legacy record and then to a fresh empty session. The active session
+is normalized to an existing session. A valid session collection is never
+silently discarded. Sessions are stored at schema version 2; version 1 records
+migrate with empty comments and no inspection override. The legacy
+`cubelab:solves:v1` migration is restricted to 3×3 records, while the modern
+session key keeps every supported event.
 
 Settings are stored at schema version 6. Loading accepts versions 1–6, upgrades
 older records with defaults, and validates each new field independently. A
@@ -439,21 +528,33 @@ offline Playwright test and must not be undone casually.
 
 ## Known limitations
 
-- Only the 3×3 event is implemented.
+- Sessions can select 3×3, 2×2, 4×4, or 3×3 OH and generate scrambles through
+  `cubing.js`. Event-specific WCA timing differences beyond the fixed inspection
+  thresholds and dedicated per-event production E2E coverage are not
+  implemented.
 - Appearance currently offers accent colors rather than a full dark theme.
   Adding a theme would require a broader palette audit and contrast tests.
 - Sound and haptic alerts depend on browser/device support. The visual feedback
   and live-region announcement remain available when those channels are absent.
-- Phase 2A import is replace-only; there is no merge, conflict resolution,
-  Google Drive backup, or multi-device sync yet.
+- JSON import remains replace-only. Google Drive synchronization adds merge,
+  tombstones, redirects, and conflict handling, but there is no general-purpose
+  local-file merge path.
+- Google Drive has no verified atomic compare-and-swap. Two devices syncing at
+  the same moment can still overwrite a remote backup; the in-flight guards
+  protect local state, not the remote write race.
+- Manual conflict review can pause publication, but the UI does not yet provide a
+  complete approve-and-resume workflow for every conflict type. Sync-on-exit,
+  deletion-versus-offline-edit rescue, field-level session preference conflicts,
+  concurrent redirect approvals, and global settings provenance remain open.
+- Multiple open tabs are not synchronized with each other. Each tab holds its own
+  in-memory state and writes it independently, so the last write wins. Google
+  Drive sync does not change this; use one tab when changing sessions or
+  importing a backup.
 - Backup files are unencrypted JSON. They contain solve history and settings and
   are the user's responsibility once downloaded.
 - Import is capped at 10 MB. Export has no cap, so an extremely large local
   history could produce a backup file that the importer rejects. A 2,000-solve
   backup is far below the limit.
-- Multiple open tabs are not synchronized. Each tab holds its own in-memory
-  state and writes it independently, so the last write wins. Use one tab when
-  changing sessions or importing a backup.
 - Session deletion is confirmed but has no undo. Clearing a session also has no
   undo beyond re-importing a backup.
 - A per-session inspection toggle is stored as an override. The UI does not yet
@@ -604,19 +705,40 @@ sync or telemetry.
   valid `VITE_GOOGLE_CLIENT_ID` and completing Google publishing/brand work before
   non-test users can sign in.
 
-### Phase 2C — Not started
+### Phase 2C — Complete with documented concurrency limitations
 
-Multi-device merge/sync has not been started. Phase 2A import is intentionally
-replace-only; no merge or conflict-resolution logic exists yet.
+Phase 2C implements optional local-first Google Drive synchronization on top of
+the Phase 2B manual backup path.
+
+- Time-based, solve-count-based, and combined schedules, with 1 minute / 1 solve
+  minimums and startup, exit, and reconnect triggers.
+- ID-based session and solve merging with tombstones, session redirects, and
+  duplicate-session-name detection.
+- Empty-default cloud adoption that preserves deliberately created local
+  sessions and tombstoned solves.
+- Manual session merge and per-field conflict resolution, with a manual-review
+  mode that pauses publication when a same-field conflict is pending.
+- Sync settings and status UI, plus deterministic mock-transport unit and E2E
+  coverage.
+- The 2026-10-25 hardening patch fixed legacy migration scope, adoption
+  semantics, solve-owner event compatibility, directional counts, duplicate-name
+  validation, and in-flight local-edit protection.
+
+**Not proven:** Google Drive does not expose a verified atomic compare-and-swap
+in this implementation, so a simultaneous two-device upload can still race. The
+remaining gaps are listed in [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md); do
+not describe Phase 2C as data-loss-proof.
 
 ## Handoff
 
 ### Safe next work
 
-- Phase 2B is complete. Do not add automatic sync, telemetry, or non-Google cloud
-  providers without an explicit brief.
-- If more Google Drive behavior is requested, extend the Drive transport,
-  metadata store, and failure-path tests together.
+- Phase 2B and Phase 2C are implemented. Do not add telemetry, non-Google cloud
+  providers, or a different sync protocol without an explicit brief.
+- The highest-value sync work is real remote concurrency protection: a verified
+  compare-and-swap/ETag update path, a complete manual conflict approve-and-resume
+  workflow, sync-on-exit hardening, and deletion-versus-offline-edit rescue.
+  Extend the Drive transport, metadata store, and failure-path tests together.
 - If more timer preferences are requested, extend the Settings dialog and the
   versioned settings schema together, with migration and E2E coverage. Do not
   duplicate the inspection control back into the header.
@@ -625,7 +747,7 @@ replace-only; no merge or conflict-resolution logic exists yet.
 - Add WebKit/Firefox browser coverage if those engines become available.
 - Profile and virtualize history for extremely large local sessions.
 - Run a formal accessibility and physical-device touch audit.
-- Keep Phase 2C merge/sync separate from the Phase 2B backup path.
+- Add dedicated per-event E2E coverage before expanding the event list further.
 
 ### Before changing anything
 
@@ -646,9 +768,12 @@ replace-only; no merge or conflict-resolution logic exists yet.
 
 ## Git status
 
-Phase 2A.3 timer, inspection, statistics, session, history, comment, storage,
-documentation, and screenshot work is committed. The roadmap is tracked
-separately in `ROADMAP.md`. Verify with:
+Milestone 1 through Phase 2C and the 2026-10-25 hardening patch are implemented
+in the working tree. The patch changes are uncommitted at the time of this
+verification and include modified source, tests, CSS, E2E coverage, documentation,
+and the new `PATCH_LIMITATIONS.md`, `src/hooks/useSync.test.ts`, and
+`src/lib/sessionRedirects.test.ts`. The roadmap is tracked separately in
+`ROADMAP.md`. Verify with:
 
 ```bash
 git status --short

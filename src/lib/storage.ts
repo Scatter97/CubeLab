@@ -551,7 +551,10 @@ export function loadSolves(storage = getDefaultStorage()): Solve[] {
     const solves: Solve[] = []
     for (const candidate of parsed.solves) {
       const solve = parseSolve(candidate)
-      if (solve && !seen.has(solve.id)) {
+      // `cubelab:solves:v1` predates multi-event sessions and was only ever
+      // written for 3x3. Do not migrate records tagged for another event into
+      // the 3x3 legacy session.
+      if (solve && solve.event === '333' && !seen.has(solve.id)) {
         seen.add(solve.id)
         solves.push(solve)
       }

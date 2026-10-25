@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SessionsData, Settings } from '../types'
 import { countSolves } from '../lib/sessions'
 import { loadSessions } from '../lib/storage'
@@ -94,18 +94,18 @@ export function useSync({
   const fallbackTimerRef = useRef<number | null>(null)
   const retryTimerRef = useRef<number | null>(null)
 
-  useEffect(() => {
+  // Keep the latest props available before the browser yields. A sync request
+  // can finish while a local edit is being committed; the in-flight guards
+  // must compare against the newest committed snapshot, not a stale one.
+  useLayoutEffect(() => {
     sessionsRef.current = sessions
-  }, [sessions])
-  useEffect(() => {
     settingsRef.current = settings
-  }, [settings])
+    timerActiveRef.current = timerActive
+  }, [sessions, settings, timerActive])
+
   useEffect(() => {
     syncRef.current = sync
   }, [sync])
-  useEffect(() => {
-    timerActiveRef.current = timerActive
-  }, [timerActive])
 
   const persist = useCallback((next: SyncStorageData) => {
     setSync(next)
@@ -365,6 +365,7 @@ export function useSync({
             ...(remoteEnvelope?.sessionRedirects ?? []),
           ])
           const local = sessionsRef.current
+          const localSettings = settingsRef.current
           const merged = mergeSessionsData({
             local,
             remote: remoteSessions,
@@ -376,21 +377,42 @@ export function useSync({
 
           // Settings merge.
           const mergedSettings = mergeSettings(
-            settingsRef.current,
+            localSettings,
             remoteSettings,
             remoteEnvelope?.updatedAt ?? 0,
             syncRef.current.runtime.lastSyncAt,
           )
 
-          const beforeCount = countSolvesInData(local)
+          const localIds = new Set(local.sessions.flatMap((session) => session.solves.map((solve) => solve.id)))
+          const remoteIds = new Set((remoteSessions?.sessions ?? []).flatMap((session) => session.solves.map((solve) => solve.id)))
+          const mergedIds = new Set(merged.merged.sessions.flatMap((session) => session.solves.map((solve) => solve.id)))
+          const uploadedSolves = [...localIds].filter(
+            (id) => !remoteIds.has(id) && mergedIds.has(id),
+          ).length
+          const importedSolves = [...mergedIds].filter((id) => !localIds.has(id)).length
 
+          // Never publish a provisional resolution when the user requested
+          // approval. Preserve local data and the conflict record for review.
+          const pendingConflicts = merged.conflicts.filter((conflict) => conflict.resolution === 'manual-pending')
+          if (pendingConflicts.length > 0) {
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                conflicts: [...syncRef.current.runtime.conflicts, ...pendingConflicts].slice(-100),
+                lastSyncStatus: 'conflict',
+                lastError: 'Resolve same-field conflicts before publishing a cloud backup. Local and cloud data were not overwritten.',
+              },
+            })
+            onNotify('Synchronization paused: conflicting edits need review. Neither local nor cloud data was replaced.')
+            return
+          }
 
-          // Advance the deletion-detection baseline before React renders the
-          // adopted/redirected session snapshot. Neither operation is a delete.
-          knownSessionsRef.current = merged.merged
-          sessionsRef.current = merged.merged
-          onReplaceSessions(merged.merged)
-          onReplaceSettings(mergedSettings)
+          // A user may record a solve while the download is in flight. Never
+          // replace that newer snapshot with the earlier merge result.
+          if (sessionsRef.current !== local || settingsRef.current !== localSettings) {
+            throw new Error('Local data changed during synchronization. Please sync again to merge the newest changes.')
+          }
 
           const mergedTombstones = merged.mergedTombstones
           const remoteRevision = remoteEnvelope?.revision ?? 0
@@ -404,8 +426,33 @@ export function useSync({
           )
 
           const backup = createBackup(merged.merged, mergedSettings, new Date(), envelope)
+          // Capture an in-flight edit rather than silently committing stale
+          // merged state. The remote transport still needs real CAS protection.
+          if (sessionsRef.current !== local || settingsRef.current !== localSettings) {
+            throw new Error('Local data changed before upload. Synchronization was cancelled safely.')
+          }
           const existingFileId = remoteFile?.id ?? getRemoteFileId()
           const result = await transport.uploadBackup(JSON.stringify(backup), existingFileId)
+
+          // Do not overwrite solves added while the network upload was in progress.
+          // Schedule a follow-up merge instead of treating the uploaded state as
+          // completely synchronized. Keep the local state as the source of truth.
+          if (sessionsRef.current !== local || settingsRef.current !== localSettings) {
+            persist({ ...syncRef.current, runtime: {
+              ...syncRef.current.runtime,
+              lastSyncStatus: 'pending',
+              lastError: 'New local changes occurred during upload; another sync is needed.',
+            } })
+            window.setTimeout(() => void syncNowRef.current?.('retry'), 0)
+            return
+          }
+
+          // Publish only after upload success; failed writes cannot cause an
+          // adopted snapshot to erase unsaved local work.
+          knownSessionsRef.current = merged.merged
+          sessionsRef.current = merged.merged
+          onReplaceSessions(merged.merged)
+          onReplaceSettings(mergedSettings)
 
           const now = Date.now()
           const updatedConflicts =
@@ -438,8 +485,7 @@ export function useSync({
           persist(next)
           lastSyncedSessionsRef.current = merged.merged
 
-          const total = countSolvesInData(merged.merged)
-          const addedRemote = total > beforeCount ? total - beforeCount : 0
+          const addedRemote = importedSolves
 
           backoffRef.current = 1_000
 
@@ -459,7 +505,7 @@ export function useSync({
             if (merged.adoptedLocalDefault) {
               messages.push('Cloud sessions imported')
             }
-            if (merged.addedSolves > 0) messages.push(`${merged.addedSolves} new local solve${merged.addedSolves === 1 ? '' : 's'} uploaded`)
+            if (uploadedSolves > 0) messages.push(`${uploadedSolves} new local solve${uploadedSolves === 1 ? '' : 's'} uploaded`)
             if (merged.duplicateSessionNames.length > 0 && onDuplicateSessionDetected) {
               onDuplicateSessionDetected(merged.duplicateSessionNames)
             }

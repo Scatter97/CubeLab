@@ -63,6 +63,39 @@ describe('backup format', () => {
     expect(backup.version).toBe(BACKUP_VERSION)
   })
 
+  it('preserves supported solve puzzle events in backups', () => {
+    const mixedSessions: SessionsData = {
+      activeSessionId: 'session-2',
+      sessions: [
+        {
+          id: 'session-1',
+          name: 'Morning',
+          event: '222',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_001_000,
+          solves: [solve({ id: 'solve-1', event: '222' })],
+        },
+        {
+          id: 'session-2',
+          name: 'Evening',
+          event: '333oh',
+          createdAt: 1_700_000_002_000,
+          updatedAt: 1_700_000_003_000,
+          solves: [solve({ id: 'solve-2', event: '333oh' })],
+        },
+      ],
+    }
+    const backup = createBackup(mixedSessions, {
+      ...DEFAULT_SETTINGS,
+      inspectionEnabled: false,
+    })
+    const result = parseBackup(serializeBackup(backup))
+
+    expect(result).toEqual({ ok: true, backup })
+    expect(result.ok && result.backup.sessions.sessions[0]?.solves[0]?.event).toBe('222')
+    expect(result.ok && result.backup.sessions.sessions[1]?.solves[0]?.event).toBe('333oh')
+  })
+
   it('takes a detached snapshot', () => {
     const source = sessions()
     const backup = createBackup(source, { ...DEFAULT_SETTINGS, inspectionEnabled: false })

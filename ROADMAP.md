@@ -1,7 +1,6 @@
 # CubeLab Roadmap
 
-**Status:** Active planning document  
-**Last updated:** 2026-10-24**Current release line:** Phase 2B complete (manual Google Drive backup); Phase 2C next, not started
+**Status:** Active planning document · **Last updated:** 2026-10-25 · **Current release line:** Phase 2B manual Google Drive backup complete; Phase 2C local-first sync complete with documented concurrency limitations
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
 `PROJECT_PROGRESS.md` remains the source of truth for completed work and current
@@ -26,12 +25,16 @@ verification evidence.
 - Phase 2B (Google Drive backup) is complete: manual backup/restore, typed
   restore confirmation, remote deletion, mock E2E coverage, and final
   verification are in place.
-- Phase 2B (Google Drive backup) is complete.
-- Phase 2C (multi-device sync) is implemented as local-first optional Google Drive
-  synchronization: time, solve-count, and combined schedules, startup/exit/reconnect
-  sync, ID-based merging, tombstones, automatic conflict resolution with manual
-  review opt-in, status UI, and mock-based coverage. Real cross-device behavior
-  still requires real Google Drive validation.## Product principles
+- Phase 2C (multi-device sync) is complete with documented concurrency
+  limitations: local-first optional Google Drive synchronization with time,
+  solve-count, and combined schedules; startup/exit/reconnect sync; ID-based
+  merging; tombstones; empty-default adoption; session redirects; manual conflict
+  review; status UI; and mock-based coverage. Google Drive still lacks a verified
+  atomic compare-and-swap, so simultaneous uploads can race.
+- The 2026-10-25 hardening patch fixed legacy 3×3-only migration, empty-default
+  adoption, solve-owner/event compatibility, directional sync counts,
+  duplicate-name validation, in-flight local-edit protection, and two React lint
+  warnings. See `PATCH_LIMITATIONS.md` for what remains open.## Product principles
 
 1. **Timer correctness first.** Timing transitions stay in the pure timer
    machine. Use monotonic time only; never derive solve duration from wall-clock
@@ -146,33 +149,48 @@ privacy language, and conflict behavior.
 - Privacy and data-retention behavior is documented.
 - Offline E2E remains green.
 
-## Phase 2C — Multi-device sync
+## Phase 2C — Multi-device sync — Complete with caveats
 
 **Goal:** Synchronize sessions and solves across devices after the backup path is
 proven.
 
-**Prerequisites:** Phase 2B complete and an explicit sync design approval.
+**Delivered:**
 
-**Scope:**
+- ID-based session and solve merging with tombstones and session redirects.
+- Empty-default cloud adoption, duplicate-name detection, and manual session
+  merges.
+- Per-field conflict resolution, with manual review able to pause cloud
+  publication.
+- Time-based, solve-count-based, and combined schedules plus startup, exit, and
+  reconnect triggers.
+- Sync settings/status UI and deterministic mock-transport unit and E2E tests.
+- 2026-10-25 hardening for legacy migration, adoption, event-compatible ownership,
+  directional counts, duplicate-name validation, and in-flight local edits.
 
-- Define the sync record model, including session/solve identity and deletions.
-- Conflict detection and a user-visible resolution policy.
-- Merge behavior that preserves valid sessions and never silently drops solves.
-- Explicit handling of offline edits, concurrent updates, and active-session
-  selection.
-- No social, sharing, or public-profile features.
+**Acceptance gate — partially met:**
 
-**Acceptance gate:**
+- [x] Deterministic conflict tests cover add/add, edit/edit, delete/edit, and
+      session-selection conflicts.
+- [x] Sync failures leave local data intact and recoverable in the tested paths.
+- [ ] The user can understand and reverse the result of every merge.
+- [ ] A documented recovery path exists for corrupted or partially applied syncs.
+- [ ] Remote writes have verified atomic compare-and-swap protection.
 
-- Deterministic conflict tests cover add/add, edit/edit, delete/edit, and
-  session-selection conflicts.
-- Sync failures leave local data intact and recoverable.
-- The user can understand and reverse the result of a merge.
-- A documented recovery path exists for corrupted or partially applied syncs.
+**Remaining work:** A verified CAS/ETag update path for the Drive file, a complete
+manual conflict approve-and-resume workflow, sync-on-exit hardening,
+deletion-versus-offline-edit rescue, field-level session preference conflicts,
+concurrent redirect approvals, and global settings provenance. Until those are
+addressed, do not describe synchronization as data-loss-proof.
 
 ## Phase 3 — More WCA events
 
 **Goal:** Extend CubeLab beyond 3×3 without duplicating timer or statistics logic.
+
+**Current partial state:** Session setup already offers 3×3, 2×2, 4×4, and 3×3 OH
+with `cubing.js` scrambles and event-compatible sync merging. This is not a
+completed Phase 3: dedicated per-event E2E coverage, event-specific WCA timing
+rules, and broader event validation are still required before the phase can be
+declared complete.
 
 **Suggested sequence:**
 

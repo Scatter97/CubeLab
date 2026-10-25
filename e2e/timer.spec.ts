@@ -941,12 +941,22 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   // Duplicate names are rejected case-insensitively without closing the dialog.
   await input.fill('session 1')
   await page.getByRole('button', { name: 'Create session', exact: true }).click()
-  await expect(page.getByTestId('session-error')).toHaveText(
-    'Session names must be unique.',
+  const sessionError = page.getByTestId('session-error')
+  await expect(sessionError).toHaveAttribute('role', 'alert')
+  await expect(sessionError).toContainText(
+    'Session name already exists. Please choose a different name.',
   )
+  await expect(sessionError.locator('svg')).toHaveCount(1)
+  await expect(sessionError).toHaveCSS('color', 'rgb(198, 40, 40)')
+  await expect(input).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(1)
   await expect(input).toBeVisible()
 
+  // The validation message and invalid highlight clear as soon as the name is
+  // corrected, and the corrected name can be created.
   await input.fill('Evening')
+  await expect(sessionError).toHaveCount(0)
+  await expect(input).not.toHaveAttribute('aria-invalid', 'true')
   await page.getByRole('button', { name: 'Create session', exact: true }).click()
   await expect(page.getByTestId('session-error')).toHaveCount(0)
   expect(await selectedSessionName(page)).toBe('Evening')
