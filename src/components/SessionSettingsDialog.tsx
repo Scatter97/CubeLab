@@ -154,7 +154,7 @@ export function SessionSettingsDialog({
                     const defaultish =
                       trimmedName === '' ||
                       trimmedName === eventLabel(previous) ||
-                      /^Session \\d+$/.test(trimmedName)
+                      /^Session \d+$/.test(trimmedName)
                     if (defaultish) {
                       setName(eventLabel(next))
                     }

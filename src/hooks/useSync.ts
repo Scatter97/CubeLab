@@ -89,6 +89,7 @@ export function useSync({
   const lastSyncedSessionsRef = useRef<SessionsData | null>(null)
   const knownSessionsRef = useRef<SessionsData | null>(null)
   const leaderRef = useRef(false)
+  const locksSupportedRef = useRef(typeof navigator !== 'undefined' && Boolean(navigator.locks))
   const backoffRef = useRef(1_000)
   const fallbackTimerRef = useRef<number | null>(null)
   const retryTimerRef = useRef<number | null>(null)
@@ -148,8 +149,9 @@ export function useSync({
 
       const previousSessionIds = new Set(previous.sessions.map((s) => s.id))
       const currentSessionIds = new Set(sessions.sessions.map((s) => s.id))
+      const redirectedIds = new Set((syncRef.current.runtime.sessionRedirects ?? []).map((redirect) => redirect.fromId))
       for (const id of previousSessionIds) {
-        if (!currentSessionIds.has(id)) {
+        if (!currentSessionIds.has(id) && !redirectedIds.has(id)) {
           const already = syncRef.current.runtime.tombstones.some(
             (tombstone) => tombstone.kind === 'session' && tombstone.id === id,
           )
@@ -243,6 +245,7 @@ export function useSync({
       ])
       const redirectedSessions = applySessionRedirects(sessionsRef.current, combined)
       lastSyncedSessionsRef.current = redirectedSessions
+      knownSessionsRef.current = redirectedSessions
       sessionsRef.current = redirectedSessions
       onReplaceSessions(redirectedSessions)
 
@@ -287,12 +290,10 @@ export function useSync({
         if (reason === 'manual') onNotify('Enable automatic synchronization first.')
         return
       }
-      if (!leaderRef.current && !timerActiveRef.current) {
-        // Followers primarily mirror; only the coordinator syncs.
-      }
-      if (!leaderRef.current) {
-        // Avoid a silent no-op if tab leadership was never resolved.
-        leaderRef.current = true
+      if (locksSupportedRef.current && !leaderRef.current) {
+        // Another tab owns the lock. Never silently promote a follower.
+        if (reason === 'manual') onNotify('Another CubeLab tab is handling synchronization.')
+        return
       }
       if (runningRef.current) {
         await runningRef.current
@@ -384,6 +385,10 @@ export function useSync({
           const beforeCount = countSolvesInData(local)
 
 
+          // Advance the deletion-detection baseline before React renders the
+          // adopted/redirected session snapshot. Neither operation is a delete.
+          knownSessionsRef.current = merged.merged
+          sessionsRef.current = merged.merged
           onReplaceSessions(merged.merged)
           onReplaceSettings(mergedSettings)
 
@@ -505,40 +510,32 @@ export function useSync({
     syncNowRef.current = syncNow
   }, [syncNow])
 
-  // Leader election via Web Locks.
+  // Web Locks guarantees one syncing tab. Followers never self-elect while
+  // a lock holder exists, and lock ownership ends on unmount.
   useEffect(() => {
-    let released = false
-    const locks = (navigator as any).locks
+    const locks = navigator.locks
     if (!locks) {
       leaderRef.current = true
-      return () => {
-        leaderRef.current = false
-      }
+      return () => { leaderRef.current = false }
     }
-    const leaderTimeout = window.setTimeout(() => {
+    locksSupportedRef.current = true
+    let released = false
+    let releaseLock: (() => void) | undefined
+    void locks.request('cubelab-sync-leader', async () => {
+      if (released) return
       leaderRef.current = true
-    }, 1_000)
-    void locks.request('cubelab-sync-leader', { ifAvailable: true }, async (lock: any) => {
-      window.clearTimeout(leaderTimeout)
-      if (!lock) {
-        leaderRef.current = true
-        return
-      }
-      if (!lock || released) return
-      leaderRef.current = true
-      // Startup sync.
       if (syncRef.current.preferences.enabled && syncRef.current.preferences.syncOnStartup) {
-        window.setTimeout(() => void syncNow('startup'), 0)
+        window.setTimeout(() => void syncNowRef.current?.('startup'), 0)
       }
-      await new Promise<void>(() => {
-        // Hold the lock for the lifetime of the tab.
-      })
+      await new Promise<void>((resolve) => { releaseLock = resolve })
+      leaderRef.current = false
     })
     return () => {
       released = true
       leaderRef.current = false
+      releaseLock?.()
     }
-  }, [syncNow])
+  }, [])
 
   // Followers mirror storage changes.
   useEffect(() => {

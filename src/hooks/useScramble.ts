@@ -26,6 +26,7 @@ export function useScramble(event: import('../types').PuzzleEvent = '333'): Scra
   const [isGenerating, setIsGenerating] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [fillVersion, setFillVersion] = useState(0)
+  const eventRef = useRef(event)
 
   const commitSlots = useCallback((next: Slots) => {
     slotsRef.current = next
@@ -35,8 +36,11 @@ export function useScramble(event: import('../types').PuzzleEvent = '333'): Scra
   // oxlint-disable-next-line react(set-state-in-effect)
   useEffect(() => {
     let cancelled = false
-    slotsRef.current = EMPTY_SLOTS
-    commitSlots(EMPTY_SLOTS)
+    if (eventRef.current !== event) {
+      eventRef.current = event
+      slotsRef.current = EMPTY_SLOTS
+      commitSlots(EMPTY_SLOTS)
+    }
 
     async function fillQueue() {
       setError(null)

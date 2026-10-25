@@ -197,7 +197,7 @@ export function SessionPanel({
           >
             {sessions.map((session) => (
               <option key={session.id} value={session.id}>
-                {session.name}
+                {session.name}{sessions.filter((candidate) => candidate.name.trim().toLowerCase() === session.name.trim().toLowerCase()).length > 1 ? ` · ${session.event ?? '333'} · ${session.id.slice(0, 6)}` : ''}
               </option>
             ))}
           </select>

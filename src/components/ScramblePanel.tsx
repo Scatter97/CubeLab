@@ -1,8 +1,10 @@
 import { copyText } from '../lib/clipboard'
 import { RefreshIcon } from './Icons'
-import type { ScrambleAction, ScrambleAlignment } from '../types'
+import type { ScrambleAction, ScrambleAlignment, PuzzleEvent } from '../types'
+import { CUBELAB_EVENTS } from '../lib/events'
 
 interface ScramblePanelProps {
+  event: PuzzleEvent
   scramble: string | null
   nextScramble: string | null
   isLoading: boolean
@@ -17,6 +19,7 @@ interface ScramblePanelProps {
 }
 
 export function ScramblePanel({
+  event,
   scramble,
   nextScramble,
   isLoading,
@@ -55,7 +58,7 @@ export function ScramblePanel({
           </span>
           <span className="scramble-badge">
             <span className="badge-dot" aria-hidden="true" />
-            3×3 · WCA random-state
+            {CUBELAB_EVENTS.find((option) => option.id === event)?.label ?? event} · scramble
           </span>
         </div>
 

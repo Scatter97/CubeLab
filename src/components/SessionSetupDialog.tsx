@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { CloseIcon } from './Icons'
-import { nextSessionName } from '../lib/sessions'
+import { nextSessionName, getSessionNameError } from '../lib/sessions'
 import { CUBELAB_EVENTS } from '../lib/events'
 import type { PuzzleEvent, SessionPreferences } from '../types'
 
@@ -53,19 +53,10 @@ export function SessionSetupDialog({
 
   function submit() {
     const trimmed = name.trim()
-    if (!trimmed) {
-      setError('Enter a session name.')
-      return
-    }
-    if (trimmed.length > 40) {
-      setError('Use 40 characters or fewer.')
-      return
-    }
-    const duplicate = sessions.some(
-      (session) => session.name.trim().toLowerCase() === trimmed.toLowerCase(),
-    )
-    if (duplicate) {
-      setError('Session names must be unique.')
+    const validationError = getSessionNameError(trimmed, sessions.map((session, index) => ({ id: session.id ?? String(index), name: session.name })))
+    if (validationError) {
+      setError(validationError)
+      inputRef.current?.focus()
       return
     }
     setError(null)
@@ -118,26 +109,24 @@ export function SessionSetupDialog({
           </button>
         </header>
 
-        {error ? (
-          <p role="alert" className="settings-error" data-testid="session-error">
-            {error}
-          </p>
-        ) : null}
-
         <div className="session-settings-body">
           <div className="settings-field">
             <span>Session name</span>
             <input
               type="text"
               aria-label="Session name"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? "create-session-name-error" : undefined}
               ref={inputRef}
               value={name}
               onChange={(eventTarget) => {
                   setName(eventTarget.target.value)
+                  if (error) setError(getSessionNameError(eventTarget.target.value, sessions.map((session, index) => ({ id: session.id ?? String(index), name: session.name }))))
                   setNameTouched(true)
                 }}
               autoFocus
             />
+            {error ? <p id="create-session-name-error" role="alert" className="settings-error" data-testid="session-error"><span aria-hidden="true">❗</span> {error}</p> : null}
           </div>
 
           <div className="settings-field">
@@ -194,7 +183,7 @@ export function SessionSetupDialog({
         </div>
 
         <footer className="session-settings-footer">
-          <span>Changes save automatically.</span>
+          <span>Nothing is saved until you create the session.</span>
           <button
             type="button"
             className="button button-secondary"

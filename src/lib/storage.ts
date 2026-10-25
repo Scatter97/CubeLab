@@ -124,7 +124,7 @@ function parseFieldUpdate(value: unknown): FieldUpdate | null {
 function parseSolve(value: unknown): Solve | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
-  if (value.event !== '333') return null
+  if (!isPuzzleEvent(value.event)) return null
   if (
     typeof value.rawMs !== 'number' ||
     !Number.isFinite(value.rawMs) ||
@@ -140,7 +140,7 @@ function parseSolve(value: unknown): Solve | null {
 
   return {
     id: value.id,
-    event: '333',
+    event: value.event as PuzzleEvent,
     rawMs: value.rawMs,
     penalty: value.penalty,
     scramble: value.scramble,
@@ -221,6 +221,7 @@ function parseSession(value: unknown): Session | null {
     id: value.id,
     name,
     event: isPuzzleEvent(value.event) ? value.event : '333',
+    ...(value.isAutoCreatedDefault === true ? { isAutoCreatedDefault: true } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     solves,
@@ -451,6 +452,7 @@ function createEmptySessions(): SessionsData {
       {
         id,
         name: DEFAULT_SESSION_NAME,
+        isAutoCreatedDefault: true,
         createdAt: now,
         updatedAt: now,
         solves: [],

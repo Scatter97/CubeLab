@@ -136,6 +136,8 @@ export interface SessionPreferences {
 export interface Session {
   id: string
   name: string
+  /** True only for CubeLab's untouched, auto-created local placeholder. */
+  isAutoCreatedDefault?: boolean
   /** The WCA puzzle event for every solve in this session. */
   event?: PuzzleEvent
   createdAt: number

@@ -58,7 +58,8 @@ export function MergeSessionsDialog({
     normalizeSessionName(target.name).toLowerCase() ===
       normalizeSessionName(source.name).toLowerCase()
   const canPreview =
-    sameName && target && source && target.id !== source.id
+    sameName && target && source && target.id !== source.id &&
+    (target.event ?? '333') === (source.event ?? '333')
   const mergedSolveCount = canPreview
     ? new Set([...target.solves, ...source.solves].map((solve) => solve.id))
         .size

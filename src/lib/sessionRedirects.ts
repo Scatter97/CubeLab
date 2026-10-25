@@ -1,148 +1,80 @@
-import type { SessionsData } from '../types'
+import type { SessionsData, Solve, Session } from '../types'
 import type { SessionRedirect } from './syncStorage'
+import { mergeSolveFields } from './solveMerge'
 
 export interface SessionRedirectMap {
   redirects: Array<{ fromId: string; toId: string }>
   resolve(id: string): string
 }
 
-export function normalizeSessionRedirects(
-  input: readonly SessionRedirect[],
-): SessionRedirect[] {
-  const nodes = new Set<string>()
-  const union = new Map<string, string>()
-
-  function find(id: string): string {
-    if (!union.has(id)) union.set(id, id)
-    const root = union.get(id)!
-    if (root === id) return id
-    const canonical = find(root)
-    union.set(id, canonical)
-    return canonical
-  }
-
-  function merge(fromId: string, toId: string): void {
-    if (fromId === toId || !fromId || !toId) return
-    const rootA = find(fromId)
-    const rootB = find(toId)
-    if (rootA !== rootB) {
-      // The smallest stable identifier becomes canonical so that every
-      // participant gets the same permanent target.
-      const canonical = rootA < rootB ? rootA : rootB
-      union.set(rootA, canonical)
-      union.set(rootB, canonical)
+/** Honor the approved destination, rather than electing the smallest ID. */
+export function normalizeSessionRedirects(input: readonly SessionRedirect[]): SessionRedirect[] {
+  const directed = new Map<string, SessionRedirect>()
+  // Newer approvals supersede older decisions for the same source. Stable
+  // sorting handles identical timestamps regardless of input order.
+  const sorted = [...input].filter((r) => r.fromId && r.toId && r.fromId !== r.toId)
+    .sort((a, b) => b.approvedAt - a.approvedAt ||
+      a.fromId.localeCompare(b.fromId) || a.toId.localeCompare(b.toId))
+  for (const redirect of sorted) {
+    if (directed.has(redirect.fromId)) continue
+    let cursor = redirect.toId
+    const seen = new Set([redirect.fromId])
+    let cycle = false
+    while (directed.has(cursor)) {
+      if (seen.has(cursor)) { cycle = true; break }
+      seen.add(cursor)
+      cursor = directed.get(cursor)!.toId
     }
+    if (seen.has(cursor)) cycle = true
+    if (!cycle) directed.set(redirect.fromId, redirect)
   }
-
-  for (const redirect of input) {
-    nodes.add(redirect.fromId)
-    nodes.add(redirect.toId)
-    merge(redirect.fromId, redirect.toId)
-  }
-
-  const approvedAt = new Map(input.map((redirect) => [
-    `${redirect.fromId}:${redirect.toId}`,
-    redirect.approvedAt,
-  ]))
-
-  const seen = new Set<string>()
-  const result: SessionRedirect[] = []
-  for (const id of nodes) {
-    const canonical = find(id)
-    if (canonical === id) continue
-    const key = `${id}:${canonical}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push({
-      fromId: id,
-      toId: canonical,
-      approvedAt: approvedAt.get(key) ?? input.find((r) => r.fromId === id)?.approvedAt ?? Date.now(),
-      byDeviceId: input.find((r) => r.fromId === id)?.byDeviceId,
-    })
-  }
-
-  // Ensure every historical mapping remains current.
-  const all = new Map(result.map((redirect) => [redirect.fromId, redirect]))
-  for (const redirect of all.values()) {
-    const deeper = all.get(redirect.toId)
-    if (deeper && deeper.fromId !== redirect.toId && deeper.toId !== redirect.toId) {
-      redirect.toId = deeper.toId
+  return [...directed.values()].map((item) => {
+    let toId = item.toId
+    const seen = new Set([item.fromId])
+    while (directed.has(toId) && !seen.has(toId)) {
+      seen.add(toId)
+      toId = directed.get(toId)!.toId
     }
-  }
-
-  return [...new Map(result.map((redirect) => [redirect.fromId, redirect])).values()]
+    return { ...item, toId }
+  }).sort((a,b) => a.fromId.localeCompare(b.fromId))
 }
 
-export function applySessionRedirects(
-  data: SessionsData,
-  redirects: ReadonlyArray<SessionRedirect>,
-): SessionsData {
-  if (redirects.length === 0) return data
-
+export function applySessionRedirects(data: SessionsData, redirects: ReadonlyArray<SessionRedirect>): SessionsData {
   const normalized = normalizeSessionRedirects(redirects)
-  const targetById = new Map(normalized.map((redirect) => [redirect.fromId, redirect.toId]))
-
-  function canonical(id: string): string {
-    let current = id
-    const seen = new Set<string>()
-    while (targetById.has(current) && !seen.has(current)) {
-      seen.add(current)
-      current = targetById.get(current)!
-    }
-    return current
-  }
-
-  const sessionsById = new Map(data.sessions.map((session) => [session.id, { ...session, solves: [...session.solves] }]))
-  const solveOwner = new Map<string, string>()
-
+  if (!normalized.length) return data
+  const mapping = new Map(normalized.map((r) => [r.fromId, r.toId]))
+  const canonical = (id: string): string => mapping.get(id) ?? id
+  const original = new Map(data.sessions.map((s) => [s.id, s]))
+  const sessions = new Map<string, Session>()
+  const grouped = new Map<string, Session[]>()
   for (const session of data.sessions) {
-    for (const solve of session.solves) {
-      solveOwner.set(solve.id, session.id)
-    }
+    const id = canonical(session.id)
+    grouped.set(id, [...(grouped.get(id) ?? []), session])
   }
-
-  for (const [fromId, toId] of targetById.entries()) {
-    const source = sessionsById.get(fromId)
-    if (!source) continue
-
-    if (!sessionsById.has(toId)) {
-      const canonicalSession = source
-      sessionsById.set(toId, {
-        id: toId,
-        name: canonicalSession.name,
-        createdAt: canonicalSession.createdAt,
-        updatedAt: canonicalSession.updatedAt,
-        solves: [],
-        inspectionEnabled: canonicalSession.inspectionEnabled,
-      })
+  for (const [id, members] of grouped) {
+    const target = original.get(id) ?? members[0]!
+    if (members.some((s) => (s.event ?? '333') !== (target.event ?? '333'))) {
+      throw new Error(`Approved merge would combine incompatible puzzle events (${id}).`)
     }
-
-    const target = sessionsById.get(toId)!
-    for (const solve of source.solves) {
-      const existing = target.solves.find((candidate) => candidate.id === solve.id)
-      if (!existing) {
-        target.solves.push(solve)
-      } else if (
-        (solve.updatedAt ?? solve.createdAt) > (existing.updatedAt ?? existing.createdAt)
-      ) {
-        const index = target.solves.indexOf(existing)
-        target.solves[index] = solve
+    const solves = new Map<string, Solve>()
+    for (const session of members) {
+      for (const solve of session.solves) {
+        if (solve.event !== (target.event ?? '333')) throw new Error(`Solve ${solve.id} has incompatible event.`)
+        const existing = solves.get(solve.id)
+        solves.set(solve.id, existing ? mergeSolveFields(existing, solve, false, []) : solve)
       }
     }
-
-    sessionsById.delete(fromId)
+    const newest = [...members].sort((a,b)=> b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))[0]!
+    sessions.set(id, {
+      ...target, id,
+      createdAt: Math.min(...members.map((m) => m.createdAt)),
+      updatedAt: Math.max(...members.map((m) => m.updatedAt)),
+      preferences: { ...newest.preferences, ...target.preferences },
+      solves: [...solves.values()].sort((a,b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)),
+    })
   }
-
-  const sessions = [...sessionsById.values()]
-  if (sessions.length === 0) return data
-
-  const nextActiveId = canonical(data.activeSessionId)
-  const activeSessionId = sessions.some((session) => session.id === nextActiveId)
-    ? nextActiveId
-    : sessions[0]!.id
-
-  return {
-    activeSessionId,
-    sessions,
-  }
+  const list = [...sessions.values()]
+  if (!list.length) return data
+  const active = canonical(data.activeSessionId)
+  return { activeSessionId: sessions.has(active) ? active : list[0]!.id, sessions: list }
 }

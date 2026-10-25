@@ -127,9 +127,9 @@ export default function App() {
   } = useSessions()
   const solves = activeSession.solves
   const activeEvent = activeSession.event ?? '333'
-  const visibleSessions = sessions.filter(
-    (session) => (session.event ?? '333') === activeEvent,
-  )
+  // The selector lists every session. A session's event is its own property,
+  // not a filter for session visibility.
+  const visibleSessions = sessions
   const {
     settings,
     settingsStorageOk,
@@ -332,9 +332,9 @@ export default function App() {
 
     const elapsedMs = timer.inspectionElapsedMs ?? 0
     const events = inspectionWarningEvents(
-      settings.inspectionCountDirection,
-      settings.inspectionWarning8s,
-      settings.inspectionWarning12s,
+      effectiveSettings.inspectionCountDirection,
+      effectiveSettings.inspectionWarning8s,
+      effectiveSettings.inspectionWarning12s,
     )
 
     for (const event of events) {
@@ -359,9 +359,9 @@ export default function App() {
   }, [
     settings.alertChannel,
     settings.alertVolume,
-    settings.inspectionCountDirection,
-    settings.inspectionWarning8s,
-    settings.inspectionWarning12s,
+    effectiveSettings.inspectionCountDirection,
+    effectiveSettings.inspectionWarning8s,
+    effectiveSettings.inspectionWarning12s,
     timer.inspectionElapsedMs,
     timer.state,
     triggerAlert,
@@ -379,7 +379,11 @@ export default function App() {
     dataOpen ||
     clearOpen ||
     sessionToDelete !== null ||
-    pendingImport !== null
+    pendingImport !== null ||
+    driveOpen ||
+    mergeSessionsOpen ||
+    createSessionOpen ||
+    pendingDriveRestore !== null
   const timerCancel = timer.cancel
   const timerPressBase = timer.press
   const timerPress = useCallback(
@@ -754,7 +758,7 @@ export default function App() {
       }
 
       if (
-        settings.stopWithAnyKey &&
+        effectiveSettings.stopWithAnyKey &&
         timer.state.status === 'running' &&
         !event.repeat &&
         !isModifierKey(event.key) &&
@@ -796,7 +800,7 @@ export default function App() {
   }, [
     canStart,
     modalOpen,
-    settings.stopWithAnyKey,
+    effectiveSettings.stopWithAnyKey,
     timerCancel,
     timerPress,
     timerRelease,
@@ -844,6 +848,7 @@ export default function App() {
       <main className="workspace">
         <div className="primary-column">
           <ScramblePanel
+            event={activeEvent}
             scramble={scramble}
             nextScramble={nextScramble}
             isLoading={scrambleLoading}
@@ -951,7 +956,7 @@ export default function App() {
         <span className="footer-middle">
           Local-first. Solves stay in this browser.
         </span>
-        <span className="footer-meta">3×3 · WCA</span>
+        <span className="footer-meta">{activeEvent.toUpperCase()} · CubeLab</span>
       </footer>
 
       <div className="sr-only" aria-live="polite" aria-atomic="true">

@@ -7,6 +7,7 @@ import type {
   Solve,
 } from '../types'
 import { createId } from './id'
+import { mergeSolveFields } from './solveMerge'
 
 export const MAX_SESSION_NAME_LENGTH = 40
 export const MAX_SOLVE_COMMENT_LENGTH = 500
@@ -391,19 +392,14 @@ export function mergeSessionsById(
   const target = data.sessions.find((session) => session.id === targetId)
   const source = data.sessions.find((session) => session.id === sourceId)
   if (!target || !source) return null
+  if ((target.event ?? '333') !== (source.event ?? '333')) return null
+  if ([...target.solves, ...source.solves].some((solve) => solve.event !== (target.event ?? '333'))) return null
 
   const solvesById = new Map<string, Solve>()
   for (const solve of target.solves) solvesById.set(solve.id, solve)
   for (const solve of source.solves) {
     const existing = solvesById.get(solve.id)
-    if (
-      !existing ||
-      solve.updatedAt !== undefined &&
-        existing.updatedAt !== undefined &&
-        (solve.updatedAt ?? solve.createdAt) > (existing.updatedAt ?? existing.createdAt)
-    ) {
-      solvesById.set(solve.id, solve)
-    }
+    solvesById.set(solve.id, existing ? mergeSolveFields(existing, solve, false, []) : solve)
   }
 
   const mergedSolves = [...solvesById.values()].sort((a, b) => {
