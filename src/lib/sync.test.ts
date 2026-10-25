@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Session, SessionsData, Solve } from '../types'
-import { mergeSessionsData, resolveRedirectConflicts } from './sync'
+import {
+  findDuplicateSessionNames,
+  mergeSessionsData,
+  resolveRedirectConflicts,
+} from './sync'
+import { DEFAULT_SESSION_NAME } from './sessions'
 import type { SyncConflict, Tombstone } from './syncStorage'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
@@ -1064,5 +1069,159 @@ describe('deletion versus offline edits', () => {
     expect(result.recoveredSolves).toBe(0)
     expect(totalSolves(result.merged)).toBe(1)
     expect(result.merged.sessions[0]?.id).toBe('session-live')
+  })
+})
+
+describe('duplicate session names', () => {
+  it('reports nothing for a collection with unique names', () => {
+    expect(
+      findDuplicateSessionNames([
+        session({ id: 'a', name: 'Morning' }),
+        session({ id: 'b', name: 'Evening' }),
+      ]),
+    ).toEqual([])
+  })
+
+  it('compares names case-insensitively and reports each collision once', () => {
+    expect(
+      findDuplicateSessionNames([
+        session({ id: 'a', name: '  Morning  ' }),
+        session({ id: 'b', name: 'morning' }),
+        session({ id: 'c', name: 'MORNING' }),
+        session({ id: 'd', name: 'Evening' }),
+      ]),
+    ).toEqual(['Morning'])
+  })
+
+  it('reports a shared name even when the sessions use different events', () => {
+    expect(
+      findDuplicateSessionNames([
+        session({ id: 'a', name: 'Practice', event: '333' }),
+        session({ id: 'b', name: 'Practice', event: '444' }),
+      ]),
+    ).toEqual(['Practice'])
+  })
+
+  it('surfaces duplicates in a collection adopted from the cloud', () => {
+    const local = sessionsData({
+      sessions: [session({ id: 'fresh-default', name: DEFAULT_SESSION_NAME })],
+    })
+    const remote = sessionsData({
+      activeSessionId: 'cloud-a',
+      sessions: [
+        session({ id: 'cloud-a', name: 'Shared', solves: [solve({ id: 'a' })] }),
+        session({ id: 'cloud-b', name: 'shared', solves: [solve({ id: 'b' })] }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.adoptedLocalDefault).toBe(true)
+    expect(result.duplicateSessionNames).toEqual(['Shared'])
+  })
+
+  it('judges duplicates against the merged collection, not one snapshot', () => {
+    const local = sessionsData({
+      sessions: [session({ id: 'local', name: 'Local' })],
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({ id: 'remote-a', name: 'Cloud' }),
+        session({ id: 'remote-b', name: 'cloud' }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.duplicateSessionNames).toEqual(['Cloud'])
+  })
+})
+
+describe('merged solve ordering', () => {
+  it('returns solves newest-first regardless of arrival order', () => {
+    const sep1 = 1_700_000_001_000
+    const sep2 = 1_700_000_002_000
+    const sep3 = 1_700_000_003_000
+    const local = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({ id: 'sep-1', createdAt: sep1 }),
+            solve({ id: 'sep-3', createdAt: sep3 }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [session({ solves: [solve({ id: 'sep-2', createdAt: sep2 })] })],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'sep-3',
+      'sep-2',
+      'sep-1',
+    ])
+  })
+})
+
+describe('removal counting with recovery', () => {
+  it('does not count recovered solves as removed', () => {
+    const deletedAt = 1_700_000_005_000
+    const tombstones: Tombstone[] = [
+      {
+        kind: 'session',
+        id: 'session-deleted',
+        deletedAt,
+        deletedByDeviceId: 'other-device',
+        knownSolveIds: ['already-known'],
+      },
+    ]
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          solves: [
+            solve({ id: 'already-known', createdAt: deletedAt - 1_000 }),
+            solve({ id: 'offline-new', createdAt: deletedAt + 1_000 }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({ sessions: [] })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: false,
+    })
+
+    expect(result.recoveredSolves).toBe(1)
+    expect(result.removedSolves).toBe(1)
+    expect(result.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'offline-new',
+    ])
   })
 })

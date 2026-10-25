@@ -94,6 +94,7 @@ interface DriveBackupDialogProps {
   onClose: () => void
   onNotify: (message: string) => void
   onPendingRestore: (backup: import('../lib/backup').Backup) => void
+  onReviewDuplicateNames: () => void
 }
 
 export function DriveBackupDialog({
@@ -106,6 +107,7 @@ export function DriveBackupDialog({
   onClose,
   onNotify,
   onPendingRestore,
+  onReviewDuplicateNames,
 }: DriveBackupDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -254,6 +256,29 @@ export function DriveBackupDialog({
                 >
                   {drive.error}
                 </p>
+              ) : null}
+              {sync.duplicateNames.length > 0 ? (
+                <div
+                  className="sync-duplicate-list"
+                  data-testid="sync-duplicate-names"
+                >
+                  <p className="settings-note">
+                    Separate sessions share the name
+                    {sync.duplicateNames.length === 1 ? ' ' : 's '}
+                    {sync.duplicateNames
+                      .map((name) => `'${name}'`)
+                      .join(', ')}
+                    . They stay separate until you approve a merge.
+                  </p>
+                  <button
+                    type="button"
+                    className="button button-secondary button-small"
+                    data-testid="review-duplicate-sessions"
+                    onClick={onReviewDuplicateNames}
+                  >
+                    Review merge
+                  </button>
+                </div>
               ) : null}
               {sync.pendingConflicts.length > 0 ? (
                 <div className="sync-conflict-list" data-testid="sync-conflicts">
@@ -521,9 +546,11 @@ export function DriveBackupDialog({
                   </div>
                   <p className="settings-note">
                     Each browser writes its own app-data snapshot, so simultaneous
-                    device uploads cannot overwrite another device's file. The
-                    next sync merges snapshots; Google Drive still has no atomic
-                    compare-and-swap for writes by the same browser profile.
+                    device uploads cannot overwrite another device's file. CubeLab
+                    serializes same-browser writes with Web Locks and rechecks the
+                    snapshot before upload, but Google Drive still has no verified
+                    atomic compare-and-swap. A copied browser profile that shares
+                    this device ID can still race.
                   </p>
                   <div className="settings-row">
                     <div className="settings-row-copy">

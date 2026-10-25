@@ -337,6 +337,80 @@ describe('useDriveBackup', () => {
     expect(onPendingRestore).not.toHaveBeenCalled()
   })
 
+  it('aborts a backup when its own snapshot changed after discovery', async () => {
+    saveSyncStorage(createDefaultSyncStorage('device-hook'))
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    await memory.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          sessionsWithSolve('local'),
+          DEFAULT_SETTINGS,
+          new Date('2026-01-01T00:00:00.000Z'),
+          { ...createSyncEnvelope('device-hook', 1, [], []), updatedAt: 100 },
+        ),
+      ),
+      'device-hook',
+    )
+    const foreignContent = JSON.stringify(
+      createBackup(
+        sessionsWithSolve('foreign'),
+        DEFAULT_SETTINGS,
+        new Date('2026-01-02T00:00:00.000Z'),
+        { ...createSyncEnvelope('device-hook', 2, [], []), updatedAt: 200 },
+      ),
+    )
+    let listCalls = 0
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      listBackups: async () => {
+        const files = await memory.listBackups!()
+        listCalls += 1
+        if (listCalls === 2) {
+          // Another writer replaces this device's snapshot after backupNow's
+          // discovery read but before the locked pre-write recheck.
+          await memory.uploadDeviceBackup!(foreignContent, 'device-hook')
+        }
+        return files
+      },
+      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+      },
+    }
+    const onNotify = vi.fn()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: sessionsWithSolve('local'),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+    })
+    await act(async () => {
+      await result.current.backupNow()
+    })
+
+    expect(uploads).toBe(0)
+    expect(result.current.phase).toBe('error')
+    expect(result.current.error).toContain(
+      "Another CubeLab tab changed this device's Google Drive snapshot",
+    )
+    expect(onNotify).not.toHaveBeenCalledWith('Google Drive backup saved')
+    const files = await memory.listBackups!()
+    const own = files.find(
+      (file) => file.name === deviceBackupFileName('device-hook'),
+    )
+    expect(await memory.downloadBackup(own!.id)).toBe(foreignContent)
+  })
+
   it('restores through confirmation after a remote change', async () => {
     const transport = createMemoryDriveTransport()
     const onPendingRestore = vi.fn()

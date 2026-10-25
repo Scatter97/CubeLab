@@ -142,14 +142,23 @@ the production build because it tests the service worker and offline reload.
   large-backup behavior is deliberately designed and tested.
 - **Drive sync is device-owned and all-snapshot.** Google Identity Services OAuth
   and the `drive.appdata` scope are allowed only after explicit connection. Each
-  browser writes `cubelab-backup-<sanitized-deviceId>.json`; every sync lists,
-  validates, and merges all CubeLab snapshots. The legacy
-  `cubelab-backup.json` file remains readable and is included in delete-all.
-  Manual backup may replace only the current device's snapshot. Never fall back
-  to another device's `remoteFileId` on a per-device transport. Deleting remote
-  backups removes every CubeLab snapshot and must surface partial failures.
-  There is still no provider compare-and-swap for the same device file; do not
-  claim atomic remote writes.
+  browser writes `cubelab-backup-<sanitized-deviceId>.json`; every sync follows
+  every file-list page, validates, and merges all CubeLab snapshots. A failed
+  page, malformed/repeated token, or `incompleteSearch` must stop synchronization
+  instead of returning a partial list. The legacy `cubelab-backup.json` file
+  remains readable and is included in delete-all. Manual backup may replace only
+  the current device's snapshot. Never fall back to another device's
+  `remoteFileId` on a per-device transport. Deleting remote backups removes every
+  CubeLab snapshot and must surface partial failures. Same-origin automatic and
+  manual writes must share the Web Lock and re-list the device snapshot
+  immediately before writing; a changed snapshot aborts with a pending/retry
+  status. There is still no provider compare-and-swap for the same device file;
+  do not claim atomic remote writes.
+- **Duplicate names are review-only.** Recompute duplicate session names against
+  the final merged collection after every snapshot. Never merge same-named
+  sessions automatically. Keep one actionable notification carrying the sync
+  summary, suppress an unchanged duplicate warning on later syncs, and keep the
+  persistent Drive-dialog review action while the collision remains.
 - **Sync merging is field-level and exact-approval.** Session name, event,
   inspection override, each preference field, and each global setting merge by
   field timestamp with a deterministic editor-ID/value tiebreak. Equal legacy
@@ -190,7 +199,8 @@ For a behavior change:
   `src/lib/format.test.ts`.
 - Synchronization changes need focused coverage in `src/lib/sync.test.ts`,
   `src/lib/sessionMetadata.test.ts`, `src/lib/settingsMerge.test.ts`,
-  `src/lib/remoteBackups.test.ts`, `src/lib/sessionRedirects.test.ts`,
+  `src/lib/remoteBackups.test.ts`, `src/lib/driveTransport.test.ts`,
+  `src/lib/driveCoordination.test.ts`, `src/lib/sessionRedirects.test.ts`,
   `src/hooks/useSync.test.ts`, and `src/hooks/useDriveBackup.test.ts`. Extend
   `src/lib/sync.stress.test.ts` when changing concurrency, convergence,
   per-device upload isolation, or cross-field merge behavior.

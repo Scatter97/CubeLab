@@ -154,6 +154,30 @@ function hasPreferences(session: Session): boolean {
   return Boolean(session.preferences && Object.keys(session.preferences).length > 0)
 }
 
+/**
+ * Finds visible session-name collisions in the final collection. Callers must
+ * run this after every snapshot has been folded in; a per-snapshot warning can
+ * be lost when a later snapshot contains no collision of its own.
+ */
+export function findDuplicateSessionNames(
+  sessions: ReadonlyArray<Session>,
+): string[] {
+  const idsByName = new Map<string, Set<string>>()
+  const displayName = new Map<string, string>()
+  for (const session of sessions) {
+    const normalized = normalizeSessionName(session.name)
+    const key = normalized.toLowerCase()
+    const ids = idsByName.get(key) ?? new Set<string>()
+    ids.add(session.id)
+    idsByName.set(key, ids)
+    if (!displayName.has(key)) displayName.set(key, normalized)
+  }
+  return [...idsByName.entries()]
+    .filter(([, ids]) => ids.size > 1)
+    .map(([key]) => displayName.get(key) ?? key)
+    .sort((left, right) => left.localeCompare(right))
+}
+
 function isUntouchedDefaultSession(session: Session): boolean {
   // Older generated placeholders did not persist `isAutoCreatedDefault`.
   // Treat the missing marker as generated only when every other signal agrees;
@@ -270,7 +294,7 @@ export function mergeSessionsData(input: {
         sessions: adoptedSessions,
       },
       adoptedLocalDefault: true,
-      duplicateSessionNames: [],
+      duplicateSessionNames: findDuplicateSessionNames(adoptedSessions),
       sessionRedirects: normalizeSessionRedirects(input.sessionRedirects ?? []),
       addedSolves: adoptedSessions.reduce((total, session) => total + session.solves.length, 0),
       updatedSolves: 0,
@@ -478,6 +502,7 @@ export function mergeSessionsData(input: {
   const usedSessionNames = new Set(
     mergedSessions.map((session) => normalizeSessionName(session.name).toLowerCase()),
   )
+  const recoveredSolveIds = new Set<string>()
   let recoveredSolves = 0
   for (const [deletedSessionId, orphans] of orphanSolvesBySession) {
     const snapshot = deletedSessionSnapshots.get(deletedSessionId)
@@ -519,6 +544,7 @@ export function mergeSessionsData(input: {
       for (const candidate of candidates) {
         if (solvesById.has(candidate.id)) continue
         solvesById.set(candidate.id, candidate)
+        recoveredSolveIds.add(candidate.id)
         added += 1
       }
       if (added === 0) continue
@@ -581,6 +607,7 @@ export function mergeSessionsData(input: {
         : {}),
     }
     mergedSessions.push(recovered)
+    for (const candidate of candidates) recoveredSolveIds.add(candidate.id)
     recoveredSolves += candidates.length
   }
 
@@ -597,7 +624,11 @@ export function mergeSessionsData(input: {
       for (const solve of session?.solves ?? []) tombstonedSolveIds.add(solve.id)
     }
   }
-  removedSolves = tombstonedSolveIds.size
+  // Solves recovered from a deleted session were not removed; counting them as
+  // removals overstates deletion in status and tests.
+  removedSolves = [...tombstonedSolveIds].filter(
+    (id) => !recoveredSolveIds.has(id),
+  ).length
 
   // Attach the owning session so conflict review can name it. solveMerge does
   // not know the final owner while it is still resolving field values.
@@ -608,15 +639,7 @@ export function mergeSessionsData(input: {
     }
   }
 
-  const duplicates = new Map<string, Set<string>>()
-  for (const session of mergedSessions) {
-    const normalized = normalizeSessionName(session.name).toLowerCase()
-    if (!duplicates.has(normalized)) duplicates.set(normalized, new Set())
-    duplicates.get(normalized)?.add(session.id)
-  }
-  const duplicateSessionNames = [...duplicates.entries()]
-    .filter(([, ids]) => ids.size > 1)
-    .map(([name]) => name)
+  const duplicateSessionNames = findDuplicateSessionNames(mergedSessions)
 
   const result: SyncMergeResult = {
     adoptedLocalDefault: false,

@@ -30,6 +30,130 @@ export interface DriveTransport {
 export const DRIVE_BACKUP_FILE_NAME = 'cubelab-backup.json'
 export const DRIVE_BACKUP_FILE_PREFIX = 'cubelab-backup'
 export const DRIVE_BACKUP_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
+export const DRIVE_LIST_PAGE_SIZE = 1000
+
+/** The subset of a Drive file-list HTTP response needed by pagination. */
+export interface DrivePageResponse {
+  ok: boolean
+  status: number
+  json(): Promise<unknown>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function drivePageError(status: number): Error {
+  if (status === 401) {
+    return new Error('Google authorization expired. Connect again and retry.')
+  }
+  if (status === 403) {
+    return new Error('Google Drive permission denied while listing backups.')
+  }
+  if (status === 429) {
+    return new Error(
+      'Google Drive rate limit reached while listing backups. Try again later.',
+    )
+  }
+  if (status >= 500) {
+    return new Error(
+      `Google Drive is temporarily unavailable while listing backups (status ${status}).`,
+    )
+  }
+  return new Error(`Could not read Google Drive app data (status ${status}).`)
+}
+
+function parseDriveFile(value: unknown): DriveFile {
+  if (!isRecord(value)) {
+    throw new Error('Google Drive returned an invalid file entry.')
+  }
+  if (typeof value.id !== 'string' || value.id.length === 0) {
+    throw new Error('Google Drive returned a file entry without an ID.')
+  }
+  if (typeof value.name !== 'string' || value.name.length === 0) {
+    throw new Error('Google Drive returned a file entry without a name.')
+  }
+  if (
+    value.modifiedTime !== undefined &&
+    value.modifiedTime !== null &&
+    typeof value.modifiedTime !== 'string'
+  ) {
+    throw new Error('Google Drive returned a file entry with an invalid date.')
+  }
+  return {
+    id: value.id,
+    name: value.name,
+    modifiedTime: (value.modifiedTime as string | null | undefined) ?? null,
+  }
+}
+
+/**
+ * Reads every page of the app-data file list before filtering. Returning a
+ * partial list would let synchronization silently miss another device snapshot,
+ * so any failed page, malformed token, or repeated token is an explicit error.
+ */
+export async function fetchDriveBackupFiles(
+  requestPage: (pageToken?: string) => Promise<DrivePageResponse>,
+): Promise<DriveFile[]> {
+  const files: DriveFile[] = []
+  const seenIds = new Set<string>()
+  const seenTokens = new Set<string>()
+  let pageToken: string | undefined
+
+  for (;;) {
+    const response = await requestPage(pageToken)
+    if (!response.ok) throw drivePageError(response.status)
+
+    let data: unknown
+    try {
+      data = await response.json()
+    } catch {
+      throw new Error('Google Drive returned an invalid file list.')
+    }
+    if (!isRecord(data)) {
+      throw new Error('Google Drive returned an invalid file list.')
+    }
+    if (data.incompleteSearch === true) {
+      throw new Error(
+        'Google Drive reported an incomplete file list. Synchronization stopped so no backup snapshot is missed.',
+      )
+    }
+    const pageFiles = data.files ?? []
+    if (!Array.isArray(pageFiles)) {
+      throw new Error('Google Drive returned an invalid file list.')
+    }
+    for (const candidate of pageFiles) {
+      const file = parseDriveFile(candidate)
+      // A concurrent change can theoretically surface the same file on two
+      // pages. Keep one identity so callers do not download or delete twice.
+      if (seenIds.has(file.id)) continue
+      seenIds.add(file.id)
+      files.push(file)
+    }
+
+    const nextToken = data.nextPageToken
+    if (nextToken === undefined || nextToken === null) break
+    if (typeof nextToken !== 'string' || nextToken.length === 0) {
+      throw new Error('Google Drive returned a malformed page token.')
+    }
+    if (seenTokens.has(nextToken)) {
+      throw new Error(
+        'Google Drive returned a repeated page token. Synchronization stopped to avoid an incomplete backup list.',
+      )
+    }
+    seenTokens.add(nextToken)
+    pageToken = nextToken
+  }
+
+  return files
+    .filter((file) => isDriveBackupFileName(file.name))
+    .sort(
+      (left, right) =>
+        (right.modifiedTime ?? '').localeCompare(left.modifiedTime ?? '') ||
+        left.name.localeCompare(right.name) ||
+        left.id.localeCompare(right.id),
+    )
+}
 
 /** Sanitizes a device ID for use in a Drive file name. */
 export function deviceBackupFileName(deviceId: string): string {
@@ -150,25 +274,20 @@ export function createGoogleDriveTransport(
   }
 
   async function listBackupFiles(): Promise<DriveFile[]> {
-    const params = new URLSearchParams({
-      spaces: 'appDataFolder',
-      q: "trashed=false",
-      fields: 'files(id,name,modifiedTime)',
-      pageSize: '1000',
-    })
-    const response = await apiFetch(
-      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
-    )
-    if (!response.ok) throw new Error('Could not read Google Drive app data.')
-    const data = (await response.json()) as { files?: DriveFile[] }
-    return (data.files ?? [])
-      .filter((file) => isDriveBackupFileName(file.name))
-      .sort(
-        (left, right) =>
-          (right.modifiedTime ?? '').localeCompare(left.modifiedTime ?? '') ||
-          left.name.localeCompare(right.name) ||
-          left.id.localeCompare(right.id),
+    return fetchDriveBackupFiles((pageToken) => {
+      const params = new URLSearchParams({
+        spaces: 'appDataFolder',
+        q: 'trashed=false',
+        // `nextPageToken` and `incompleteSearch` are top-level response fields.
+        // Omitting them from `fields` makes pagination silently impossible.
+        fields: 'nextPageToken,incompleteSearch,files(id,name,modifiedTime)',
+        pageSize: String(DRIVE_LIST_PAGE_SIZE),
+      })
+      if (pageToken) params.set('pageToken', pageToken)
+      return apiFetch(
+        `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
       )
+    })
   }
 
   async function writeFile(
@@ -311,6 +430,14 @@ export function createMemoryDriveTransport(
   }
   const files = new Map<string, MemoryFile>()
   let nextFileNumber = 1
+  let lastModifiedMs = 0
+
+  // Two rapid writes in the same millisecond must still look different to the
+  // optimistic write check. Real Drive also advances the modification time.
+  const nextModifiedTime = () => {
+    lastModifiedMs = Math.max(Date.now(), lastModifiedMs + 1)
+    return new Date(lastModifiedMs).toISOString()
+  }
 
   const publicFile = (file: MemoryFile): DriveFile => ({
     id: file.id,
@@ -327,7 +454,7 @@ export function createMemoryDriveTransport(
     )
 
   function writeFile(content: string, name: string, existingFileId?: string | null): DriveFile {
-    const modifiedTime = new Date().toISOString()
+    const modifiedTime = nextModifiedTime()
     if (existingFileId) {
       const existing = files.get(existingFileId)
       if (existing) {

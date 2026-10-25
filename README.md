@@ -164,13 +164,14 @@ requested while the timer is armed, running, or inspecting, it is deferred and
 resumed once when the timer is idle.
 
 Each browser writes its own snapshot named
-`cubelab-backup-<device-id>.json` in Google Drive app data. Every run lists,
-validates, and merges **all** CubeLab snapshots, including the legacy fixed-name
-`cubelab-backup.json` from earlier releases. A device only replaces its own
-snapshot, so simultaneous uploads from different devices cannot overwrite one
-another. Invalid or unsupported snapshots are rejected before local mutation.
-Deleting remote backups removes every CubeLab snapshot, including the legacy
-file, and reports partial failures instead of claiming complete success.
+`cubelab-backup-<device-id>.json` in Google Drive app data. Every run lists every
+page of app-data files, validates, and merges **all** CubeLab snapshots,
+including the legacy fixed-name `cubelab-backup.json` from earlier releases. A
+device only replaces its own snapshot, so simultaneous uploads from different
+devices cannot overwrite one another. Invalid or unsupported snapshots are
+rejected before local mutation. Deleting remote backups removes every CubeLab
+snapshot, including the legacy file, and reports partial failures instead of
+claiming complete success.
 
 Automatic synchronization is enabled only after the user connects Google Drive.
 It defaults to combined mode at 5 minutes or 10 solves, whichever comes first,
@@ -196,6 +197,13 @@ session redirects. Each conflict shows both values and **Use this device** /
 An approval only applies to the exact reviewed values and timestamps, so an edit
 made after the prompt creates a fresh conflict instead of being overwritten.
 
+Separate sessions that share a name are never merged automatically. CubeLab
+recomputes collisions against the final merged collection and shows a **Review
+Merge** action in the sync notification; the Drive dialog also keeps a persistent
+duplicate-name notice and review action while the collision remains. Choosing
+**Review Merge** opens a typed-confirmation dialog that previews the destination,
+source, and resulting solve count.
+
 If a device adds solves to a session after another device deleted it, those
 solves are moved into a clearly labelled **Session (recovered)** rather than
 being lost. Later offline devices merge their solves into that recovered session
@@ -204,11 +212,14 @@ allowing unknown offline solves to be recovered even when device clocks
 disagree; legacy tombstones use the timestamp fallback.
 
 Synchronization is not a substitute for the local JSON backup. Google Drive still
-does not provide verified atomic compare-and-swap protection in this transport,
-so two tabs or profiles sharing the same device identity can race when writing
-the same snapshot. Device-owned snapshots remove the cross-device overwrite race,
-and in-flight guards prevent a download from replacing solves recorded while it
-was running, but neither makes the remote write transactional. See
+does not provide verified atomic compare-and-swap protection in this transport.
+Device-owned snapshots remove the cross-device overwrite race. Automatic sync and
+manual backup also share a Web Lock and re-list this device's snapshot immediately
+before writing; if another writer changed it, the write is aborted and retried.
+That removes the avoidable same-origin tab race, but two tabs or profiles sharing
+the same device identity can still race between the recheck and the request.
+In-flight guards prevent a download from replacing solves recorded while it was
+running, but neither mechanism makes the remote write transactional. See
 [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync
 limitations.
 
@@ -308,8 +319,8 @@ confirmed restore of sessions/comments/settings, the scramble-failure recovery
 state, and full offline scramble generation through the installed service
 worker. It also covers visual solve and DNF alerts, adjustable alert volume,
 accent persistence, the Controls reference, expanded/custom statistics, tenths
-precision, Google Drive mock synchronization, conflict review, and delete-all
-remote backup wording.
+precision, Google Drive mock synchronization, conflict review, duplicate-name
+review/merge, and delete-all remote backup wording.
 
 ## Architecture
 
@@ -327,6 +338,8 @@ src/
   lib/sessionMetadata.ts Field-level session metadata merging
   lib/settingsMerge.ts   Field-level global-settings merging and provenance
   lib/remoteBackups.ts   Read/merge/delete all device-owned Drive snapshots
+  lib/driveTransport.ts  Google Drive/mock transport and paginated file listing
+  lib/driveCoordination.ts  Same-origin write lock and own-snapshot revalidation
   lib/scramble.ts        cubing.js random-state integration
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           WCA single, mo3, built-in, and custom average calculations

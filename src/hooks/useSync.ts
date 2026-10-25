@@ -20,6 +20,7 @@ import {
 } from '../lib/syncStorage'
 import {
   createSyncEnvelope,
+  findDuplicateSessionNames,
   mergeSessionsData,
   mergeTombstones,
   resolveRedirectConflicts,
@@ -36,6 +37,10 @@ import {
   listRemoteBackups,
   readRemoteBackups,
 } from '../lib/remoteBackups'
+import {
+  ownSnapshotChanged,
+  runWithDriveWriteLock,
+} from '../lib/driveCoordination'
 
 interface UseSyncOptions {
   transport: DriveTransport | null
@@ -46,7 +51,12 @@ interface UseSyncOptions {
   onReplaceSessions: (data: SessionsData) => void
   onReplaceSettings: (settings: Settings) => void
   onNotify: (message: string) => void
-  onDuplicateSessionDetected?: (names: string[]) => void
+  /**
+   * Receives duplicate names plus an optional full summary. The summary lets the
+   * app show one actionable toast instead of replacing the Review Merge action
+   * with a second, plain status toast.
+   */
+  onDuplicateSessionDetected?: (names: string[], summary?: string) => void
 }
 
 export interface UseSyncResult {
@@ -371,9 +381,10 @@ export function useSync({
         runtime: {
           ...syncRef.current.runtime,
           sessionRedirects: combined,
-          pendingDuplicateNames: (syncRef.current.runtime.pendingDuplicateNames ?? []).filter(
-            (name) =>
-              name !== redirectedSessions.sessions.find((session) => session.id === targetId)?.name,
+          // Recompute against the post-merge collection. Merging one pair must
+          // not hide a third session that still shares the same name.
+          pendingDuplicateNames: findDuplicateSessionNames(
+            redirectedSessions.sessions,
           ),
         },
       })
@@ -566,6 +577,7 @@ export function useSync({
           const deviceId = syncState.runtime.deviceId
           const local = sessionsRef.current
           const localSettings = settingsRef.current
+          const previousDuplicateNames = syncState.runtime.pendingDuplicateNames ?? []
           const startFingerprint = syncStateFingerprint(local, localSettings)
           const isLocalUnchanged = () =>
             syncStateFingerprint(sessionsRef.current, settingsRef.current) === startFingerprint
@@ -596,7 +608,6 @@ export function useSync({
           // data; metadata fields use their own timestamps.
           let mergedSessions = local
           let adoptedLocalDefault = false
-          let duplicateSessionNames: string[] = []
           let recoveredSolves = 0
           for (const snapshot of snapshots) {
             const result = mergeSessionsData({
@@ -610,10 +621,14 @@ export function useSync({
             })
             mergedSessions = result.merged
             adoptedLocalDefault = adoptedLocalDefault || result.adoptedLocalDefault
-            duplicateSessionNames = result.duplicateSessionNames
             recoveredSolves += result.recoveredSolves
             conflicts.push(...result.conflicts)
           }
+          // Duplicate names must be judged against the final collection. A later
+          // snapshot without its own collision must not erase an earlier warning.
+          const duplicateSessionNames = findDuplicateSessionNames(
+            mergedSessions.sessions,
+          )
 
           // Merge remote device settings with each other first, using their
           // field metadata, then merge the aggregate with this device so the
@@ -722,6 +737,14 @@ export function useSync({
             (id) => !remoteIds.has(id) && mergedIds.has(id),
           ).length
           const importedSolves = [...mergedIds].filter((id) => !localIds.has(id)).length
+          const importedSessionNames = mergedSessions.sessions
+            .filter((session) =>
+              session.solves.some((solve) => !localIds.has(solve.id)),
+            )
+            .map((session) => session.name)
+            .filter(
+              (name, index, names) => names.indexOf(name) === index,
+            )
 
           const mergedFingerprint = syncStateFingerprint(mergedSessions, mergedSettings)
           const baseRevision = Math.max(
@@ -786,16 +809,65 @@ export function useSync({
               return
             }
 
-            const existingFileId = transport.uploadDeviceBackup
-              ? ownFile?.id
-              : remoteFiles[0]?.id ?? getRemoteFileId()
-            const result = transport.uploadDeviceBackup
-              ? await transport.uploadDeviceBackup(
-                  JSON.stringify(backup),
-                  deviceId,
-                  existingFileId,
-                )
-              : await transport.uploadBackup(JSON.stringify(backup), existingFileId)
+            const expectedOwnFile = transport.uploadDeviceBackup
+              ? ownFile
+              : remoteFiles[0]
+            const content = JSON.stringify(backup)
+            const write = await runWithDriveWriteLock(async () => {
+              // Another tab (or a copied profile with the same device ID) may
+              // have replaced this device's snapshot after our read. Re-list
+              // while holding the same-origin write lock; a changed file aborts
+              // the write instead of silently overwriting newer data.
+              const currentFiles = await listRemoteBackups(transport)
+              const currentOwnFile = transport.uploadDeviceBackup
+                ? findDeviceBackup(currentFiles, ownName)
+                : currentFiles[0]
+              if (ownSnapshotChanged(expectedOwnFile, currentOwnFile)) {
+                return { status: 'remote-changed' as const }
+              }
+              if (!isLocalUnchanged()) {
+                return { status: 'local-changed' as const }
+              }
+              const existingFileId = transport.uploadDeviceBackup
+                ? currentOwnFile?.id
+                : currentOwnFile?.id ?? getRemoteFileId()
+              const result = transport.uploadDeviceBackup
+                ? await transport.uploadDeviceBackup(
+                    content,
+                    deviceId,
+                    existingFileId,
+                  )
+                : await transport.uploadBackup(content, existingFileId)
+              return { status: 'uploaded' as const, result }
+            })
+
+            if (write.status === 'remote-changed') {
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'pending',
+                  lastError:
+                    "Another CubeLab writer changed this device's cloud snapshot. Synchronization will retry from the newer snapshot.",
+                },
+              })
+              queueRetry(500)
+              return
+            }
+            if (write.status === 'local-changed') {
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'pending',
+                  lastError: 'Local data changed before upload. Synchronization was cancelled safely.',
+                },
+              })
+              queueRetry(500)
+              return
+            }
+
+            const result = write.result
             remoteFileId = result.id
             remoteModifiedTime = result.modifiedTime
             lastRemoteRevision = nextRevision
@@ -883,19 +955,17 @@ export function useSync({
                 `${uploadedSolves} new local solve${uploadedSolves === 1 ? '' : 's'} uploaded`,
               )
             }
-            if (duplicateSessionNames.length > 0 && onDuplicateSessionDetected) {
-              onDuplicateSessionDetected(duplicateSessionNames)
-            }
-            if (duplicateSessionNames.length > 0) {
-              messages.push(
-                `CubeLab found two separate sessions named ${duplicateSessionNames
-                  .map((name) => `'${name}'`)
-                  .join(', ')}.`,
-              )
-            }
             if (importedSolves > 0) {
+              const where =
+                importedSessionNames.length === 0
+                  ? ''
+                  : importedSessionNames.length === 1
+                    ? ` into '${importedSessionNames[0]}'`
+                    : ` into ${importedSessionNames
+                        .map((name) => `'${name}'`)
+                        .join(', ')}`
               messages.push(
-                `${importedSolves} cloud solve${importedSolves === 1 ? '' : 's'} merged`,
+                `${importedSolves} cloud solve${importedSolves === 1 ? '' : 's'} merged${where}`,
               )
             }
             if (recoveredSolves > 0) {
@@ -913,10 +983,37 @@ export function useSync({
                 } automatically resolved`,
               )
             }
-            if (messages.length > 0) {
-              onNotify(messages.join(' · ') + '.')
-            } else if (reason === 'manual') {
-              onNotify('Synchronization complete. No new solves were exchanged.')
+
+            const duplicateMessage =
+              duplicateSessionNames.length > 0
+                ? `CubeLab found separate sessions named ${duplicateSessionNames
+                    .map((name) => `'${name}'`)
+                    .join(', ')}. They remain separate until you approve a merge.`
+                : null
+            const newlyDetectedDuplicateNames = duplicateSessionNames.filter(
+              (name) => !previousDuplicateNames.includes(name),
+            )
+
+            if (
+              duplicateMessage &&
+              newlyDetectedDuplicateNames.length > 0 &&
+              onDuplicateSessionDetected
+            ) {
+              // One actionable toast carries the full summary, so a second
+              // status toast cannot replace the Review Merge action.
+              onDuplicateSessionDetected(
+                duplicateSessionNames,
+                [...messages, duplicateMessage].join(' · '),
+              )
+            } else {
+              if (duplicateMessage && !onDuplicateSessionDetected) {
+                messages.push(duplicateMessage)
+              }
+              if (messages.length > 0) {
+                onNotify(messages.join(' · ') + '.')
+              } else if (reason === 'manual') {
+                onNotify('Synchronization complete. No new solves were exchanged.')
+              }
             }
           }
         } catch (caught) {

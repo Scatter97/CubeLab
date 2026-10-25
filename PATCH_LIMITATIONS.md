@@ -16,11 +16,36 @@ eventually consistent remote store, not a transaction coordinator.
 - Every sync lists, validates, downloads, and merges **all** CubeLab snapshots.
   The legacy fixed-name `cubelab-backup.json` remains readable for upgrades and
   is included in manual restore and delete-all operations.
+- File discovery now follows every `nextPageToken` page and requests the token
+  fields explicitly. A failed page, malformed/repeated token, or
+  `incompleteSearch` stops synchronization instead of returning a partial list
+  that could miss another device's snapshot.
 - Manual backup (`useDriveBackup`) also replaces only the current device's file.
   It never falls back to overwriting another device's file on a per-device
   transport.
 - **Delete remote backups** now removes every CubeLab snapshot, including the
   legacy file, and reports partial failures instead of claiming success.
+
+### Same-device write coordination
+
+- Automatic sync and manual backup share a Web Lock and re-list this device's
+  snapshot immediately before writing. A changed file ID, name, or modification
+  time aborts the write with a pending/retry status instead of overwriting a
+  newer snapshot with an older starting view.
+- The lock and recheck remove the avoidable same-origin tab race. They are best
+  effort, not a remote transaction; a copied browser profile that shares the
+  device ID can still write between the recheck and the request.
+
+### Duplicate-name review
+
+- Duplicate session names are recomputed against the final merged collection
+  after every snapshot, not only against one snapshot. A collision found in an
+  adopted or later snapshot is therefore not lost.
+- The actionable toast carries the full sync summary in one message, so a second
+  plain status toast cannot replace the **Review Merge** action. Repeated syncs
+  suppress an unchanged duplicate notification.
+- The Drive dialog also keeps a persistent duplicate-name notice and **Review
+  merge** action while the collision remains.
 
 ### Field-level session and settings merging
 
@@ -76,8 +101,14 @@ eventually consistent remote store, not a transaction coordinator.
 - **No verified provider compare-and-swap.** Device-owned files prevent
   cross-device file overwrites, but Google Drive still has no conditional write
   in this transport. Two tabs or profiles sharing the same device ID can race on
-  the same file. Web Locks reduces same-origin tab concurrency but is not a
-  remote transaction.
+  the same file. Web Locks plus a pre-write re-list reduce same-origin tab
+  concurrency but are not a remote transaction. Do not claim atomic remote
+  writes.
+- **Duplicate review is advisory.** Collisions are detected and surfaced, but
+  CubeLab never merges same-named sessions automatically. A user who dismisses
+  the toast and closes the Drive dialog still has to reopen the merge action
+  before the duplicate is resolved; the condition persists in sync runtime until
+  then.
 - **No real multi-device provider validation.** Automated coverage uses the
   deterministic in-memory transport. Real Google Identity Services and Drive
   backup/restore were validated earlier; concurrent multi-device sync against

@@ -110,10 +110,13 @@ function renderStatefulSync(options: {
   transport: DriveTransport
   sessions: SessionsData
   settings: Settings
+  onDuplicateSessionDetected?: (names: string[], summary?: string) => void
 }) {
   const onReplaceSessions = vi.fn()
   const onReplaceSettings = vi.fn()
   const onNotify = vi.fn()
+  const onDuplicateSessionDetected =
+    options.onDuplicateSessionDetected ?? vi.fn()
   const rendered = renderHook(() => {
     const [sessionsState, setSessionsState] = useState(options.sessions)
     const [settingsState, setSettingsState] = useState(options.settings)
@@ -134,9 +137,16 @@ function renderStatefulSync(options: {
       onReplaceSessions: replaceSessions,
       onReplaceSettings: replaceSettings,
       onNotify,
+      onDuplicateSessionDetected,
     })
   })
-  return { ...rendered, onReplaceSessions, onReplaceSettings, onNotify }
+  return {
+    ...rendered,
+    onReplaceSessions,
+    onReplaceSettings,
+    onNotify,
+    onDuplicateSessionDetected,
+  }
 }
 
 describe('useSync in-flight safety', () => {
@@ -769,5 +779,283 @@ describe('useSync deletion tombstones', () => {
         'known-b',
       ])
     })
+  })
+})
+
+describe('useSync duplicate session notifications', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  async function seedDuplicateSnapshots() {
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const first = sessionsData({
+      activeSessionId: 'shared-a',
+      sessions: [
+        session({
+          id: 'shared-a',
+          name: 'Shared',
+          solves: [solve({ id: 'a-1' })],
+        }),
+      ],
+    })
+    const second = sessionsData({
+      activeSessionId: 'shared-b',
+      sessions: [
+        session({
+          id: 'shared-b',
+          name: 'shared',
+          solves: [solve({ id: 'b-1' })],
+        }),
+      ],
+    })
+    await memory.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          first,
+          DEFAULT_SETTINGS,
+          new Date('2026-01-01T00:00:00.000Z'),
+          { ...createSyncEnvelope('device-a', 1, [], []), updatedAt: 100 },
+        ),
+      ),
+      'device-a',
+    )
+    await memory.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          second,
+          DEFAULT_SETTINGS,
+          new Date('2026-01-02T00:00:00.000Z'),
+          { ...createSyncEnvelope('device-b', 1, [], []), updatedAt: 200 },
+        ),
+      ),
+      'device-b',
+    )
+    return memory
+  }
+
+  it('reports a duplicate found across separate snapshots once with one actionable summary', async () => {
+    enableSync()
+    const transport = await seedDuplicateSnapshots()
+    const onDuplicateSessionDetected = vi.fn()
+    const { result, onNotify } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+      onDuplicateSessionDetected,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('synced')
+    expect(result.current.duplicateNames).toEqual(['Shared'])
+    expect(onDuplicateSessionDetected).toHaveBeenCalledTimes(1)
+    const [names, summary] = onDuplicateSessionDetected.mock.calls[0]!
+    expect(names).toEqual(['Shared'])
+    expect(summary).toContain("separate sessions named 'Shared'")
+    expect(summary).toContain('Cloud sessions imported')
+    expect(summary).toContain('cloud solves merged')
+    // The actionable callback carries the status summary; a second plain toast
+    // must not replace the Review Merge action.
+    expect(onNotify).not.toHaveBeenCalled()
+  })
+
+  it('does not repeat the duplicate notification on later syncs', async () => {
+    enableSync()
+    const transport = await seedDuplicateSnapshots()
+    const onDuplicateSessionDetected = vi.fn()
+    const { result, onNotify } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+      onDuplicateSessionDetected,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('synced')
+    expect(result.current.duplicateNames).toEqual(['Shared'])
+    expect(onDuplicateSessionDetected).toHaveBeenCalledTimes(1)
+    expect(onNotify).toHaveBeenCalledWith(
+      'Synchronization complete. No new solves were exchanged.',
+    )
+  })
+})
+
+describe('useSync imported solve summaries', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('names the session that received cloud solves', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const remote = sessionsData({
+      activeSessionId: 'remote-session',
+      sessions: [
+        session({
+          id: 'remote-session',
+          name: 'Cloud',
+          solves: [solve({ id: 'cloud-1' })],
+        }),
+      ],
+    })
+    await memory.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          remote,
+          DEFAULT_SETTINGS,
+          new Date(),
+          createSyncEnvelope('device-a', 1, [], []),
+        ),
+      ),
+      'device-a',
+    )
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'local-session',
+          name: 'Local',
+          solves: [solve({ id: 'local-1' })],
+        }),
+      ],
+      activeSessionId: 'local-session',
+    })
+    const { result, onNotify } = renderStatefulSync({
+      transport: memory,
+      sessions: local,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(onNotify).toHaveBeenCalledTimes(1)
+    const message = String(onNotify.mock.calls[0]?.[0] ?? '')
+    expect(message).toContain("1 cloud solve merged into 'Cloud'")
+    expect(message).toContain('1 new local solve uploaded')
+  })
+})
+
+describe('useSync same-device write safety', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('aborts an upload when its own snapshot changed after discovery', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-test',
+          solves: [solve({ id: 'local-1' })],
+        }),
+      ],
+      activeSessionId: 'session-test',
+    })
+    await memory.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          local,
+          DEFAULT_SETTINGS,
+          new Date('2026-01-01T00:00:00.000Z'),
+          { ...createSyncEnvelope('device-test', 1, [], []), updatedAt: 100 },
+        ),
+      ),
+      'device-test',
+    )
+
+    const foreign = sessionsData({
+      sessions: [
+        session({
+          id: 'session-test',
+          solves: [solve({ id: 'foreign-1' })],
+        }),
+      ],
+      activeSessionId: 'session-test',
+    })
+    let listCalls = 0
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      listBackups: async () => {
+        const files = await memory.listBackups!()
+        listCalls += 1
+        if (listCalls === 1) {
+          // Simulate a copied profile sharing this device ID writing between
+          // discovery and the locked pre-write recheck.
+          await memory.uploadDeviceBackup!(
+            JSON.stringify(
+              createBackup(
+                foreign,
+                DEFAULT_SETTINGS,
+                new Date('2026-01-02T00:00:00.000Z'),
+                { ...createSyncEnvelope('device-test', 2, [], []), updatedAt: 200 },
+              ),
+            ),
+            'device-test',
+          )
+        }
+        return files
+      },
+      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+      },
+    }
+    const { result, unmount } = renderStatefulSync({
+      transport,
+      sessions: local,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(uploads).toBe(0)
+    expect(result.current.phase).toBe('pending')
+    expect(result.current.error).toContain(
+      "changed this device's cloud snapshot",
+    )
+    unmount()
+  })
+
+  it('preserves the device ID and preferences when resetting the sync base', async () => {
+    enableSync({ solveThreshold: 3 })
+    const transport = createMemoryDriveTransport()
+    const before = loadSyncStorage()
+    const { result } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      result.current.resetBase(
+        sessionsData({
+          sessions: [session({ id: 'imported', name: 'Imported' })],
+          activeSessionId: 'imported',
+        }),
+      )
+    })
+
+    const after = loadSyncStorage()
+    expect(after.runtime.deviceId).toBe(before.runtime.deviceId)
+    expect(after.preferences.solveThreshold).toBe(3)
+    expect(after.runtime.tombstones).toEqual([])
+    expect(after.runtime.lastSyncedFingerprint).toBeNull()
   })
 })

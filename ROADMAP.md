@@ -176,10 +176,16 @@ proven.
 
 - ID-based session and solve merging with tombstones and session redirects.
 - Empty-default cloud adoption, duplicate-name detection, and manual session
-  merges.
+  merges. Duplicate names are recomputed against the final merged collection,
+  surfaced once per actionable toast with the full sync summary, and kept
+  reviewable in the Drive dialog until merged.
 - Device-owned Drive snapshots, all-snapshot merging, legacy fixed-name-file
   compatibility, per-device manual backup isolation, and delete-all with partial
-  failure reporting.
+  failure reporting. File discovery follows every pagination token and rejects
+  incomplete or malformed listings rather than silently missing a device.
+- Same-origin automatic/manual writes share a Web Lock and re-list the device
+  snapshot before writing; a changed snapshot aborts with a pending/retry status
+  instead of overwriting newer data. This is best effort, not provider CAS.
 - Sessions schema v4 field metadata plus global settings metadata in the sync
   runtime. Session names, events, inspection overrides, individual preferences,
   and global settings merge independently by timestamp with deterministic
@@ -227,8 +233,10 @@ proven.
 stale-writer test against the real provider, conflict-resolution audit/undo, a
 documented recovery path for corrupted or partially applied syncs, guaranteed
 sync-on-exit, explicit recovery for ambiguous legacy-tombstone edits, redirect
-consensus/recovery, and selective/device-visible remote snapshot management.
-Until those are addressed, do not describe synchronization as data-loss-proof.
+consensus/recovery, and selective/device-visible remote snapshot management. The
+Web Lock and pre-write re-list reduce the same-origin tab race but do not close
+the cross-profile race that shares a device ID. Until those are addressed, do not
+describe synchronization as data-loss-proof.
 
 ## Phase 3 — More WCA events
 

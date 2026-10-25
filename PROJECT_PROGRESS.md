@@ -9,7 +9,7 @@
 **Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
 **Phase 2C:** Complete with documented limitations — local-first Google Drive synchronization with device-owned snapshots, field-level session/settings merging, automatic startup/exit/reconnect/combined scheduling, ID-based merging, tombstones, recovery, redirects, empty-default adoption, duplicate-name detection, manual session merges, and conflict review across solve fields, session metadata, settings, and redirects
-**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixed repeated recovered-session arrivals and stale conflict approvals. The v3 follow-up adds device-owned Drive snapshots, sessions schema v4 field metadata, field-level session/settings review, settings provenance, timer-deferred sync, bounded retries, deletion hardening, and multi-device stress tests. See [Sync hardening](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), [Hardening v3](#hardening-v3--device-owned-snapshots-and-field-level-review--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixed repeated recovered-session arrivals and stale conflict approvals. The v3 follow-up adds device-owned Drive snapshots, sessions schema v4 field metadata, field-level session/settings review, settings provenance, timer-deferred sync, bounded retries, deletion hardening, and multi-device stress tests. The v4 follow-up adds complete Drive pagination, same-device write locking/revalidation, final-collection duplicate review, and recovered-solve count fixes. See [Sync hardening](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), [Hardening v3](#hardening-v3--device-owned-snapshots-and-field-level-review--2026-10-25), [Audit follow-up v4](#audit-follow-up-v4--pagination-same-device-writes-duplicate-review--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 **Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserves the active-session event.
 **Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, and the 2026-10-25 hardening follow-ups are implemented and verified with mocks. Cross-device uploads are isolated by device-owned snapshots; a provider-level compare-and-swap for one file remains unavailable.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
@@ -157,21 +157,19 @@ calculations.
 
 ## Verification evidence
 
-Run at 2026-10-25 18:15 (local), after the v3 hardening pass (device-owned
-snapshots, sessions schema v4 field metadata, field-level settings/session
-merging, broader conflict review, timer-deferred sync, bounded retries,
-delete-all hardening, and multi-device stress coverage):
+Run at 2026-10-25 18:40 (local), after the v4 audit follow-up (Drive
+pagination, same-device write coordination, and duplicate-name review):
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **217/217 passed**, 18 test files |
-| Production build | `npm run build` | Passed; 94 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,275.38 KiB** |
-| Production E2E | `npm run test:e2e` | **24/24 passed**, Chromium |
+| Unit tests | `npm test` | **254/254 passed**, 20 test files |
+| Production build | `npm run build` | Passed; 95 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,279.75 KiB** |
+| Production E2E | `npm run test:e2e` | **25/25 passed**, Chromium |
 | Whitespace | `git diff --check` | Passed with no errors |
-| Layout coverage | production E2E at 320, 390, and desktop widths | Drive copy, conflict labels, session dialogs, duplicate-name error/icon, and focus handling verified automatically; no manual visual audit or screenshot refresh was performed |
+| Layout coverage | production E2E at 320, 390, and desktop widths | Drive copy, conflict labels, session dialogs, duplicate-name review, and focus handling verified automatically; no manual visual audit or screenshot refresh was performed |
 | Performance | seeded 2,000-solve production session | Not re-measured; the Phase 2A profile below remains the latest. Large-average calculation still has a Fenwick-tree fast path and brute-force comparison coverage. |
 
 The Playwright suite runs against the production preview and covers:
@@ -216,6 +214,9 @@ The Playwright suite runs against the production preview and covers:
 23. Manual conflict review pausing publication and resuming after the user
     chooses the local solve-field version.
 24. Delete-all remote backup confirmation and removal of every CubeLab snapshot.
+25. Duplicate session names from separate snapshots: the actionable toast and the
+    persistent Drive-dialog review action open the merge dialog, and the duplicate
+    notice clears after the typed merge.
 
 Session-name, session-preference, global-settings, and redirect conflict review
 is covered by deterministic unit and hook tests rather than a separate production
@@ -453,6 +454,60 @@ unavailable. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 `src/lib/sessions.ts`, `src/lib/storage.ts`, `src/lib/syncStorage.ts`,
 `src/types.ts`, `src/components/DriveBackupDialog.tsx`, and the associated unit,
 hook, stress, and Playwright tests.
+
+### Audit follow-up v4 — pagination, same-device writes, duplicate review — 2026-10-25
+
+A fourth audit identified three concrete gaps. All three are fixed, with the
+remote-write limitation documented rather than overstated.
+
+1. **Google Drive pagination.** The file list requested only `files(...)` in
+   `fields`, so `nextPageToken` was absent and only the first page was ever read.
+   `fetchDriveBackupFiles` now requests `nextPageToken,incompleteSearch`, follows
+   every page, rejects malformed or repeated tokens, and aborts on
+   `incompleteSearch` or any failed page instead of returning a partial list that
+   could miss another device's snapshot. Delete-all and restore therefore see
+   every snapshot.
+2. **Same-device snapshot races.** Automatic sync and manual backup now run their
+   pre-write recheck and upload under a shared Web Lock
+   (`cubelab-drive-write`). Inside the lock they re-list this device's snapshot
+   and abort if its ID, name, or modification time changed since discovery. The
+   sync records a pending/retry status; manual backup surfaces an explicit
+   retry message. This removes the avoidable same-origin tab race. Google Drive
+   still has no verified compare-and-swap, so a copied profile sharing the device
+   ID can still race between the recheck and the request.
+3. **Duplicate-session notification loss.** Duplicate names were judged per
+   snapshot, so a later snapshot without its own collision could erase the
+   warning; the duplicate toast was also followed by a plain status toast that
+   replaced the **Review Merge** action. Duplicates are now recomputed against
+   the final merged collection (including adopted sessions), the actionable toast
+   carries the full summary in one message, unchanged duplicates are suppressed
+   on later syncs, and the Drive dialog keeps a persistent review action.
+
+**Additional fixes found while testing**
+
+- Recovered solves are no longer counted as removed solves in merge counts.
+- Imported-solve notifications name the session that received the cloud solves.
+- The memory Drive transport advances `modifiedTime` monotonically so two writes
+  in one millisecond are distinguishable by the optimistic check.
+
+**Coverage added:** `driveTransport.test.ts` (pagination, malformed/repeated
+tokens, incomplete search, network failure, delete-all), `driveCoordination.test.ts`
+(lock serialization/release/fallback and own-snapshot comparison), duplicate and
+recovery-count cases in `sync.test.ts`, duplicate-toast/imported-session/stale-writer/reset-base cases in
+`useSync.test.ts`, a manual-backup stale-writer case in
+`useDriveBackup.test.ts`, and the production duplicate-review merge flow in
+`e2e/timer.spec.ts`.
+
+**Verification:** `npm run typecheck`, `npm run lint`, **254/254 unit tests** in 20
+files, production build, **25/25 Playwright tests**, and `git diff --check` all
+passed. No real Google Drive multi-device test was run; provider CAS remains
+unavailable. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+
+**Primary changed files:** `src/lib/driveTransport.ts`,
+`src/lib/driveCoordination.ts`, `src/lib/sync.ts`, `src/hooks/useSync.ts`,
+`src/hooks/useDriveBackup.ts`, `src/App.tsx`,
+`src/components/DriveBackupDialog.tsx`, `src/index.css`, and the associated unit,
+hook, and Playwright tests.
 
 ### Performance evidence
 
@@ -726,9 +781,10 @@ offline Playwright test and must not be undone casually.
   tombstones, redirects, and conflict handling, but there is no general-purpose
   local-file merge path.
 - Google Drive has no verified atomic compare-and-swap. Device-owned snapshots
-  remove the cross-device file-overwrite race, but two tabs or profiles sharing
-  one device identity can still race on that device's file. In-flight guards
-  protect local state, not the remote write.
+  remove the cross-device file-overwrite race, and same-origin writes share a Web
+  Lock plus a pre-write re-list, but two tabs or profiles sharing one device
+  identity can still race on that device's file. In-flight guards protect local
+  state, not the remote write.
 - Manual conflict review now pauses publication and offers **Use this device** /
   **Use cloud** for solve fields, session metadata, session preferences, global
   settings, and redirects. An approval only applies to the exact reviewed values

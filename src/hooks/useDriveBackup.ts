@@ -19,6 +19,10 @@ import {
   mergeRemoteBackupSnapshots,
   readRemoteBackups,
 } from '../lib/remoteBackups'
+import {
+  ownSnapshotChanged,
+  runWithDriveWriteLock,
+} from '../lib/driveCoordination'
 
 export type DriveBackupPhase =
   | 'unconfigured'
@@ -130,17 +134,34 @@ export function useDriveBackup({
       const remoteFiles = await listRemoteBackups(transport)
       const ownName = deviceBackupFileName(deviceId)
       const ownFile = remoteFiles.find((file) => file.name === ownName)
+      const expectedOwnFile = transport.uploadDeviceBackup
+        ? ownFile
+        : remoteFiles[0]
       // A device may only replace its own snapshot. Falling back to
       // `metadata.remoteFileId` could point at another device's file and
       // overwrite it; that fallback is safe only for legacy single-file
       // transports.
-      const existingId = ownFile?.id ?? null
-      const result = transport.uploadDeviceBackup
-        ? await transport.uploadDeviceBackup(JSON.stringify(backup), deviceId, existingId)
-        : await transport.uploadBackup(
-            JSON.stringify(backup),
-            existingId ?? metadata.remoteFileId,
+      const content = JSON.stringify(backup)
+      const result = await runWithDriveWriteLock(async () => {
+        // Serialize same-browser writes and re-check the own snapshot inside the
+        // lock. If another tab already replaced it, abort rather than overwrite
+        // its newer content with this tab's starting view.
+        const currentFiles = await listRemoteBackups(transport)
+        const currentOwnFile = transport.uploadDeviceBackup
+          ? currentFiles.find((file) => file.name === ownName)
+          : currentFiles[0]
+        if (ownSnapshotChanged(expectedOwnFile, currentOwnFile)) {
+          throw new Error(
+            "Another CubeLab tab changed this device's Google Drive snapshot. Try the backup again.",
           )
+        }
+        const existingId = transport.uploadDeviceBackup
+          ? currentOwnFile?.id ?? null
+          : currentOwnFile?.id ?? metadata.remoteFileId
+        return transport.uploadDeviceBackup
+          ? transport.uploadDeviceBackup(content, deviceId, existingId)
+          : transport.uploadBackup(content, existingId)
+      })
       const next = {
         ...metadata,
         remoteFileId: result.id,
@@ -192,7 +213,12 @@ export function useDriveBackup({
     setPhase('deleting')
     setError(null)
     try {
-      const deleted = await deleteAllRemoteBackups(transport, remoteFileId)
+      // Share the write lock so a same-browser sync cannot recreate the file in
+      // the middle of delete-all. Cross-profile writers remain outside this
+      // lock; Drive has no transactional delete-all.
+      const deleted = await runWithDriveWriteLock(() =>
+        deleteAllRemoteBackups(transport, remoteFileId),
+      )
       if (deleted === 0 && !remoteFileId) {
         setPhase('connected')
         return

@@ -1483,3 +1483,125 @@ test('manual conflict review pauses and resumes after choosing a version', async
   await expect(drive).toBeHidden()
 })
 
+test('duplicate session names from Drive are reviewed and merged', async ({
+  page,
+}) => {
+  test.setTimeout(90_000)
+  await page.goto('/')
+  await waitForApp(page)
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-drive-button').click()
+  const drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive).toBeVisible()
+  await drive.getByTestId('drive-connect').click()
+  await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+
+  await page.evaluate(async () => {
+    const storedSettings = JSON.parse(
+      localStorage.getItem('cubelab:settings:v1') ?? '{}',
+    ) as { settings: Record<string, unknown> }
+    const now = Date.now()
+    const makeSolve = (id: string) => ({
+      id,
+      event: '333',
+      rawMs: 10_000,
+      penalty: 'none',
+      scramble: "R U R' U'",
+      comment: '',
+      createdAt: now,
+    })
+    const backup = {
+      app: 'CubeLab',
+      format: 'cubelab-backup',
+      version: 1,
+      exportedAt: new Date(now).toISOString(),
+      sessions: {
+        activeSessionId: 'shared-a',
+        sessions: [
+          {
+            id: 'shared-a',
+            name: 'Shared',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves: [makeSolve('a-1')],
+          },
+          {
+            id: 'shared-b',
+            name: 'Shared',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves: [makeSolve('b-1')],
+          },
+        ],
+      },
+      settings: storedSettings.settings,
+      sync: {
+        protocolVersion: 1,
+        revision: 1,
+        deviceId: 'remote-device',
+        updatedAt: now,
+        tombstones: [],
+        conflicts: [],
+        sessionRedirects: [],
+      },
+    }
+    const mockDrive = (
+      window as {
+        __cubeLabMockDrive?: {
+          uploadDeviceBackup: (
+            content: string,
+            deviceId: string,
+          ) => Promise<unknown>
+        }
+      }
+    ).__cubeLabMockDrive
+    await mockDrive?.uploadDeviceBackup(
+      JSON.stringify(backup),
+      'remote-device',
+    )
+  })
+
+  await drive.getByTestId('sync-now').click()
+
+  const toast = page.locator('.toast')
+  await expect(toast).toContainText("separate sessions named 'Shared'")
+  await expect(
+    toast.getByRole('button', { name: 'Review Merge' }),
+  ).toBeVisible()
+  await expect(drive.getByTestId('sync-duplicate-names')).toBeVisible()
+  await expect(drive.getByTestId('sync-duplicate-names')).toContainText(
+    "'Shared'",
+  )
+  await expect(drive.getByTestId('review-duplicate-sessions')).toBeVisible()
+
+  // Close the modal dialog so the actionable toast can be clicked.
+  await drive.getByTestId('drive-done').click()
+  await expect(drive).toBeHidden()
+  await toast.getByRole('button', { name: 'Review Merge' }).click()
+
+  const merge = page.getByRole('dialog', { name: 'Merge sessions' })
+  await expect(merge).toBeVisible()
+  await expect(merge).toContainText('Found 2 separate sessions named')
+  await merge.getByLabel('Typed confirmation').fill('MERGE SESSIONS')
+  await merge.getByRole('button', { name: 'Confirm merge' }).click()
+  await expect(merge).toBeHidden()
+
+  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(1)
+  await expect(page.getByTestId('session-select').locator('option')).toHaveText(
+    'Shared',
+  )
+
+  // Reopen Drive: the persistent review action disappears once the merged
+  // collection has no duplicate name left.
+  const settingsAgain = await openSettings(page)
+  await settingsAgain.getByTestId('settings-drive-button').click()
+  const driveAgain = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(driveAgain).toBeVisible()
+  await expect(driveAgain.getByTestId('sync-duplicate-names')).toHaveCount(0)
+  await driveAgain.getByTestId('drive-done').click()
+  await expect(driveAgain).toBeHidden()
+})
+

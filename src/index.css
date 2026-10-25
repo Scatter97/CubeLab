@@ -2314,6 +2314,22 @@ kbd {
   color: var(--danger);
 }
 
+.sync-duplicate-list {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  background: var(--surface-soft);
+}
+
+.sync-duplicate-list .settings-note {
+  margin: 0;
+}
+
 .sync-conflict-list {
   display: flex;
   flex-direction: column;

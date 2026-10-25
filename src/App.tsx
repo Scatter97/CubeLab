@@ -304,11 +304,13 @@ export default function App() {
     onReplaceSessions: replaceSessions,
     onReplaceSettings: replaceSettings,
     onNotify: (message) => showToast({ message }),
-    onDuplicateSessionDetected: (names) => {
+    onDuplicateSessionDetected: (names, summary) => {
       showToast({
-        message: `CubeLab found two separate sessions named ${names
-          .map((name) => `'${name}'`)
-          .join(', ')}.`,
+        message:
+          summary ??
+          `CubeLab found separate sessions named ${names
+            .map((name) => `'${name}'`)
+            .join(', ')}. They remain separate until you approve a merge.`,
         actionLabel: 'Review Merge',
         onAction: () => setMergeSessionsOpen(true),
       })
@@ -1014,6 +1016,7 @@ export default function App() {
         onClose={() => setDriveOpen(false)}
         onNotify={(message) => showToast({ message })}
         onPendingRestore={handleDriveRestorePending}
+        onReviewDuplicateNames={() => setMergeSessionsOpen(true)}
       />
 
       {pendingDriveRestore ? (
