@@ -1,6 +1,6 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-25 16:32 (local)
+**Last verified:** 2026-10-25 18:15 (local)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
@@ -8,10 +8,10 @@
 **Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v4
 **Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
-**Phase 2C:** Complete — local-first Google Drive synchronization with automatic startup, exit, reconnect, combined scheduling, ID-based merging, tombstones, conflict recovery, session redirects, empty-default adoption, duplicate-name detection, manual session merges, per-field conflict resolution, sync settings UI, and mock-based coverage
-**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixes repeated recovered-session arrivals and stale conflict approvals, and records known-solve snapshots for new session tombstones. Google Drive still has no verified atomic compare-and-swap; see [Sync hardening patch](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+**Phase 2C:** Complete with documented limitations — local-first Google Drive synchronization with device-owned snapshots, field-level session/settings merging, automatic startup/exit/reconnect/combined scheduling, ID-based merging, tombstones, recovery, redirects, empty-default adoption, duplicate-name detection, manual session merges, and conflict review across solve fields, session metadata, settings, and redirects
+**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixed repeated recovered-session arrivals and stale conflict approvals. The v3 follow-up adds device-owned Drive snapshots, sessions schema v4 field metadata, field-level session/settings review, settings provenance, timer-deferred sync, bounded retries, deletion hardening, and multi-device stress tests. See [Sync hardening](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), [Hardening v3](#hardening-v3--device-owned-snapshots-and-field-level-review--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 **Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserves the active-session event.
-**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, the 2026-10-25 hardening patch, and the v2 audit follow-up are implemented and verified with mocks. Real concurrent Drive-write safety remains unproven.
+**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, and the 2026-10-25 hardening follow-ups are implemented and verified with mocks. Cross-device uploads are isolated by device-owned snapshots; a provider-level compare-and-swap for one file remains unavailable.
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
 ## Scope delivered
@@ -82,8 +82,11 @@ calculations.
 - Installable PWA that works fully offline after the first visit, including
   scramble generation.
 - No CubeLab backend, account, analytics, or telemetry. Optional Google Drive
-  synchronization stores the versioned backup in the user's own Drive app-data
-  folder and runs only after an explicit connection.
+  synchronization stores a device-owned versioned snapshot in the user's own
+  Drive app-data folder (`cubelab-backup-<deviceId>.json`), merges every
+  CubeLab snapshot on each run, and starts only after an explicit connection.
+  The legacy `cubelab-backup.json` file remains readable and is removed by
+  **Delete remote backups**.
 
 ### Engineering
 
@@ -99,6 +102,15 @@ calculations.
   responsive without sorting every window.
 - Pure backup creation/validation in `src/lib/backup.ts`, with file-size limits
   and record-by-record recovery.
+- Pure synchronization merge modules: `src/lib/sync.ts` merges solves,
+  tombstones, redirects, and sessions; `src/lib/sessionMetadata.ts` merges
+  session fields; `src/lib/settingsMerge.ts` merges global fields and first-sync
+  provenance; `src/lib/remoteBackups.ts` reads, merges, and deletes device-owned
+  snapshots. Hook orchestration and network I/O stay in `useSync.ts` and
+  `useDriveBackup.ts`.
+- Sessions schema `v4` stores optional per-field metadata without rewriting raw
+  solve values. Settings field metadata lives in the sync runtime so the settings
+  schema remains `v6`.
 - Shared native modal lifecycle and Tab/Shift+Tab focus containment in
   `useModalDialog`, used by the Settings, confirmation, and backup dialogs.
 - Settings opens only while the timer is idle, blocks timing while open, and
@@ -145,21 +157,21 @@ calculations.
 
 ## Verification evidence
 
-Run at 2026-10-25 16:32 (local), after the v2 audit follow-up (repeated
-recovered-session extension, stale-approval protection, known-solve tombstone
-snapshots), the earlier conflict/deletion recovery work, session-dialog refactor,
-duplicate-name validation update, and documentation refresh:
+Run at 2026-10-25 18:15 (local), after the v3 hardening pass (device-owned
+snapshots, sessions schema v4 field metadata, field-level settings/session
+merging, broader conflict review, timer-deferred sync, bounded retries,
+delete-all hardening, and multi-device stress coverage):
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **171/171 passed**, 14 test files |
-| Production build | `npm run build` | Passed; 89 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,256.75 KiB** |
+| Unit tests | `npm test` | **217/217 passed**, 18 test files |
+| Production build | `npm run build` | Passed; 94 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,275.38 KiB** |
 | Production E2E | `npm run test:e2e` | **24/24 passed**, Chromium |
 | Whitespace | `git diff --check` | Passed with no errors |
-| Visual QA | production E2E at 320, 390, and desktop widths | Conflict queue, session dialogs, duplicate-name error/icon, and focus handling verified; primary layout unchanged, so checked-in screenshots were not refreshed |
+| Layout coverage | production E2E at 320, 390, and desktop widths | Drive copy, conflict labels, session dialogs, duplicate-name error/icon, and focus handling verified automatically; no manual visual audit or screenshot refresh was performed |
 | Performance | seeded 2,000-solve production session | Not re-measured; the Phase 2A profile below remains the latest. Large-average calculation still has a Fenwick-tree fast path and brute-force comparison coverage. |
 
 The Playwright suite runs against the production preview and covers:
@@ -199,10 +211,15 @@ The Playwright suite runs against the production preview and covers:
 20. Full offline reload with service-worker precache and offline `cubing.js`
     scramble generation.
 21. Google Drive backup/restore through the mock transport, including connection,
-    synchronization, and restore confirmation.
+    per-device synchronization, and restore confirmation.
 22. Invalid Google Drive backup rejection without local mutation.
 23. Manual conflict review pausing publication and resuming after the user
     chooses the local solve-field version.
+24. Delete-all remote backup confirmation and removal of every CubeLab snapshot.
+
+Session-name, session-preference, global-settings, and redirect conflict review
+is covered by deterministic unit and hook tests rather than a separate production
+E2E scenario.
 
 Visual artifacts are checked in at `docs/cubelab-desktop.png`,
 `docs/cubelab-mobile.png`, and `docs/cubelab-settings.png`.
@@ -268,8 +285,8 @@ the unresolved items are listed in [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md
 
 **Verification**
 
-The full chain above passed on 2026-10-25: typecheck, clean lint, 171/171 unit
-tests, production build, 24/24 Playwright tests, and `git diff --check`.
+The v2 snapshot passed the full chain on 2026-10-25 with 171/171 unit tests at
+that time; the current verification table records 217/217 after the v3 additions.
 Concurrency, conflict-resolution, repeated-recovery, and adoption coverage uses
 the deterministic in-memory Drive transport; no real Google Drive data was
 modified.
@@ -286,6 +303,11 @@ modified.
   provenance still need design and tests. The audit follow-up recovers solves
   created after a tombstone.
 - Real multi-device behavior has not been revalidated after this patch.
+
+**Superseded by v3:** device-owned snapshots eliminate cross-device file
+overwrites; field-level session/settings merging, conflict review for every
+metadata kind, timer deferral, bounded retries, and settings provenance are now
+implemented and tested. A provider-level CAS for one device file remains open.
 
 ### Audit follow-up — 2026-10-25
 
@@ -316,10 +338,13 @@ verified remote concurrency protocol:
    Drive has no verified atomic compare-and-swap and that simultaneous uploads
    can overwrite another device.
 
-**Still unresolved:** atomic remote CAS, session/preference/redirect conflict
-queues, pre-deletion offline edits under clock skew for legacy tombstones,
-per-preference timestamps, redirect consensus/recovery, guaranteed sync-on-exit,
-and detection of in-place state mutation. See
+**At the time, still unresolved:** atomic remote CAS, session/preference/redirect
+conflict queues, pre-deletion offline edits under clock skew for legacy
+tombstones, per-preference timestamps, redirect consensus/recovery, guaranteed
+sync-on-exit, and detection of in-place state mutation. The v3 hardening
+resolved the conflict queues, per-field timestamps, cross-device upload isolation,
+bounded retry/status behavior, and settings provenance; legacy tombstones,
+redirect consensus, exit durability, and provider CAS remain open. See
 [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 
 ### Audit follow-up v2 — 2026-10-25
@@ -348,12 +373,86 @@ roles, repeated synchronization, multiple solves in different arrival orders,
 known-snapshot clock skew, event incompatibility, preserved preferences, and a
 third edit between conflict review and approval.
 
-**Still unresolved:** atomic remote CAS, conflict queues for session metadata,
-preferences, redirects, and global settings; per-preference timestamps; redirect
-consensus/recovery; guaranteed sync-on-exit; ambiguous legacy-tombstone edits
-under clock skew; and detection of in-place state mutation. The Drive transport
-still has no verified conditional write. See
+**Resolved by v3:** session/preference/redirect/global-settings conflict review,
+per-preference timestamps, field-level settings provenance, and cross-device
+upload isolation. **Still unresolved:** provider-level CAS for a single device
+file, redirect consensus/recovery, guaranteed sync-on-exit, ambiguous
+legacy-tombstone edits under clock skew, conflict-resolution audit/undo, and
+detection of in-place state mutation. See
 [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+
+### Hardening v3 — device-owned snapshots and field-level review — 2026-10-25
+
+This pass removes the cross-device Drive overwrite race and completes the
+field-level merge/review work that earlier passes had scoped but not implemented.
+
+**Architecture**
+
+1. **Device-owned snapshots.** Every sync writes only
+   `cubelab-backup-<sanitized-device-id>.json`. Each run lists, validates, and
+   merges every CubeLab snapshot, including the legacy `cubelab-backup.json`.
+   Different devices can upload concurrently without replacing each other; the
+   next run reconciles their snapshots.
+2. **Sessions schema v4.** Session name, event, inspection override, and each
+   session preference carry optional per-field modification metadata. Existing
+   `v1`–`v3` records still load, and malformed metadata is dropped without losing
+   the session. Equal legacy fields do not receive fabricated persisted stamps.
+3. **Settings provenance without a schema change.** Global field timestamps live
+   in the sync runtime (`settingsFieldUpdates`). First-sync merging preserves a
+   customized device's settings and establishes a baseline; later edits win by
+   field timestamp with a deterministic editor-ID tiebreak.
+4. **Full conflict review.** Manual review now covers solve fields, session
+   name/event/inspection/preferences, global settings, and redirect destinations.
+   Approvals match the exact reviewed values and timestamps. Redirect approvals
+   match by source/destination pair, avoiding approval churn after application.
+5. **Scheduling and status.** An active timer defers synchronization and resumes
+   it once on idle. Automatic retries are bounded and reset only by external
+   triggers. Startup resumes an interrupted `syncing` state, exit triggers are
+   best effort, and status distinguishes pending local changes and conflicts.
+   Redundant uploads are skipped when the confirmed remote and local fingerprints
+   are unchanged.
+
+**Bugs fixed**
+
+- Manual backup could select and replace another device's file through
+  `remoteFileId`; per-device transports now replace only the current device's
+  file.
+- Remote delete reported success even when a transport deletion failed.
+- Remove counts counted the same tombstoned solve once per snapshot.
+- Session event changes did not merge by field, and settings had no per-field
+  provenance beyond whole-record first-sync behavior.
+- Redirect resolution could re-prompt for the same destination pair after
+  applying an approval.
+- A first merge with equal legacy session values fabricated field metadata and
+  immediately dirtied an otherwise unchanged sync.
+- Timer-active sync could replace data or start network work mid-solve;
+  retries could continue unbounded.
+
+**Coverage added**
+
+- `sessionMetadata.test.ts`, `settingsMerge.test.ts`, and
+  `remoteBackups.test.ts`.
+- Hook tests for settings and session-name conflicts, redundant-upload skipping,
+  timer deferral, bounded retry exhaustion, exit-page sync, and in-flight edits.
+- `sync.stress.test.ts` exercises concurrent device uploads and a three-device
+  convergence scenario with simultaneous solves, a solve deletion racing a
+  penalty edit, session-name edits, and independent global-settings edits.
+- Storage tests for v4 field metadata round-trip and malformed-entry recovery.
+- Drive backup tests for per-device isolation, multi-snapshot restore, delete-all,
+  and partial-deletion failure reporting.
+
+**Verification:** `npm run typecheck`, `npm run lint`, **217/217 unit tests** in 18
+files, production build, **24/24 Playwright tests**, and `git diff --check` all
+passed. No real Google Drive multi-device test was run; provider CAS remains
+unavailable. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+
+**Primary changed files:** `src/hooks/useSync.ts`,
+`src/hooks/useDriveBackup.ts`, `src/lib/sync.ts`,
+`src/lib/sessionMetadata.ts`, `src/lib/settingsMerge.ts`,
+`src/lib/remoteBackups.ts`, `src/lib/driveTransport.ts`,
+`src/lib/sessions.ts`, `src/lib/storage.ts`, `src/lib/syncStorage.ts`,
+`src/types.ts`, `src/components/DriveBackupDialog.tsx`, and the associated unit,
+hook, stress, and Playwright tests.
 
 ### Performance evidence
 
@@ -382,17 +481,17 @@ substantially beyond this size.
 
 ### Production bundle
 
-- Main application bundle: ~371.16 kB (~107.60 kB gzip)
+- Main application bundle: ~390.23 kB (~112.34 kB gzip)
 - CSS: ~48.14 kB (~11.82 kB gzip)
 - Cubing.js chunk: ~1,207.02 kB (~335.13 kB gzip)
-- Precache total: ~2.20 MiB (2,256.75 KiB)
+- Precache total: ~2.22 MiB (2,275.38 KiB)
 - PWA: generated Workbox service worker and web manifest
 
-The 2026-10-25 audit follow-ups and multi-event session setup add conflict-queue
-UI, recovery logic, validation UI, dialog content, and shared session helpers; the
-main bundle is about 371 KiB before gzip. Vite reports the expected informational
-warning about the large cubing.js chunk. It is a single cached dependency chunk,
-not duplicated application code.
+The 2026-10-25 hardening follow-ups and multi-event session setup add field-level
+merge helpers, conflict-review UI, recovery logic, validation UI, dialog content,
+and shared session helpers; the main bundle is about 390 KiB before gzip. Vite
+reports the expected informational warning about the large cubing.js chunk. It is
+a single cached dependency chunk, not duplicated application code.
 
 ## Key decisions and invariants
 
@@ -414,10 +513,12 @@ not duplicated application code.
   Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About
   sections. It uses the shared native modal, a fixed footer, and an
   independently scrolling body on short screens.
-- The v5 settings schema stores presentation and interaction preferences as
+- The v6 settings schema stores presentation and interaction preferences as
   typed fields with documented defaults. Unknown or corrupt values fall back
-  field-by-field, while v1–v4 records upgrade automatically. Sessions use schema
-  v2 with an optional per-session inspection override and solve comments.
+  field-by-field, while v1–v5 records upgrade automatically. Sessions use schema
+  v4 with optional per-session preferences, inspection overrides, solve comments,
+  and field-level merge metadata. Global settings field timestamps live in
+  `cubelab:sync:v1`, keeping the settings schema unchanged.
 - Interface zoom uses CSS `zoom` with a reciprocal viewport width/height and a
   scale-adjusted dialog cap. This keeps the app filling the viewport at reduced
   zoom without introducing blank scroll space or horizontal overflow.
@@ -519,34 +620,45 @@ not duplicated application code.
 
 Keys:
 
-- `cubelab:sessions:v1` — active session ID plus every named session and its
-  solves.
+- `cubelab:sessions:v1` — active session ID plus every named session, solves,
+  comments, preferences, and optional field metadata.
 - `cubelab:settings:v1` — local preferences.
 - `cubelab:solves:v1` — original single-session key, read only for migration into
   **Session 1**; only `event: '333'` records are migrated because that key
   predates multi-event sessions.
+- `cubelab:drive:v1` — optional Google Drive connection metadata; OAuth tokens
+  stay in memory.
+- `cubelab:sync:v1` — optional sync preferences and runtime state (device ID,
+  tombstones, redirects, conflicts, settings field timestamps, and the last
+  published fingerprint).
 
-Each session stores `id`, `name`, optional `event` and `preferences`,
-`createdAt`, `updatedAt`, `solves`, and an optional `inspectionEnabled` override.
-Each solve stores `id`, `event`, `rawMs`, `penalty`, `scramble`, `comment`, and
-`createdAt`. Raw time is always preserved; penalties are applied for display and
-statistics. Record-by-record validation skips corrupt sessions and solves,
+Each session stores `id`, `name`, optional `event`, `preferences`, and
+`inspectionEnabled`, `createdAt`, `updatedAt`, `solves`, and optional
+`fieldUpdates` for the name, event, inspection override, and individual
+preference fields. Each solve stores `id`, `event`, `rawMs`, `penalty`,
+`scramble`, `comment`, `createdAt`, and optional per-field merge metadata. Raw
+time is always preserved; penalties are applied for display and statistics.
+Record-by-record validation skips corrupt sessions, solves, and metadata,
 duplicate IDs are ignored, and invalid JSON or unsupported schema versions fall
 back to the legacy record and then to a fresh empty session. The active session
 is normalized to an existing session. A valid session collection is never
-silently discarded. Sessions are stored at schema version 2; version 1 records
-migrate with empty comments and no inspection override. The legacy
-`cubelab:solves:v1` migration is restricted to 3×3 records, while the modern
-session key keeps every supported event.
+silently discarded. Sessions are stored at schema version 4; versions 1–3 load
+with defaults for newer fields. Missing field metadata falls back only at merge
+time, not as fabricated persisted history. The legacy `cubelab:solves:v1`
+migration is restricted to 3×3 records, while the modern session key keeps every
+supported event.
 
 Settings are stored at schema version 6. Loading accepts versions 1–6, upgrades
 older records with defaults, and validates each new field independently. A
 record without `inspectionEnabled` is rejected as invalid, matching the original
 settings contract. The v6 records add the optional any-key stop preference.
+Global settings field timestamps are stored in `cubelab:sync:v1` so the settings
+schema stays backward compatible.
 
 Backups are versioned separately as `cubelab-backup` version 1. They are
 validated before the confirmation dialog; import replaces local data only after
-explicit confirmation.
+explicit confirmation. The sync envelope carries tombstone, redirect, conflict,
+and settings-field metadata.
 
 ### Production worker workaround
 
@@ -613,22 +725,28 @@ offline Playwright test and must not be undone casually.
 - JSON import remains replace-only. Google Drive synchronization adds merge,
   tombstones, redirects, and conflict handling, but there is no general-purpose
   local-file merge path.
-- Google Drive has no verified atomic compare-and-swap. Two devices syncing at
-  the same moment can still overwrite a remote backup; the in-flight guards
-  protect local state, not the remote write race.
+- Google Drive has no verified atomic compare-and-swap. Device-owned snapshots
+  remove the cross-device file-overwrite race, but two tabs or profiles sharing
+  one device identity can still race on that device's file. In-flight guards
+  protect local state, not the remote write.
 - Manual conflict review now pauses publication and offers **Use this device** /
-  **Use cloud** for solve-field conflicts. An approval only applies to the exact
-  reviewed values; a later edit raises a fresh conflict. Session names, session
-  preferences, redirects, and global settings still have no conflict queue, and
-  there is no resolution audit log.
+  **Use cloud** for solve fields, session metadata, session preferences, global
+  settings, and redirects. An approval only applies to the exact reviewed values
+  and timestamps; a later edit raises a fresh conflict. There is no resolution
+  audit history or undo, and the queue is capped at 100 records.
 - Deletion recovery extends an existing `(recovered)` session by solve ID. New
   session tombstones record the deleting device's known solve IDs, so unknown
   solves are recovered even under clock skew (conservatively, including old
   solves the deleting device never saw). Legacy tombstones still use wall-clock
   comparison, and ambiguous pre-deletion edits can be lost.
-- Session preferences are merged as a session-wide value. Independent edits to
-  different preference fields on two devices can still lose one edit because
-  there are no per-preference timestamps.
+- Deleting remote backups is all-or-nothing for every CubeLab snapshot. There is
+  no per-device snapshot management, stale-snapshot cleanup policy, or UI showing
+  which device owns each remote file.
+- Active-session selection is not field-merged. A device keeps its local active
+  session when it still exists; concurrent selection changes are not reviewed.
+- Settings provenance depends on `cubelab:sync:v1`. Clearing sync metadata falls
+  back to the conservative first-sync policy rather than recovering historical
+  field timestamps.
 - Redirect normalization is deterministic for a shared approval set but is not a
   consensus protocol. Devices holding different approval sets can resolve
   differently until they exchange the same set.
@@ -774,16 +892,17 @@ All requested Milestone 1 functionality is implemented and verified:
 
 **Completion estimate: 100% of authorized Phase 2A.3 scope.**
 
-### Phase 2B — Complete
+### Phase 2B — Complete, superseded by Phase 2C
 
-Phase 2B manual Google Drive backup/restore is implemented without background
-sync or telemetry.
+Phase 2B introduced manual Google Drive backup/restore without background sync or
+telemetry. Phase 2C replaced the manual-only fixed-file path with device-owned
+snapshots, automatic reconciliation, field-level merging, and conflict review;
+the legacy `cubelab-backup.json` remains readable.
 
-- Google Identity Services OAuth and the Drive app-data file
-  `cubelab-backup.json` are used for app-private remote backups.
-- Backup is manual only; restore downloads, validates, and replaces local data
-  only after an explicit confirmation dialog and the typed phrase
-  `RESTORE FROM DRIVE`.
+- Google Identity Services OAuth and Google Drive app data are used for
+  app-private remote backups.
+- The legacy fixed-name file can still be read and is removed by delete-all.
+  Current writes use `cubelab-backup-<deviceId>.json`.
 - Remote metadata is stored under `cubelab:drive:v1` with field-level fallback.
 - Drive controls are disabled while timing and when no client ID is configured.
 - Remote deletion and offline/failure paths are covered by unit and mock E2E
@@ -796,37 +915,52 @@ sync or telemetry.
   valid `VITE_GOOGLE_CLIENT_ID` and completing Google publishing/brand work before
   non-test users can sign in.
 
-### Phase 2C — Complete with documented concurrency limitations
+### Phase 2C — Complete with documented provider-CAS limitations
 
 Phase 2C implements optional local-first Google Drive synchronization on top of
 the Phase 2B manual backup path.
 
+- Device-owned remote snapshots named `cubelab-backup-<deviceId>.json`; every
+  sync lists, validates, and merges all CubeLab snapshots, including the legacy
+  `cubelab-backup.json`.
+- Sessions schema v4 field metadata for name, event, inspection override, and
+  individual preferences; global settings field metadata lives in the sync
+  runtime. Newest field timestamp wins with a deterministic tiebreak, and equal
+  legacy values do not gain fabricated history.
 - Time-based, solve-count-based, and combined schedules, with 1 minute / 1 solve
-  minimums and startup, exit, and reconnect triggers.
+  minimums and startup, exit, and reconnect triggers. Sync is deferred while the
+  timer is active and resumes once when idle; automatic retries are bounded.
 - ID-based session and solve merging with tombstones, session redirects, and
   duplicate-session-name detection.
 - Empty-default cloud adoption that preserves deliberately created local
   sessions and tombstoned solves.
-- Manual session merge and per-field solve conflict resolution. Manual review
-  pauses publication, shows **Use this device** / **Use cloud** choices, and
-  resumes after the last pending conflict is resolved. A stale approval cannot
-  override an edit made after the prompt was displayed.
+- Conflict review for solve fields, session metadata, session preferences,
+  global settings, and redirects. Manual review pauses publication, shows **Use
+  this device** / **Use cloud** choices, and resumes after the last pending
+  conflict is resolved. A stale approval cannot override an edit made after the
+  prompt was displayed.
 - Solves belonging to a deleted session are moved into a deterministic
   `(recovered)` session instead of being silently dropped. Existing recovered
   sessions are extended by solve ID across successive offline devices.
 - New session tombstones include the deleting device's known solve IDs so
   clock-skewed unknown solves are recoverable; legacy tombstones use the
   time-based fallback.
-- Sync settings and status UI, plus deterministic mock-transport unit and E2E
-  coverage.
+- Delete-all remote snapshot cleanup with partial-failure reporting, and manual
+  backup restricted to the current device's snapshot.
+- Sync settings and status UI, plus deterministic mock-transport unit, stress,
+  and E2E coverage.
 - The 2026-10-25 hardening patch fixed legacy migration scope, adoption
   semantics, solve-owner event compatibility, directional counts, duplicate-name
-  validation, and in-flight local-edit protection. The audit follow-ups added the
-  conflict workflow, deletion recovery, repeated-device recovery, stale-approval
-  protection, honest solve-count semantics, and redirect determinism tests.
+  validation, and in-flight local-edit protection. The follow-ups added the
+  broad conflict workflow, deletion recovery, repeated-device recovery,
+  stale-approval protection, honest solve-count semantics, device-owned
+  snapshots, field-level settings/session merging, timer-safe scheduling, and
+  redirect determinism tests.
 
 **Not proven:** Google Drive does not expose a verified atomic compare-and-swap
-in this implementation, so a simultaneous two-device upload can still race. The
+for one device file in this implementation. Cross-device uploads are isolated,
+but tabs or profiles sharing a device identity can still race. Real-provider
+multi-device concurrency and conflict-resolution audit/undo are unverified. The
 remaining gaps are listed in [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md); do
 not describe Phase 2C as data-loss-proof.
 
@@ -837,12 +971,13 @@ not describe Phase 2C as data-loss-proof.
 - Phase 2B and Phase 2C are implemented. Do not add telemetry, non-Google cloud
   providers, or a different sync protocol without an explicit brief.
 - The highest-value sync work is real remote concurrency protection: a verified
-  compare-and-swap/ETag update path and a stale-writer test. Then extend the
-  conflict queue to session metadata, preferences, redirects, and global
-  settings; add per-preference timestamps; harden sync-on-exit; and design an
-  explicit recovery path for ambiguous legacy tombstones and pre-deletion offline
-  edits. Preserve the known-solve snapshot on new session tombstones.
-  Extend the Drive transport, metadata store, and failure-path tests together.
+  compare-and-swap/ETag update path for one device snapshot and a stale-writer
+  test against the real provider. Then add conflict-resolution audit/undo, a
+  documented recovery path for corrupted or partially applied syncs, harden
+  sync-on-exit, and design explicit recovery for ambiguous legacy tombstone
+  edits, redirect divergence, and pre-deletion offline edits. Preserve the
+  known-solve snapshot on new session tombstones and extend the Drive transport,
+  metadata store, and failure-path tests together.
 - If more timer preferences are requested, extend the Settings dialog and the
   versioned settings schema together, with migration and E2E coverage. Do not
   duplicate the inspection control back into the header.
@@ -872,12 +1007,12 @@ not describe Phase 2C as data-loss-proof.
 
 ## Git status
 
-Milestone 1 through Phase 2C and the 2026-10-25 hardening patch are implemented
-in the working tree. The patch changes are uncommitted at the time of this
-verification and include modified source, tests, CSS, E2E coverage, documentation,
-and the new `PATCH_LIMITATIONS.md`, `src/hooks/useSync.test.ts`, and
-`src/lib/sessionRedirects.test.ts`. The roadmap is tracked separately in
-`ROADMAP.md`. Verify with:
+Milestone 1 through Phase 2C and the 2026-10-25 hardening follow-ups are
+implemented and verified. The work includes device-owned Drive snapshots,
+sessions schema v4 field metadata, field-level session/settings merging, broad
+conflict review, timer-safe scheduling, recovery hardening, and new sync stress
+coverage. The roadmap is tracked separately in `ROADMAP.md`. Inspect the real
+repository state with:
 
 ```bash
 git status --short

@@ -1,9 +1,15 @@
-import type { Session, SessionsData, Settings, Solve } from '../types'
+import type { Session, SessionsData, Solve } from '../types'
 import { DEFAULT_SESSION_NAME, MAX_SESSION_NAME_LENGTH, normalizeSessionName } from './sessions'
-import { DEFAULT_SETTINGS } from './storage'
-import { applySessionRedirects, normalizeSessionRedirects } from './sessionRedirects'
+import { applySessionRedirects, findSessionRedirectDivergences, normalizeSessionRedirects } from './sessionRedirects'
+import { maxSessionFieldUpdateTime, mergeSessionMetadata } from './sessionMetadata'
+import { parseSettingsFieldUpdates } from './syncStorage'
 import { mergeSolveFields, recordTime, solvesEqual } from './solveMerge'
-import type { SyncConflict, Tombstone, SessionRedirect } from './syncStorage'
+import type {
+  SettingsFieldUpdates,
+  SyncConflict,
+  Tombstone,
+  SessionRedirect,
+} from './syncStorage'
 
 
 export const SYNC_PROTOCOL_VERSION = 1
@@ -16,6 +22,132 @@ export interface SyncEnvelope {
   tombstones: Tombstone[]
   conflicts: SyncConflict[]
   sessionRedirects: SessionRedirect[]
+  /** Field metadata for the settings snapshot carried by this envelope. */
+  settingsFieldUpdates?: SettingsFieldUpdates
+}
+
+export function mergeTombstones(...groups: ReadonlyArray<ReadonlyArray<Tombstone>>): Tombstone[] {
+  const merged = new Map<string, Tombstone>()
+  for (const tombstone of groups.flat()) {
+    const key = `${tombstone.kind}:${tombstone.id}`
+    const existing = merged.get(key)
+    if (!existing) {
+      merged.set(key, {
+        ...tombstone,
+        ...(tombstone.knownSolveIds
+          ? { knownSolveIds: [...new Set(tombstone.knownSolveIds)] }
+          : {}),
+      })
+      continue
+    }
+    const newest = tombstone.deletedAt > existing.deletedAt ? tombstone : existing
+    const knownSolveIds = [
+      ...new Set([
+        ...(existing.knownSolveIds ?? []),
+        ...(tombstone.knownSolveIds ?? []),
+      ]),
+    ]
+    merged.set(key, {
+      ...newest,
+      ...(knownSolveIds.length > 0 ? { knownSolveIds } : {}),
+    })
+  }
+  return [...merged.values()].sort(
+    (left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      left.id.localeCompare(right.id) ||
+      left.deletedAt - right.deletedAt,
+  )
+}
+
+export function resolveRedirectConflicts(input: {
+  local: ReadonlyArray<SessionRedirect>
+  remote: ReadonlyArray<SessionRedirect>
+  manualConflictReview: boolean
+  resolvedConflicts: readonly SyncConflict[]
+}): { sessionRedirects: SessionRedirect[]; conflicts: SyncConflict[] } {
+  const { local, remote, manualConflictReview, resolvedConflicts } = input
+  const combined = [...local, ...remote]
+  const conflicts: SyncConflict[] = []
+  const divergences = findSessionRedirectDivergences(local, remote)
+  for (const divergence of divergences) {
+    const localValue = divergence.local!.toId
+    const remoteValue = divergence.remote!.toId
+    const localUpdatedAt = divergence.local!.approvedAt
+    const remoteUpdatedAt = divergence.remote!.approvedAt
+    // Redirect approvals are rewritten whenever sync materializes a winner, so
+    // their timestamps are not stable review identities. The exact pair of
+    // destinations is: a later approval of a different destination changes the
+    // pair and raises a fresh conflict. Re-approving the same pair keeps the
+    // existing decision instead of prompting on every merge.
+    const resolved = resolvedConflicts
+      .filter(
+        (conflict) =>
+          conflict.kind === 'redirect' &&
+          conflict.id === divergence.fromId &&
+          conflict.field === 'redirect' &&
+          conflict.resolution !== 'manual-pending' &&
+          Object.is(conflict.localValue, localValue) &&
+          Object.is(conflict.remoteValue, remoteValue),
+      )
+      .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+
+    let winner: 'local' | 'remote'
+    if (resolved) {
+      winner = resolved.resolution === 'remote' ? 'remote' : 'local'
+    } else if (localUpdatedAt !== remoteUpdatedAt) {
+      winner = localUpdatedAt > remoteUpdatedAt ? 'local' : 'remote'
+    } else if ((divergence.local!.byDeviceId ?? '') !== (divergence.remote!.byDeviceId ?? '')) {
+      winner =
+        (divergence.local!.byDeviceId ?? '') < (divergence.remote!.byDeviceId ?? '')
+          ? 'local'
+          : 'remote'
+    } else {
+      winner = localValue <= remoteValue ? 'local' : 'remote'
+    }
+
+    if (!resolved) {
+      conflicts.push({
+        id: divergence.fromId,
+        kind: 'redirect',
+        sessionId: divergence.fromId,
+        field: 'redirect',
+        localValue,
+        remoteValue,
+        localUpdatedAt,
+        remoteUpdatedAt,
+        resolution: manualConflictReview ? 'manual-pending' : winner,
+        updatedAt: Math.max(localUpdatedAt, remoteUpdatedAt, Date.now()),
+      })
+    }
+
+    const chosen = winner === 'local' ? localValue : remoteValue
+    // Only materialize a tiebreak redirect when the normalizer would otherwise
+    // publish the losing destination (for example equal approval timestamps
+    // ordered by destination ID). Repeated syncs must not invent a new
+    // timestamp every run.
+    const normalizedTarget = normalizeSessionRedirects(combined).find(
+      (redirect) => redirect.fromId === divergence.fromId,
+    )?.toId
+    if (normalizedTarget !== chosen) {
+      combined.push({
+        fromId: divergence.fromId,
+        toId: chosen,
+        approvedAt:
+          Math.max(
+            resolved?.updatedAt ?? 0,
+            localUpdatedAt,
+            remoteUpdatedAt,
+            Date.now(),
+          ) + 1,
+        byDeviceId: resolved ? 'manual-approval' : 'sync-tiebreak',
+      })
+    }
+  }
+  return {
+    sessionRedirects: normalizeSessionRedirects(combined),
+    conflicts,
+  }
 }
 
 function hasPreferences(session: Session): boolean {
@@ -92,7 +224,10 @@ export function mergeSessionsData(input: {
   const redirects = input.sessionRedirects ?? []
   const local = redirects.length > 0 ? applySessionRedirects(input.local, redirects) : input.local
   const remote = input.remote && redirects.length > 0 ? applySessionRedirects(input.remote, redirects) : input.remote
-  const { tombstones, manualConflictReview } = input
+  // Local and remote envelopes routinely carry the same tombstones. Collapse
+  // them before deriving deletion sets or reporting removal counts.
+  const tombstones = mergeTombstones(input.tombstones ?? [])
+  const { manualConflictReview } = input
   const resolvedConflicts = input.resolvedConflicts ?? []
   const conflicts: SyncConflict[] = []
 
@@ -143,7 +278,7 @@ export function mergeSessionsData(input: {
       addedSessions: adoptedSessions.length,
       remoteWins: 0,
       conflicts: [],
-      mergedTombstones: [...tombstones],
+      mergedTombstones: tombstones,
       recoveredSolves: 0,
     }
     }
@@ -241,8 +376,6 @@ export function mergeSessionsData(input: {
 
   for (const sessionId of sessionIds) {
     if (deletedSessionIds.has(sessionId)) {
-      removedSolves += (localSessions.get(sessionId)?.solves.length ?? 0) +
-        (remoteSessions.get(sessionId)?.solves.length ?? 0)
       continue
     }
 
@@ -258,25 +391,36 @@ export function mergeSessionsData(input: {
       localSession?.createdAt ?? remoteSession!.createdAt,
       remoteSession?.createdAt ?? localSession!.createdAt,
     )
+
+    const metadata =
+      localSession && remoteSession
+        ? mergeSessionMetadata({
+            local: localSession,
+            remote: remoteSession,
+            manualConflictReview,
+            conflicts,
+            resolvedConflicts,
+          })
+        : (() => {
+            const source = (localSession ?? remoteSession)!
+            return {
+              name: normalizeSessionName(source.name),
+              event: source.event,
+              inspectionEnabled: source.inspectionEnabled,
+              preferences: source.preferences,
+              fieldUpdates: source.fieldUpdates,
+            }
+          })()
+    // Event edits merge by field timestamp like other metadata. A chosen event
+    // that cannot own every solve in the session still stops synchronization
+    // below rather than mixing puzzle statistics.
+    const event = metadata.event ?? '333'
     const updatedAt = Math.max(
       localSession?.updatedAt ?? 0,
       remoteSession?.updatedAt ?? 0,
+      maxSessionFieldUpdateTime({ fieldUpdates: metadata.fieldUpdates }),
       0,
     )
-
-    const name =
-      remoteSession && localSession
-        ? recordTime(remoteSession) > recordTime(localSession)
-          ? remoteSession.name
-          : localSession.name
-        : (localSession ?? remoteSession)!.name
-
-    const inspectionEnabled =
-      remoteSession && localSession
-        ? recordTime(remoteSession) > recordTime(localSession)
-          ? remoteSession.inspectionEnabled
-          : localSession.inspectionEnabled
-        : (localSession ?? remoteSession)!.inspectionEnabled
 
     const sessionSolves: Solve[] = []
     for (const [solveId, pair] of solveById) {
@@ -297,27 +441,23 @@ export function mergeSessionsData(input: {
       }
     }
 
-    if (localSession?.event && remoteSession?.event && localSession.event !== remoteSession.event) {
-      throw new Error(`Session ${sessionId} has incompatible puzzle events. Sync stopped to preserve solves.`)
-    }
-    const chosenPreferences =
-      localSession && remoteSession
-        ? (recordTime(remoteSession) > recordTime(localSession)
-            ? { ...localSession.preferences, ...remoteSession.preferences }
-            : { ...remoteSession.preferences, ...localSession.preferences })
-        : (localSession ?? remoteSession)?.preferences
-    if (sessionSolves.some((solve) => solve.event !== ((localSession ?? remoteSession)?.event ?? '333'))) {
+    if (sessionSolves.some((solve) => solve.event !== event)) {
       throw new Error(`Merging solves into session ${sessionId} would mix puzzle events.`)
     }
     const mergedSession: Session = {
       id: sessionId,
-      name,
-      event: (localSession ?? remoteSession)?.event ?? '333',
+      name: metadata.name,
+      event,
       createdAt,
       updatedAt,
       solves: sessionSolves.sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)),
-      ...(typeof inspectionEnabled === 'boolean' ? { inspectionEnabled } : {}),
-      ...(chosenPreferences && Object.keys(chosenPreferences).length ? { preferences: chosenPreferences } : {}),
+      ...(typeof metadata.inspectionEnabled === 'boolean'
+        ? { inspectionEnabled: metadata.inspectionEnabled }
+        : {}),
+      ...(metadata.preferences && Object.keys(metadata.preferences).length
+        ? { preferences: metadata.preferences }
+        : {}),
+      ...(metadata.fieldUpdates ? { fieldUpdates: metadata.fieldUpdates } : {}),
     }
     mergedSessions.push(mergedSession)
   }
@@ -444,9 +584,28 @@ export function mergeSessionsData(input: {
     recoveredSolves += candidates.length
   }
 
-  // Count removed solves from tombstones.
+  // Count unique solves removed by tombstones. A session tombstone accounts for
+  // every solve that either side still held for that session; explicit solve
+  // tombstones are then added once, even when both envelopes carried them.
+  const tombstonedSolveIds = new Set<string>()
   for (const tombstone of tombstones) {
-    if (tombstone.kind === 'solve') removedSolves += 1
+    if (tombstone.kind === 'solve') {
+      tombstonedSolveIds.add(tombstone.id)
+      continue
+    }
+    for (const session of [localSessions.get(tombstone.id), remoteSessions.get(tombstone.id)]) {
+      for (const solve of session?.solves ?? []) tombstonedSolveIds.add(solve.id)
+    }
+  }
+  removedSolves = tombstonedSolveIds.size
+
+  // Attach the owning session so conflict review can name it. solveMerge does
+  // not know the final owner while it is still resolving field values.
+  for (const conflict of conflicts) {
+    if (conflict.kind === 'solve' && conflict.sessionId === undefined) {
+      const owner = solveToSession.get(conflict.id)
+      if (owner) conflict.sessionId = owner
+    }
   }
 
   const duplicates = new Map<string, Set<string>>()
@@ -485,39 +644,25 @@ export function mergeSessionsData(input: {
   return result
 }
 
-export function mergeSettings(
-  local: Settings,
-  remote: Settings | null,
-  remoteUpdatedAt: number,
-  lastSyncAt: number | null,
-): Settings {
-  if (!remote) return local
-  // Remote settings are applied only when they represent a newer remote revision;
-  // otherwise local settings are preserved and will be pushed outward.
-  if (lastSyncAt === null) {
-    // Adopt the cloud on first sync only when the local settings are defaults.
-    // An already configured local device retains its edits.
-    return JSON.stringify(local) === JSON.stringify(DEFAULT_SETTINGS) ? { ...remote } : { ...local }
-  }
-  if (remoteUpdatedAt > lastSyncAt) return { ...remote }
-  return { ...local }
-}
-
 export function createSyncEnvelope(
   deviceId: string,
   revision: number,
   tombstones: Tombstone[],
   conflicts: SyncConflict[],
   sessionRedirects: SessionRedirect[] = [],
+  settingsFieldUpdates: SettingsFieldUpdates = {},
 ): SyncEnvelope {
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
     revision,
     deviceId,
     updatedAt: Date.now(),
-    tombstones: [...tombstones],
+    tombstones: mergeTombstones(tombstones),
     conflicts: [...conflicts],
     sessionRedirects: normalizeSessionRedirects(sessionRedirects),
+    ...(Object.keys(settingsFieldUpdates).length > 0
+      ? { settingsFieldUpdates: { ...settingsFieldUpdates } }
+      : {}),
   }
 }
 
@@ -538,6 +683,7 @@ export function parseRemoteSyncEnvelope(value: unknown): SyncEnvelope | null {
     sessionRedirects: Array.isArray(record.sessionRedirects)
       ? normalizeSessionRedirects(record.sessionRedirects as SessionRedirect[])
       : [],
+    settingsFieldUpdates: parseSettingsFieldUpdates(record.settingsFieldUpdates),
   }
 }
 

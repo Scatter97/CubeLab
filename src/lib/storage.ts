@@ -9,7 +9,9 @@ import type {
   PuzzleEvent,
   ScrambleAlignment,
   Session,
+  SessionFieldUpdates,
   SessionPreferences,
+  SessionPreferenceKey,
   SessionsData,
   Settings,
   Solve,
@@ -28,12 +30,13 @@ import {
   MAX_CUSTOM_AVERAGES,
   isValidCustomAverageSize,
 } from './statDefinitions'
+import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
 
 export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
 export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
-export const SESSIONS_VERSION = 3
+export const SESSIONS_VERSION = 4
 export const SETTINGS_STORAGE_VERSION = 6
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -178,6 +181,26 @@ function isPuzzleEvent(value: unknown): value is PuzzleEvent {
   return value === '333' || value === '222' || value === '444' || value === '333oh'
 }
 
+function parseSessionFieldUpdates(value: unknown): SessionFieldUpdates | undefined {
+  if (!isRecord(value)) return undefined
+  const updates: SessionFieldUpdates = {}
+  const name = parseFieldUpdate(value.name)
+  if (name) updates.name = name
+  const event = parseFieldUpdate(value.event)
+  if (event) updates.event = event
+  const inspectionEnabled = parseFieldUpdate(value.inspectionEnabled)
+  if (inspectionEnabled) updates.inspectionEnabled = inspectionEnabled
+  if (isRecord(value.preferences)) {
+    const preferences: Partial<Record<SessionPreferenceKey, FieldUpdate>> = {}
+    for (const key of SESSION_PREFERENCE_KEYS) {
+      const update = parseFieldUpdate(value.preferences[key])
+      if (update) preferences[key] = update
+    }
+    if (Object.keys(preferences).length > 0) updates.preferences = preferences
+  }
+  return Object.keys(updates).length > 0 ? updates : undefined
+}
+
 function parseSessionPreferences(value: unknown): SessionPreferences | undefined {
   if (!isRecord(value)) return undefined
   const preferences: SessionPreferences = {}
@@ -230,6 +253,9 @@ function parseSession(value: unknown): Session | null {
       : {}),
     ...(parseSessionPreferences(value.preferences)
       ? { preferences: parseSessionPreferences(value.preferences) }
+      : {}),
+    ...(parseSessionFieldUpdates(value.fieldUpdates)
+      ? { fieldUpdates: parseSessionFieldUpdates(value.fieldUpdates) }
       : {}),
   }
 }
@@ -498,6 +524,7 @@ export function loadSessions(storage = getDefaultStorage()): SessionsData {
         isRecord(parsed) &&
         (parsed.version === 1 ||
           parsed.version === 2 ||
+          parsed.version === 3 ||
           parsed.version === SESSIONS_VERSION)
       ) {
         const data = parseSessionsData(parsed)

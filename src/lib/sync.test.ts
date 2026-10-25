@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Session, SessionsData, Solve } from '../types'
-import { mergeSessionsData } from './sync'
+import { mergeSessionsData, resolveRedirectConflicts } from './sync'
 import type { SyncConflict, Tombstone } from './syncStorage'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
@@ -186,7 +186,8 @@ describe('mergeSessionsData', () => {
 
     expect(result.merged.sessions.map((item) => item.id)).toEqual(['session-keep'])
     expect(totalSolves(result.merged)).toBe(1)
-    expect(result.removedSolves).toBe(2)
+    // Removal counts are unique solve IDs, not copies held by each snapshot.
+    expect(result.removedSolves).toBe(1)
   })
 
   it('stops instead of mixing sessions whose puzzle events disagree', () => {
@@ -199,7 +200,119 @@ describe('mergeSessionsData', () => {
 
     expect(() =>
       mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false }),
-    ).toThrow(/incompatible puzzle events/)
+    ).toThrow(/mix puzzle events/)
+  })
+})
+
+describe('resolveRedirectConflicts', () => {
+  const localRedirect = {
+    fromId: 'source',
+    toId: 'target-a',
+    approvedAt: 100,
+    byDeviceId: 'laptop',
+  }
+  const remoteRedirect = {
+    fromId: 'source',
+    toId: 'target-b',
+    approvedAt: 200,
+    byDeviceId: 'phone',
+  }
+
+  it('propagates a redirect approved on only one device without a conflict', () => {
+    const result = resolveRedirectConflicts({
+      local: [localRedirect],
+      remote: [],
+      manualConflictReview: true,
+      resolvedConflicts: [],
+    })
+
+    expect(result.conflicts).toHaveLength(0)
+    expect(result.sessionRedirects).toEqual([localRedirect])
+  })
+
+  it('chooses the newest divergent approval and records it once', () => {
+    const first = resolveRedirectConflicts({
+      local: [localRedirect],
+      remote: [remoteRedirect],
+      manualConflictReview: false,
+      resolvedConflicts: [],
+    })
+
+    expect(first.conflicts).toHaveLength(1)
+    expect(first.conflicts[0]).toMatchObject({
+      kind: 'redirect',
+      field: 'redirect',
+      localValue: 'target-a',
+      remoteValue: 'target-b',
+      resolution: 'remote',
+    })
+    expect(first.sessionRedirects[0]?.toId).toBe('target-b')
+
+    // The result already carries the winning approval; another sync must not
+    // invent a new tiebreak record or conflict.
+    const second = resolveRedirectConflicts({
+      local: first.sessionRedirects,
+      remote: [remoteRedirect],
+      manualConflictReview: false,
+      resolvedConflicts: first.conflicts,
+    })
+    expect(second.conflicts).toHaveLength(0)
+    expect(second.sessionRedirects).toEqual(first.sessionRedirects)
+  })
+
+  it('honors a manual approval against a newer cloud approval once', () => {
+    const pending = resolveRedirectConflicts({
+      local: [localRedirect],
+      remote: [remoteRedirect],
+      manualConflictReview: true,
+      resolvedConflicts: [],
+    })
+    expect(pending.conflicts[0]?.resolution).toBe('manual-pending')
+
+    const approved: SyncConflict = {
+      ...pending.conflicts[0]!,
+      resolution: 'local',
+      updatedAt: 300,
+    }
+    const first = resolveRedirectConflicts({
+      local: [localRedirect],
+      remote: [remoteRedirect],
+      manualConflictReview: true,
+      resolvedConflicts: [approved],
+    })
+    expect(first.conflicts).toHaveLength(0)
+    expect(first.sessionRedirects[0]?.toId).toBe('target-a')
+
+    const second = resolveRedirectConflicts({
+      local: first.sessionRedirects,
+      remote: [remoteRedirect],
+      manualConflictReview: true,
+      resolvedConflicts: [approved],
+    })
+    expect(second.conflicts).toHaveLength(0)
+    expect(second.sessionRedirects).toEqual(first.sessionRedirects)
+  })
+
+  it('breaks equal-timestamp approvals deterministically without churn', () => {
+    const local = { ...localRedirect, approvedAt: 500 }
+    const remote = { ...remoteRedirect, approvedAt: 500 }
+    const first = resolveRedirectConflicts({
+      local: [local],
+      remote: [remote],
+      manualConflictReview: false,
+      resolvedConflicts: [],
+    })
+    expect(first.conflicts).toHaveLength(1)
+    const chosen = first.sessionRedirects[0]!
+
+    const second = resolveRedirectConflicts({
+      local: first.sessionRedirects,
+      remote: [remote],
+      manualConflictReview: false,
+      resolvedConflicts: first.conflicts,
+    })
+    expect(second.sessionRedirects).toEqual([chosen])
+    expect(second.conflicts).toHaveLength(0)
   })
 })
 

@@ -1,12 +1,14 @@
+import { useCallback, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import type { Session, SessionsData, Solve } from '../types'
+import type { Session, SessionsData, Settings, Solve } from '../types'
 import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import { createMemoryDriveTransport } from '../lib/driveTransport'
 import { DEFAULT_SETTINGS } from '../lib/storage'
 import { DEFAULT_SESSION_NAME } from '../lib/sessions'
 import {
   createDefaultSyncStorage,
+  loadSyncStorage,
   saveSyncStorage,
   SYNC_STORAGE_KEY,
   type SyncPreferences,
@@ -104,6 +106,39 @@ function enableSync(preferences: Partial<SyncPreferences> = {}) {
   })
 }
 
+function renderStatefulSync(options: {
+  transport: DriveTransport
+  sessions: SessionsData
+  settings: Settings
+}) {
+  const onReplaceSessions = vi.fn()
+  const onReplaceSettings = vi.fn()
+  const onNotify = vi.fn()
+  const rendered = renderHook(() => {
+    const [sessionsState, setSessionsState] = useState(options.sessions)
+    const [settingsState, setSettingsState] = useState(options.settings)
+    const replaceSessions = useCallback((next: SessionsData) => {
+      onReplaceSessions(next)
+      setSessionsState(next)
+    }, [])
+    const replaceSettings = useCallback((next: Settings) => {
+      onReplaceSettings(next)
+      setSettingsState(next)
+    }, [])
+    return useSync({
+      transport: options.transport,
+      sessions: sessionsState,
+      settings: settingsState,
+      storageOk: true,
+      timerActive: false,
+      onReplaceSessions: replaceSessions,
+      onReplaceSettings: replaceSettings,
+      onNotify,
+    })
+  })
+  return { ...rendered, onReplaceSessions, onReplaceSettings, onNotify }
+}
+
 describe('useSync in-flight safety', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -171,6 +206,126 @@ describe('useSync in-flight safety', () => {
   })
 })
 
+describe('useSync scheduling and retries', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('defers synchronization while the timer is active and resumes when idle', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let syncUploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+        syncUploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+      },
+    }
+    const { result, rerender } = renderHook(
+      ({ timerActive }: { timerActive: boolean }) =>
+        useSync({
+          transport,
+          sessions: sessionsData(),
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: true } },
+    )
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.phase).toBe('pending')
+    expect(result.current.error).toContain('timer is idle')
+    expect(syncUploads).toBe(0)
+
+    await act(async () => {
+      rerender({ timerActive: false })
+    })
+    await vi.waitFor(() => expect(syncUploads).toBe(1))
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+  })
+
+  it('stops automatic retries after the bounded budget', async () => {
+    vi.useFakeTimers()
+    try {
+      enableSync()
+      const memory = createMemoryDriveTransport()
+      await memory.connect()
+      let attempts = 0
+      const transport: DriveTransport = {
+        ...memory,
+        listBackups: async () => {
+          attempts += 1
+          throw new Error('Network down.')
+        },
+      }
+      const { result } = renderHook(() =>
+        useSync({
+          transport,
+          sessions: sessionsData(),
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: false,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      )
+
+      await act(async () => {
+        await result.current.syncNow('manual')
+      })
+      expect(result.current.phase).toBe('failed')
+      expect(attempts).toBe(1)
+
+      for (const delay of [2_000, 4_000, 8_000, 16_000, 30_000]) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(delay)
+        })
+      }
+
+      expect(attempts).toBe(6)
+      expect(result.current.phase).toBe('failed')
+      expect(result.current.error).toContain('Automatic retries paused')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('publishes a final snapshot when the page is hidden', async () => {
+    enableSync({ syncOnExit: true })
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+      },
+    }
+    const { result } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+    })
+
+    await vi.waitFor(() => expect(uploads).toBe(1))
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+  })
+})
+
 describe('useSync manual conflict resolution', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -222,18 +377,27 @@ describe('useSync manual conflict resolution', () => {
     const onReplaceSessions = vi.fn()
     const onNotify = vi.fn()
 
-    const { result } = renderHook(() =>
-      useSync({
+    const { result } = renderHook(() => {
+      const [sessionsState, setSessionsState] = useState(localSessions)
+      const [settingsState, setSettingsState] = useState(DEFAULT_SETTINGS)
+      const replaceSessions = useCallback((next: SessionsData) => {
+        onReplaceSessions(next)
+        setSessionsState(next)
+      }, [])
+      const replaceSettings = useCallback((next: typeof DEFAULT_SETTINGS) => {
+        setSettingsState(next)
+      }, [])
+      return useSync({
         transport,
-        sessions: localSessions,
-        settings: DEFAULT_SETTINGS,
+        sessions: sessionsState,
+        settings: settingsState,
         storageOk: true,
         timerActive: false,
-        onReplaceSessions,
-        onReplaceSettings: vi.fn(),
+        onReplaceSessions: replaceSessions,
+        onReplaceSettings: replaceSettings,
         onNotify,
-      }),
-    )
+      })
+    })
 
     await act(async () => {
       await result.current.syncNow('manual')
@@ -365,6 +529,188 @@ describe('useSync manual conflict resolution', () => {
     const stillCloud = await transport.downloadBackup(remoteFile!.id)
     expect(stillCloud).toContain('"penalty":"+2"')
     expect(stillCloud).not.toContain('"penalty":"dnf"')
+  })
+})
+
+describe('useSync field-level conflict resolution', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('applies a reviewed cloud value for an independent settings field', async () => {
+    enableSync({ manualConflictReview: true })
+    const localSync = loadSyncStorage()
+    saveSyncStorage({
+      ...localSync,
+      runtime: {
+        ...localSync.runtime,
+        settingsFieldUpdates: {
+          accentColor: { updatedAt: 100, editorId: 'device-test' },
+        },
+      },
+    })
+
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const remoteSettings: Settings = { ...DEFAULT_SETTINGS, accentColor: 'blue' }
+    const remoteUpdatedAt = Date.now() + 60_000
+    await transport.uploadBackup(
+      JSON.stringify(
+        createBackup(
+          sessionsData(),
+          remoteSettings,
+          new Date(),
+          createSyncEnvelope(
+            'remote-device',
+            1,
+            [],
+            [],
+            [],
+            {
+              accentColor: {
+                updatedAt: remoteUpdatedAt,
+                editorId: 'remote-device',
+              },
+            },
+          ),
+        ),
+      ),
+      null,
+    )
+
+    const { result, onReplaceSettings } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: { ...DEFAULT_SETTINGS, accentColor: 'green' },
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.phase).toBe('conflict')
+    expect(result.current.pendingConflicts).toHaveLength(1)
+    expect(result.current.pendingConflicts[0]).toMatchObject({
+      id: 'settings',
+      kind: 'settings',
+      field: 'accentColor',
+      localValue: 'green',
+      remoteValue: 'blue',
+    })
+
+    await act(async () => {
+      result.current.resolveConflict('settings', 'accentColor', 'remote', 'settings')
+      await result.current.syncNow('manual')
+    })
+
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    expect(result.current.pendingConflicts).toHaveLength(0)
+    expect(onReplaceSettings.mock.calls.at(-1)?.[0]).toMatchObject({
+      accentColor: 'blue',
+    })
+  })
+
+  it('applies a reviewed cloud value for a session name', async () => {
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const remoteUpdatedAt = Date.now() + 60_000
+    const remoteSessions = sessionsData({
+      sessions: [
+        session({
+          name: 'Cloud Session',
+          fieldUpdates: {
+            name: {
+              updatedAt: remoteUpdatedAt,
+              editorId: 'remote-device',
+            },
+          },
+        }),
+      ],
+    })
+    await transport.uploadBackup(
+      JSON.stringify(
+        createBackup(
+          remoteSessions,
+          DEFAULT_SETTINGS,
+          new Date(),
+          createSyncEnvelope('remote-device', 1, [], []),
+        ),
+      ),
+      null,
+    )
+
+    const localSessions = sessionsData({
+      sessions: [
+        session({
+          name: 'Local Session',
+          fieldUpdates: {
+            name: { updatedAt: 100, editorId: 'device-test' },
+          },
+        }),
+      ],
+    })
+    const { result, onReplaceSessions } = renderStatefulSync({
+      transport,
+      sessions: localSessions,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.phase).toBe('conflict')
+    expect(result.current.pendingConflicts).toHaveLength(1)
+    expect(result.current.pendingConflicts[0]).toMatchObject({
+      id: 'session-1',
+      kind: 'session',
+      field: 'name',
+      localValue: 'Local Session',
+      remoteValue: 'Cloud Session',
+    })
+
+    await act(async () => {
+      result.current.resolveConflict('session-1', 'name', 'remote', 'session')
+      await result.current.syncNow('manual')
+    })
+
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    expect(result.current.pendingConflicts).toHaveLength(0)
+    expect(
+      (onReplaceSessions.mock.calls.at(-1)?.[0] as SessionsData | undefined)?.sessions[0]
+        ?.name,
+    ).toBe('Cloud Session')
+  })
+
+  it('skips a redundant upload when both local and remote state are unchanged', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+      },
+    }
+    const { result } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.phase).toBe('synced')
+    expect(uploads).toBe(1)
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.phase).toBe('synced')
+    expect(result.current.hasPendingChanges).toBe(false)
+    expect(uploads).toBe(1)
   })
 })
 

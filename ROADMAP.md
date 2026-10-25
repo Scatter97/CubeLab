@@ -1,6 +1,6 @@
 # CubeLab Roadmap
 
-**Status:** Active planning document · **Last updated:** 2026-10-25 · **Current release line:** Phase 2B manual Google Drive backup complete; Phase 2C local-first sync complete with documented concurrency limitations
+**Status:** Active planning document · **Last updated:** 2026-10-25 · **Current release line:** Phase 2B manual Google Drive backup complete; Phase 2C local-first sync complete with device-owned snapshots, field-level merging, and documented provider-CAS limitations
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
 `PROJECT_PROGRESS.md` remains the source of truth for completed work and current
@@ -28,16 +28,24 @@ verification evidence.
 - Phase 2C (multi-device sync) is complete with documented concurrency
   limitations: local-first optional Google Drive synchronization with time,
   solve-count, and combined schedules; startup/exit/reconnect sync; ID-based
-  merging; tombstones; empty-default adoption; session redirects; manual conflict
-  review; status UI; and mock-based coverage. Google Drive still lacks a verified
-  atomic compare-and-swap, so simultaneous uploads can race.
+  merging; tombstones; empty-default adoption; session redirects; conflict
+  review; status UI; and mock-based coverage.
+- Device-owned Drive snapshots (`cubelab-backup-<deviceId>.json`) and all-snapshot
+  merging remove cross-device file-overwrite races. Sessions schema v4 stores
+  field-level metadata for names, events, inspection, and preferences; global
+  settings metadata lives in the sync runtime. Field conflicts are reviewable for
+  solve fields, session metadata, session preferences, global settings, and
+  redirects. Sync deferral while timing, bounded retries, and pending-change
+  status are implemented.
 - The 2026-10-25 hardening patch fixed legacy 3×3-only migration, empty-default
   adoption, solve-owner/event compatibility, directional sync counts,
   duplicate-name validation, in-flight local-edit protection, and two React lint
   warnings. The audit follow-ups added manual solve-field conflict resolution,
   deletion/offline-edit recovery, honest solve-count semantics, deterministic
   redirect tests, repeated recovered-session extension, stale-approval protection,
-  and known-solve snapshots on new session tombstones. See
+  known-solve snapshots on new session tombstones, per-device snapshots, full
+  field-level conflict review, and multi-device convergence stress tests. Google
+  Drive still lacks a verified atomic compare-and-swap for one device file. See
   `PATCH_LIMITATIONS.md` for what remains open.
 
 ## Product principles
@@ -128,7 +136,7 @@ changing WCA timing or calculation semantics.
 - [x] `npm run check` passes.
 - [x] `README.md`, `PROJECT_PROGRESS.md`, `AGENTS.md`, and screenshots are updated.
 
-## Phase 2B — Google Drive backup
+## Phase 2B — Google Drive backup — Complete, superseded by Phase 2C
 
 **Goal:** Add optional manual backup/restore to Google Drive without introducing
 background sync or account requirements for existing users.
@@ -136,7 +144,7 @@ background sync or account requirements for existing users.
 **Prerequisites:** Explicit approval of authentication, Drive file layout,
 privacy language, and conflict behavior.
 
-**Scope:**
+**Scope delivered in Phase 2B (historical):**
 
 - Google OAuth with the narrowest usable scope.
 - Drive `appDataFolder` storage or an equivalent private app folder.
@@ -145,6 +153,10 @@ privacy language, and conflict behavior.
 - Explicit conflict preview before replacing local data.
 - Clear offline, expired-token, revoked-permission, and quota failure states.
 - No automatic upload, background sync, or telemetry.
+
+**Superseded by Phase 2C:** The current Settings dialog exposes automatic
+synchronization and **Sync now** rather than separate manual backup/restore
+buttons. The legacy fixed-name remote file remains readable for compatibility.
 
 **Acceptance gate:**
 
@@ -165,10 +177,18 @@ proven.
 - ID-based session and solve merging with tombstones and session redirects.
 - Empty-default cloud adoption, duplicate-name detection, and manual session
   merges.
-- Per-field solve conflict resolution with a manual review queue. Pending
-  conflicts pause cloud publication and offer **Use this device** / **Use cloud**
-  before synchronization resumes. An approval applies only to the exact reviewed
-  values; a later edit raises a new conflict.
+- Device-owned Drive snapshots, all-snapshot merging, legacy fixed-name-file
+  compatibility, per-device manual backup isolation, and delete-all with partial
+  failure reporting.
+- Sessions schema v4 field metadata plus global settings metadata in the sync
+  runtime. Session names, events, inspection overrides, individual preferences,
+  and global settings merge independently by timestamp with deterministic
+  tiebreaks and no fabricated history for equal legacy values.
+- Conflict review for solve fields, session metadata, preferences, global
+  settings, and redirects. Pending conflicts pause publication and offer **Use
+  this device** / **Use cloud** before synchronization resumes. An approval
+  applies only to the exact reviewed values and timestamps; a later edit raises a
+  new conflict.
 - Solves belonging to a deleted session are moved into a deterministic
   `(recovered)` session rather than disappearing. Existing recovered sessions are
   extended by solve ID when later offline devices reconnect.
@@ -176,33 +196,39 @@ proven.
   offline solves can be recovered even when clocks disagree; legacy tombstones use
   the timestamp fallback.
 - Time-based, solve-count-based, and combined schedules plus startup, exit, and
-  reconnect triggers.
-- Sync settings/status UI and deterministic mock-transport unit and E2E tests.
+  reconnect triggers. Sync is deferred while the timer is active and resumes once
+  on idle; automatic retries are bounded.
+- Sync settings/status UI and deterministic mock-transport unit, stress, and E2E
+  tests.
 - 2026-10-25 hardening for legacy migration, adoption, event-compatible ownership,
   directional counts, duplicate-name validation, in-flight local edits, honest
   solve-count semantics, deterministic redirect normalization, repeated
-  recovered-session extension, and stale-approval protection.
+  recovered-session extension, stale-approval protection, and multi-device
+  convergence.
 
 **Acceptance gate — partially met:**
 
 - [x] Deterministic conflict tests cover add/add, edit/edit, delete/edit, and
       session-selection conflicts.
 - [x] Sync failures leave local data intact and recoverable in the tested paths.
-- [x] Solve-field conflicts can be reviewed and resolved before publication.
+- [x] Solve, session-metadata, preference, global-settings, and redirect
+      conflicts can be reviewed and resolved before publication.
 - [x] Stale approvals cannot silently override edits made after review.
 - [x] Offline solves belonging to a deleted session are preserved across
       successive devices without duplication.
 - [x] New session tombstones recover unknown solves independently of clock skew.
+- [x] Concurrent device uploads cannot overwrite another device's snapshot, and
+      a three-device stress scenario converges after a follow-up sync.
 - [ ] The user can understand and reverse the result of every merge.
 - [ ] A documented recovery path exists for corrupted or partially applied syncs.
 - [ ] Remote writes have verified atomic compare-and-swap protection.
 
-**Remaining work:** A verified CAS/ETag update path for the Drive file, a stale
-writer test against the real provider, conflict queues for session metadata and
-preferences, per-preference timestamps, guaranteed sync-on-exit, explicit recovery
-for ambiguous legacy-tombstone edits, redirect consensus/recovery, and global
-settings provenance. Until those are addressed, do not describe synchronization as
-data-loss-proof.
+**Remaining work:** A verified CAS/ETag update path for the device snapshot, a
+stale-writer test against the real provider, conflict-resolution audit/undo, a
+documented recovery path for corrupted or partially applied syncs, guaranteed
+sync-on-exit, explicit recovery for ambiguous legacy-tombstone edits, redirect
+consensus/recovery, and selective/device-visible remote snapshot management.
+Until those are addressed, do not describe synchronization as data-loss-proof.
 
 ## Phase 3 — More WCA events
 

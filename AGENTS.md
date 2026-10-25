@@ -33,9 +33,11 @@ local-data work:
 - typed destructive confirmations for clearing or deleting a session
 - JSON export/import of all sessions, comments, and settings
 - automatic migration from the original single-session storage key
+- optional local-first Google Drive synchronization with device-owned snapshots,
+  field-level session/settings merging, conflict review, tombstones, and recovery
 - a Settings dialog centralizing inspection direction and warnings, alerts,
   accent color, statistics display and custom averages, scramble presentation,
-  controls reference, local data, and backup/restore access
+  controls reference, local data, Drive synchronization, and backup/restore access
 - offline-capable PWA
 - responsive, accessible UI
 
@@ -122,28 +124,49 @@ the production build because it tests the service worker and offline reload.
   channels remain configurable. The warning can pulse the timer surface or the
   entire screen per the Alerts setting, and visual alert text no longer overlaps
   the timer.
-- **Persistence is versioned.** Keys are `cubelab:sessions:v1` (active session
-  plus all named sessions, optional inspection overrides, solves, and comments)
-  and `cubelab:settings:v1`. Sessions use schema `v3`; settings use schema `v6`.
-  The original `cubelab:solves:v1` key is read only for migration into
-  **Session 1**. Validate and recover from corrupt records; never silently
-  discard a valid session. Any schema change needs a migration and tests.
+- **Persistence is versioned.** Keys are `cubelab:sessions:v1` (active session,
+  all named sessions, solves, comments, and optional field metadata),
+  `cubelab:settings:v1`, `cubelab:drive:v1` (optional connection metadata), and
+  `cubelab:sync:v1` (synchronization preferences/runtime metadata). Sessions use
+  schema `v4`; settings use schema `v6`. Session field metadata lives in
+  `Session.fieldUpdates`; global settings metadata lives in
+  `cubelab:sync:v1`. The original `cubelab:solves:v1` key is read only for
+  migration into **Session 1**. Validate and recover from corrupt records; never
+  silently discard a valid session. Any schema change needs a migration and
+  tests.
 - **Backups replace only after confirmation.** Export every session, solve, and
   setting as a versioned JSON file. Import must validate the app marker, format
   version, sessions, solves, and settings, then show current/incoming counts and
   require explicit confirmation. Invalid files must not mutate local data.
-  Backup/import stays entirely local; do not add upload or Drive code without an
-  explicit Phase 2B instruction. The authorized Phase 2B path is manual only:
-  Google Identity Services OAuth, app-data file `cubelab-backup.json`, fixed
-  file name, remote metadata in `cubelab:drive:v1`, typed restore phrase, and no
-  background sync or telemetry. Keep the 10 MB import cap unless large-backup
-  behavior is deliberately designed and tested.
-- **Sync recovery is ID-based and approval-fresh.** Session tombstones record the
-  deleting device's `knownSolveIds`; recovery extends an existing
-  `recovered:<sessionId>` session by stable solve ID, preserves event and
-  preferences, and uses wall-clock comparison only for legacy tombstones. A
-  manual conflict approval applies only to the exact reviewed values and field
-  timestamps; a later edit must raise a new conflict.
+  Local backup/import stays entirely local. Keep the 10 MB import cap unless
+  large-backup behavior is deliberately designed and tested.
+- **Drive sync is device-owned and all-snapshot.** Google Identity Services OAuth
+  and the `drive.appdata` scope are allowed only after explicit connection. Each
+  browser writes `cubelab-backup-<sanitized-deviceId>.json`; every sync lists,
+  validates, and merges all CubeLab snapshots. The legacy
+  `cubelab-backup.json` file remains readable and is included in delete-all.
+  Manual backup may replace only the current device's snapshot. Never fall back
+  to another device's `remoteFileId` on a per-device transport. Deleting remote
+  backups removes every CubeLab snapshot and must surface partial failures.
+  There is still no provider compare-and-swap for the same device file; do not
+  claim atomic remote writes.
+- **Sync merging is field-level and exact-approval.** Session name, event,
+  inspection override, each preference field, and each global setting merge by
+  field timestamp with a deterministic editor-ID/value tiebreak. Equal legacy
+  values must not acquire fabricated persisted metadata. Setting timestamps live
+  in the sync runtime, not the settings schema. A manual conflict approval
+  applies only to the exact reviewed values and field timestamps; a later edit
+  must raise a new conflict. Redirect approvals match by source/destination pair.
+- **Sync recovery is ID-based.** Session tombstones record the deleting device's
+  `knownSolveIds`; recovery extends an existing `recovered:<sessionId>` session
+  by stable solve ID, preserves event and preferences, and uses wall-clock
+  comparison only for legacy tombstones.
+- **Sync scheduling is timer-safe and bounded.** Defer synchronization while the
+  timer is armed, running, or inspecting; resume once when idle. Automatic
+  retries are bounded and external triggers reset the budget. Do not start a
+  download that can replace state or a network write while timing. Preserve
+  in-flight fingerprint guards, redundant-upload skipping, pending-change
+  status, and best-effort exit sync. A provider CAS remains unresolved.
 - **Raw data is immutable by default.** Store raw milliseconds plus a penalty
   value. Do not overwrite raw time when applying `+2`.
 - **Keep the production worker isolation.** `vite.config.ts` isolates cubing
@@ -165,14 +188,21 @@ For a behavior change:
   in `src/lib/statDefinitions.test.ts`; WCA statistics in
   `src/lib/stats.test.ts`; statistic display precision in
   `src/lib/format.test.ts`.
+- Synchronization changes need focused coverage in `src/lib/sync.test.ts`,
+  `src/lib/sessionMetadata.test.ts`, `src/lib/settingsMerge.test.ts`,
+  `src/lib/remoteBackups.test.ts`, `src/lib/sessionRedirects.test.ts`,
+  `src/hooks/useSync.test.ts`, and `src/hooks/useDriveBackup.test.ts`. Extend
+  `src/lib/sync.stress.test.ts` when changing concurrency, convergence,
+  per-device upload isolation, or cross-field merge behavior.
 - Add or update a Playwright test for user-visible flows, including settings
   open/close and focus restoration, inspection direction/warnings and
   persistence, per-session inspection overrides, session
   create/switch/rename/delete, typed clear/delete confirmations, timer locking,
   solve-menu penalties/comments/copy/undo, export, invalid import, import
   cancellation, confirmed replacement, alert feedback and volume persistence,
-  accent persistence, expanded/custom statistic visibility and precision, and the
-  Controls reference.
+  accent persistence, expanded/custom statistic visibility and precision, the
+  Controls reference, and Drive connection/delete copy. Add production coverage
+  when a conflict workflow becomes visible without requiring mock-only hooks.
 - Test failure paths, not only the happy path.
 - Keep tests deterministic. Avoid asserting exact wall-clock durations from live
   timing; use ranges or state-machine timestamps.

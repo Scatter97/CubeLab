@@ -15,10 +15,36 @@ export interface DriveTransport {
   uploadBackup(content: string, existingFileId?: string | null): Promise<DriveFile>
   downloadBackup(fileId: string): Promise<string>
   deleteBackup(fileId: string): Promise<void>
+  /**
+   * Per-device synchronization snapshots. Legacy transports may omit these;
+   * callers fall back to findBackup/uploadBackup.
+   */
+  listBackups?(): Promise<DriveFile[]>
+  uploadDeviceBackup?(
+    content: string,
+    deviceId: string,
+    existingFileId?: string | null,
+  ): Promise<DriveFile>
 }
 
 export const DRIVE_BACKUP_FILE_NAME = 'cubelab-backup.json'
+export const DRIVE_BACKUP_FILE_PREFIX = 'cubelab-backup'
 export const DRIVE_BACKUP_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
+
+/** Sanitizes a device ID for use in a Drive file name. */
+export function deviceBackupFileName(deviceId: string): string {
+  const safe =
+    deviceId
+      .replace(/[^A-Za-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64) || 'unknown-device'
+  return `${DRIVE_BACKUP_FILE_PREFIX}-${safe}.json`
+}
+
+export function isDriveBackupFileName(name: string): boolean {
+  if (name === DRIVE_BACKUP_FILE_NAME) return true
+  return new RegExp(`^${DRIVE_BACKUP_FILE_PREFIX}-[A-Za-z0-9_-]+\\.json$`).test(name)
+}
 
 declare global {
   interface Window {
@@ -123,6 +149,89 @@ export function createGoogleDriveTransport(
     return response
   }
 
+  async function listBackupFiles(): Promise<DriveFile[]> {
+    const params = new URLSearchParams({
+      spaces: 'appDataFolder',
+      q: "trashed=false",
+      fields: 'files(id,name,modifiedTime)',
+      pageSize: '1000',
+    })
+    const response = await apiFetch(
+      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+    )
+    if (!response.ok) throw new Error('Could not read Google Drive app data.')
+    const data = (await response.json()) as { files?: DriveFile[] }
+    return (data.files ?? [])
+      .filter((file) => isDriveBackupFileName(file.name))
+      .sort(
+        (left, right) =>
+          (right.modifiedTime ?? '').localeCompare(left.modifiedTime ?? '') ||
+          left.name.localeCompare(right.name) ||
+          left.id.localeCompare(right.id),
+      )
+  }
+
+  async function writeFile(
+    content: string,
+    name: string,
+    existingFileId?: string | null,
+  ): Promise<DriveFile> {
+    if (existingFileId) {
+      const response = await apiFetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(
+          existingFileId,
+        )}?uploadType=media`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: content,
+        },
+      )
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(text || 'Google Drive upload failed.')
+      }
+      const result = (await response.json()) as DriveFile
+      return { ...result, name: result.name || name }
+    }
+
+    const metadata = {
+      name,
+      parents: ['appDataFolder'],
+      appProperties: {
+        app: 'CubeLab',
+        format: 'cubelab-backup',
+        backupVersion: 1,
+      },
+    }
+    const boundary = `cubelab-${crypto.randomUUID()}`
+    const body =
+      `--${boundary}\r\n` +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      'Content-Type: application/json\r\n\r\n' +
+      `${content}\r\n` +
+      `--${boundary}--`
+    const response = await apiFetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      },
+    )
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(text || 'Google Drive upload failed.')
+    }
+    const result = (await response.json()) as DriveFile
+    const refreshed = (await listBackupFiles()).find((file) => file.id === result.id)
+    return refreshed ?? { ...result, name: result.name || name }
+  }
+
   return {
     configured,
     get accountLabel() {
@@ -157,68 +266,18 @@ export function createGoogleDriveTransport(
       return isTokenValid()
     },
     async findBackup() {
-      const params = new URLSearchParams({
-        spaces: 'appDataFolder',
-        q: `name='${DRIVE_BACKUP_FILE_NAME}' and trashed=false`,
-        fields: 'files(id,name,modifiedTime)',
-      })
-      const response = await apiFetch(
-        `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
-      )
-      if (!response.ok) throw new Error('Could not read Google Drive app data.')
-      const data = (await response.json()) as { files?: DriveFile[] }
-      return data.files?.[0] ?? null
+      return (await listBackupFiles())[0] ?? null
     },
+    listBackups: listBackupFiles,
     async uploadBackup(content, existingFileId) {
-      const metadata = {
-        name: DRIVE_BACKUP_FILE_NAME,
-        parents: existingFileId ? undefined : ['appDataFolder'],
-        appProperties: {
-          app: 'CubeLab',
-          format: 'cubelab-backup',
-          backupVersion: 1,
-        },
-      }
-      let response: Response
-      if (existingFileId) {
-        response = await apiFetch(
-          `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(
-            existingFileId,
-          )}?uploadType=media`,
-          {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: content,
-          },
-        )
-      } else {
-        const boundary = `cubelab-${crypto.randomUUID()}`
-        const body =
-          `--${boundary}\r\n` +
-          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-          `${JSON.stringify(metadata)}\r\n` +
-          `--${boundary}\r\n` +
-          'Content-Type: application/json\r\n\r\n' +
-          `${content}\r\n` +
-          `--${boundary}--`
-        response = await apiFetch(
-          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': `multipart/related; boundary=${boundary}`,
-            },
-            body,
-          },
-        )
-      }
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || 'Google Drive upload failed.')
-      }
-      const result = (await response.json()) as DriveFile
-      const refreshed = await this.findBackup()
-      return refreshed ?? result
+      // Manual/legacy callers keep the fixed compatibility name.
+      return writeFile(content, DRIVE_BACKUP_FILE_NAME, existingFileId)
+    },
+    async uploadDeviceBackup(content, deviceId, existingFileId) {
+      const name = deviceBackupFileName(deviceId)
+      if (existingFileId) return writeFile(content, name, existingFileId)
+      const existing = (await listBackupFiles()).find((file) => file.name === name)
+      return writeFile(content, name, existing?.id)
     },
     async downloadBackup(fileId) {
       const response = await apiFetch(
@@ -243,9 +302,52 @@ export function createMemoryDriveTransport(
   accountLabel = 'Google Drive (mock)',
 ): DriveTransport {
   let connected = false
-  let currentAccountLabel: string | null = accountLabel
-  let file: { id: string; name: string; modifiedTime: string; content: string } | null =
-    null
+  const currentAccountLabel: string | null = accountLabel
+  interface MemoryFile {
+    id: string
+    name: string
+    modifiedTime: string
+    content: string
+  }
+  const files = new Map<string, MemoryFile>()
+  let nextFileNumber = 1
+
+  const publicFile = (file: MemoryFile): DriveFile => ({
+    id: file.id,
+    name: file.name,
+    modifiedTime: file.modifiedTime,
+  })
+
+  const sortedFiles = () =>
+    [...files.values()].sort(
+      (left, right) =>
+        right.modifiedTime.localeCompare(left.modifiedTime) ||
+        left.name.localeCompare(right.name) ||
+        left.id.localeCompare(right.id),
+    )
+
+  function writeFile(content: string, name: string, existingFileId?: string | null): DriveFile {
+    const modifiedTime = new Date().toISOString()
+    if (existingFileId) {
+      const existing = files.get(existingFileId)
+      if (existing) {
+        const next = { ...existing, name, modifiedTime, content }
+        files.set(existingFileId, next)
+        return publicFile(next)
+      }
+    }
+    const byName = [...files.values()].find((file) => file.name === name)
+    if (byName) {
+      const next = { ...byName, modifiedTime, content }
+      files.set(byName.id, next)
+      return publicFile(next)
+    }
+    const id = `drive-file-${nextFileNumber}`
+    nextFileNumber += 1
+    const next: MemoryFile = { id, name, modifiedTime, content }
+    files.set(id, next)
+    return publicFile(next)
+  }
 
   return {
     configured: true,
@@ -263,30 +365,38 @@ export function createMemoryDriveTransport(
     },
     async findBackup() {
       if (!connected) throw new Error('Connect Google Drive first.')
-      return file
-        ? { id: file.id, name: file.name, modifiedTime: file.modifiedTime }
-        : null
+      const newest = sortedFiles()[0]
+      return newest ? publicFile(newest) : null
+    },
+    async listBackups() {
+      if (!connected) throw new Error('Connect Google Drive first.')
+      return sortedFiles().map(publicFile)
     },
     async uploadBackup(content) {
       if (!connected) throw new Error('Connect Google Drive first.')
-      const modifiedTime = new Date().toISOString()
-      if (!file) file = { id: 'drive-file-1', name: DRIVE_BACKUP_FILE_NAME, modifiedTime, content }
-      else {
-        file = { ...file, modifiedTime, content }
-      }
-      return { id: file.id, name: file.name, modifiedTime: file.modifiedTime }
+      const existing = [...files.values()].find(
+        (file) => file.name === DRIVE_BACKUP_FILE_NAME,
+      )
+      return writeFile(content, DRIVE_BACKUP_FILE_NAME, existing?.id)
+    },
+    async uploadDeviceBackup(content, deviceId) {
+      if (!connected) throw new Error('Connect Google Drive first.')
+      return writeFile(content, deviceBackupFileName(deviceId))
     },
     async downloadBackup(fileId) {
       if (!connected) throw new Error('Connect Google Drive first.')
-      if (!file || file.id !== fileId) throw new Error('No Google Drive backup was found.')
+      const file = files.get(fileId)
+      if (!file) throw new Error('No Google Drive backup was found.')
       return file.content
     },
     async deleteBackup(fileId) {
       if (!connected) throw new Error('Connect Google Drive first.')
-      if (file?.id === fileId) file = null
+      files.delete(fileId)
     },
     __corruptRemote() {
-      if (file) file = { ...file, content: '{not valid json' }
+      for (const [id, file] of files) {
+        files.set(id, { ...file, content: '{not valid json' })
+      }
     },
   }
 }

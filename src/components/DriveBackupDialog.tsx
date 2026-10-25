@@ -9,25 +9,79 @@ import type { SessionsData, Settings } from '../types'
 import { loadDriveBackupState } from '../lib/driveStorage'
 import type { SyncConflict } from '../lib/syncStorage'
 
+const FIELD_LABELS: Record<string, string> = {
+  rawMs: 'time',
+  penalty: 'penalty',
+  scramble: 'scramble',
+  comment: 'comment',
+  name: 'session name',
+  event: 'puzzle event',
+  inspectionEnabled: 'inspection',
+  inspectionCountDirection: 'inspection direction',
+  inspectionWarning8s: '8-second warning',
+  inspectionWarning12s: '12-second warning',
+  inspectionWarningVisualScope: 'warning visual scope',
+  scrambleAlignment: 'scramble alignment',
+  scrambleLimitHeight: 'scramble height limit',
+  scrambleAction: 'scramble action',
+  timerUpdateMode: 'timer display',
+  holdDurationMs: 'hold duration',
+  stopWithAnyKey: 'stop with any key',
+  showTimerDecimalSmall: 'small timer decimals',
+  uiZoomPercent: 'interface zoom',
+  alertChannel: 'alert channel',
+  alertVolume: 'alert volume',
+  accentColor: 'accent color',
+  statVisibility: 'statistics visibility',
+  customAverages: 'custom averages',
+  statPrecision: 'statistics precision',
+  redirect: 'merge destination',
+}
+
 function conflictFieldLabel(field: string): string {
-  if (field === 'rawMs') return 'time'
-  if (field === 'penalty') return 'penalty'
-  if (field === 'scramble') return 'scramble'
-  if (field === 'comment') return 'comment'
-  return field
+  if (field.startsWith('preferences.')) {
+    return FIELD_LABELS[field.slice('preferences.'.length)] ?? field.slice('preferences.'.length)
+  }
+  return FIELD_LABELS[field] ?? field
 }
 
 function formatConflictValue(field: string, value: unknown): string {
   if (value === undefined) return 'not set'
   if (value === null) return 'null'
+  if (typeof value === 'boolean') return value ? 'on' : 'off'
+  if (field === 'rawMs' && typeof value === 'number') {
+    return `${(value / 1000).toFixed(2)} s`
+  }
+  if (typeof value === 'object') {
+    const text = JSON.stringify(value)
+    return text.length > 80 ? `${text.slice(0, 77)}…` : text
+  }
   const text = String(value)
-  if (field === 'rawMs' && typeof value === 'number') return `${value} ms`
   if (text.length === 0) return '(empty)'
   return text.length > 80 ? `${text.slice(0, 77)}…` : text
 }
 
 function conflictKey(conflict: SyncConflict): string {
   return `${conflict.kind}:${conflict.id}:${conflict.field}`
+}
+
+function conflictTitle(
+  conflict: SyncConflict,
+  sessions: SessionsData,
+): string {
+  const session = sessions.sessions.find(
+    (candidate) =>
+      candidate.id === conflict.sessionId || candidate.id === conflict.id,
+  )
+  const variable = conflictFieldLabel(conflict.field)
+  if (conflict.kind === 'settings') return `Global settings · ${variable}`
+  if (conflict.kind === 'redirect') {
+    return `Session merge${session ? ` · ${session.name}` : ''} · ${variable}`
+  }
+  if (conflict.kind === 'session') {
+    return `Session${session ? ` · ${session.name}` : ''} · ${variable}`
+  }
+  return `Solve ${conflict.id.slice(0, 8)}${session ? ` · ${session.name}` : ''} · ${variable}`
 }
 
 interface DriveBackupDialogProps {
@@ -170,7 +224,14 @@ export function DriveBackupDialog({
               ) : null}
 
               <p className="settings-note" data-testid="sync-status">
-                Status: {sync.phase} · New local solves since last sync: {sync.newSolvesSinceLastSync}
+                Status: {sync.phase}
+                {sync.hasPendingChanges ? ' · Unsynchronized changes' : ''}
+                {sync.pendingConflicts.length > 0
+                  ? ` · ${sync.pendingConflicts.length} conflict${
+                      sync.pendingConflicts.length === 1 ? '' : 's'
+                    } to review`
+                  : ''}
+                {' · '}New local solves since last sync: {sync.newSolvesSinceLastSync}
                 {sync.lastSyncAt
                   ? ` · Last sync ${new Date(sync.lastSyncAt).toLocaleString()}`
                   : ''}
@@ -208,8 +269,7 @@ export function DriveBackupDialog({
                     >
                       <div className="sync-conflict-copy">
                         <span className="settings-row-label">
-                          Solve {conflict.id.slice(0, 8)} ·{' '}
-                          {conflictFieldLabel(conflict.field)}
+                          {conflictTitle(conflict, sessions)}
                         </span>
                         <span className="settings-row-description">
                           This device: {formatConflictValue(conflict.field, conflict.localValue)} ·
@@ -221,7 +281,12 @@ export function DriveBackupDialog({
                           type="button"
                           className="button button-secondary button-small"
                           onClick={() =>
-                            sync.resolveConflict(conflict.id, conflict.field, 'local')
+                            sync.resolveConflict(
+                              conflict.id,
+                              conflict.field,
+                              'local',
+                              conflict.kind,
+                            )
                           }
                         >
                           Use this device
@@ -230,7 +295,12 @@ export function DriveBackupDialog({
                           type="button"
                           className="button button-secondary button-small"
                           onClick={() =>
-                            sync.resolveConflict(conflict.id, conflict.field, 'remote')
+                            sync.resolveConflict(
+                              conflict.id,
+                              conflict.field,
+                              'remote',
+                              conflict.kind,
+                            )
                           }
                         >
                           Use cloud
@@ -450,9 +520,10 @@ export function DriveBackupDialog({
                     />
                   </div>
                   <p className="settings-note">
-                    Google Drive does not provide verified atomic compare-and-swap
-                    here. Avoid syncing two devices at the same moment; a
-                    simultaneous upload can still overwrite the other device.
+                    Each browser writes its own app-data snapshot, so simultaneous
+                    device uploads cannot overwrite another device's file. The
+                    next sync merges snapshots; Google Drive still has no atomic
+                    compare-and-swap for writes by the same browser profile.
                   </p>
                   <div className="settings-row">
                     <div className="settings-row-copy">
@@ -477,12 +548,13 @@ export function DriveBackupDialog({
                   <div className="settings-row settings-row-stacked">
                     <div className="settings-row-copy">
                       <span className="settings-row-label">
-                        Delete remote backup
+                        Delete remote backups
                       </span>
                       <span className="settings-row-description">
-                        Remove cubelab-backup.json from Google Drive. Local data
-                        is not changed. Future automatic sync may recreate the
-                        remote file.
+                        Remove every CubeLab sync snapshot from Google Drive,
+                        including the legacy cubelab-backup.json file. Local data
+                        is not changed. Future automatic sync may recreate this
+                        device's snapshot.
                       </span>
                     </div>
                     <button
@@ -523,11 +595,11 @@ export function DriveBackupDialog({
 
       <ConfirmDialog
         open={deleteConfirmOpen}
-        eyebrow="Delete remote backup"
-        title="Delete the Google Drive backup?"
-        description="This removes cubelab-backup.json from Google Drive app data. Local sessions and settings are not changed."
-        cancelLabel="Keep backup"
-        confirmLabel="Delete backup"
+        eyebrow="Delete remote backups"
+        title="Delete all Google Drive backups?"
+        description="This removes every CubeLab snapshot, including cubelab-backup.json, from Google Drive app data. Local sessions and settings are not changed."
+        cancelLabel="Keep backups"
+        confirmLabel="Delete backups"
         onCancel={() => setDeleteConfirmOpen(false)}
         onConfirm={() => {
           setDeleteConfirmOpen(false)

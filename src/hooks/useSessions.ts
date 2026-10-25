@@ -13,6 +13,7 @@ import {
   restoreSolve as restoreSolveInData,
   setActiveSession as setActiveSessionInData,
   setSessionInspection as setSessionInspectionInData,
+  setSessionPreferences as setSessionPreferencesInData,
   setSolveComment as setSolveCommentInData,
   setSolvePenalty,
   type RemovedSolve,
@@ -29,6 +30,7 @@ export interface UseSessionsResult {
   setPenalty: (id: string, penalty: Penalty) => void
   setComment: (id: string, comment: string) => void
   setInspection: (id: string, enabled: boolean) => void
+  setPreferences: (id: string, changes: Partial<SessionPreferences>) => void
   deleteSolve: (id: string) => RemovedSolve | null
   restoreSolve: (solve: Solve, index: number, sessionId: string) => void
   clearSolves: () => void
@@ -131,9 +133,20 @@ export function useSessions(): UseSessionsResult {
 
   const setInspection = useCallback(
     (id: string, enabled: boolean) => {
-      commit((current) => setSessionInspectionInData(current, id, enabled))
+      commit((current) =>
+        setSessionInspectionInData(current, id, enabled, undefined, syncDeviceId),
+      )
     },
-    [commit],
+    [commit, syncDeviceId],
+  )
+
+  const setPreferences = useCallback(
+    (id: string, changes: Partial<SessionPreferences>) => {
+      commit((current) =>
+        setSessionPreferencesInData(current, id, changes, undefined, syncDeviceId),
+      )
+    },
+    [commit, syncDeviceId],
   )
 
   const deleteSolve = useCallback(
@@ -185,22 +198,28 @@ export function useSessions(): UseSessionsResult {
 
   const renameSession = useCallback((id: string, name: string): boolean => {
     const current = dataRef.current
-    const next = renameSessionInData(current, id, name)
+    const next = renameSessionInData(current, id, name, undefined, syncDeviceId)
     if (!next) return false
     if (next !== current) {
       dataRef.current = next
       setData(next)
     }
     return true
-  }, [])
+  }, [syncDeviceId])
 
   const setSessionEvent = useCallback((id: string, value: PuzzleEvent): boolean => {
-    const next = setSessionEventInData(dataRef.current, id, value)
+    const next = setSessionEventInData(
+      dataRef.current,
+      id,
+      value,
+      undefined,
+      syncDeviceId,
+    )
     if (!next) return false
     dataRef.current = next
     setData(next)
     return true
-  }, [])
+  }, [syncDeviceId])
 
   const deleteSession = useCallback((id: string): boolean => {
     const next = deleteSessionFromData(dataRef.current, id)
@@ -237,6 +256,7 @@ export function useSessions(): UseSessionsResult {
     setPenalty,
     setComment,
     setInspection,
+    setPreferences,
     deleteSolve,
     restoreSolve,
     clearSolves,

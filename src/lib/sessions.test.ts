@@ -15,7 +15,9 @@ import {
   renameSession,
   restoreSolve,
   setActiveSession,
+  setSessionEvent,
   setSessionInspection,
+  setSessionPreferences,
   setSolveComment,
   setSolvePenalty,
   MAX_SOLVE_COMMENT_LENGTH,
@@ -360,5 +362,77 @@ describe('solve mutations', () => {
     })
     expect(getActiveSession(current)?.id).toBe('session-1')
     expect(countSolves(current.sessions)).toBe(2)
+  })
+})
+
+describe('session synchronization metadata', () => {
+  it('stamps renamed, inspected, event, and preference fields independently', () => {
+    const renamed = renameSession(data(), 'session-1', 'Practice', 10, 'laptop')!
+    const inspected = setSessionInspection(renamed, 'session-1', true, 20, 'laptop')
+    const eventChanged = setSessionEvent(inspected, 'session-1', '222', 30, 'laptop')!
+    const preferred = setSessionPreferences(
+      eventChanged,
+      'session-1',
+      { timerUpdateMode: 'seconds', stopWithAnyKey: true },
+      40,
+      'laptop',
+    )
+
+    expect(preferred.sessions[0]?.fieldUpdates).toEqual({
+      name: { updatedAt: 10, editorId: 'laptop' },
+      inspectionEnabled: { updatedAt: 20, editorId: 'laptop' },
+      event: { updatedAt: 30, editorId: 'laptop' },
+      preferences: {
+        timerUpdateMode: { updatedAt: 40, editorId: 'laptop' },
+        stopWithAnyKey: { updatedAt: 40, editorId: 'laptop' },
+      },
+    })
+    expect(preferred.sessions[0]?.updatedAt).toBe(40)
+    expect(preferred.sessions[0]?.preferences).toEqual({
+      timerUpdateMode: 'seconds',
+      stopWithAnyKey: true,
+    })
+  })
+
+  it('removes a preference override while recording the deletion time', () => {
+    const current = setSessionPreferences(
+      data(),
+      'session-1',
+      { inspectionWarning8s: false },
+      10,
+      'laptop',
+    )
+    const removed = setSessionPreferences(
+      current,
+      'session-1',
+      { inspectionWarning8s: undefined },
+      20,
+      'phone',
+    )
+
+    expect(removed.sessions[0]?.preferences?.inspectionWarning8s).toBeUndefined()
+    expect(removed.sessions[0]?.fieldUpdates?.preferences?.inspectionWarning8s).toEqual({
+      updatedAt: 20,
+      editorId: 'phone',
+    })
+  })
+
+  it('does not rewrite metadata when a preference value is unchanged', () => {
+    const current = setSessionPreferences(
+      data(),
+      'session-1',
+      { inspectionWarning8s: false },
+      10,
+      'laptop',
+    )
+    expect(
+      setSessionPreferences(
+        current,
+        'session-1',
+        { inspectionWarning8s: false },
+        20,
+        'phone',
+      ),
+    ).toBe(current)
   })
 })

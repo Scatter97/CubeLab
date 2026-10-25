@@ -1,4 +1,6 @@
 
+import type { FieldUpdate, Settings } from '../types'
+
 export type SyncMode = 'time' | 'solve' | 'combined'
 export type SyncIntervalMinutes = 1 | 2 | 3 | 5 | 10 | 15 | 30 | 60
 export type SyncSolveThreshold = 1 | 2 | 3 | 5 | 10 | 20 | 25 | 50 | 100
@@ -40,7 +42,7 @@ export interface Tombstone {
 
 export interface SyncConflict {
   id: string
-  kind: 'solve' | 'session'
+  kind: 'solve' | 'session' | 'settings' | 'redirect'
   sessionId?: string
   field: string
   localValue: unknown
@@ -58,6 +60,9 @@ export interface SessionRedirect {
   byDeviceId?: string
 }
 
+export type SettingsFieldKey = keyof Settings
+export type SettingsFieldUpdates = Partial<Record<SettingsFieldKey, FieldUpdate>>
+
 export interface SyncStorageData {
   version: 1
   preferences: SyncPreferences
@@ -72,6 +77,13 @@ export interface SyncStorageData {
     conflicts: SyncConflict[]
     sessionRedirects: SessionRedirect[]
     pendingDuplicateNames: string[]
+    /**
+     * Field-level metadata for global settings. Stored separately from the
+     * settings key so older settings records remain compatible.
+     */
+    settingsFieldUpdates: SettingsFieldUpdates
+    /** Fingerprint of the last successfully published local state. */
+    lastSyncedFingerprint: string | null
   }
 }
 
@@ -120,13 +132,42 @@ function isTombstone(value: unknown): value is Tombstone {
   return true
 }
 
+function isFieldUpdate(value: unknown): value is FieldUpdate {
+  return (
+    isRecord(value) &&
+    typeof value.updatedAt === 'number' &&
+    Number.isFinite(value.updatedAt) &&
+    value.updatedAt >= 0 &&
+    typeof value.editorId === 'string' &&
+    value.editorId.length > 0
+  )
+}
+
+export function parseSettingsFieldUpdates(value: unknown): SettingsFieldUpdates {
+  if (!isRecord(value)) return {}
+  const updates: SettingsFieldUpdates = {}
+  for (const [key, candidate] of Object.entries(value)) {
+    if (isFieldUpdate(candidate)) updates[key as SettingsFieldKey] = candidate
+  }
+  return updates
+}
+
 function isConflict(value: unknown): value is SyncConflict {
   if (!isRecord(value)) return false
-  if (value.kind !== 'solve' && value.kind !== 'session') return false
+  if (
+    value.kind !== 'solve' &&
+    value.kind !== 'session' &&
+    value.kind !== 'settings' &&
+    value.kind !== 'redirect'
+  ) {
+    return false
+  }
   if (typeof value.id !== 'string' || value.id.length === 0) return false
   if (typeof value.field !== 'string' || value.field.length === 0) return false
   if (typeof value.localUpdatedAt !== 'number' || !Number.isFinite(value.localUpdatedAt)) return false
   if (typeof value.remoteUpdatedAt !== 'number' || !Number.isFinite(value.remoteUpdatedAt)) return false
+  if (typeof value.updatedAt !== 'number' || !Number.isFinite(value.updatedAt)) return false
+  if (value.sessionId !== undefined && typeof value.sessionId !== 'string') return false
   if (value.resolution !== 'local' && value.resolution !== 'remote' && value.resolution !== 'manual-pending') return false
   return true
 }
@@ -169,6 +210,8 @@ export function createDefaultSyncStorage(deviceId = createDeviceId()): SyncStora
       conflicts: [],
       sessionRedirects: [],
       pendingDuplicateNames: [],
+      settingsFieldUpdates: {},
+      lastSyncedFingerprint: null,
     },
   }
 }
@@ -243,6 +286,12 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
       conflicts,
       sessionRedirects,
       pendingDuplicateNames,
+      settingsFieldUpdates: parseSettingsFieldUpdates(sourceRuntime.settingsFieldUpdates),
+      lastSyncedFingerprint:
+        typeof sourceRuntime.lastSyncedFingerprint === 'string' &&
+        sourceRuntime.lastSyncedFingerprint.length > 0
+          ? sourceRuntime.lastSyncedFingerprint
+          : null,
     },
   }
 }

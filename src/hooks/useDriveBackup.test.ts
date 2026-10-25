@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import type { Settings, Solve } from '../types'
+import { createBackup } from '../lib/backup'
 import { DEFAULT_SETTINGS } from '../lib/storage'
-import { createMemoryDriveTransport } from '../lib/driveTransport'
+import {
+  createMemoryDriveTransport,
+  deviceBackupFileName,
+  type DriveTransport,
+} from '../lib/driveTransport'
 import { DEFAULT_SESSION_NAME } from '../lib/sessions'
+import { createSyncEnvelope } from '../lib/sync'
+import {
+  createDefaultSyncStorage,
+  saveSyncStorage,
+} from '../lib/syncStorage'
 import { useDriveBackup } from './useDriveBackup'
 
 function emptySessions() {
@@ -24,6 +34,20 @@ function emptySessions() {
 
 function settings(): Settings {
   return { ...DEFAULT_SETTINGS }
+}
+
+function sessionsWithSolve(id: string) {
+  const sessions = emptySessions()
+  sessions.sessions[0]!.solves.push({
+    id,
+    event: '333',
+    rawMs: 10_000,
+    penalty: 'none',
+    scramble: "R U R' U'",
+    comment: '',
+    createdAt: 1_700_000_000_000,
+  } as Solve)
+  return sessions
 }
 
 describe('useDriveBackup', () => {
@@ -81,6 +105,206 @@ describe('useDriveBackup', () => {
     expect(result.current.metadata.remoteFileId).toBe('drive-file-1')
     expect(result.current.metadata.lastBackupAt).not.toBeNull()
     expect(onNotify).toHaveBeenCalledWith('Google Drive backup saved')
+  })
+
+  it('replaces only its own snapshot and preserves another device backup', async () => {
+    saveSyncStorage(createDefaultSyncStorage('device-hook'))
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const foreignContent = JSON.stringify(
+      createBackup(
+        sessionsWithSolve('foreign'),
+        DEFAULT_SETTINGS,
+        new Date('2026-01-01T00:00:00.000Z'),
+        {
+          ...createSyncEnvelope('other-device', 1, [], []),
+          updatedAt: 100,
+        },
+      ),
+    )
+    await transport.uploadDeviceBackup!(foreignContent, 'other-device')
+
+    const onPendingRestore = vi.fn()
+    const onNotify = vi.fn()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: sessionsWithSolve('local'),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore,
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.backupNow()
+    })
+
+    const files = await transport.listBackups!()
+    expect(files.map((file) => file.name).sort()).toEqual(
+      [
+        deviceBackupFileName('device-hook'),
+        deviceBackupFileName('other-device'),
+      ].sort(),
+    )
+    const own = files.find(
+      (file) => file.name === deviceBackupFileName('device-hook'),
+    )
+    const foreign = files.find(
+      (file) => file.name === deviceBackupFileName('other-device'),
+    )
+    expect(own).toBeDefined()
+    expect(foreign).toBeDefined()
+    expect(result.current.metadata.remoteFileId).toBe(own!.id)
+    expect(await transport.downloadBackup(own!.id)).toContain('"local"')
+    expect(await transport.downloadBackup(foreign!.id)).toBe(foreignContent)
+  })
+
+  it('restores one merged view from every device snapshot', async () => {
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          sessionsWithSolve('A'),
+          { ...DEFAULT_SETTINGS, accentColor: 'green' },
+          new Date('2026-01-01T00:00:00.000Z'),
+          {
+            ...createSyncEnvelope('device-a', 1, [], [], [], {
+              accentColor: { updatedAt: 100, editorId: 'device-a' },
+            }),
+            updatedAt: 100,
+          },
+        ),
+      ),
+      'device-a',
+    )
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          sessionsWithSolve('B'),
+          { ...DEFAULT_SETTINGS, accentColor: 'blue' },
+          new Date('2026-01-02T00:00:00.000Z'),
+          {
+            ...createSyncEnvelope('device-b', 1, [], [], [], {
+              accentColor: { updatedAt: 200, editorId: 'device-b' },
+            }),
+            updatedAt: 200,
+          },
+        ),
+      ),
+      'device-b',
+    )
+
+    const onPendingRestore = vi.fn()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore,
+        onNotify: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.restoreFromDrive()
+    })
+
+    expect(onPendingRestore).toHaveBeenCalledTimes(1)
+    const restored = onPendingRestore.mock.calls[0]![0] as ReturnType<typeof createBackup>
+    expect(
+      restored.sessions.sessions
+        .flatMap((session) => session.solves.map((solve) => solve.id))
+        .sort(),
+    ).toEqual(['A', 'B'])
+    expect(restored.settings.accentColor).toBe('blue')
+  })
+
+  it('deletes every device snapshot and the legacy file', async () => {
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('A'), DEFAULT_SETTINGS)),
+      'device-a',
+    )
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('B'), DEFAULT_SETTINGS)),
+      'device-b',
+    )
+    await transport.uploadBackup(
+      JSON.stringify(createBackup(sessionsWithSolve('legacy'), DEFAULT_SETTINGS)),
+      null,
+    )
+
+    const onNotify = vi.fn()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.deleteRemoteBackup()
+    })
+
+    await expect(transport.listBackups!()).resolves.toHaveLength(0)
+    expect(result.current.metadata.remoteFileId).toBeNull()
+    expect(result.current.phase).toBe('connected')
+    expect(onNotify).toHaveBeenCalledWith('Google Drive backup deleted')
+  })
+
+  it('reports partial deletion failures instead of claiming success', async () => {
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    await memory.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('A'), DEFAULT_SETTINGS)),
+      'device-a',
+    )
+    await memory.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('B'), DEFAULT_SETTINGS)),
+      'device-b',
+    )
+    const files = await memory.listBackups!()
+    const refused = files[0]!
+    const transport: DriveTransport = {
+      ...memory,
+      deleteBackup: async (fileId) => {
+        if (fileId === refused.id) throw new Error('permission denied')
+        return memory.deleteBackup(fileId)
+      },
+    }
+
+    const onNotify = vi.fn()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.deleteRemoteBackup()
+    })
+
+    expect(result.current.phase).toBe('error')
+    expect(result.current.error).toContain('could not be removed')
+    expect(onNotify).not.toHaveBeenCalledWith('Google Drive backup deleted')
   })
 
   it('rejects an invalid remote backup', async () => {

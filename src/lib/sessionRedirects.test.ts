@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Session, SessionsData, Solve } from '../types'
 import {
   applySessionRedirects,
+  findSessionRedirectDivergences,
+  newestRedirectFor,
   normalizeSessionRedirects,
 } from './sessionRedirects'
 
@@ -96,6 +98,50 @@ describe('normalizeSessionRedirects', () => {
 
     expect(laptop).toEqual(phone)
     expect(laptop[0]).toMatchObject({ fromId: 'A', toId: 'C' })
+  })
+})
+
+describe('findSessionRedirectDivergences', () => {
+  it('ignores one-sided histories and histories that converge', () => {
+    expect(
+      findSessionRedirectDivergences(
+        [
+          { fromId: 'A', toId: 'B', approvedAt: 10 },
+          { fromId: 'A', toId: 'C', approvedAt: 20 },
+        ],
+        [],
+      ),
+    ).toEqual([])
+
+    expect(
+      findSessionRedirectDivergences(
+        [{ fromId: 'A', toId: 'C', approvedAt: 20 }],
+        [
+          { fromId: 'A', toId: 'B', approvedAt: 10 },
+          { fromId: 'A', toId: 'C', approvedAt: 20 },
+        ],
+      ),
+    ).toEqual([])
+  })
+
+  it('reports divergent newest approvals with a deterministic order', () => {
+    const local = [
+      { fromId: 'B', toId: 'X', approvedAt: 10, byDeviceId: 'laptop' },
+      { fromId: 'A', toId: 'C', approvedAt: 30, byDeviceId: 'laptop' },
+    ]
+    const remote = [
+      { fromId: 'A', toId: 'D', approvedAt: 20, byDeviceId: 'phone' },
+      { fromId: 'B', toId: 'Y', approvedAt: 5, byDeviceId: 'phone' },
+    ]
+
+    const divergences = findSessionRedirectDivergences(local, remote)
+    expect(divergences.map((item) => item.fromId)).toEqual(['A', 'B'])
+    expect(divergences[0]).toMatchObject({
+      local: { toId: 'C' },
+      remote: { toId: 'D' },
+      destinations: ['C', 'D'],
+    })
+    expect(newestRedirectFor(local, 'B')?.toId).toBe('X')
   })
 })
 

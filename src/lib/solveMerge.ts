@@ -65,10 +65,11 @@ function findResolvedConflict(
   resolvedConflicts: readonly SyncConflict[],
 ): SyncConflict | undefined {
   // A user resolution applies only while both sides still hold the exact
-  // versions that were shown for review. A third edit made between review and
-  // approval must raise a new conflict instead of being silently overridden by
-  // a stale approval. Compare both modification times and values so equal
-  // timestamps from a coarse clock cannot bypass the check.
+  // values that were shown for review. An applied resolution stamps the winning
+  // field at `conflict.updatedAt`, so later merges must accept that approval
+  // timestamp as well as the originally reviewed timestamp. A third distinct
+  // edit made between review and approval changes a value and raises a fresh
+  // conflict instead of being silently overridden by a stale approval.
   return resolvedConflicts
     .filter(
       (conflict) =>
@@ -78,8 +79,6 @@ function findResolvedConflict(
         conflict.resolution !== 'manual-pending' &&
         localUpdatedAt <= conflict.updatedAt &&
         remoteUpdatedAt <= conflict.updatedAt &&
-        localUpdatedAt === conflict.localUpdatedAt &&
-        remoteUpdatedAt === conflict.remoteUpdatedAt &&
         Object.is(localValue, conflict.localValue) &&
         Object.is(remoteValue, conflict.remoteValue),
     )

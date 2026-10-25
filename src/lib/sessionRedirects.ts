@@ -39,6 +39,68 @@ export function normalizeSessionRedirects(input: readonly SessionRedirect[]): Se
   }).sort((a,b) => a.fromId.localeCompare(b.fromId))
 }
 
+/** Newest approval for one source, with a total order for equal timestamps. */
+export function newestRedirectFor(
+  redirects: ReadonlyArray<SessionRedirect>,
+  fromId: string,
+): SessionRedirect | undefined {
+  return [...redirects]
+    .filter((redirect) => redirect.fromId === fromId)
+    .sort(
+      (left, right) =>
+        right.approvedAt - left.approvedAt ||
+        (left.byDeviceId ?? '').localeCompare(right.byDeviceId ?? '') ||
+        left.toId.localeCompare(right.toId),
+    )[0]
+}
+
+export interface RedirectDivergence {
+  fromId: string
+  destinations: string[]
+  local?: SessionRedirect
+  remote?: SessionRedirect
+}
+
+/**
+ * Finds approvals that point one source session at different destinations.
+ * The normalizer still chooses a deterministic winner; this analysis lets sync
+ * surface the discarded approval for review instead of hiding it.
+ */
+export function findSessionRedirectDivergences(
+  local: ReadonlyArray<SessionRedirect>,
+  remote: ReadonlyArray<SessionRedirect>,
+): RedirectDivergence[] {
+  const sources = new Set(
+    [...local, ...remote].map((redirect) => redirect.fromId),
+  )
+  const divergences: RedirectDivergence[] = []
+  for (const fromId of [...sources].sort()) {
+    const localRedirects = local.filter((redirect) => redirect.fromId === fromId)
+    const remoteRedirects = remote.filter((redirect) => redirect.fromId === fromId)
+    const destinations = [
+      ...new Set([
+        ...localRedirects.map((redirect) => redirect.toId),
+        ...remoteRedirects.map((redirect) => redirect.toId),
+      ]),
+    ].sort()
+    if (destinations.length <= 1) continue
+    const localNewest = newestRedirectFor(localRedirects, fromId)
+    const remoteNewest = newestRedirectFor(remoteRedirects, fromId)
+    // A source approved on only one device is an ordinary new redirect to
+    // propagate, not a disagreement. Both devices also agree when their newest
+    // destinations match; older losing approvals are harmless history.
+    if (!localNewest || !remoteNewest) continue
+    if (localNewest.toId === remoteNewest.toId) continue
+    divergences.push({
+      fromId,
+      destinations,
+      ...(localNewest ? { local: localNewest } : {}),
+      ...(remoteNewest ? { remote: remoteNewest } : {}),
+    })
+  }
+  return divergences
+}
+
 export function applySessionRedirects(data: SessionsData, redirects: ReadonlyArray<SessionRedirect>): SessionsData {
   const normalized = normalizeSessionRedirects(redirects)
   if (!normalized.length) return data

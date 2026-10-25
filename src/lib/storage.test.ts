@@ -144,7 +144,7 @@ describe('legacy solve persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SOLVES_STORAGE_KEY,
-      JSON.stringify({ version: 99, solves: [solve()] }),
+      JSON.stringify({ version: 3, solves: [solve()] }),
     )
     expect(loadSolves(storage)).toEqual([])
   })
@@ -184,6 +184,60 @@ describe('session persistence', () => {
 
     expect(saveSessions(original, storage)).toBe(true)
     expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('round-trips per-field session sync metadata', () => {
+    const storage = new MemoryStorage()
+    const original = sessionsData({
+      sessions: [
+        session({
+          fieldUpdates: {
+            name: { updatedAt: 1, editorId: 'laptop' },
+            event: { updatedAt: 2, editorId: 'laptop' },
+            inspectionEnabled: { updatedAt: 3, editorId: 'laptop' },
+            preferences: {
+              timerUpdateMode: { updatedAt: 4, editorId: 'phone' },
+              inspectionWarning8s: { updatedAt: 5, editorId: 'phone' },
+            },
+          },
+        }),
+      ],
+    })
+
+    expect(saveSessions(original, storage)).toBe(true)
+    expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('drops malformed session field metadata without losing the session', () => {
+    const storage = new MemoryStorage()
+    const malformedMetadata = {
+      name: { updatedAt: 10, editorId: 'laptop' },
+      event: { updatedAt: -1, editorId: 'laptop' },
+      inspectionEnabled: { updatedAt: 20, editorId: '' },
+      preferences: {
+        timerUpdateMode: { updatedAt: 30, editorId: 'phone' },
+        unknownPreference: { updatedAt: 40, editorId: 'phone' },
+      },
+    } as unknown as Session['fieldUpdates']
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 4,
+        activeSessionId: 'session-1',
+        sessions: [
+          session({
+            fieldUpdates: malformedMetadata,
+          }),
+        ],
+      }),
+    )
+
+    expect(loadSessions(storage).sessions[0]?.fieldUpdates).toEqual({
+      name: { updatedAt: 10, editorId: 'laptop' },
+      preferences: {
+        timerUpdateMode: { updatedAt: 30, editorId: 'phone' },
+      },
+    })
   })
 
   it('round-trips every supported puzzle event in modern sessions', () => {
@@ -292,7 +346,7 @@ describe('session persistence', () => {
     seedLegacy(storage, [solve({ id: 'legacy' })])
     storage.seed(
       SESSIONS_STORAGE_KEY,
-      JSON.stringify({ version: 3, sessions: [] }),
+      JSON.stringify({ version: 99, sessions: [] }),
     )
 
     expect(loadSessions(storage).sessions[0]?.solves[0]?.id).toBe('legacy')

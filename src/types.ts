@@ -128,6 +128,20 @@ export interface SessionPreferences {
   showTimerDecimalSmall?: boolean
 }
 
+export type SessionPreferenceKey = keyof SessionPreferences
+
+/**
+ * Per-field session metadata. Fields without an entry fall back to the
+ * session's `updatedAt` at merge time; older records stay untouched rather
+ * than receiving fabricated historical timestamps.
+ */
+export interface SessionFieldUpdates {
+  name?: FieldUpdate
+  event?: FieldUpdate
+  inspectionEnabled?: FieldUpdate
+  preferences?: Partial<Record<SessionPreferenceKey, FieldUpdate>>
+}
+
 /**
  * A named local session. Solves are stored newest-first inside the session.
  * Timestamps are wall-clock metadata only; solve duration always comes from
@@ -147,6 +161,8 @@ export interface Session {
   inspectionEnabled?: boolean
   /** Session-specific inspection, scramble, and timer overrides. */
   preferences?: SessionPreferences
+  /** Field-level conflict metadata for synchronization. */
+  fieldUpdates?: SessionFieldUpdates
 }
 
 

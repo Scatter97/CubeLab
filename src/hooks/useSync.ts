@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { SessionsData, Settings } from '../types'
 import { countSolves } from '../lib/sessions'
 import { loadSessions } from '../lib/storage'
-import { createBackup, parseBackup } from '../lib/backup'
+import { createBackup } from '../lib/backup'
 import type { DriveTransport } from '../lib/driveTransport'
 import {
   loadDriveBackupState,
@@ -13,6 +13,7 @@ import {
   saveSyncStorage,
   SYNC_STORAGE_KEY,
   type SyncPreferences,
+  type SettingsFieldUpdates,
   type SyncStatus,
   type SyncStorageData,
   type SyncConflict,
@@ -20,11 +21,21 @@ import {
 import {
   createSyncEnvelope,
   mergeSessionsData,
-  mergeSettings,
-  parseRemoteSyncEnvelope,
+  mergeTombstones,
+  resolveRedirectConflicts,
   createTombstone,
 } from '../lib/sync'
 import { normalizeSessionRedirects, applySessionRedirects } from '../lib/sessionRedirects'
+import { mergeSettingsData, SETTINGS_FIELD_KEYS } from '../lib/settingsMerge'
+import { syncStateFingerprint } from '../lib/syncFingerprint'
+import {
+  deviceBackupFileName,
+} from '../lib/driveTransport'
+import {
+  findDeviceBackup,
+  listRemoteBackups,
+  readRemoteBackups,
+} from '../lib/remoteBackups'
 
 interface UseSyncOptions {
   transport: DriveTransport | null
@@ -42,12 +53,18 @@ export interface UseSyncResult {
   phase: SyncStatus
   lastSyncAt: number | null
   newSolvesSinceLastSync: number
+  hasPendingChanges: boolean
   error: string | null
   conflictsCount: number
   pendingConflicts: SyncConflict[]
   duplicateNames: string[]
   approveSessionMerge: (sourceId: string, targetId: string) => void
-  resolveConflict: (id: string, field: string, resolution: 'local' | 'remote') => void
+  resolveConflict: (
+    id: string,
+    field: string,
+    resolution: 'local' | 'remote',
+    kind?: SyncConflict['kind'],
+  ) => void
   preferences: SyncPreferences
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
@@ -57,10 +74,21 @@ export interface UseSyncResult {
 }
 
 const MAX_BACKOFF_MS = 30_000
+const MAX_SYNC_RETRIES = 5
 
 function toMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   return 'Synchronization failed.'
+}
+
+function settingsStateFingerprint(settings: Settings): string {
+  return JSON.stringify(settings)
+}
+
+function changedSettingFields(previous: Settings, next: Settings): (keyof Settings)[] {
+  return SETTINGS_FIELD_KEYS.filter(
+    (key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]),
+  )
 }
 
 function countSolvesInData(data: SessionsData): number {
@@ -107,13 +135,16 @@ export function useSync({
   const timerActiveRef = useRef(timerActive)
   const runningRef = useRef<Promise<void> | null>(null)
   const syncNowRef = useRef<((reason?: string) => Promise<void>) | null>(null)
-  const lastSyncedSessionsRef = useRef<SessionsData | null>(null)
   const knownSessionsRef = useRef<SessionsData | null>(null)
   const leaderRef = useRef(false)
   const locksSupportedRef = useRef(typeof navigator !== 'undefined' && Boolean(navigator.locks))
   const backoffRef = useRef(1_000)
+  const retryAttemptRef = useRef(0)
+  const deferredSyncRef = useRef(false)
   const fallbackTimerRef = useRef<number | null>(null)
   const retryTimerRef = useRef<number | null>(null)
+  const previousSettingsRef = useRef<Settings | null>(null)
+  const replacementSettingsFingerprintRef = useRef<string | null>(null)
 
   // Keep the latest props available before the browser yields. A sync request
   // can finish while a local edit is being committed; the in-flight guards
@@ -133,6 +164,39 @@ export function useSync({
     syncRef.current = next
     if (storageOk) saveSyncStorage(next)
   }, [storageOk])
+
+  // Global settings are a plain values object. Stamp changed top-level fields
+  // here so synchronization can merge independent edits without changing the
+  // settings storage schema. A merge that we just applied is acknowledged by
+  // fingerprint and never recorded as a new local edit.
+  useLayoutEffect(() => {
+    const previous = previousSettingsRef.current
+    previousSettingsRef.current = settings
+    const fingerprint = settingsStateFingerprint(settings)
+    if (replacementSettingsFingerprintRef.current === fingerprint) {
+      replacementSettingsFingerprintRef.current = null
+      return
+    }
+    if (!previous) return
+    const changed = changedSettingFields(previous, settings)
+    if (changed.length === 0) return
+
+    const now = Date.now()
+    const editorId = syncRef.current.runtime.deviceId
+    const settingsFieldUpdates: SettingsFieldUpdates = {
+      ...syncRef.current.runtime.settingsFieldUpdates,
+    }
+    for (const key of changed) {
+      settingsFieldUpdates[key] = { updatedAt: now, editorId }
+    }
+    persist({
+      ...syncRef.current,
+      runtime: {
+        ...syncRef.current.runtime,
+        settingsFieldUpdates,
+      },
+    })
+  }, [persist, settings])
 
   // Track deletions locally through storage changes.
   useEffect(() => {
@@ -253,19 +317,33 @@ export function useSync({
 
   const resetBase = useCallback(
     (data: SessionsData) => {
+      // A local import or Drive restore is an explicit local edit. Stamp every
+      // global setting so the next merge cannot silently replace imported
+      // values with an older cloud field.
+      const now = Date.now()
+      const editorId = syncRef.current.runtime.deviceId
+      const settingsFieldUpdates: SettingsFieldUpdates = {}
+      for (const key of SETTINGS_FIELD_KEYS) {
+        settingsFieldUpdates[key] = { updatedAt: now, editorId }
+      }
       const next = {
         ...syncRef.current,
         runtime: {
           ...syncRef.current.runtime,
           tombstones: [],
           conflicts: [],
+          sessionRedirects: [],
+          pendingDuplicateNames: [],
+          settingsFieldUpdates,
+          // Force the next run to publish the explicit replacement instead of
+          // treating it as already confirmed.
+          lastSyncedFingerprint: null,
           solveCountAtLastSync: countSolvesInData(data),
           lastSyncStatus:
-            syncRef.current.preferences.enabled ? 'synced' as SyncStatus : syncRef.current.runtime.lastSyncStatus,
+            syncRef.current.preferences.enabled ? 'pending' as SyncStatus : syncRef.current.runtime.lastSyncStatus,
         },
       }
       persist(next)
-      lastSyncedSessionsRef.current = data
       knownSessionsRef.current = data
     },
     [persist],
@@ -284,7 +362,6 @@ export function useSync({
         },
       ])
       const redirectedSessions = applySessionRedirects(sessionsRef.current, combined)
-      lastSyncedSessionsRef.current = redirectedSessions
       knownSessionsRef.current = redirectedSessions
       sessionsRef.current = redirectedSessions
       onReplaceSessions(redirectedSessions)
@@ -307,12 +384,17 @@ export function useSync({
   )
 
   const resolveConflict = useCallback(
-    (id: string, field: string, resolution: 'local' | 'remote') => {
+    (
+      id: string,
+      field: string,
+      resolution: 'local' | 'remote',
+      kind?: SyncConflict['kind'],
+    ) => {
       const conflicts = syncRef.current.runtime.conflicts.map((conflict) => {
         if (
-          conflict.kind !== 'solve' ||
           conflict.id !== id ||
           conflict.field !== field ||
+          (kind !== undefined && conflict.kind !== kind) ||
           conflict.resolution !== 'manual-pending'
         ) {
           return conflict
@@ -368,8 +450,49 @@ export function useSync({
     [persist],
   )
 
+  // Retries are bounded so a broken transport or a constantly edited timer
+  // cannot spin forever. Any external trigger (manual, startup, interval,
+  // reconnect) starts a fresh budget.
+  const queueRetry = useCallback(
+    (delay: number) => {
+      if (retryAttemptRef.current >= MAX_SYNC_RETRIES) {
+        const runtime = syncRef.current.runtime
+        if (runtime.lastSyncStatus !== 'conflict') {
+          persist({
+            ...syncRef.current,
+            runtime: {
+              ...runtime,
+              lastSyncStatus: 'failed',
+              lastError: runtime.lastError?.includes('Automatic retries paused')
+                ? runtime.lastError
+                : `${runtime.lastError ?? 'Synchronization failed.'} Automatic retries paused; use Sync now.`,
+            },
+          })
+        }
+        return
+      }
+      retryAttemptRef.current += 1
+      if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current)
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null
+        void syncNowRef.current?.('retry')
+      }, delay)
+    },
+    [persist],
+  )
+
   const syncNow = useCallback(
     async (reason?: string) => {
+      // A user, startup, interval, reconnect, or exit trigger starts a fresh
+      // bounded retry budget. Only an automatic retry keeps the current budget.
+      if (reason !== 'retry') {
+        retryAttemptRef.current = 0
+        backoffRef.current = 1_000
+        if (retryTimerRef.current !== null) {
+          window.clearTimeout(retryTimerRef.current)
+          retryTimerRef.current = null
+        }
+      }
       if (!syncRef.current.preferences.enabled) {
         if (reason === 'manual') onNotify('Enable automatic synchronization first.')
         return
@@ -386,8 +509,18 @@ export function useSync({
 
       const promise = (async () => {
         if (timerActiveRef.current) {
-          // Defer application until idle, but try once more shortly.
-          window.setTimeout(() => void syncNowRef.current?.(reason), 500)
+          // Never replace data or start network work while the timer is armed,
+          // running, or inspecting. An idle transition retries once, so a long
+          // session cannot exhaust the automatic retry budget.
+          deferredSyncRef.current = true
+          persist({
+            ...syncRef.current,
+            runtime: {
+              ...syncRef.current.runtime,
+              lastSyncStatus: 'pending',
+              lastError: 'Synchronization will resume when the timer is idle.',
+            },
+          })
           return
         }
 
@@ -429,62 +562,123 @@ export function useSync({
             }
           }
 
-          const remoteFile = await transport.findBackup()
-          let remoteSessions: SessionsData | null = null
-          let remoteSettings: Settings | null = null
-          let remoteEnvelope = null
-          if (remoteFile) {
-            const raw = await transport.downloadBackup(remoteFile.id)
-            if (raw.length > 10 * 1024 * 1024) throw new Error('Remote backup is too large to synchronize.')
-            const parsed = parseBackup(raw)
-            if (!parsed.ok) throw new Error(parsed.error)
-            remoteSessions = parsed.backup.sessions
-            remoteSettings = parsed.backup.settings
-            remoteEnvelope = parsed.backup.sync ?? parseRemoteSyncEnvelope(parsed.backup.sync)
-          }
-
-          const existingRedirects = syncRef.current.runtime.sessionRedirects ?? []
-          const combinedRedirects = normalizeSessionRedirects([
-            ...existingRedirects,
-            ...(remoteEnvelope?.sessionRedirects ?? []),
-          ])
+          const syncState = syncRef.current
+          const deviceId = syncState.runtime.deviceId
           const local = sessionsRef.current
           const localSettings = settingsRef.current
-          const merged = mergeSessionsData({
-            local,
-            remote: remoteSessions,
-            tombstones: [...syncRef.current.runtime.tombstones, ...(remoteEnvelope?.tombstones ?? [])],
-            sessionRedirects: combinedRedirects,
-            deviceId: syncRef.current.runtime.deviceId,
-            manualConflictReview: syncRef.current.preferences.manualConflictReview,
-            resolvedConflicts: syncRef.current.runtime.conflicts,
-          })
+          const startFingerprint = syncStateFingerprint(local, localSettings)
+          const isLocalUnchanged = () =>
+            syncStateFingerprint(sessionsRef.current, settingsRef.current) === startFingerprint
 
-          // Settings merge.
-          const mergedSettings = mergeSettings(
-            localSettings,
-            remoteSettings,
-            remoteEnvelope?.updatedAt ?? 0,
-            syncRef.current.runtime.lastSyncAt,
+          const remoteFiles = await listRemoteBackups(transport)
+          const snapshots = await readRemoteBackups(transport, remoteFiles)
+          const remoteRevision = snapshots.reduce(
+            (highest, snapshot) => Math.max(highest, snapshot.backup.sync?.revision ?? 0),
+            0,
           )
+          const mergedTombstones = mergeTombstones(
+            syncState.runtime.tombstones,
+            ...snapshots.map((snapshot) => snapshot.backup.sync?.tombstones ?? []),
+          )
+          const redirectResult = resolveRedirectConflicts({
+            local: syncState.runtime.sessionRedirects ?? [],
+            remote: snapshots.flatMap(
+              (snapshot) => snapshot.backup.sync?.sessionRedirects ?? [],
+            ),
+            manualConflictReview: syncState.preferences.manualConflictReview,
+            resolvedConflicts: syncState.runtime.conflicts,
+          })
+          const sessionRedirects = redirectResult.sessionRedirects
+          const conflicts: SyncConflict[] = [...redirectResult.conflicts]
 
-          const localIds = new Set(local.sessions.flatMap((session) => session.solves.map((solve) => solve.id)))
-          const remoteIds = new Set((remoteSessions?.sessions ?? []).flatMap((session) => session.solves.map((solve) => solve.id)))
-          const mergedIds = new Set(merged.merged.sessions.flatMap((session) => session.solves.map((solve) => solve.id)))
-          const uploadedSolves = [...localIds].filter(
-            (id) => !remoteIds.has(id) && mergedIds.has(id),
-          ).length
-          const importedSolves = [...mergedIds].filter((id) => !localIds.has(id)).length
+          // Fold every device snapshot into one merged view. The merge is
+          // commutative for solve identities, so file arrival order cannot lose
+          // data; metadata fields use their own timestamps.
+          let mergedSessions = local
+          let adoptedLocalDefault = false
+          let duplicateSessionNames: string[] = []
+          let recoveredSolves = 0
+          for (const snapshot of snapshots) {
+            const result = mergeSessionsData({
+              local: mergedSessions,
+              remote: snapshot.backup.sessions,
+              tombstones: mergedTombstones,
+              sessionRedirects,
+              deviceId,
+              manualConflictReview: syncState.preferences.manualConflictReview,
+              resolvedConflicts: syncState.runtime.conflicts,
+            })
+            mergedSessions = result.merged
+            adoptedLocalDefault = adoptedLocalDefault || result.adoptedLocalDefault
+            duplicateSessionNames = result.duplicateSessionNames
+            recoveredSolves += result.recoveredSolves
+            conflicts.push(...result.conflicts)
+          }
+
+          // Merge remote device settings with each other first, using their
+          // field metadata, then merge the aggregate with this device so the
+          // first-sync default policy applies exactly once.
+          let aggregateRemoteSettings: Settings | null = null
+          let aggregateRemoteSettingsUpdates: SettingsFieldUpdates = {}
+          if (snapshots.length > 0) {
+            aggregateRemoteSettings = snapshots[0]!.backup.settings
+            aggregateRemoteSettingsUpdates =
+              snapshots[0]!.backup.sync?.settingsFieldUpdates ?? {}
+            for (const snapshot of snapshots.slice(1)) {
+              const result = mergeSettingsData({
+                local: aggregateRemoteSettings,
+                remote: snapshot.backup.settings,
+                localFieldUpdates: aggregateRemoteSettingsUpdates,
+                remoteFieldUpdates: snapshot.backup.sync?.settingsFieldUpdates ?? {},
+                remoteUpdatedAt: snapshot.updatedAt,
+                lastSyncAt: 1,
+                manualConflictReview: false,
+              })
+              aggregateRemoteSettings = result.settings
+              aggregateRemoteSettingsUpdates = result.fieldUpdates
+            }
+          }
+
+          let mergedSettings = localSettings
+          let mergedSettingsUpdates = syncState.runtime.settingsFieldUpdates
+          if (aggregateRemoteSettings) {
+            const result = mergeSettingsData({
+              local: localSettings,
+              remote: aggregateRemoteSettings,
+              localFieldUpdates: syncState.runtime.settingsFieldUpdates,
+              remoteFieldUpdates: aggregateRemoteSettingsUpdates,
+              remoteUpdatedAt: snapshots.reduce(
+                (newest, snapshot) => Math.max(newest, snapshot.updatedAt),
+                0,
+              ),
+              lastSyncAt: syncState.runtime.lastSyncAt,
+              manualConflictReview: syncState.preferences.manualConflictReview,
+              resolvedConflicts: syncState.runtime.conflicts,
+              localEditorId: deviceId,
+            })
+            mergedSettings = result.settings
+            mergedSettingsUpdates = result.fieldUpdates
+            conflicts.push(...result.conflicts)
+          }
+
+          const deduplicatedConflicts = mergeConflictRecords([], conflicts)
 
           // Never publish a provisional resolution when the user requested
           // approval. Preserve local data and the conflict record for review.
-          const pendingConflicts = merged.conflicts.filter((conflict) => conflict.resolution === 'manual-pending')
+          const pendingConflicts = deduplicatedConflicts.filter(
+            (conflict) => conflict.resolution === 'manual-pending',
+          )
           if (pendingConflicts.length > 0) {
             persist({
               ...syncRef.current,
               runtime: {
                 ...syncRef.current.runtime,
-                conflicts: mergeConflictRecords(syncRef.current.runtime.conflicts, pendingConflicts),
+                conflicts: mergeConflictRecords(
+                  syncRef.current.runtime.conflicts.filter(
+                    (conflict) => conflict.resolution !== 'manual-pending',
+                  ),
+                  pendingConflicts,
+                ),
                 lastSyncStatus: 'conflict',
                 lastError: 'Resolve same-field conflicts before publishing a cloud backup. Local and cloud data were not overwritten.',
               },
@@ -493,122 +687,231 @@ export function useSync({
             return
           }
 
-          // A user may record a solve while the download is in flight. Never
-          // replace that newer snapshot with the earlier merge result.
-          if (sessionsRef.current !== local || settingsRef.current !== localSettings) {
-            throw new Error('Local data changed during synchronization. Please sync again to merge the newest changes.')
-          }
-
-          const mergedTombstones = merged.mergedTombstones
-          const remoteRevision = remoteEnvelope?.revision ?? 0
-          const nextRevision = Math.max(remoteRevision, syncRef.current.runtime.lastRemoteRevision ?? 0) + 1
-          const envelope = createSyncEnvelope(
-            syncRef.current.runtime.deviceId,
-            nextRevision,
-            mergedTombstones,
-            merged.conflicts,
-            merged.sessionRedirects,
-          )
-
-          const backup = createBackup(merged.merged, mergedSettings, new Date(), envelope)
-          // Capture an in-flight edit rather than silently committing stale
-          // merged state. The remote transport still needs real CAS protection.
-          if (sessionsRef.current !== local || settingsRef.current !== localSettings) {
-            throw new Error('Local data changed before upload. Synchronization was cancelled safely.')
-          }
-          const existingFileId = remoteFile?.id ?? getRemoteFileId()
-          const result = await transport.uploadBackup(JSON.stringify(backup), existingFileId)
-
-          // Do not overwrite solves added while the network upload was in progress.
-          // Schedule a follow-up merge instead of treating the uploaded state as
-          // completely synchronized. Keep the local state as the source of truth.
-          if (sessionsRef.current !== local || settingsRef.current !== localSettings) {
-            persist({ ...syncRef.current, runtime: {
-              ...syncRef.current.runtime,
-              lastSyncStatus: 'pending',
-              lastError: 'New local changes occurred during upload; another sync is needed.',
-            } })
-            window.setTimeout(() => void syncNowRef.current?.('retry'), 0)
+          // A user may record a solve or edit settings while the download /
+          // merge is in flight. Never replace that newer snapshot with the
+          // earlier merge result.
+          if (!isLocalUnchanged()) {
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                lastSyncStatus: 'pending',
+                lastError: 'Local changes occurred during synchronization; another sync is needed.',
+              },
+            })
+            queueRetry(500)
             return
+          }
+
+          const localIds = new Set(
+            local.sessions.flatMap((session) => session.solves.map((solve) => solve.id)),
+          )
+          const remoteIds = new Set(
+            snapshots.flatMap((snapshot) =>
+              snapshot.backup.sessions.sessions.flatMap((session) =>
+                session.solves.map((solve) => solve.id),
+              ),
+            ),
+          )
+          const mergedIds = new Set(
+            mergedSessions.sessions.flatMap((session) =>
+              session.solves.map((solve) => solve.id),
+            ),
+          )
+          const uploadedSolves = [...localIds].filter(
+            (id) => !remoteIds.has(id) && mergedIds.has(id),
+          ).length
+          const importedSolves = [...mergedIds].filter((id) => !localIds.has(id)).length
+
+          const mergedFingerprint = syncStateFingerprint(mergedSessions, mergedSettings)
+          const baseRevision = Math.max(
+            remoteRevision,
+            syncState.runtime.lastRemoteRevision ?? 0,
+          )
+          const nextRevision = baseRevision + 1
+          const ownName = deviceBackupFileName(deviceId)
+          const ownFile = findDeviceBackup(remoteFiles, ownName)
+          const remoteStateUnchanged =
+            mergedFingerprint === syncRef.current.runtime.lastSyncedFingerprint &&
+            remoteRevision <= (syncRef.current.runtime.lastRemoteRevision ?? 0) &&
+            JSON.stringify(mergedTombstones) === JSON.stringify(syncRef.current.runtime.tombstones) &&
+            JSON.stringify(sessionRedirects) ===
+              JSON.stringify(syncRef.current.runtime.sessionRedirects ?? [])
+          const remoteStorePresent = transport.uploadDeviceBackup
+            ? Boolean(ownFile)
+            : remoteFiles.length > 0
+
+          let updatedConflicts = mergeConflictRecords(
+            syncRef.current.runtime.conflicts.filter(
+              (conflict) => conflict.resolution !== 'manual-pending',
+            ),
+            deduplicatedConflicts,
+          )
+          let lastRemoteRevision = baseRevision
+          let remoteFileId: string | null = ownFile?.id ?? null
+          let remoteModifiedTime: string | null = ownFile?.modifiedTime ?? null
+
+          if (remoteStateUnchanged && remoteStorePresent) {
+            // Nothing relevant changed since the last confirmed write. Avoid a
+            // redundant upload while still refreshing the status timestamp.
+          } else {
+            const envelope = createSyncEnvelope(
+              deviceId,
+              nextRevision,
+              mergedTombstones,
+              updatedConflicts,
+              sessionRedirects,
+              mergedSettingsUpdates,
+            )
+            const backup = createBackup(
+              mergedSessions,
+              mergedSettings,
+              new Date(),
+              envelope,
+            )
+
+            // Re-check immediately before the remote write. The upload itself
+            // cannot be atomic, but local data is never replaced by a stale
+            // in-flight snapshot.
+            if (!isLocalUnchanged()) {
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'pending',
+                  lastError: 'Local data changed before upload. Synchronization was cancelled safely.',
+                },
+              })
+              queueRetry(500)
+              return
+            }
+
+            const existingFileId = transport.uploadDeviceBackup
+              ? ownFile?.id
+              : remoteFiles[0]?.id ?? getRemoteFileId()
+            const result = transport.uploadDeviceBackup
+              ? await transport.uploadDeviceBackup(
+                  JSON.stringify(backup),
+                  deviceId,
+                  existingFileId,
+                )
+              : await transport.uploadBackup(JSON.stringify(backup), existingFileId)
+            remoteFileId = result.id
+            remoteModifiedTime = result.modifiedTime
+            lastRemoteRevision = nextRevision
+
+            // Do not overwrite solves added while the network upload was in
+            // progress. The uploaded snapshot is now the confirmed remote
+            // base, but local state remains authoritative and a follow-up run
+            // merges the newer edits.
+            if (!isLocalUnchanged()) {
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncedFingerprint: mergedFingerprint,
+                  lastRemoteRevision: nextRevision,
+                  lastSyncStatus: 'pending',
+                  lastError: 'New local changes occurred during upload; another sync is needed.',
+                },
+              })
+              queueRetry(500)
+              return
+            }
           }
 
           // Publish only after upload success; failed writes cannot cause an
           // adopted snapshot to erase unsaved local work.
-          knownSessionsRef.current = merged.merged
-          sessionsRef.current = merged.merged
-          onReplaceSessions(merged.merged)
+          knownSessionsRef.current = mergedSessions
+          sessionsRef.current = mergedSessions
+          settingsRef.current = mergedSettings
+          replacementSettingsFingerprintRef.current =
+            settingsStateFingerprint(mergedSettings)
+          onReplaceSessions(mergedSessions)
           onReplaceSettings(mergedSettings)
 
           const now = Date.now()
-          const updatedConflicts =
-            syncRef.current.preferences.manualConflictReview
-              ? mergeConflictRecords(syncRef.current.runtime.conflicts, merged.conflicts)
-              : syncRef.current.runtime.conflicts.filter((c) => c.resolution !== 'local' && c.resolution !== 'remote').concat(
-                  merged.conflicts.map((conflict) => ({ ...conflict, resolution: conflict.resolution === 'manual-pending' ? 'local' : conflict.resolution })),
-                )
-
-          // Prune conflicts older than 100 for maintainability.
-          const trimmedConflicts = updatedConflicts.slice(-100)
+          updatedConflicts = mergeConflictRecords(
+            updatedConflicts.filter(
+              (conflict) => conflict.resolution !== 'manual-pending',
+            ),
+            [],
+          )
 
           const next = {
             ...syncRef.current,
             runtime: {
               ...syncRef.current.runtime,
               lastSyncAt: now,
-              lastSyncStatus: trimmedConflicts.some((c) => c.resolution === 'manual-pending')
-                ? ('conflict' as SyncStatus)
-                : ('synced' as SyncStatus),
+              lastSyncStatus: 'synced' as SyncStatus,
               lastError: null,
-              solveCountAtLastSync: countSolvesInData(merged.merged),
-              lastRemoteRevision: nextRevision,
+              solveCountAtLastSync: countSolvesInData(mergedSessions),
+              lastRemoteRevision,
               tombstones: mergedTombstones,
-              conflicts: trimmedConflicts,
-              sessionRedirects: merged.sessionRedirects,
-              pendingDuplicateNames: merged.duplicateSessionNames,
+              conflicts: updatedConflicts.slice(-100),
+              sessionRedirects,
+              pendingDuplicateNames: duplicateSessionNames,
+              settingsFieldUpdates: mergedSettingsUpdates,
+              lastSyncedFingerprint: mergedFingerprint,
             },
           }
           persist(next)
-          lastSyncedSessionsRef.current = merged.merged
-
-          const addedRemote = importedSolves
 
           backoffRef.current = 1_000
+          retryAttemptRef.current = 0
 
-          // Drive metadata compatibility.
-          const driveState = loadDriveBackupState()
-          saveDriveBackupState({
-            ...driveState,
-            remoteFileId: result.id,
-            remoteModifiedTime: result.modifiedTime,
-            lastBackupAt: now,
-            lastRestoreAt: driveState.lastRestoreAt,
-            connectedAccountLabel: transport.accountLabel || driveState.connectedAccountLabel,
-          })
+          if (remoteFileId) {
+            const driveState = loadDriveBackupState()
+            saveDriveBackupState({
+              ...driveState,
+              remoteFileId,
+              remoteModifiedTime,
+              lastBackupAt: now,
+              lastRestoreAt: driveState.lastRestoreAt,
+              connectedAccountLabel:
+                transport.accountLabel || driveState.connectedAccountLabel,
+            })
+          }
 
           if (reason === 'reconnect' || reason === 'manual') {
             const messages: string[] = []
-            if (merged.adoptedLocalDefault) {
+            if (adoptedLocalDefault) {
               messages.push('Cloud sessions imported')
             }
-            if (uploadedSolves > 0) messages.push(`${uploadedSolves} new local solve${uploadedSolves === 1 ? '' : 's'} uploaded`)
-            if (merged.duplicateSessionNames.length > 0 && onDuplicateSessionDetected) {
-              onDuplicateSessionDetected(merged.duplicateSessionNames)
-            }
-            if (merged.duplicateSessionNames.length > 0) {
+            if (uploadedSolves > 0) {
               messages.push(
-                `CubeLab found two separate sessions named ${merged.duplicateSessionNames
+                `${uploadedSolves} new local solve${uploadedSolves === 1 ? '' : 's'} uploaded`,
+              )
+            }
+            if (duplicateSessionNames.length > 0 && onDuplicateSessionDetected) {
+              onDuplicateSessionDetected(duplicateSessionNames)
+            }
+            if (duplicateSessionNames.length > 0) {
+              messages.push(
+                `CubeLab found two separate sessions named ${duplicateSessionNames
                   .map((name) => `'${name}'`)
                   .join(', ')}.`,
               )
             }
-            if (addedRemote > 0) messages.push(`${addedRemote} cloud solve${addedRemote === 1 ? '' : 's'} merged`)
-            if (merged.recoveredSolves > 0) {
+            if (importedSolves > 0) {
               messages.push(
-                `${merged.recoveredSolves} solve${merged.recoveredSolves === 1 ? '' : 's'} recovered from a deleted session`,
+                `${importedSolves} cloud solve${importedSolves === 1 ? '' : 's'} merged`,
               )
             }
-            if (merged.conflicts.length > 0 && !syncRef.current.preferences.manualConflictReview) {
-              messages.push(`${merged.conflicts.length} conflict${merged.conflicts.length === 1 ? '' : 's'} automatically resolved`)
+            if (recoveredSolves > 0) {
+              messages.push(
+                `${recoveredSolves} solve${recoveredSolves === 1 ? '' : 's'} recovered from a deleted session`,
+              )
+            }
+            if (
+              deduplicatedConflicts.length > 0 &&
+              !syncRef.current.preferences.manualConflictReview
+            ) {
+              messages.push(
+                `${deduplicatedConflicts.length} conflict${
+                  deduplicatedConflicts.length === 1 ? '' : 's'
+                } automatically resolved`,
+              )
             }
             if (messages.length > 0) {
               onNotify(messages.join(' · ') + '.')
@@ -618,7 +921,9 @@ export function useSync({
           }
         } catch (caught) {
           const message = toMessage(caught)
-          const authRequired = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('connect')
+          const authRequired =
+            message.toLowerCase().includes('authorization') ||
+            message.toLowerCase().includes('connect')
           persist({
             ...syncRef.current,
             runtime: {
@@ -627,10 +932,10 @@ export function useSync({
               lastError: message,
             },
           })
-          // Retry with backoff.
-          backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF_MS)
-          if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current)
-          retryTimerRef.current = window.setTimeout(() => void syncNowRef.current?.('retry'), backoffRef.current)
+          if (!authRequired) {
+            backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF_MS)
+            queueRetry(backoffRef.current)
+          }
         }
       })()
 
@@ -639,19 +944,60 @@ export function useSync({
         runningRef.current = null
       })
     },
-    [persist, transport, onReplaceSessions, onReplaceSettings, onNotify, onDuplicateSessionDetected],
+    [
+      persist,
+      queueRetry,
+      transport,
+      onReplaceSessions,
+      onReplaceSettings,
+      onNotify,
+      onDuplicateSessionDetected,
+    ],
   )
 
   useEffect(() => {
     syncNowRef.current = syncNow
   }, [syncNow])
 
+  // Resume a sync that was deferred by an active timer exactly once, when the
+  // timer returns to idle.
+  useEffect(() => {
+    if (timerActive || !deferredSyncRef.current) return
+    deferredSyncRef.current = false
+    if (syncRef.current.preferences.enabled) {
+      window.setTimeout(() => void syncNowRef.current?.('timer-idle'), 0)
+    }
+  }, [timerActive])
+
   // Web Locks guarantees one syncing tab. Followers never self-elect while
   // a lock holder exists, and lock ownership ends on unmount.
   useEffect(() => {
+    const runStartup = () => {
+      const current = syncRef.current
+      if (!current.preferences.enabled) return
+      if (current.runtime.lastSyncStatus === 'syncing') {
+        // This status survived a reload, so the previous attempt never
+        // completed. Resume it even when startup sync is disabled.
+        persist({
+          ...current,
+          runtime: {
+            ...current.runtime,
+            lastSyncStatus: 'pending',
+            lastError: null,
+          },
+        })
+        window.setTimeout(() => void syncNowRef.current?.('resume'), 0)
+        return
+      }
+      if (current.preferences.syncOnStartup) {
+        window.setTimeout(() => void syncNowRef.current?.('startup'), 0)
+      }
+    }
+
     const locks = navigator.locks
     if (!locks) {
       leaderRef.current = true
+      runStartup()
       return () => { leaderRef.current = false }
     }
     locksSupportedRef.current = true
@@ -660,9 +1006,7 @@ export function useSync({
     void locks.request('cubelab-sync-leader', async () => {
       if (released) return
       leaderRef.current = true
-      if (syncRef.current.preferences.enabled && syncRef.current.preferences.syncOnStartup) {
-        window.setTimeout(() => void syncNowRef.current?.('startup'), 0)
-      }
+      runStartup()
       await new Promise<void>((resolve) => { releaseLock = resolve })
       leaderRef.current = false
     })
@@ -671,7 +1015,7 @@ export function useSync({
       leaderRef.current = false
       releaseLock?.()
     }
-  }, [])
+  }, [persist])
 
   // Followers mirror storage changes.
   useEffect(() => {
@@ -744,17 +1088,37 @@ export function useSync({
     }
   }, [syncNow])
 
-  // Time-based and solve-count scheduling.
+  const localStateFingerprint = useMemo(
+    () => syncStateFingerprint(sessions, settings),
+    [sessions, settings],
+  )
+  const hasPendingChanges =
+    sync.preferences.enabled &&
+    sync.runtime.lastSyncedFingerprint !== localStateFingerprint
+
+  useEffect(
+    () => () => {
+      if (fallbackTimerRef.current !== null) {
+        window.clearTimeout(fallbackTimerRef.current)
+        fallbackTimerRef.current = null
+      }
+      if (retryTimerRef.current !== null) {
+        window.clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
+    },
+    [],
+  )
+
+  // Time-based scheduling. If the timer is active, the next interval tick
+  // simply checks again rather than spinning a nested timeout.
   useEffect(() => {
     if (!syncRef.current.preferences.enabled) return
 
     const intervalMs = syncRef.current.preferences.intervalMinutes * 60 * 1000
 
     const runScheduled = () => {
-      if (timerActiveRef.current) {
-        window.setTimeout(runScheduled, 1_000)
-        return
-      }
+      if (timerActiveRef.current) return
       void syncNow('scheduled')
     }
 
@@ -767,12 +1131,21 @@ export function useSync({
     }
   }, [sync.preferences.enabled, sync.preferences.mode, sync.preferences.intervalMinutes, syncNow])
 
-  // Solve-count trigger + non-solve fallback.
+  // Solve-count trigger + non-solve fallback for any dirty state (solves,
+  // session metadata, preferences, or settings).
   useEffect(() => {
-    if (!syncRef.current.preferences.enabled) return
-    if (timerActiveRef.current) return
+    if (!sync.preferences.enabled || !hasPendingChanges || timerActive) {
+      if (fallbackTimerRef.current !== null) {
+        window.clearTimeout(fallbackTimerRef.current)
+        fallbackTimerRef.current = null
+      }
+      return
+    }
 
-    const pendingSolves = Math.max(0, countSolvesInData(sessions) - syncRef.current.runtime.solveCountAtLastSync)
+    const pendingSolves = Math.max(
+      0,
+      countSolvesInData(sessions) - syncRef.current.runtime.solveCountAtLastSync,
+    )
     const shouldSolveSync =
       pendingSolves >= syncRef.current.preferences.solveThreshold
 
@@ -783,7 +1156,6 @@ export function useSync({
       return
     }
 
-    // Non-solve fallback when dirty.
     if (fallbackTimerRef.current === null) {
       fallbackTimerRef.current = window.setTimeout(() => {
         fallbackTimerRef.current = null
@@ -792,11 +1164,12 @@ export function useSync({
       }, Math.max(60_000, syncRef.current.preferences.intervalMinutes * 60 * 1000))
     }
   }, [
+    hasPendingChanges,
     sessions,
     sync.preferences.enabled,
     sync.preferences.mode,
     sync.preferences.solveThreshold,
-    sync.runtime.solveCountAtLastSync,
+    timerActive,
     syncNow,
   ])
 
@@ -811,10 +1184,17 @@ export function useSync({
   )
   const conflictsCount = pendingConflicts.length
 
+  const phase: SyncStatus = sync.preferences.enabled
+    ? sync.runtime.lastSyncStatus === 'synced' && hasPendingChanges
+      ? 'pending'
+      : sync.runtime.lastSyncStatus
+    : 'disabled'
+
   return {
-    phase: sync.preferences.enabled ? sync.runtime.lastSyncStatus : 'disabled',
+    phase,
     lastSyncAt: sync.runtime.lastSyncAt,
     newSolvesSinceLastSync,
+    hasPendingChanges,
     error: sync.runtime.lastError,
     conflictsCount,
     pendingConflicts,

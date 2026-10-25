@@ -2,12 +2,15 @@ import type {
   Penalty,
   PuzzleEvent,
   Session,
+  SessionFieldUpdates,
+  SessionPreferenceKey,
   SessionPreferences,
   SessionsData,
   Solve,
 } from '../types'
 import { createId } from './id'
 import { mergeSolveFields } from './solveMerge'
+import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
 
 export const MAX_SESSION_NAME_LENGTH = 40
 export const MAX_SOLVE_COMMENT_LENGTH = 500
@@ -148,6 +151,7 @@ export function renameSession(
   sessionId: string,
   name: string,
   now = Date.now(),
+  editorId = 'legacy',
 ): SessionsData | null {
   const session = data.sessions.find((candidate) => candidate.id === sessionId)
   if (!session) return null
@@ -160,7 +164,15 @@ export function renameSession(
     ...data,
     sessions: data.sessions.map((candidate) =>
       candidate.id === sessionId
-        ? { ...candidate, name: normalized, updatedAt: now }
+        ? {
+            ...candidate,
+            name: normalized,
+            updatedAt: now,
+            fieldUpdates: {
+              ...candidate.fieldUpdates,
+              name: { updatedAt: now, editorId },
+            },
+          }
         : candidate,
     ),
   }
@@ -271,6 +283,7 @@ export function setSessionInspection(
   sessionId: string,
   inspectionEnabled: boolean,
   now = Date.now(),
+  editorId = 'legacy',
 ): SessionsData {
   const session = data.sessions.find((candidate) => candidate.id === sessionId)
   if (!session || session.inspectionEnabled === inspectionEnabled) return data
@@ -279,9 +292,79 @@ export function setSessionInspection(
     ...data,
     sessions: data.sessions.map((candidate) =>
       candidate.id === sessionId
-        ? { ...candidate, inspectionEnabled, updatedAt: now }
+        ? {
+            ...candidate,
+            inspectionEnabled,
+            updatedAt: now,
+            fieldUpdates: {
+              ...candidate.fieldUpdates,
+              inspectionEnabled: { updatedAt: now, editorId },
+            },
+          }
         : candidate,
     ),
+  }
+}
+
+/**
+ * Updates only the supplied session preference fields. Undefined values remove
+ * an override and are still timestamped so a merge does not silently resurrect
+ * the old value from another device.
+ */
+export function setSessionPreferences(
+  data: SessionsData,
+  sessionId: string,
+  changes: Partial<SessionPreferences>,
+  now = Date.now(),
+  editorId = 'legacy',
+): SessionsData {
+  const session = data.sessions.find((candidate) => candidate.id === sessionId)
+  if (!session) return data
+
+  const preferences: SessionPreferences = { ...(session.preferences ?? {}) }
+  const preferenceUpdates: Partial<Record<SessionPreferenceKey, { updatedAt: number; editorId: string }>> = {
+    ...(session.fieldUpdates?.preferences ?? {}),
+  }
+  let changed = false
+
+  for (const key of SESSION_PREFERENCE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(changes, key)) continue
+    const next = changes[key]
+    if (next === undefined) {
+      if (!Object.prototype.hasOwnProperty.call(preferences, key)) continue
+      delete preferences[key]
+    } else if (preferences[key] !== next) {
+      preferences[key] = next as never
+    } else {
+      continue
+    }
+    changed = true
+    preferenceUpdates[key] = { updatedAt: now, editorId }
+  }
+
+  if (!changed) return data
+
+  const fieldUpdates: SessionFieldUpdates = {
+    ...session.fieldUpdates,
+    ...(Object.keys(preferenceUpdates).length > 0
+      ? { preferences: preferenceUpdates }
+      : { preferences: undefined }),
+  }
+  if (Object.keys(preferenceUpdates).length === 0) delete fieldUpdates.preferences
+
+  return {
+    ...data,
+    sessions: data.sessions.map((candidate) => {
+      if (candidate.id !== sessionId) return candidate
+      const next: Session = {
+        ...candidate,
+        updatedAt: now,
+        fieldUpdates,
+      }
+      if (Object.keys(preferences).length > 0) next.preferences = preferences
+      else delete next.preferences
+      return next
+    }),
   }
 }
 
@@ -426,6 +509,7 @@ export function setSessionEvent(
   sessionId: string,
   event: PuzzleEvent,
   now = Date.now(),
+  editorId = 'legacy',
 ): SessionsData | null {
   const session = data.sessions.find((candidate) => candidate.id === sessionId)
   if (!session) return null
@@ -436,7 +520,15 @@ export function setSessionEvent(
     ...data,
     sessions: data.sessions.map((candidate) =>
       candidate.id === sessionId
-        ? { ...candidate, event, updatedAt: now }
+        ? {
+            ...candidate,
+            event,
+            updatedAt: now,
+            fieldUpdates: {
+              ...candidate.fieldUpdates,
+              event: { updatedAt: now, editorId },
+            },
+          }
         : candidate,
     ),
   }

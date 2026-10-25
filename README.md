@@ -50,6 +50,10 @@ phases and their acceptance gates.
   Session clearing and deletion live in the session settings gear.
 - **JSON backup and restore** covering every session, solve, and setting. Imports
   are validated and replace local data only after explicit confirmation.
+- **Optional Google Drive synchronization** using device-owned snapshots,
+  field-level merging for solves, session metadata, preferences, and global
+  settings, plus manual conflict review. It defers while the timer is active and
+  never runs before you explicitly connect a Google account.
 - **Local-first persistence** with versioned, validated browser storage and
   automatic migration from the original single-session key.
 - **Installable PWA** with full offline operation after the first visit.
@@ -150,43 +154,61 @@ settings only after a confirmation dialog explains the current and incoming
 counts. Cancelling the confirmation leaves local data untouched. Imports are
 limited to 10 MB; invalid files produce an inline error and are not applied.
 
-### Google Drive backup
+### Google Drive synchronization
 
 Open **Settings → Data → Google Drive backup**. Connect with Google Identity
 Services to obtain an access token for the app-data scope. CubeLab saves completed
 solves locally immediately, then downloads, compares, merges, saves, and uploads
-cloud changes without interrupting the timer. The remote file is
-`cubelab-backup.json` in Google Drive app data. Invalid or unsupported remote
-files are rejected before mutation.
+cloud changes. The timer is never interrupted: if a scheduled or manual sync is
+requested while the timer is armed, running, or inspecting, it is deferred and
+resumed once when the timer is idle.
+
+Each browser writes its own snapshot named
+`cubelab-backup-<device-id>.json` in Google Drive app data. Every run lists,
+validates, and merges **all** CubeLab snapshots, including the legacy fixed-name
+`cubelab-backup.json` from earlier releases. A device only replaces its own
+snapshot, so simultaneous uploads from different devices cannot overwrite one
+another. Invalid or unsupported snapshots are rejected before local mutation.
+Deleting remote backups removes every CubeLab snapshot, including the legacy
+file, and reports partial failures instead of claiming complete success.
 
 Automatic synchronization is enabled only after the user connects Google Drive.
-Its common settings are:
-combined mode at 5 minutes or 10 solves, whichever comes first, with minimum
-values of 1 minute and 1 solve. Startup, exit, and reconnection synchronization
-are available as advanced options.
+It defaults to combined mode at 5 minutes or 10 solves, whichever comes first,
+with minimum values of 1 minute and 1 solve. Startup, exit, and reconnection
+synchronization are available as advanced options. Failed automatic syncs retry
+with bounded backoff; when that budget is exhausted, CubeLab pauses automatic
+retries and asks you to use **Sync now**.
 
 There is no separate manual **Backup now** button and no
 **Restore from Drive** button. Synchronization is the reconciliation path:
 **Sync now**, startup sync, and automatic scheduling all merge local and cloud
-sessions and solves. Deletions use tombstones. Same-field solve edits are merged
-automatically unless manual review is enabled. With manual review, CubeLab pauses
-cloud publication and lists each pending conflict with **Use this device** and
-**Use cloud** actions; it resumes after the last one is resolved. An approval only
-applies to the exact values that were displayed, so an edit made after the prompt
-creates a fresh conflict instead of being overwritten. If a device adds solves to
-a session after another device deleted it, those solves are moved into a clearly
-labelled **Session (recovered)** rather than being lost. Later offline devices
-merge their solves into that recovered session by solve ID. New session tombstones
-record the deleting device's known solve IDs, allowing unknown offline solves to be
-recovered even when device clocks disagree; legacy tombstones use the timestamp
-fallback.
+sessions and solves. Sessions, solves, and tombstones merge by stable ID.
+Session name, event, inspection override, session preferences, and global
+settings merge field by field, with the newest field timestamp winning and a
+stable tiebreak when timestamps match. Equal legacy fields do not acquire
+fabricated history.
 
-Synchronization is not a substitute for the local JSON backup. The Drive transport
-does not currently provide verified atomic compare-and-swap protection, so two
-devices uploading at the same moment can still race. In-flight guards prevent a
-download from replacing solves recorded while it was running, but they cannot
-make the remote write atomic. Conflict review covers solve fields only, not
-session names, preferences, redirects, or global settings. See
+Same-field edits are merged automatically unless manual review is enabled. With
+manual review, CubeLab pauses cloud publication and lists pending conflicts for
+solve fields, session metadata, session preferences, global settings, and
+session redirects. Each conflict shows both values and **Use this device** /
+**Use cloud** actions; synchronization resumes after the last one is resolved.
+An approval only applies to the exact reviewed values and timestamps, so an edit
+made after the prompt creates a fresh conflict instead of being overwritten.
+
+If a device adds solves to a session after another device deleted it, those
+solves are moved into a clearly labelled **Session (recovered)** rather than
+being lost. Later offline devices merge their solves into that recovered session
+by solve ID. New session tombstones record the deleting device's known solve IDs,
+allowing unknown offline solves to be recovered even when device clocks
+disagree; legacy tombstones use the timestamp fallback.
+
+Synchronization is not a substitute for the local JSON backup. Google Drive still
+does not provide verified atomic compare-and-swap protection in this transport,
+so two tabs or profiles sharing the same device identity can race when writing
+the same snapshot. Device-owned snapshots remove the cross-device overwrite race,
+and in-flight guards prevent a download from replacing solves recorded while it
+was running, but neither makes the remote write transactional. See
 [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync
 limitations.
 
@@ -285,8 +307,9 @@ controls and Settings, backup export, invalid-file handling, import cancellation
 confirmed restore of sessions/comments/settings, the scramble-failure recovery
 state, and full offline scramble generation through the installed service
 worker. It also covers visual solve and DNF alerts, adjustable alert volume,
-accent persistence, the Controls reference, expanded/custom statistics, and
-tenths precision.
+accent persistence, the Controls reference, expanded/custom statistics, tenths
+precision, Google Drive mock synchronization, conflict review, and delete-all
+remote backup wording.
 
 ## Architecture
 
@@ -300,12 +323,18 @@ src/
   hooks/useModalDialog.ts Native modal lifecycle and focus containment
   lib/sessions.ts        Pure session, solve, comment, and name mutation logic
   lib/backup.ts          Versioned JSON backup creation and validation
+  lib/sync.ts            Solve/session/tombstone/redirect merge logic
+  lib/sessionMetadata.ts Field-level session metadata merging
+  lib/settingsMerge.ts   Field-level global-settings merging and provenance
+  lib/remoteBackups.ts   Read/merge/delete all device-owned Drive snapshots
   lib/scramble.ts        cubing.js random-state integration
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           WCA single, mo3, built-in, and custom average calculations
   lib/storage.ts         Versioned localStorage validation and migration
   lib/alerts.ts          Web Audio, vibration, DNF gain, and inspection warnings
   lib/format.ts          Display formatting
+  hooks/useSync.ts       Merge orchestration, scheduling, retries, and conflicts
+  hooks/useDriveBackup.ts Drive connection, per-device backup, and remote deletion
   components/            Timer, scramble, sessions, stats, history, and dialogs
   components/SettingsDialog.tsx  Timer, Alerts, Display, Appearance, Statistics,
                                  Scramble, Controls, Data, and About preferences
@@ -330,27 +359,35 @@ Storage keys are versioned:
 - `cubelab:solves:v1` — the original single-session key, read only to migrate
   existing 3×3 solves into **Session 1**.
 - `cubelab:drive:v1` — optional Google Drive connection metadata (account label
-  and remote file identity); OAuth tokens stay in memory.
+  and last remote file identity); OAuth tokens stay in memory.
+- `cubelab:sync:v1` — optional synchronization preferences and runtime state:
+  device ID, tombstones, redirects, conflict records, settings field timestamps,
+  and the last published fingerprint.
 
 Each session contains `id`, `name`, optional `event` and `preferences`,
-`createdAt`, `updatedAt`, `solves`, and an optional `inspectionEnabled` override.
-Each solve contains `id`, `event`, `rawMs`, `penalty`, `scramble`, `comment`, and
-`createdAt`. Invalid sessions,
-solves, and duplicate IDs are skipped individually. Corrupt session JSON falls
-back to the legacy record and then to a fresh empty session; a valid session
-collection is never silently discarded. The active session is normalized to an
-existing session on load. Sessions are stored at schema version 3; version 1 and
-2 records migrate with defaults for newer solve fields and preferences.
+`createdAt`, `updatedAt`, `solves`, an optional `inspectionEnabled` override, and
+optional `fieldUpdates` metadata for the name, event, inspection override, and
+individual preference fields. Each solve contains `id`, `event`, `rawMs`,
+`penalty`, `scramble`, `comment`, and `createdAt`, plus optional per-field merge
+metadata. Invalid sessions, solves, duplicate IDs, and malformed metadata are
+skipped individually. Corrupt session JSON falls back to the legacy record and
+then to a fresh empty session; a valid session collection is never silently
+discarded. The active session is normalized to an existing session on load.
+Sessions are stored at schema version 4; version 1–3 records load with defaults
+for newer fields. Missing field metadata falls back to `updatedAt` only at merge
+time and is not written back as fabricated history.
 
 Settings are stored at schema version 6. Version 1–5 records are upgraded in
 place with field-level defaults for newer settings; invalid individual values
-fall back without discarding the rest of the record.
+fall back without discarding the rest of the record. Global settings field
+timestamps are stored in `cubelab:sync:v1` rather than in the settings record, so
+the settings schema remains backward compatible.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
 exportedAt, sessions, settings, sync? }`. The parser validates the marker,
 version, sessions, solves, and settings before the confirmation step. The optional
-sync envelope carries the cloud revision, tombstones, conflict records, and session
-redirects.
+sync envelope carries the cloud revision, tombstones, conflict records, session
+redirects, and settings field timestamps.
 
 ### Production worker note
 
@@ -366,9 +403,9 @@ Playwright test is the regression guard for this setup. Do not remove the
 
 All sessions, solves, and settings stay in the browser's local storage by
 default. Backup files are created and read locally by the browser. If you
-explicitly connect Google Drive, synchronization uploads the same versioned
-backup to CubeLab's app-data folder in your own Drive account; there is no
-CubeLab account, backend, analytics, or telemetry.
+explicitly connect Google Drive, synchronization uploads a device-owned
+versioned snapshot to CubeLab's app-data folder in your own Drive account; there
+is no CubeLab account, backend, analytics, or telemetry.
 
 ## Scope
 
@@ -380,15 +417,17 @@ alert feedback, accent colors, statistics display controls, and the Controls
 reference. Phase 2A.3 adds count-down/count-up inspection with independent
 warnings, expanded and custom statistics, per-session settings, typed destructive
 confirmations, persisted solve comments, and the floating solve action menu.
-Phase 2B adds manual Google Drive backup and restore. Phase 2C adds optional
-local-first Google Drive synchronization with merging, tombstones, conflict
-review, and scheduled sync.
+Phase 2B introduced manual Google Drive backup and restore. Phase 2C supersedes
+those manual-only controls with optional local-first Google Drive
+synchronization using device-owned snapshots, field-level session and settings
+merging, tombstones, conflict review, and scheduled sync.
 
 Sessions can be set to 3×3, 2×2, 4×4, or 3×3 OH and use `cubing.js` scrambles for
 the selected event. Additional events, social features, and non-Google cloud
-providers remain outside scope. Synchronization is implemented, but Google Drive
-does not provide verified atomic compare-and-swap protection here, so concurrent
-uploads from two devices can still race; see [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+providers remain outside scope. Device-owned snapshots avoid cross-device file
+overwrites, but Google Drive does not provide verified atomic compare-and-swap
+protection here, so tabs or profiles sharing one device identity can still race;
+see [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 
 For implementation status and handoff details, see
 [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md). Contributors and future agents

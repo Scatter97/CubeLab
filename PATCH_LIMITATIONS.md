@@ -1,82 +1,116 @@
-# CubeLab synchronization hardening patch — limitations
+# CubeLab synchronization hardening — limitations
 
-This patch is deliberately **not** a claim that every audit finding is fixed.
+**Last updated:** 2026-10-25
+
+This patch substantially hardens Phase 2C, but it is deliberately **not** a claim
+that every distributed-systems problem is solved. Google Drive is still an
+eventually consistent remote store, not a transaction coordinator.
 
 ## Addressed
 
-### Manual conflict resolution and stale approvals
+### Device-owned remote snapshots
 
-- Pending same-field conflicts block cloud publication and appear in the Drive
-  dialog with **Use this device** and **Use cloud** actions. The choice is
-  stored, applied on the next merge, stamped newer than both reviewed versions,
-  and synchronization resumes automatically after the last pending conflict is
-  resolved.
-- An approval applies only while both sides still hold the exact field values and
-  modification timestamps that were displayed for review. A third edit made
-  between review and approval raises a fresh conflict instead of being silently
-  overwritten by the stale choice.
+- Each browser writes only its own
+  `cubelab-backup-<sanitized-device-id>.json` app-data snapshot. Simultaneous
+  uploads from different devices therefore cannot overwrite one another.
+- Every sync lists, validates, downloads, and merges **all** CubeLab snapshots.
+  The legacy fixed-name `cubelab-backup.json` remains readable for upgrades and
+  is included in manual restore and delete-all operations.
+- Manual backup (`useDriveBackup`) also replaces only the current device's file.
+  It never falls back to overwriting another device's file on a per-device
+  transport.
+- **Delete remote backups** now removes every CubeLab snapshot, including the
+  legacy file, and reports partial failures instead of claiming success.
 
-### Deletion recovery across successive devices
+### Field-level session and settings merging
 
-- Solves belonging to a deleted session can be copied into a clearly named
-  `(recovered)` session instead of disappearing.
-- If a recovered session already exists, later eligible solves are merged into it
-  by stable solve ID. A second or third offline device cannot lose its solves
-  because the recovered session was created earlier.
-- Recovery preserves the puzzle event, existing recovered-session preferences,
-  and inspection override. Repeated synchronization is idempotent.
-- New session tombstones record the solve IDs known to the deleting device.
-  Unknown solve IDs from another device are recoverable even if clock skew makes
-  them look older than the deletion. Legacy tombstones without that snapshot fall
-  back to wall-clock comparison.
+- Sessions schema `v4` adds optional per-field metadata for name, event,
+  inspection override, and each session preference. Sessions `v1`–`v4` load
+  with field-level recovery.
+- Global settings keep field metadata in `cubelab:sync:v1` rather than changing
+  the settings schema. First-sync merging preserves a device's customized
+  settings and establishes a baseline so another device cannot replace them just
+  because it has metadata first.
+- Independent edits to a solve's time, penalty, scramble, or comment; a session's
+  name, event, inspection, or preferences; or a global setting merge by field.
+  Newest timestamp wins, with a stable editor-ID/value tiebreak.
+- Equal legacy fields do not acquire fabricated persisted field timestamps.
+  Explicit metadata is carried forward when one side already has it.
 
-### Other hardening
+### Broader conflict review
 
-- **Pending count semantics:** the internal counter is
-  `newSolvesSinceLastSync`, matching the UI label. It does not claim to count
-  renamed sessions, penalty edits, deletions, or preference changes.
-- **Status messages:** manual completion now says that no new solves were
-  exchanged instead of implying that every metadata change was synchronized.
-- **Redirect determinism:** normalization is covered for shuffled input and
-  divergent approvals for the same source.
-- **In-flight edits:** reference-change checks still protect local state during
-  download and upload.
+- Manual conflict review now covers solve fields, session name/event/inspection/
+  preferences, global settings, and redirect destination conflicts.
+- Pending conflicts pause publication. The Drive dialog labels the conflict kind
+  and fields, shows both reviewed values, and offers **Use this device** /
+  **Use cloud**.
+- An approval applies only while both sides still hold the exact reviewed values
+  and timestamps. A later edit raises a fresh conflict.
+- Redirect approvals are matched by source/destination pair so applying the
+  winner does not immediately manufacture a duplicate approval.
+
+### Scheduling and status
+
+- Synchronization is deferred while the timer is armed, running, or inspecting
+  and resumes once when the timer becomes idle.
+- Automatic retries have a bounded budget. External triggers reset the budget;
+  exhausted retries surface an explicit paused status instead of spinning.
+- Startup resumes a sync that was persisted as `syncing`, and sync-on-exit is
+  attempted on visibility loss, `pagehide`, and `beforeunload`.
+- Fingerprints detect local edits during download and upload, skip redundant
+  uploads when the confirmed remote and local state are unchanged, and report
+  unsynchronized changes and pending conflicts in the status line.
+
+### Recovery and deletion
+
+- Session tombstones record the deleting device's known solve IDs. Unknown
+  offline solves are recovered into `recovered:<sessionId>` even under clock
+  skew; repeated devices extend that session by stable solve ID.
+- Event compatibility, existing recovered preferences, and inspection overrides
+  are preserved. Explicit later deletion of the recovered session wins.
+- Removal counts count unique tombstoned solves, regardless of how many
+  snapshots carried the tombstone.
 
 ## Still unresolved
 
-- **No verified atomic compare-and-swap.** The Drive transport uses direct media
-  `PATCH` without an atomic revision precondition. Two devices can still overwrite
-  a remote backup in a write race. A monotonic JSON revision is not a CAS, and
-  Google Drive v3 does not expose a verified conditional-write token through this
-  transport. This requires a provider-supported protocol or backend guarantee.
-- **No server-side write serialization.** In-flight guards protect local data, not
-  the remote write.
-- **Conflict workflow is minimal.** It resolves solve-field conflicts only. There
-  is no conflict queue for session names, preferences, redirects, or global
-  settings, and no audit log of past resolutions.
-- **Legacy deletion tombstones still use wall-clock comparison.** Session
-  tombstones created before the known-solve snapshot cannot distinguish an
-  unknown offline edit from an intentionally deleted solve, so ambiguous
-  pre-existing edits can still be lost. New tombstones remove the clock-skew
-  dependence by recovering IDs the deleting device did not know, which is
-  conservative: an old solve that never reached the deleting device can be
-  recovered rather than silently deleted.
-- **Explicit deletion wins.** If a recovered session is itself tombstoned, later
-  recovery passes do not resurrect it.
-- **Session preferences remain session-wide.** Independent edits to different
-  preference fields on two devices can still lose one edit because there are no
-  per-preference timestamps.
-- **Redirects are deterministic, not consensus-based.** Devices that temporarily
-  hold different approval sets can resolve differently until they exchange the
-  same set. Divergent approved destinations have no explicit recovery flow.
+- **No verified provider compare-and-swap.** Device-owned files prevent
+  cross-device file overwrites, but Google Drive still has no conditional write
+  in this transport. Two tabs or profiles sharing the same device ID can race on
+  the same file. Web Locks reduces same-origin tab concurrency but is not a
+  remote transaction.
+- **No real multi-device provider validation.** Automated coverage uses the
+  deterministic in-memory transport. Real Google Identity Services and Drive
+  backup/restore were validated earlier; concurrent multi-device sync against
+  real Drive was not.
+- **Eventual convergence, not synchronous consistency.** Each device must run a
+  later merge before it sees another device's newest snapshot. There is no
+  server-side ordering, push notification, or read-after-write guarantee.
+- **Delete-all is all-or-nothing.** There is no selective snapshot management,
+  stale-snapshot cleanup policy, or UI showing which device owns each file.
+- **Legacy tombstones still use wall-clock comparison.** Tombstones without
+  `knownSolveIds` cannot distinguish an unknown offline edit from an intentional
+  deletion, so ambiguous old edits can still be lost.
+- **Redirect handling is deterministic, not consensus-based.** Devices with
+  different approval sets can resolve differently until they exchange the same
+  set. Divergent approved destinations have no separate recovery flow.
+- **Conflict review has no audit history or undo.** Resolutions are stored only
+  as current runtime records; the queue is capped at 100 entries, and past
+  choices cannot be inspected or reversed from the UI.
 - **Sync-on-exit is best effort.** Browsers may terminate async OAuth and network
-  work during close. Local persistence is the durability boundary.
+  work while closing. Local storage remains the durability boundary.
+- **Active-session selection is not field-merged.** The active session is kept
+  when it still exists locally; concurrent selection changes are not reviewed.
 - **In-flight identity checks assume immutable React state.** An accidental
-  in-place mutation of the sessions or settings objects would not be detected.
-- **No real cross-device validation after this patch.** Automated coverage uses
-  the deterministic in-memory Drive transport.
+  in-place mutation of sessions or settings could bypass the fingerprint guard.
+- **Settings provenance depends on sync metadata.** If `cubelab:sync:v1` is
+  cleared, settings fall back to the conservative first-sync/whole-field policy
+  rather than recovering historical per-field timestamps.
+- **Local JSON import remains replace-only.** Drive sync does not turn file
+  import into a merge operation.
 
-To validate after applying, run `npm run typecheck`, `npm run lint`, `npm test`,
-`npm run build`, and `npm run test:e2e` with Node 20 or newer. Use an isolated mock
-cloud for concurrency scenarios. Do not treat this patch as a data-loss-proof
+## Verification
+
+Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and
+`npm run test:e2e` with Node 20 or newer. Use an isolated mock cloud for
+concurrency scenarios. Do not treat this patch as a data-loss-proof
 synchronization protocol.

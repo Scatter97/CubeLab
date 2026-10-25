@@ -1,13 +1,24 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { SessionsData, Settings } from '../types'
-import { createBackup, parseBackup } from '../lib/backup'
-import type { DriveTransport } from '../lib/driveTransport'
+import { createBackup } from '../lib/backup'
+import {
+  deviceBackupFileName,
+  type DriveTransport,
+} from '../lib/driveTransport'
 import { countSolves } from '../lib/sessions'
 import {
   loadDriveBackupState,
   saveDriveBackupState,
   type DriveBackupState,
 } from '../lib/driveStorage'
+import { loadSyncStorage } from '../lib/syncStorage'
+import { createSyncEnvelope } from '../lib/sync'
+import {
+  deleteAllRemoteBackups,
+  listRemoteBackups,
+  mergeRemoteBackupSnapshots,
+  readRemoteBackups,
+} from '../lib/remoteBackups'
 
 export type DriveBackupPhase =
   | 'unconfigured'
@@ -70,7 +81,8 @@ export function useDriveBackup({
     setError(null)
     try {
       await transport.connect()
-      const file = await transport.findBackup()
+      const files = await listRemoteBackups(transport)
+      const file = files[0]
       setConnected(true)
       persistMetadata({
         ...metadata,
@@ -104,10 +116,31 @@ export function useDriveBackup({
     setPhase('backing-up')
     setError(null)
     try {
-      const backup = createBackup(sessions, settings)
-      const remote = await transport.findBackup()
-      const existingId = remote?.id ?? metadata.remoteFileId
-      const result = await transport.uploadBackup(JSON.stringify(backup), existingId)
+      const syncStorage = loadSyncStorage()
+      const deviceId = syncStorage.runtime.deviceId
+      const envelope = createSyncEnvelope(
+        deviceId,
+        Math.max(syncStorage.runtime.lastRemoteRevision ?? 0, 0) + 1,
+        syncStorage.runtime.tombstones,
+        syncStorage.runtime.conflicts,
+        syncStorage.runtime.sessionRedirects,
+        syncStorage.runtime.settingsFieldUpdates,
+      )
+      const backup = createBackup(sessions, settings, new Date(), envelope)
+      const remoteFiles = await listRemoteBackups(transport)
+      const ownName = deviceBackupFileName(deviceId)
+      const ownFile = remoteFiles.find((file) => file.name === ownName)
+      // A device may only replace its own snapshot. Falling back to
+      // `metadata.remoteFileId` could point at another device's file and
+      // overwrite it; that fallback is safe only for legacy single-file
+      // transports.
+      const existingId = ownFile?.id ?? null
+      const result = transport.uploadDeviceBackup
+        ? await transport.uploadDeviceBackup(JSON.stringify(backup), deviceId, existingId)
+        : await transport.uploadBackup(
+            JSON.stringify(backup),
+            existingId ?? metadata.remoteFileId,
+          )
       const next = {
         ...metadata,
         remoteFileId: result.id,
@@ -134,20 +167,18 @@ export function useDriveBackup({
     setPhase('restoring')
     setError(null)
     try {
-      const remote = await transport.findBackup()
-      if (!remote) throw new Error('No Google Drive backup was found.')
-      const raw = await transport.downloadBackup(remote.id)
-      if (raw.length > 10 * 1024 * 1024) throw new Error('That backup is too large to restore.')
-      const parsed = parseBackup(raw)
-      if (!parsed.ok) throw new Error(parsed.error)
+      const snapshots = await readRemoteBackups(transport)
+      if (snapshots.length === 0) throw new Error('No Google Drive backup was found.')
+      const merged = mergeRemoteBackupSnapshots(snapshots)
+      const newest = snapshots[snapshots.length - 1]!
       persistMetadata({
         ...metadata,
-        remoteFileId: remote.id,
-        remoteModifiedTime: remote.modifiedTime,
+        remoteFileId: newest.file.id,
+        remoteModifiedTime: newest.file.modifiedTime,
         lastRestoreAt: metadata.lastRestoreAt,
         connectedAccountLabel: transport.accountLabel || metadata.connectedAccountLabel,
       })
-      onPendingRestore(parsed.backup)
+      onPendingRestore(createBackup(merged.sessions, merged.settings))
       setPhase('connected')
     } catch (caught) {
       setError(toMessage(caught))
@@ -156,12 +187,16 @@ export function useDriveBackup({
   }, [connect, connected, metadata, onPendingRestore, persistMetadata, transport])
 
   const deleteRemoteBackup = useCallback(async () => {
+    if (!transport) return
     const remoteFileId = metadata.remoteFileId ?? loadDriveBackupState().remoteFileId
-    if (!transport || !remoteFileId) return
     setPhase('deleting')
     setError(null)
     try {
-      await transport.deleteBackup(remoteFileId)
+      const deleted = await deleteAllRemoteBackups(transport, remoteFileId)
+      if (deleted === 0 && !remoteFileId) {
+        setPhase('connected')
+        return
+      }
       persistMetadata({
         ...loadDriveBackupState(),
         ...metadata,
