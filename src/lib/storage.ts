@@ -275,6 +275,33 @@ function getDefaultStorage(): StorageLike | null {
  * individually so one corrupt record cannot make every other session
  * unreadable. Duplicate session and solve IDs are ignored.
  */
+/**
+ * Finds sessions whose solve events disagree with the session event. Imports
+ * reject these outright instead of dropping solves or silently changing the
+ * session event: a mixed-event session would otherwise wedge synchronization.
+ */
+export function findSessionEventMismatches(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.sessions)) return []
+  const errors: string[] = []
+  for (const [sessionIndex, candidate] of value.sessions.entries()) {
+    if (!isRecord(candidate)) continue
+    const normalizedName =
+      typeof candidate.name === 'string' ? normalizeSessionName(candidate.name) : ''
+    const name = normalizedName || `Session ${sessionIndex + 1}`
+    const event = isPuzzleEvent(candidate.event) ? candidate.event : '333'
+    if (!Array.isArray(candidate.solves)) continue
+    for (const rawSolve of candidate.solves) {
+      const solve = parseSolve(rawSolve)
+      if (solve && solve.event !== event) {
+        errors.push(
+          `Session "${name}" is set to ${event} but contains a ${solve.event} solve (${solve.id}).`,
+        )
+      }
+    }
+  }
+  return errors
+}
+
 export function parseSessionsData(value: unknown): SessionsData | null {
   if (!isRecord(value)) return null
   if (!Array.isArray(value.sessions)) return null
@@ -489,9 +516,16 @@ function createEmptySessions(): SessionsData {
 
 function createSessionsFromLegacy(solves: readonly Solve[]): SessionsData {
   const id = createId()
-  const timestamps = solves.map((solve) => solve.createdAt)
-  const createdAt = Math.min(...timestamps)
-  const updatedAt = Math.max(...timestamps)
+  // Reduce instead of spreading an unbounded history into Math.min/Math.max:
+  // very large legacy arrays exceed the engine argument limit and throw.
+  let createdAt = Number.POSITIVE_INFINITY
+  let updatedAt = 0
+  for (const solve of solves) {
+    if (solve.createdAt < createdAt) createdAt = solve.createdAt
+    if (solve.createdAt > updatedAt) updatedAt = solve.createdAt
+  }
+  if (!Number.isFinite(createdAt)) createdAt = Date.now()
+  if (updatedAt === 0) updatedAt = createdAt
 
   return {
     activeSessionId: id,

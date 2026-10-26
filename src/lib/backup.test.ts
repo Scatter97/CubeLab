@@ -196,3 +196,112 @@ describe('backup validation', () => {
     ])
   })
 })
+
+describe('import trust boundaries', () => {
+  it('rejects a session containing a solve from another event', () => {
+    const backup = createBackup(sessions(), DEFAULT_SETTINGS)
+    const mixed = {
+      ...backup,
+      sessions: {
+        ...backup.sessions,
+        sessions: backup.sessions.sessions.map((session, index) =>
+          index === 0
+            ? {
+                ...session,
+                solves: [solve({ id: 'mixed', event: '222' })],
+              }
+            : session,
+        ),
+      },
+    }
+
+    const result = parseBackup(JSON.stringify(mixed))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('Session "Morning"')
+    expect(result.error).toContain('222')
+    expect(result.error).toContain('did not change your local data')
+  })
+
+  it('keeps legacy backups without a session event compatible', () => {
+    const backup = createBackup(sessions(), DEFAULT_SETTINGS)
+    const legacy = {
+      ...backup,
+      sessions: {
+        ...backup.sessions,
+        sessions: backup.sessions.sessions.map((session) => {
+          const { event: _event, ...rest } = session
+          return rest
+        }),
+      },
+    }
+
+    const result = parseBackup(JSON.stringify(legacy))
+    expect(result.ok).toBe(true)
+  })
+
+  it.each([
+    ['null tombstone', { tombstones: [null] }],
+    ['malformed tombstone date', { tombstones: [{ kind: 'solve', id: 's', deletedAt: 'x', deletedByDeviceId: 'd' }] }],
+    ['empty tombstone id', { tombstones: [{ kind: 'solve', id: '', deletedAt: 1, deletedByDeviceId: 'd' }] }],
+    ['missing conflict values', { conflicts: [{ id: 'c', kind: 'solve', field: 'penalty', localUpdatedAt: 1, remoteUpdatedAt: 2, resolution: 'local', updatedAt: 3 }] }],
+    ['invalid redirect', { sessionRedirects: [{ fromId: 'a', toId: 'a', approvedAt: 1 }] }],
+    ['malformed redirect date', { sessionRedirects: [{ fromId: 'a', toId: 'b', approvedAt: 'x' }] }],
+  ])('rejects a sync envelope with %s', (_label, change) => {
+    const backup = createBackup(sessions(), DEFAULT_SETTINGS, new Date(), {
+      protocolVersion: 1,
+      revision: 2,
+      deviceId: 'device-a',
+      updatedAt: 1_700_000_000_000,
+      tombstones: [],
+      conflicts: [],
+      sessionRedirects: [],
+    })
+    const payload = {
+      ...backup,
+      sync: { ...backup.sync, ...change },
+    }
+
+    const result = parseBackup(JSON.stringify(payload))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('malformed synchronization envelope')
+  })
+
+  it('accepts a valid restored tombstone', () => {
+    const backup = createBackup(sessions(), DEFAULT_SETTINGS, new Date(), {
+      protocolVersion: 1,
+      revision: 2,
+      deviceId: 'device-a',
+      updatedAt: 1_700_000_000_000,
+      tombstones: [
+        {
+          kind: 'solve',
+          id: 'solve-1',
+          deletedAt: 10,
+          deletedByDeviceId: 'device-a',
+          restoredAt: 20,
+        },
+      ],
+      conflicts: [],
+      sessionRedirects: [],
+    })
+
+    expect(parseBackup(JSON.stringify(backup)).ok).toBe(true)
+  })
+
+  it('detaches nested settings from later mutation', () => {
+    const live = {
+      ...DEFAULT_SETTINGS,
+      statVisibility: { ...DEFAULT_SETTINGS.statVisibility },
+      customAverages: [{ id: 'custom', size: 7, visible: true }],
+    }
+    const backup = createBackup(sessions(), live)
+
+    live.statVisibility.ao5 = false
+    live.customAverages[0]!.visible = false
+
+    expect(backup.settings.statVisibility.ao5).toBe(true)
+    expect(backup.settings.customAverages[0]?.visible).toBe(true)
+  })
+})

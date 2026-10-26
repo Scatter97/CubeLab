@@ -309,13 +309,32 @@ export function mergeSessionMetadata(input: {
   let inspectionEnabled: boolean | undefined
   let inspectionUpdate: FieldUpdate | undefined
   if (local.inspectionEnabled === undefined && remote.inspectionEnabled === undefined) {
-    inspectionEnabled = undefined
-  } else if (local.inspectionEnabled === undefined) {
-    inspectionEnabled = remote.inspectionEnabled
-    inspectionUpdate = getSessionFieldUpdate(remote, 'inspectionEnabled')
-  } else if (remote.inspectionEnabled === undefined) {
-    inspectionEnabled = local.inspectionEnabled
-    inspectionUpdate = getSessionFieldUpdate(local, 'inspectionEnabled')
+    // Equal absent values may still carry an explicit "use global" timestamp
+    // from one side. Keep it so the removal continues to win later merges.
+    const localExplicit = hasExplicitFieldUpdate(local, 'inspectionEnabled')
+    const remoteExplicit = hasExplicitFieldUpdate(remote, 'inspectionEnabled')
+    inspectionUpdate = localExplicit
+      ? remoteExplicit
+        ? newestUpdate(
+            getSessionFieldUpdate(local, 'inspectionEnabled'),
+            getSessionFieldUpdate(remote, 'inspectionEnabled'),
+          )
+        : getSessionFieldUpdate(local, 'inspectionEnabled')
+      : remoteExplicit
+        ? getSessionFieldUpdate(remote, 'inspectionEnabled')
+        : undefined
+  } else if (
+    (local.inspectionEnabled === undefined || remote.inspectionEnabled === undefined) &&
+    !hasExplicitFieldUpdate(local, 'inspectionEnabled') &&
+    !hasExplicitFieldUpdate(remote, 'inspectionEnabled')
+  ) {
+    // Legacy records have no "cleared" provenance: a present value wins over an
+    // absent one so old overrides are not silently lost.
+    inspectionEnabled = local.inspectionEnabled ?? remote.inspectionEnabled
+    inspectionUpdate =
+      local.inspectionEnabled !== undefined
+        ? getSessionFieldUpdate(local, 'inspectionEnabled')
+        : getSessionFieldUpdate(remote, 'inspectionEnabled')
   } else {
     const result = mergeField({
       local,
@@ -329,7 +348,7 @@ export function mergeSessionMetadata(input: {
       conflicts,
       resolvedConflicts,
     })
-    inspectionEnabled = result.value as boolean
+    inspectionEnabled = result.value as boolean | undefined
     inspectionUpdate = result.update
   }
 

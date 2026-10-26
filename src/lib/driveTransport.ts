@@ -238,7 +238,9 @@ export function createGoogleDriveTransport(
     return new Promise<string>((resolve, reject) => {
       const client = gis.initTokenClient({
         client_id: clientId,
-        scope: `${DRIVE_BACKUP_SCOPE} openid email https://www.googleapis.com/auth/userinfo.email`,
+        // App-data scope only. CubeLab deliberately does not request email,
+        // profile, openid, or any other identity scope.
+        scope: DRIVE_BACKUP_SCOPE,
         callback: (response) => {
           if (response.error || !response.access_token) {
             reject(new Error(response.error || 'Google sign-in was cancelled.'))
@@ -358,20 +360,9 @@ export function createGoogleDriveTransport(
     },
     async connect() {
       await ensureToken('consent')
-      try {
-        const response = await fetch(
-          'https://www.googleapis.com/oauth2/v3/userinfo',
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        )
-        if (response.ok) {
-          const data = (await response.json()) as { email?: string; name?: string }
-          accountLabel = data.email || data.name || 'Google account connected'
-        } else {
-          accountLabel = 'Google account connected'
-        }
-      } catch {
-        accountLabel = 'Google account connected'
-      }
+      // No identity-network call: app-data access does not reveal the account
+      // email, and requesting it would broaden consent unnecessarily.
+      accountLabel = 'Google Drive connected'
     },
     disconnect() {
       if (accessToken && window.google?.accounts?.oauth2) {

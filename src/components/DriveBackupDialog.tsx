@@ -133,6 +133,13 @@ export function DriveBackupDialog({
   const persistedDriveState = loadDriveBackupState()
   const remoteFileId =
     persistedDriveState.remoteFileId ?? drive.metadata.remoteFileId
+  const handleDisconnect = () => {
+    drive.disconnect()
+    // A disconnected browser cannot synchronize. Keep the preference state
+    // coherent instead of advertising automatic sync that can only fail.
+    sync.updatePreferences({ enabled: false })
+    onNotify('Google Drive disconnected. Automatic synchronization is off.')
+  }
 
   return (
     <>
@@ -367,7 +374,7 @@ export function DriveBackupDialog({
                       className="button button-secondary button-small"
                       data-testid="drive-disconnect"
                       disabled={busy}
-                      onClick={drive.disconnect}
+                      onClick={handleDisconnect}
                     >
                       Disconnect
                     </button>
@@ -588,12 +595,7 @@ export function DriveBackupDialog({
                       type="button"
                       className="button button-danger button-small"
                       data-testid="drive-delete-remote"
-                      disabled={
-                        !remoteFileId ||
-                        drive.configured === false ||
-                        busy ||
-                        !remoteFileId
-                      }
+                      disabled={!drive.configured || busy}
                       onClick={() => setDeleteConfirmOpen(true)}
                     >
                       Delete remote backup

@@ -37,46 +37,6 @@ export function SettingsDialog({
   onClose,
 }: SettingsDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
-  const [customAverageError, setCustomAverageError] = useState<string | null>(
-    null,
-  )
-
-  const updateCustomAverages = (next: CustomAverageSetting[]) => {
-    const sizes = next.map((average) => average.size)
-    if (new Set(sizes).size !== sizes.length) {
-      setCustomAverageError('Custom averages must use different sizes.')
-      return
-    }
-    setCustomAverageError(null)
-    onChange({ customAverages: next })
-  }
-
-  const addCustomAverage = () => {
-    if (settings.customAverages.length >= MAX_CUSTOM_AVERAGES) return
-    const size = nextCustomAverageSize(
-      settings.customAverages.map((average) => average.size),
-    )
-    updateCustomAverages([
-      ...settings.customAverages,
-      { id: createId(), size, visible: true },
-    ])
-  }
-
-  const changeCustomAverageSize = (id: string, value: number) => {
-    const size = Math.max(
-      MIN_CUSTOM_AVERAGE_SIZE,
-      Math.min(MAX_CUSTOM_AVERAGE_SIZE, Math.round(value)),
-    )
-    if (isBuiltInAverageSize(size)) {
-      setCustomAverageError(`ao${size} is already available above.`)
-      return
-    }
-    updateCustomAverages(
-      settings.customAverages.map((average) =>
-        average.id === id ? { ...average, size } : average,
-      ),
-    )
-  }
 
   return (
     <dialog
@@ -93,7 +53,83 @@ export function SettingsDialog({
         if (event.target === dialogRef.current) onClose()
       }}
     >
-      <div className="dialog-content settings-content">
+      {open ? (
+        <SettingsContent
+          settings={settings}
+          storageOk={storageOk}
+          sessionCount={sessionCount}
+          solveCount={solveCount}
+          onChange={onChange}
+          onOpenBackup={onOpenBackup}
+          onOpenDriveBackup={onOpenDriveBackup}
+          onClose={onClose}
+        />
+      ) : null}
+    </dialog>
+  )
+}
+
+function SettingsContent({
+  settings,
+  storageOk,
+  sessionCount,
+  solveCount,
+  onChange,
+  onOpenBackup,
+  onOpenDriveBackup,
+  onClose,
+}: Omit<SettingsDialogProps, 'open'>) {
+  const [customAverageError, setCustomAverageError] = useState<string | null>(
+    null,
+  )
+
+  const updateCustomAverages = (next: CustomAverageSetting[]): string | null => {
+    const sizes = next.map((average) => average.size)
+    if (new Set(sizes).size !== sizes.length) {
+      const error = 'Custom averages must use different sizes.'
+      setCustomAverageError(error)
+      return error
+    }
+    setCustomAverageError(null)
+    onChange({ customAverages: next })
+    return null
+  }
+
+  const changeCustomAverageSize = (id: string, size: number): string | null => {
+    if (
+      !Number.isInteger(size) ||
+      size < MIN_CUSTOM_AVERAGE_SIZE ||
+      size > MAX_CUSTOM_AVERAGE_SIZE
+    ) {
+      const error = `Use a whole number from ${MIN_CUSTOM_AVERAGE_SIZE} to ${MAX_CUSTOM_AVERAGE_SIZE}.`
+      setCustomAverageError(error)
+      return error
+    }
+    if (isBuiltInAverageSize(size)) {
+      const error = `ao${size} is already available above.`
+      setCustomAverageError(error)
+      return error
+    }
+    return updateCustomAverages(
+      settings.customAverages.map((average) =>
+        average.id === id ? { ...average, size } : average,
+      ),
+    )
+  }
+
+  const addCustomAverage = () => {
+    if (settings.customAverages.length >= MAX_CUSTOM_AVERAGES) return
+    const size = nextCustomAverageSize(
+      settings.customAverages.map((average) => average.size),
+    )
+    updateCustomAverages([
+      ...settings.customAverages,
+      { id: createId(), size, visible: true },
+    ])
+  }
+
+  return (
+    <div className="dialog-content settings-content">
         <header className="settings-header">
           <div>
             <span className="eyebrow">Preferences</span>
@@ -310,12 +346,12 @@ export function SettingsDialog({
                     : [
                         {
                           key: '8s' as const,
-                          label: '8 seconds elapsed',
+                          label: '7 seconds remaining',
                           checked: settings.inspectionWarning8s,
                         },
                         {
                           key: '12s' as const,
-                          label: '12 seconds elapsed',
+                          label: '3 seconds remaining',
                           checked: settings.inspectionWarning12s,
                         },
                       ]
@@ -342,7 +378,7 @@ export function SettingsDialog({
             <p className="settings-note">
               {settings.inspectionCountDirection === 'up'
                 ? 'Count up warns at 8 and 12 seconds elapsed.'
-                : 'Count down warns at 8 and 12 seconds elapsed (7 and 3 seconds remaining).'}{' '}
+                : 'Count down warns at 7 and 3 seconds remaining.'}{' '}
               Warnings always show their text when enabled and follow the
               inspection timer direction. Sound and haptic follow the feedback
               channel above; volume applies to sound, and haptic support varies
@@ -437,60 +473,28 @@ export function SettingsDialog({
               <span className="settings-field-label">Custom averages</span>
               <div className="settings-custom-averages">
                 {settings.customAverages.map((average, index) => (
-                  <div className="settings-custom-average" key={average.id}>
-                    <label className="settings-checkbox">
-                      <input
-                        type="checkbox"
-                        aria-label={`Show custom ao${average.size}`}
-                        data-testid={`custom-average-visible-${index}`}
-                        checked={average.visible}
-                        onChange={(event) =>
-                          updateCustomAverages(
-                            settings.customAverages.map((candidate) =>
-                              candidate.id === average.id
-                                ? {
-                                    ...candidate,
-                                    visible: event.target.checked,
-                                  }
-                                : candidate,
-                            ),
-                          )
-                        }
-                      />
-                      <span>ao</span>
-                    </label>
-                    <input
-                      type="number"
-                      className="settings-custom-size"
-                      aria-label={`Custom average size ${index + 1}`}
-                      data-testid={`custom-average-size-${index}`}
-                      min={MIN_CUSTOM_AVERAGE_SIZE}
-                      max={MAX_CUSTOM_AVERAGE_SIZE}
-                      step={1}
-                      value={average.size}
-                      onChange={(event) =>
-                        changeCustomAverageSize(
-                          average.id,
-                          Number(event.target.value || MIN_CUSTOM_AVERAGE_SIZE),
-                        )
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="text-button danger-text"
-                      aria-label={`Remove custom ao${average.size}`}
-                      data-testid={`remove-custom-average-${index}`}
-                      onClick={() =>
-                        updateCustomAverages(
-                          settings.customAverages.filter(
-                            (candidate) => candidate.id !== average.id,
-                          ),
-                        )
-                      }
-                    >
-                      Remove
-                    </button>
-                  </div>
+                  <CustomAverageRow
+                    key={`${average.id}:${average.size}`}
+                    average={average}
+                    index={index}
+                    onCommitSize={changeCustomAverageSize}
+                    onVisibleChange={(id, visible) =>
+                      updateCustomAverages(
+                        settings.customAverages.map((candidate) =>
+                          candidate.id === id
+                            ? { ...candidate, visible }
+                            : candidate,
+                        ),
+                      )
+                    }
+                    onRemove={(id) =>
+                      updateCustomAverages(
+                        settings.customAverages.filter(
+                          (candidate) => candidate.id !== id,
+                        ),
+                      )
+                    }
+                  />
                 ))}
               </div>
               <button
@@ -651,13 +655,15 @@ export function SettingsDialog({
               <span className="settings-data-copy">
                 <span className="settings-data-title">Google Drive backup</span>
                 <span className="settings-data-description">
-                  Manually back up or restore with Google Drive app data
+                  Synchronize sessions and settings with Google Drive app data
                 </span>
               </span>
               <ChevronRightIcon size={16} />
             </button>
             <p className="settings-note">
-              Backups stay on this device. CubeLab never uploads them.
+              Local JSON backups stay on this device. Google Drive
+              synchronization uploads session and setting data to your Google
+              account only when you connect it.
             </p>
           </section>
 
@@ -694,6 +700,97 @@ export function SettingsDialog({
           </button>
         </footer>
       </div>
-    </dialog>
+  )
+}
+interface CustomAverageRowProps {
+  average: CustomAverageSetting
+  index: number
+  onCommitSize: (id: string, size: number) => string | null
+  onVisibleChange: (id: string, visible: boolean) => void
+  onRemove: (id: string) => void
+}
+
+function CustomAverageRow({
+  average,
+  index,
+  onCommitSize,
+  onVisibleChange,
+  onRemove,
+}: CustomAverageRowProps) {
+  // Keep a draft string so typing `100` is not clamped to `300` after the
+  // first keystroke. Validation happens on blur or Enter.
+  const [draft, setDraft] = useState(String(average.size))
+  const [error, setError] = useState<string | null>(null)
+
+  const commit = () => {
+    const trimmed = draft.trim()
+    if (!/^\d+$/.test(trimmed)) {
+      setError(
+        `Enter a whole number from ${MIN_CUSTOM_AVERAGE_SIZE} to ${MAX_CUSTOM_AVERAGE_SIZE}.`,
+      )
+      return
+    }
+    const size = Number(trimmed)
+    const message = onCommitSize(average.id, size)
+    if (message) {
+      setError(message)
+      return
+    }
+    setError(null)
+    setDraft(String(size))
+  }
+
+  return (
+    <div className="settings-custom-average">
+      <label className="settings-checkbox">
+        <input
+          type="checkbox"
+          aria-label={`Show custom ao${average.size}`}
+          data-testid={`custom-average-visible-${index}`}
+          checked={average.visible}
+          onChange={(event) =>
+            onVisibleChange(average.id, event.target.checked)
+          }
+        />
+        <span>ao</span>
+      </label>
+      <input
+        type="number"
+        className="settings-custom-size"
+        aria-label={`Custom average size ${index + 1}`}
+        aria-invalid={Boolean(error)}
+        data-testid={`custom-average-size-${index}`}
+        min={MIN_CUSTOM_AVERAGE_SIZE}
+        max={MAX_CUSTOM_AVERAGE_SIZE}
+        step={1}
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value)
+          setError(null)
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+            event.currentTarget.blur()
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="text-button danger-text"
+        aria-label={`Remove custom ao${average.size}`}
+        data-testid={`remove-custom-average-${index}`}
+        onClick={() => onRemove(average.id)}
+      >
+        Remove
+      </button>
+      {error ? (
+        <p className="settings-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   )
 }

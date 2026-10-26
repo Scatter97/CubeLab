@@ -1,7 +1,6 @@
 
 import type { FieldUpdate, Settings } from '../types'
 
-export type SyncMode = 'time' | 'solve' | 'combined'
 export type SyncIntervalMinutes = 1 | 2 | 3 | 5 | 10 | 15 | 30 | 60
 export type SyncSolveThreshold = 1 | 2 | 3 | 5 | 10 | 20 | 25 | 50 | 100
 export type SyncStatus =
@@ -16,7 +15,6 @@ export type SyncStatus =
 
 export interface SyncPreferences {
   enabled: boolean
-  mode: SyncMode
   intervalMinutes: SyncIntervalMinutes
   solveThreshold: SyncSolveThreshold
   syncOnStartup: boolean
@@ -31,6 +29,13 @@ export interface Tombstone {
   sessionId?: string
   deletedAt: number
   deletedByDeviceId: string
+  /**
+   * Set when the deletion was undone locally. A tombstone whose `restoredAt` is
+   * newer than its `deletedAt` is inactive but is still propagated so every
+   * device converges on the restoration. A later deletion at a newer timestamp
+   * wins again, so intentionally deleted data is never resurrected.
+   */
+  restoredAt?: number
   revision?: number
   /**
    * Session tombstones: solve IDs known to the deleting device at deletion time.
@@ -39,6 +44,15 @@ export interface Tombstone {
    */
   knownSolveIds?: string[]
 }
+
+/**
+ * True when a tombstone still removes data. Restored tombstones remain in the
+ * collection as durable, synchronizable revocation records.
+ */
+export function isActiveTombstone(tombstone: Tombstone): boolean {
+  return tombstone.restoredAt === undefined || tombstone.restoredAt <= tombstone.deletedAt
+}
+
 
 export interface SyncConflict {
   id: string
@@ -95,7 +109,6 @@ export const SYNC_THRESHOLD_OPTIONS: SyncSolveThreshold[] = [1, 2, 3, 5, 10, 20,
 
 export const DEFAULT_SYNC_PREFERENCES: SyncPreferences = {
   enabled: false,
-  mode: 'combined',
   intervalMinutes: 5,
   solveThreshold: 10,
   syncOnStartup: true,
@@ -116,12 +129,23 @@ function isValidThreshold(value: unknown): value is SyncSolveThreshold {
   return SYNC_THRESHOLD_OPTIONS.includes(value as SyncSolveThreshold)
 }
 
-function isTombstone(value: unknown): value is Tombstone {
+export function isTombstone(value: unknown): value is Tombstone {
   if (!isRecord(value)) return false
   if (value.kind !== 'solve' && value.kind !== 'session') return false
   if (typeof value.id !== 'string' || value.id.length === 0) return false
   if (typeof value.deletedAt !== 'number' || !Number.isFinite(value.deletedAt)) return false
+  if (value.deletedAt < 0) return false
   if (typeof value.deletedByDeviceId !== 'string' || value.deletedByDeviceId.length === 0) return false
+  if (
+    value.restoredAt !== undefined &&
+    (typeof value.restoredAt !== 'number' ||
+      !Number.isFinite(value.restoredAt) ||
+      value.restoredAt < 0)
+  ) {
+    return false
+  }
+  if (value.sessionId !== undefined && typeof value.sessionId !== 'string') return false
+  if (value.revision !== undefined && typeof value.revision !== 'number') return false
   if (
     value.knownSolveIds !== undefined &&
     (!Array.isArray(value.knownSolveIds) ||
@@ -132,7 +156,7 @@ function isTombstone(value: unknown): value is Tombstone {
   return true
 }
 
-function isFieldUpdate(value: unknown): value is FieldUpdate {
+export function isFieldUpdate(value: unknown): value is FieldUpdate {
   return (
     isRecord(value) &&
     typeof value.updatedAt === 'number' &&
@@ -152,7 +176,7 @@ export function parseSettingsFieldUpdates(value: unknown): SettingsFieldUpdates 
   return updates
 }
 
-function isConflict(value: unknown): value is SyncConflict {
+export function isConflict(value: unknown): value is SyncConflict {
   if (!isRecord(value)) return false
   if (
     value.kind !== 'solve' &&
@@ -164,6 +188,7 @@ function isConflict(value: unknown): value is SyncConflict {
   }
   if (typeof value.id !== 'string' || value.id.length === 0) return false
   if (typeof value.field !== 'string' || value.field.length === 0) return false
+  if (!('localValue' in value) || !('remoteValue' in value)) return false
   if (typeof value.localUpdatedAt !== 'number' || !Number.isFinite(value.localUpdatedAt)) return false
   if (typeof value.remoteUpdatedAt !== 'number' || !Number.isFinite(value.remoteUpdatedAt)) return false
   if (typeof value.updatedAt !== 'number' || !Number.isFinite(value.updatedAt)) return false
@@ -172,12 +197,27 @@ function isConflict(value: unknown): value is SyncConflict {
   return true
 }
 
+export function isSessionRedirect(value: unknown): value is SessionRedirect {
+  return (
+    isRecord(value) &&
+    typeof value.fromId === 'string' &&
+    value.fromId.length > 0 &&
+    typeof value.toId === 'string' &&
+    value.toId.length > 0 &&
+    value.fromId !== value.toId &&
+    typeof value.approvedAt === 'number' &&
+    Number.isFinite(value.approvedAt) &&
+    value.approvedAt >= 0 &&
+    (value.byDeviceId === undefined ||
+      (typeof value.byDeviceId === 'string' && value.byDeviceId.length > 0))
+  )
+}
+
 function normalizePreferences(value: unknown): SyncPreferences {
   const fallback = { ...DEFAULT_SYNC_PREFERENCES }
   if (!isRecord(value)) return fallback
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback.enabled,
-    mode: 'combined',
     intervalMinutes: isValidInterval(value.intervalMinutes) ? value.intervalMinutes : fallback.intervalMinutes,
     solveThreshold: isValidThreshold(value.solveThreshold) ? value.solveThreshold : fallback.solveThreshold,
     syncOnStartup: typeof value.syncOnStartup === 'boolean' ? value.syncOnStartup : fallback.syncOnStartup,
@@ -195,7 +235,23 @@ export function createDeviceId(): string {
   }
 }
 
-export function createDefaultSyncStorage(deviceId = createDeviceId()): SyncStorageData {
+let cachedDeviceId: string | null = null
+
+/**
+ * One process-wide fallback identity. `loadSyncStorage` also persists it, so
+ * even a brand-new installation uses the same ID before and after a reload.
+ */
+function fallbackDeviceId(): string {
+  cachedDeviceId ??= createDeviceId()
+  return cachedDeviceId
+}
+
+/** Test-only: forget the in-memory identity so a simulated reload can be tested. */
+export function resetDeviceIdCacheForTests(): void {
+  cachedDeviceId = null
+}
+
+export function createDefaultSyncStorage(deviceId = fallbackDeviceId()): SyncStorageData {
   return {
     version: SYNC_STORAGE_VERSION,
     preferences: { ...DEFAULT_SYNC_PREFERENCES },
@@ -224,24 +280,16 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
   const deviceId =
     typeof sourceRuntime.deviceId === 'string' && sourceRuntime.deviceId.length > 0
       ? sourceRuntime.deviceId
-      : createDeviceId()
+      : fallbackDeviceId()
+  cachedDeviceId = deviceId
   const tombstones = Array.isArray(sourceRuntime.tombstones)
     ? sourceRuntime.tombstones.filter(isTombstone)
     : []
   const conflicts = Array.isArray(sourceRuntime.conflicts)
     ? sourceRuntime.conflicts.filter(isConflict)
     : []
-  const isRedirect = (value: unknown): value is SessionRedirect =>
-    isRecord(value) &&
-    typeof value.fromId === 'string' &&
-    value.fromId.length > 0 &&
-    typeof value.toId === 'string' &&
-    value.toId.length > 0 &&
-    value.fromId !== value.toId &&
-    typeof value.approvedAt === 'number' &&
-    Number.isFinite(value.approvedAt)
   const sessionRedirects = Array.isArray(sourceRuntime.sessionRedirects)
-    ? sourceRuntime.sessionRedirects.filter(isRedirect)
+    ? sourceRuntime.sessionRedirects.filter(isSessionRedirect)
     : []
   const pendingDuplicateNames = Array.isArray(sourceRuntime.pendingDuplicateNames)
     ? sourceRuntime.pendingDuplicateNames.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
@@ -296,16 +344,40 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
   }
 }
 
-export function loadSyncStorage(storage: { getItem(key: string): string | null } | null = getDefaultStorage()): SyncStorageData {
+interface SyncStorageReader {
+  getItem(key: string): string | null
+  setItem?(key: string, value: string): void
+}
+
+export function loadSyncStorage(storage: SyncStorageReader | null = getDefaultStorage()): SyncStorageData {
   if (!storage) return createDefaultSyncStorage()
   const raw = storage.getItem(SYNC_STORAGE_KEY)
-  if (!raw) return createDefaultSyncStorage()
+  if (!raw) {
+    const data = createDefaultSyncStorage()
+    // Persist a fresh identity immediately. Without this, a reload before any
+    // other sync edit would generate a different device ID, invalidating the
+    // provenance on existing field metadata and remote snapshots.
+    storage.setItem?.(SYNC_STORAGE_KEY, JSON.stringify(data))
+    return data
+  }
   try {
     return parseSyncStorageData(JSON.parse(raw)) ?? createDefaultSyncStorage()
   } catch {
     return createDefaultSyncStorage()
   }
 }
+
+/**
+ * The stable identity for this browser. This never reads storage on repeat
+ * calls, so it is safe to use from render paths and per-solve edits.
+ */
+export function getSyncDeviceId(storage?: SyncStorageReader | null): string {
+  if (cachedDeviceId) return cachedDeviceId
+  const data = loadSyncStorage(storage === undefined ? undefined : storage)
+  cachedDeviceId = data.runtime.deviceId
+  return cachedDeviceId
+}
+
 
 export function saveSyncStorage(
   data: SyncStorageData,

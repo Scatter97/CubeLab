@@ -157,7 +157,8 @@ export function DataDialog({
         </div>
 
         <p className="dialog-note">
-          Backups stay on this device. CubeLab never uploads them.
+          Local JSON backups stay on this device. Google Drive synchronization
+          is a separate opt-in feature in Settings.
         </p>
       </div>
     </dialog>

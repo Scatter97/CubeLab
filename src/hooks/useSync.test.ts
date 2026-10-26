@@ -99,7 +99,6 @@ function enableSync(preferences: Partial<SyncPreferences> = {}) {
       syncOnStartup: false,
       syncOnExit: false,
       syncOnReconnect: false,
-      mode: 'combined',
       ...preferences,
     },
     runtime: { ...sync.runtime, lastSyncStatus: 'pending' },

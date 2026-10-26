@@ -356,7 +356,7 @@ export default function App() {
         settings.alertChannel,
         settings.alertVolume,
         undefined,
-        false,
+        true,
         event.key === '12s' ? 'danger' : 'warning',
       )
     }
@@ -452,7 +452,7 @@ export default function App() {
   )
 
   const handleSetSessionInspection = useCallback(
-    (enabled: boolean) => {
+    (enabled: boolean | undefined) => {
       if (timer.state.status !== 'idle') return
       setInspection(activeSession.id, enabled)
     },
@@ -469,7 +469,7 @@ export default function App() {
         message: 'Solve deleted',
         actionLabel: 'Undo',
         onAction: () => {
-          sync.clearDeletion('solve', removed.solve.id)
+          sync.restoreDeletion('solve', removed.solve.id)
           restoreSolve(removed.solve, removed.index, removed.sessionId)
         },
       })

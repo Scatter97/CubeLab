@@ -19,7 +19,8 @@ import {
   type RemovedSolve,
 } from '../lib/sessions'
 import { loadSessions, saveSessions } from '../lib/storage'
-import { loadSyncStorage } from '../lib/syncStorage'
+import { getSyncDeviceId } from '../lib/syncStorage'
+
 
 export interface UseSessionsResult {
   sessions: Session[]
@@ -29,7 +30,7 @@ export interface UseSessionsResult {
   addSolve: (input: NewSolve, event?: PuzzleEvent) => Solve
   setPenalty: (id: string, penalty: Penalty) => void
   setComment: (id: string, comment: string) => void
-  setInspection: (id: string, enabled: boolean) => void
+  setInspection: (id: string, enabled: boolean | undefined) => void
   setPreferences: (id: string, changes: Partial<SessionPreferences>) => void
   deleteSolve: (id: string) => RemovedSolve | null
   restoreSolve: (solve: Solve, index: number, sessionId: string) => void
@@ -60,7 +61,9 @@ export function useSessions(): UseSessionsResult {
   const dataRef = useRef(data)
   const [storageOk, setStorageOk] = useState(true)
   const initialWrite = useRef(true)
-  const syncDeviceId = loadSyncStorage().runtime.deviceId
+  // Resolved once per mount. Reading sync storage from the render body would
+  // re-parse localStorage on every timer frame.
+  const [syncDeviceId] = useState(() => getSyncDeviceId())
 
   const commit = useCallback(
     (update: (current: SessionsData) => SessionsData): boolean => {
@@ -132,7 +135,7 @@ export function useSessions(): UseSessionsResult {
   )
 
   const setInspection = useCallback(
-    (id: string, enabled: boolean) => {
+    (id: string, enabled: boolean | undefined) => {
       commit((current) =>
         setSessionInspectionInData(current, id, enabled, undefined, syncDeviceId),
       )

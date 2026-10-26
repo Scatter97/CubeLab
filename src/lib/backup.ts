@@ -1,7 +1,12 @@
 import type { SessionsData, Settings } from '../types'
-import { parseSessionsData, parseSettingsData } from './storage'
+import {
+  findSessionEventMismatches,
+  parseSessionsData,
+  parseSettingsData,
+} from './storage'
 import type { SyncEnvelope } from './sync'
 import { parseRemoteSyncEnvelope } from './sync'
+
 
 export const BACKUP_APP = 'CubeLab'
 export const BACKUP_FORMAT = 'cubelab-backup'
@@ -46,10 +51,30 @@ export function createBackup(
       activeSessionId: sessions.activeSessionId,
       sessions: sessions.sessions.map((session) => ({
         ...session,
-        solves: session.solves.map((solve) => ({ ...solve })),
+        ...(session.preferences ? { preferences: { ...session.preferences } } : {}),
+        ...(session.fieldUpdates
+          ? {
+              fieldUpdates: {
+                ...session.fieldUpdates,
+                ...(session.fieldUpdates.preferences
+                  ? { preferences: { ...session.fieldUpdates.preferences } }
+                  : {}),
+              },
+            }
+          : {}),
+        solves: session.solves.map((solve) => ({
+          ...solve,
+          ...(solve.fieldUpdates
+            ? { fieldUpdates: { ...solve.fieldUpdates } }
+            : {}),
+        })),
       })),
     },
-    settings: { ...settings },
+    settings: {
+      ...settings,
+      statVisibility: { ...settings.statVisibility },
+      customAverages: settings.customAverages.map((average) => ({ ...average })),
+    },
     ...(sync ? { sync } : {}),
   }
 }
@@ -88,6 +113,14 @@ export function parseBackup(raw: string): BackupParseResult {
     return { ok: false, error: 'The backup is missing its export date.' }
   }
 
+  const mismatches = findSessionEventMismatches(parsed.sessions)
+  if (mismatches.length > 0) {
+    return {
+      ok: false,
+      error: `${mismatches[0]} CubeLab did not change your local data.`,
+    }
+  }
+
   const sessions = parseSessionsData(parsed.sessions)
   if (!sessions) {
     return { ok: false, error: 'The backup contains no valid sessions.' }
@@ -98,10 +131,18 @@ export function parseBackup(raw: string): BackupParseResult {
     return { ok: false, error: 'The backup is missing valid settings.' }
   }
 
-  const sync =
-    parsed.sync === undefined
-      ? undefined
-      : (parseRemoteSyncEnvelope(parsed.sync) ?? undefined)
+  let sync: SyncEnvelope | undefined
+  if (parsed.sync !== undefined) {
+    const parsedSync = parseRemoteSyncEnvelope(parsed.sync)
+    if (!parsedSync) {
+      return {
+        ok: false,
+        error:
+          'The backup contains a malformed synchronization envelope. It was rejected before any local data changed.',
+      }
+    }
+    sync = parsedSync
+  }
 
   return {
     ok: true,

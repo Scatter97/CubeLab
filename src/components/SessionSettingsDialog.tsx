@@ -15,7 +15,7 @@ interface SessionSettingsDialogProps {
   onRenameSession: (id: string, name: string) => boolean
   onSetSessionEvent: (id: string, event: PuzzleEvent) => boolean
   onCreateForEvent: (event: PuzzleEvent) => void
-  onSetInspection: (enabled: boolean) => void
+  onSetInspection: (enabled: boolean | undefined) => void
   onRequestClear: () => void
   onRequestDelete: () => void
   onClose: () => void
@@ -82,7 +82,9 @@ function SessionSettingsContent({
   const [selectedEvent, setSelectedEvent] = useState<PuzzleEvent>(
     session.event ?? '333',
   )
-  const hasOverride = session.inspectionEnabled !== undefined
+  const hasOverride =
+    session.inspectionEnabled !== undefined ||
+    session.preferences?.inspectionEnabled !== undefined
 
   return (
     <div className="dialog-content session-settings-content">
@@ -179,7 +181,16 @@ function SessionSettingsContent({
                     trimmedName === eventLabel(previous) ||
                     /^Session \d+$/.test(trimmedName)
                   if (defaultish) {
-                    setName(eventLabel(next))
+                    const nextName = eventLabel(next)
+                    setName(nextName)
+                    if (!onRenameSession(session.id, nextName)) {
+                      setNameError(
+                        'Could not rename the session. Choose a unique name.',
+                      )
+                      setName(session.name)
+                    } else {
+                      setNameError(null)
+                    }
                   }
                   setEventError(null)
                 }}
@@ -219,6 +230,16 @@ function SessionSettingsContent({
                 ? 'This session overrides the global inspection default.'
                 : 'This session is using the global inspection default.'}
             </span>
+            {hasOverride ? (
+              <button
+                type="button"
+                className="text-button"
+                data-testid="session-inspection-use-global"
+                onClick={() => onSetInspection(undefined)}
+              >
+                Use global setting
+              </button>
+            ) : null}
           </div>
           <button
             type="button"

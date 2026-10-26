@@ -2,7 +2,14 @@ import type { Session, SessionsData, Solve } from '../types'
 import { DEFAULT_SESSION_NAME, MAX_SESSION_NAME_LENGTH, normalizeSessionName } from './sessions'
 import { applySessionRedirects, findSessionRedirectDivergences, normalizeSessionRedirects } from './sessionRedirects'
 import { maxSessionFieldUpdateTime, mergeSessionMetadata } from './sessionMetadata'
-import { parseSettingsFieldUpdates } from './syncStorage'
+import {
+  isActiveTombstone,
+  isConflict,
+  isFieldUpdate,
+  isSessionRedirect,
+  isTombstone,
+  parseSettingsFieldUpdates,
+} from './syncStorage'
 import { mergeSolveFields, recordTime, solvesEqual } from './solveMerge'
 import type {
   SettingsFieldUpdates,
@@ -10,6 +17,7 @@ import type {
   Tombstone,
   SessionRedirect,
 } from './syncStorage'
+
 
 
 export const SYNC_PROTOCOL_VERSION = 1
@@ -40,16 +48,37 @@ export function mergeTombstones(...groups: ReadonlyArray<ReadonlyArray<Tombstone
       })
       continue
     }
-    const newest = tombstone.deletedAt > existing.deletedAt ? tombstone : existing
+
+    // A tombstone has two possible latest events: the deletion and an optional
+    // restoration. The later event wins. Equal event times are resolved
+    // deterministically in favour of an active deletion, so a restoration can
+    // never resurrect deliberately deleted data through a clock tie.
+    const existingEvent = Math.max(existing.deletedAt, existing.restoredAt ?? 0)
+    const candidateEvent = Math.max(tombstone.deletedAt, tombstone.restoredAt ?? 0)
+    let winner: Tombstone
+    if (candidateEvent > existingEvent) {
+      winner = tombstone
+    } else if (candidateEvent < existingEvent) {
+      winner = existing
+    } else if (isActiveTombstone(tombstone) !== isActiveTombstone(existing)) {
+      winner = isActiveTombstone(tombstone) ? tombstone : existing
+    } else if (tombstone.deletedByDeviceId !== existing.deletedByDeviceId) {
+      winner = tombstone.deletedByDeviceId < existing.deletedByDeviceId ? tombstone : existing
+    } else {
+      winner = tombstone.id <= existing.id ? tombstone : existing
+    }
+
     const knownSolveIds = [
       ...new Set([
         ...(existing.knownSolveIds ?? []),
         ...(tombstone.knownSolveIds ?? []),
       ]),
     ]
+    const revision = Math.max(existing.revision ?? 0, tombstone.revision ?? 0)
     merged.set(key, {
-      ...newest,
+      ...winner,
       ...(knownSolveIds.length > 0 ? { knownSolveIds } : {}),
+      ...(revision > 0 ? { revision } : {}),
     })
   }
   return [...merged.values()].sort(
@@ -59,6 +88,7 @@ export function mergeTombstones(...groups: ReadonlyArray<ReadonlyArray<Tombstone
       left.deletedAt - right.deletedAt,
   )
 }
+
 
 export function resolveRedirectConflicts(input: {
   local: ReadonlyArray<SessionRedirect>
@@ -251,6 +281,8 @@ export function mergeSessionsData(input: {
   // Local and remote envelopes routinely carry the same tombstones. Collapse
   // them before deriving deletion sets or reporting removal counts.
   const tombstones = mergeTombstones(input.tombstones ?? [])
+  // Restored tombstones are retained for propagation but no longer remove data.
+  const activeTombstones = tombstones.filter(isActiveTombstone)
   const { manualConflictReview } = input
   const resolvedConflicts = input.resolvedConflicts ?? []
   const conflicts: SyncConflict[] = []
@@ -258,8 +290,8 @@ export function mergeSessionsData(input: {
   const localSession = local.sessions[0]
   const isFreshLocalDefault = local.sessions.length === 1 && localSession && isUntouchedDefaultSession(localSession)
 
-  const deletedSolveIds = new Set((tombstones ?? []).filter((t) => t.kind === 'solve').map((t) => t.id))
-  const deletedSessionIds = new Set((tombstones ?? []).filter((t) => t.kind === 'session').map((t) => t.id))
+  const deletedSolveIds = new Set(activeTombstones.filter((t) => t.kind === 'solve').map((t) => t.id))
+  const deletedSessionIds = new Set(activeTombstones.filter((t) => t.kind === 'session').map((t) => t.id))
 
   const hasRelevantCloudContent = !!remote && remote.sessions.some((session) => {
     if (deletedSessionIds.has(session.id)) return false
@@ -493,7 +525,7 @@ export function mergeSessionsData(input: {
   // wall-clock comparison. Existing recovered sessions are extended in place so
   // successive offline devices cannot lose later arrivals.
   const sessionTombstonesById = new Map<string, Tombstone[]>()
-  for (const tombstone of tombstones) {
+  for (const tombstone of activeTombstones) {
     if (tombstone.kind !== 'session') continue
     const list = sessionTombstonesById.get(tombstone.id) ?? []
     list.push(tombstone)
@@ -615,7 +647,7 @@ export function mergeSessionsData(input: {
   // every solve that either side still held for that session; explicit solve
   // tombstones are then added once, even when both envelopes carried them.
   const tombstonedSolveIds = new Set<string>()
-  for (const tombstone of tombstones) {
+  for (const tombstone of activeTombstones) {
     if (tombstone.kind === 'solve') {
       tombstonedSolveIds.add(tombstone.id)
       continue
@@ -690,22 +722,41 @@ export function createSyncEnvelope(
 }
 
 export function parseRemoteSyncEnvelope(value: unknown): SyncEnvelope | null {
-  if (typeof value !== 'object' || value === null) return null
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
   if (record.protocolVersion !== SYNC_PROTOCOL_VERSION) return null
   if (typeof record.revision !== 'number' || !Number.isFinite(record.revision)) return null
   if (typeof record.deviceId !== 'string' || record.deviceId.length === 0) return null
   if (typeof record.updatedAt !== 'number' || !Number.isFinite(record.updatedAt)) return null
+
+  const tombstones = record.tombstones ?? []
+  if (!Array.isArray(tombstones) || !tombstones.every(isTombstone)) return null
+
+  const conflicts = record.conflicts ?? []
+  if (!Array.isArray(conflicts) || !conflicts.every(isConflict)) return null
+
+  const redirects = record.sessionRedirects ?? []
+  if (!Array.isArray(redirects) || !redirects.every(isSessionRedirect)) return null
+
+  if (record.settingsFieldUpdates !== undefined) {
+    if (
+      typeof record.settingsFieldUpdates !== 'object' ||
+      record.settingsFieldUpdates === null ||
+      Array.isArray(record.settingsFieldUpdates) ||
+      !Object.values(record.settingsFieldUpdates).every(isFieldUpdate)
+    ) {
+      return null
+    }
+  }
+
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
     revision: record.revision,
     deviceId: record.deviceId,
     updatedAt: record.updatedAt,
-    tombstones: Array.isArray(record.tombstones) ? (record.tombstones as Tombstone[]) : [],
-    conflicts: Array.isArray(record.conflicts) ? (record.conflicts as SyncConflict[]) : [],
-    sessionRedirects: Array.isArray(record.sessionRedirects)
-      ? normalizeSessionRedirects(record.sessionRedirects as SessionRedirect[])
-      : [],
+    tombstones,
+    conflicts,
+    sessionRedirects: normalizeSessionRedirects(redirects),
     settingsFieldUpdates: parseSettingsFieldUpdates(record.settingsFieldUpdates),
   }
 }

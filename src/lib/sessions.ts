@@ -281,28 +281,62 @@ export function setSolveComment(
 export function setSessionInspection(
   data: SessionsData,
   sessionId: string,
-  inspectionEnabled: boolean,
+  inspectionEnabled: boolean | undefined,
   now = Date.now(),
   editorId = 'legacy',
 ): SessionsData {
   const session = data.sessions.find((candidate) => candidate.id === sessionId)
-  if (!session || session.inspectionEnabled === inspectionEnabled) return data
+  if (!session) return data
+
+  const currentPreference = session.preferences?.inspectionEnabled
+  const currentTopLevel = session.inspectionEnabled
+  if (inspectionEnabled === undefined) {
+    if (currentTopLevel === undefined && currentPreference === undefined) return data
+  } else if (currentTopLevel === inspectionEnabled && currentPreference === undefined) {
+    return data
+  }
+
+  const fieldUpdates: SessionFieldUpdates = {
+    ...session.fieldUpdates,
+    // `inspectionEnabled` metadata deliberately survives a cleared override so
+    // synchronization treats "use global" as a newer edit instead of
+    // resurrecting an older boolean from another device.
+    inspectionEnabled: { updatedAt: now, editorId },
+    ...(session.fieldUpdates?.preferences
+      ? { preferences: { ...session.fieldUpdates.preferences } }
+      : {}),
+  }
+  if (inspectionEnabled === undefined || currentPreference !== undefined) {
+    // Clearing must also stamp the legacy preference form so an older remote
+    // override cannot silently win over an explicit "use global" action.
+    fieldUpdates.preferences = {
+      ...(fieldUpdates.preferences ?? {}),
+      inspectionEnabled: { updatedAt: now, editorId },
+    }
+  }
 
   return {
     ...data,
-    sessions: data.sessions.map((candidate) =>
-      candidate.id === sessionId
-        ? {
-            ...candidate,
-            inspectionEnabled,
-            updatedAt: now,
-            fieldUpdates: {
-              ...candidate.fieldUpdates,
-              inspectionEnabled: { updatedAt: now, editorId },
-            },
-          }
-        : candidate,
-    ),
+    sessions: data.sessions.map((candidate) => {
+      if (candidate.id !== sessionId) return candidate
+      const next: Session = {
+        ...candidate,
+        updatedAt: now,
+        fieldUpdates,
+      }
+      if (inspectionEnabled === undefined) {
+        delete next.inspectionEnabled
+      } else {
+        next.inspectionEnabled = inspectionEnabled
+      }
+      if (next.preferences) {
+        const preferences: SessionPreferences = { ...next.preferences }
+        delete preferences.inspectionEnabled
+        if (Object.keys(preferences).length > 0) next.preferences = preferences
+        else delete next.preferences
+      }
+      return next
+    }),
   }
 }
 

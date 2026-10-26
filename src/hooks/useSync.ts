@@ -12,12 +12,14 @@ import {
   loadSyncStorage,
   saveSyncStorage,
   SYNC_STORAGE_KEY,
+  isActiveTombstone,
   type SyncPreferences,
   type SettingsFieldUpdates,
   type SyncStatus,
   type SyncStorageData,
   type SyncConflict,
 } from '../lib/syncStorage'
+
 import {
   createSyncEnvelope,
   findDuplicateSessionNames,
@@ -79,7 +81,7 @@ export interface UseSyncResult {
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
   recordDeletion: (kind: 'solve' | 'session', id: string, sessionId?: string) => void
-  clearDeletion: (kind: 'solve' | 'session', id: string) => void
+  restoreDeletion: (kind: 'solve' | 'session', id: string) => void
   resetBase: (data: SessionsData) => void
 }
 
@@ -224,7 +226,10 @@ export function useSync({
         if (!currentSolveIds.has(id)) {
           // Deletion will be recorded when sync runs if not already present.
           const already = syncRef.current.runtime.tombstones.some(
-            (tombstone) => tombstone.kind === 'solve' && tombstone.id === id,
+            (tombstone) =>
+              tombstone.kind === 'solve' &&
+              tombstone.id === id &&
+              isActiveTombstone(tombstone),
           )
           if (!already) {
             const next = {
@@ -232,7 +237,9 @@ export function useSync({
               runtime: {
                 ...syncRef.current.runtime,
                 tombstones: [
-                  ...syncRef.current.runtime.tombstones,
+                  ...syncRef.current.runtime.tombstones.filter(
+                    (tombstone) => !(tombstone.kind === 'solve' && tombstone.id === id),
+                  ),
                   createTombstone('solve', id, sessionId, syncRef.current.runtime.deviceId),
                 ],
               },
@@ -248,7 +255,10 @@ export function useSync({
       for (const id of previousSessionIds) {
         if (!currentSessionIds.has(id) && !redirectedIds.has(id)) {
           const already = syncRef.current.runtime.tombstones.some(
-            (tombstone) => tombstone.kind === 'session' && tombstone.id === id,
+            (tombstone) =>
+              tombstone.kind === 'session' &&
+              tombstone.id === id &&
+              isActiveTombstone(tombstone),
           )
           if (!already) {
             const deletedSession = previous.sessions.find((session) => session.id === id)
@@ -257,7 +267,9 @@ export function useSync({
               runtime: {
                 ...syncRef.current.runtime,
                 tombstones: [
-                  ...syncRef.current.runtime.tombstones,
+                  ...syncRef.current.runtime.tombstones.filter(
+                    (tombstone) => !(tombstone.kind === 'session' && tombstone.id === id),
+                  ),
                   createTombstone(
                     'session',
                     id,
@@ -279,10 +291,10 @@ export function useSync({
 
   const recordDeletion = useCallback(
     (kind: 'solve' | 'session', id: string, sessionId?: string) => {
-      const already = syncRef.current.runtime.tombstones.some(
+      const existing = syncRef.current.runtime.tombstones.find(
         (tombstone) => tombstone.kind === kind && tombstone.id === id,
       )
-      if (already) return
+      if (existing && isActiveTombstone(existing)) return
       const deletedSession =
         kind === 'session'
           ? sessionsRef.current.sessions.find((session) => session.id === id)
@@ -292,7 +304,9 @@ export function useSync({
         runtime: {
           ...syncRef.current.runtime,
           tombstones: [
-            ...syncRef.current.runtime.tombstones,
+            ...syncRef.current.runtime.tombstones.filter(
+              (tombstone) => !(tombstone.kind === kind && tombstone.id === id),
+            ),
             createTombstone(
               kind,
               id,
@@ -309,18 +323,35 @@ export function useSync({
     [persist],
   )
 
-  const clearDeletion = useCallback(
+  /**
+   * Undo is durable: the tombstone is retained with a newer `restoredAt`
+   * revocation timestamp. Every device merges that record, so an already
+   * published deletion cannot remove the solve again. A later deliberate
+   * deletion gets a newer `deletedAt` and wins deterministically.
+   */
+  const restoreDeletion = useCallback(
     (kind: 'solve' | 'session', id: string) => {
-      const next = {
+      const now = Date.now()
+      let changed = false
+      const tombstones = syncRef.current.runtime.tombstones.map((tombstone) => {
+        if (tombstone.kind !== kind || tombstone.id !== id) return tombstone
+        if (tombstone.restoredAt !== undefined && tombstone.restoredAt >= now) {
+          return tombstone
+        }
+        changed = true
+        return {
+          ...tombstone,
+          restoredAt: Math.max(now, tombstone.deletedAt + 1),
+        }
+      })
+      if (!changed) return
+      persist({
         ...syncRef.current,
         runtime: {
           ...syncRef.current.runtime,
-          tombstones: syncRef.current.runtime.tombstones.filter(
-            (tombstone) => !(tombstone.kind === kind && tombstone.id === id),
-          ),
+          tombstones,
         },
-      }
-      persist(next)
+      })
     },
     [persist],
   )
@@ -1226,7 +1257,7 @@ export function useSync({
     return () => {
       if (intervalId !== null) window.clearInterval(intervalId)
     }
-  }, [sync.preferences.enabled, sync.preferences.mode, sync.preferences.intervalMinutes, syncNow])
+  }, [sync.preferences.enabled, sync.preferences.intervalMinutes, syncNow])
 
   // Solve-count trigger + non-solve fallback for any dirty state (solves,
   // session metadata, preferences, or settings).
@@ -1264,7 +1295,6 @@ export function useSync({
     hasPendingChanges,
     sessions,
     sync.preferences.enabled,
-    sync.preferences.mode,
     sync.preferences.solveThreshold,
     timerActive,
     syncNow,
@@ -1306,7 +1336,7 @@ export function useSync({
       }
     },
     recordDeletion,
-    clearDeletion,
+    restoreDeletion,
     resetBase,
     approveSessionMerge,
     resolveConflict,

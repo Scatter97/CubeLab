@@ -11,14 +11,16 @@ import {
   saveDriveBackupState,
   type DriveBackupState,
 } from '../lib/driveStorage'
-import { loadSyncStorage } from '../lib/syncStorage'
+import { getSyncDeviceId, loadSyncStorage } from '../lib/syncStorage'
 import { createSyncEnvelope } from '../lib/sync'
 import {
   deleteAllRemoteBackups,
+  findDeviceBackup,
   listRemoteBackups,
   mergeRemoteBackupSnapshots,
   readRemoteBackups,
 } from '../lib/remoteBackups'
+
 import {
   ownSnapshotChanged,
   runWithDriveWriteLock,
@@ -59,9 +61,9 @@ export function useDriveBackup({
   onConnected,
 }: UseDriveBackupOptions) {
   const configured = Boolean(transport?.configured)
-  const [connected, setConnected] = useState(false)
+  const [connected, setConnected] = useState(() => transport?.isConnected() ?? false)
   const [phase, setPhase] = useState<DriveBackupPhase>(() =>
-    configured ? 'disconnected' : 'unconfigured',
+    configured ? (transport?.isConnected() ? 'connected' : 'disconnected') : 'unconfigured',
   )
   const [error, setError] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<DriveBackupState>(() => loadDriveBackupState())
@@ -86,7 +88,13 @@ export function useDriveBackup({
     try {
       await transport.connect()
       const files = await listRemoteBackups(transport)
-      const file = files[0]
+      // Only this browser's own snapshot may be reported as its remote file.
+      // Another device's snapshot is still listed and merged, but it is not an
+      // upload target and must not drive this device's delete metadata.
+      const ownName = deviceBackupFileName(getSyncDeviceId())
+      const file = transport.uploadDeviceBackup
+        ? findDeviceBackup(files, ownName)
+        : files[0]
       setConnected(true)
       persistMetadata({
         ...metadata,
@@ -191,11 +199,18 @@ export function useDriveBackup({
       const snapshots = await readRemoteBackups(transport)
       if (snapshots.length === 0) throw new Error('No Google Drive backup was found.')
       const merged = mergeRemoteBackupSnapshots(snapshots)
-      const newest = snapshots[snapshots.length - 1]!
+      // Keep this browser's own snapshot identity. Picking `newest` would
+      // associate another device's file with this browser.
+      const ownName = deviceBackupFileName(getSyncDeviceId())
+      const ownFile = transport.uploadDeviceBackup
+        ? snapshots
+            .map((snapshot) => snapshot.file)
+            .find((file) => file.name === ownName)
+        : snapshots[0]?.file
       persistMetadata({
         ...metadata,
-        remoteFileId: newest.file.id,
-        remoteModifiedTime: newest.file.modifiedTime,
+        remoteFileId: ownFile?.id ?? null,
+        remoteModifiedTime: ownFile?.modifiedTime ?? null,
         lastRestoreAt: metadata.lastRestoreAt,
         connectedAccountLabel: transport.accountLabel || metadata.connectedAccountLabel,
       })
@@ -209,6 +224,10 @@ export function useDriveBackup({
 
   const deleteRemoteBackup = useCallback(async () => {
     if (!transport) return
+    if (!connected) {
+      await connect()
+      if (!transport.isConnected()) return
+    }
     const remoteFileId = metadata.remoteFileId ?? loadDriveBackupState().remoteFileId
     setPhase('deleting')
     setError(null)
@@ -219,10 +238,6 @@ export function useDriveBackup({
       const deleted = await runWithDriveWriteLock(() =>
         deleteAllRemoteBackups(transport, remoteFileId),
       )
-      if (deleted === 0 && !remoteFileId) {
-        setPhase('connected')
-        return
-      }
       persistMetadata({
         ...loadDriveBackupState(),
         ...metadata,
@@ -230,12 +245,16 @@ export function useDriveBackup({
         remoteModifiedTime: null,
       })
       setPhase('connected')
-      onNotify('Google Drive backup deleted')
+      onNotify(
+        deleted === 0
+          ? 'No Google Drive backups were found'
+          : 'Google Drive backup deleted',
+      )
     } catch (caught) {
       setError(toMessage(caught))
       setPhase('error')
     }
-  }, [metadata, onNotify, persistMetadata, transport])
+  }, [connect, connected, metadata, onNotify, persistMetadata, transport])
 
   return {
     configured,

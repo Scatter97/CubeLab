@@ -118,12 +118,23 @@ export function mergeSolveFields(
       field === 'scramble' ? remote.scramble : remote.comment
     if (localValue === remoteValue) {
       // Two identical values can still carry different modification metadata.
-      const localMeta = getFieldUpdate(local, field)
-      const remoteMeta = getFieldUpdate(remote, field)
-      fieldUpdates[field] =
-        localMeta.updatedAt > remoteMeta.updatedAt ||
-        (localMeta.updatedAt === remoteMeta.updatedAt && localMeta.editorId <= remoteMeta.editorId)
-          ? localMeta : remoteMeta
+      // Never invent provenance for equal legacy values: persisting a merge-time
+      // fallback would make a no-op sync look like an edit and weaken the
+      // deterministic editor-ID tiebreak.
+      const localMeta = local.fieldUpdates?.[field]
+      const remoteMeta = remote.fieldUpdates?.[field]
+      if (localMeta && remoteMeta) {
+        fieldUpdates[field] =
+          localMeta.updatedAt > remoteMeta.updatedAt ||
+          (localMeta.updatedAt === remoteMeta.updatedAt && localMeta.editorId <= remoteMeta.editorId)
+            ? localMeta : remoteMeta
+      } else if (localMeta) {
+        fieldUpdates[field] = localMeta
+      } else if (remoteMeta) {
+        fieldUpdates[field] = remoteMeta
+      } else {
+        delete fieldUpdates[field]
+      }
       continue
     }
 
@@ -188,7 +199,7 @@ export function mergeSolveFields(
     comment: values.comment,
     createdAt: Math.min(local.createdAt, remote.createdAt),
     updatedAt: Math.max(recordTime(local), recordTime(remote), latestResolvedUpdate),
-    fieldUpdates,
+    ...(Object.keys(fieldUpdates).length > 0 ? { fieldUpdates } : {}),
   }
 }
 

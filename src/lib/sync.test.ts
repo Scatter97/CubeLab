@@ -3,10 +3,11 @@ import type { Session, SessionsData, Solve } from '../types'
 import {
   findDuplicateSessionNames,
   mergeSessionsData,
+  mergeTombstones,
   resolveRedirectConflicts,
 } from './sync'
 import { DEFAULT_SESSION_NAME } from './sessions'
-import type { SyncConflict, Tombstone } from './syncStorage'
+import { isActiveTombstone, type SyncConflict, type Tombstone } from './syncStorage'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
   return {
@@ -1223,5 +1224,124 @@ describe('removal counting with recovery', () => {
     expect(result.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
       'offline-new',
     ])
+  })
+})
+
+describe('durable undo (tombstone restoration)', () => {
+  const deletedAt = 1_700_000_005_000
+  const restoredAt = deletedAt + 1_000
+
+  it('keeps a restored solve when a published tombstone is merged again', () => {
+    const restoredTombstone: Tombstone = {
+      kind: 'solve',
+      id: 'solve-restored',
+      sessionId: 'session-1',
+      deletedAt,
+      deletedByDeviceId: 'laptop',
+      restoredAt,
+    }
+    const local = sessionsData({
+      sessions: [
+        session({
+          solves: [solve({ id: 'solve-restored', createdAt: deletedAt - 500 })],
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [session({ solves: [] })],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [restoredTombstone],
+      deviceId: 'phone',
+      manualConflictReview: false,
+    })
+
+    expect(result.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'solve-restored',
+    ])
+    // The revocation record is retained so every device converges.
+    expect(result.mergedTombstones).toEqual([restoredTombstone])
+    expect(result.removedSolves).toBe(0)
+  })
+
+  it('lets a later deliberate deletion win over an earlier restoration', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          solves: [solve({ id: 'solve-restored', createdAt: deletedAt - 500 })],
+        }),
+      ],
+    })
+    const laterDelete: Tombstone = {
+      kind: 'solve',
+      id: 'solve-restored',
+      sessionId: 'session-1',
+      deletedAt: restoredAt + 1_000,
+      deletedByDeviceId: 'tablet',
+    }
+
+    const result = mergeSessionsData({
+      local,
+      remote: sessionsData({ sessions: [session({ solves: [] })] }),
+      tombstones: [
+        {
+          kind: 'solve',
+          id: 'solve-restored',
+          sessionId: 'session-1',
+          deletedAt,
+          deletedByDeviceId: 'laptop',
+          restoredAt,
+        },
+        laterDelete,
+      ],
+      deviceId: 'phone',
+      manualConflictReview: false,
+    })
+
+    expect(result.merged.sessions[0]?.solves).toEqual([])
+    expect(result.mergedTombstones[0]).toMatchObject({
+      id: 'solve-restored',
+      deletedAt: laterDelete.deletedAt,
+      deletedByDeviceId: 'tablet',
+    })
+  })
+
+  it('merges deletion and restoration records in either order', () => {
+    const deleted: Tombstone = {
+      kind: 'solve',
+      id: 'solve-1',
+      deletedAt,
+      deletedByDeviceId: 'laptop',
+    }
+    const restored: Tombstone = {
+      kind: 'solve',
+      id: 'solve-1',
+      deletedAt,
+      deletedByDeviceId: 'laptop',
+      restoredAt,
+    }
+
+    const forward = mergeTombstones([deleted], [restored])
+    const reverse = mergeTombstones([restored], [deleted])
+    expect(forward).toEqual(reverse)
+    expect(forward).toHaveLength(1)
+    expect(forward[0]?.restoredAt).toBe(restoredAt)
+  })
+
+  it('treats an equal-time restoration as an active deletion', () => {
+    const result = mergeTombstones([
+      {
+        kind: 'solve',
+        id: 'solve-1',
+        deletedAt,
+        deletedByDeviceId: 'laptop',
+        restoredAt: deletedAt,
+      },
+    ])
+    expect(result[0]?.restoredAt).toBe(deletedAt)
+    expect(isActiveTombstone(result[0]!)).toBe(true)
   })
 })

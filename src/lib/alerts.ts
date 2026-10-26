@@ -122,7 +122,7 @@ export interface InspectionWarningEvent {
 
 /**
  * Maps the two optional warnings to elapsed inspection times. Countdown
- * warnings fire when the display reaches 8s and 3s remaining (8s and 12s
+ * warnings fire when the display reaches 7s and 3s remaining (8s and 12s
  * elapsed); count-up warnings fire at 8s and 12s elapsed.
  */
 export function inspectionWarningEvents(
