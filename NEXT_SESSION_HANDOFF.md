@@ -3,8 +3,8 @@
 **Updated:** 2026-10-26 (context checkpoint at 95%)
 **Objective:** Finish audit-remediation docs and commit the verified changes.
 **Branch:** `master`
-**Latest commit:** `0ed6537` — Checkpoint audit remediation fixes and handoff
-**Working tree:** 10 modified files, uncommitted; no untracked files.
+**Latest commit:** `acb5bc4` — Complete audit remediation verification and coverage
+**Working tree:** clean; all verification and documentation changes committed.
 **Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8).
 
 ## Status
@@ -46,14 +46,9 @@ deterministic in-memory transport.
 
 ## Remaining work
 
-1. Update `AUDIT_FIX_PROGRESS.md` evidence/status for the new tests.
-2. Add the 2026-10-26 audit section and fresh evidence to `PROJECT_PROGRESS.md`.
-3. Update `README.md`, `AGENTS.md`, and `PATCH_LIMITATIONS.md` for durable Undo,
-   strict import/envelope validation, app-data-only OAuth, and disconnect
-   behavior.
-4. Run `npm run check` once for a single recorded acceptance result.
-5. Commit coherently (do not push), then finalize this handoff with the commit
-   hash.
+1. Optionally run `npm run check` once for a single recorded acceptance result.
+2. Seek explicit approval before starting any further phase. The audit
+   remediation itself is complete; no Phase 3/4 work is authorized.
 
 ## Pitfalls
 
