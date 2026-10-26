@@ -220,6 +220,65 @@ describe('mergeSessionMetadata', () => {
     })
   })
 
+  it('honors an explicit inspection override removal with field metadata', () => {
+    const local = session({
+      inspectionEnabled: undefined,
+      fieldUpdates: {
+        inspectionEnabled: { updatedAt: 300, editorId: 'laptop' },
+        preferences: {
+          inspectionEnabled: { updatedAt: 300, editorId: 'laptop' },
+        },
+      },
+    })
+    const remote = session({
+      inspectionEnabled: true,
+      preferences: { inspectionEnabled: true },
+      fieldUpdates: {
+        inspectionEnabled: { updatedAt: 100, editorId: 'phone' },
+        preferences: {
+          inspectionEnabled: { updatedAt: 100, editorId: 'phone' },
+        },
+      },
+    })
+
+    const { metadata, conflicts } = merge(local, remote)
+    expect(metadata.inspectionEnabled).toBeUndefined()
+    expect(metadata.preferences?.inspectionEnabled).toBeUndefined()
+    expect(metadata.fieldUpdates?.inspectionEnabled).toEqual({
+      updatedAt: 300,
+      editorId: 'laptop',
+    })
+    expect(metadata.fieldUpdates?.preferences?.inspectionEnabled).toEqual({
+      updatedAt: 300,
+      editorId: 'laptop',
+    })
+    expect(conflicts.map((conflict) => conflict.field)).toEqual([
+      'inspectionEnabled',
+      'preferences.inspectionEnabled',
+    ])
+    expect(conflicts.every((conflict) => conflict.resolution === 'local')).toBe(
+      true,
+    )
+  })
+
+  it('keeps an explicit removal when both sides have no override', () => {
+    const { metadata } = merge(
+      session({
+        inspectionEnabled: undefined,
+        fieldUpdates: {
+          inspectionEnabled: { updatedAt: 300, editorId: 'laptop' },
+        },
+      }),
+      session({ inspectionEnabled: undefined, updatedAt: 500 }),
+    )
+
+    expect(metadata.inspectionEnabled).toBeUndefined()
+    expect(metadata.fieldUpdates?.inspectionEnabled).toEqual({
+      updatedAt: 300,
+      editorId: 'laptop',
+    })
+  })
+
   it('honors an explicit preference removal with field metadata', () => {
     const local = session({
       preferences: {},

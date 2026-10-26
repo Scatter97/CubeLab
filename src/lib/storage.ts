@@ -271,11 +271,6 @@ function getDefaultStorage(): StorageLike | null {
 }
 
 /**
- * Validates a session collection. Invalid sessions and solves are skipped
- * individually so one corrupt record cannot make every other session
- * unreadable. Duplicate session and solve IDs are ignored.
- */
-/**
  * Finds sessions whose solve events disagree with the session event. Imports
  * reject these outright instead of dropping solves or silently changing the
  * session event: a mixed-event session would otherwise wedge synchronization.
@@ -302,6 +297,11 @@ export function findSessionEventMismatches(value: unknown): string[] {
   return errors
 }
 
+/**
+ * Validates a session collection. Invalid sessions and solves are skipped
+ * individually so one corrupt record cannot make every other session
+ * unreadable. Duplicate session and solve IDs are ignored.
+ */
 export function parseSessionsData(value: unknown): SessionsData | null {
   if (!isRecord(value)) return null
   if (!Array.isArray(value.sessions)) return null

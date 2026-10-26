@@ -1,10 +1,25 @@
 # CubeLab synchronization hardening — limitations
 
-**Last updated:** 2026-10-25
+**Last updated:** 2026-10-26
 
 This patch substantially hardens Phase 2C, but it is deliberately **not** a claim
 that every distributed-systems problem is solved. Google Drive is still an
 eventually consistent remote store, not a transaction coordinator.
+
+## 2026-10-26 audit remediation
+
+- Solve Undo is durable: tombstones keep a synchronized `restoredAt` revocation.
+  Older clients that do not understand `restoredAt` may still hide a restored
+  solve, so update every CubeLab build sharing a Drive account together.
+- Device identity is persisted on first sync-storage load and cached in memory.
+- Remote sync envelopes and local imports reject malformed entries, malformed
+  metadata, and mixed-event sessions as a whole before mutation.
+- OAuth requests only `drive.appdata` and makes no userinfo request.
+- Disconnecting Drive disables automatic synchronization; reconnecting enables
+  it again through the explicit connection flow.
+- Inspection overrides can be cleared back to the global setting with removal
+  provenance retained for merging. Custom-average inputs commit drafts on
+  blur/Enter, and inspection warnings remain visual on every feedback channel.
 
 ## Addressed
 

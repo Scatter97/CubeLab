@@ -138,10 +138,19 @@ the production build because it tests the service worker and offline reload.
   setting as a versioned JSON file. Import must validate the app marker, format
   version, sessions, solves, and settings, then show current/incoming counts and
   require explicit confirmation. Invalid files must not mutate local data.
-  Local backup/import stays entirely local. Keep the 10 MB import cap unless
-  large-backup behavior is deliberately designed and tested.
+  Reject mixed-event sessions and malformed sync envelopes as a whole before
+  confirmation. Local backup/import stays entirely local. Keep the 10 MB import
+  cap unless large-backup behavior is deliberately designed and tested.
+- **Undo is durable and synchronized.** Solve undo retains the tombstone and
+  records `restoredAt`; do not delete the tombstone locally. A later deletion
+  with a newer timestamp wins, and equal times favour deletion. Every device
+  must merge the revocation record so an already-published deletion cannot
+  remove the solve again.
 - **Drive sync is device-owned and all-snapshot.** Google Identity Services OAuth
-  and the `drive.appdata` scope are allowed only after explicit connection. Each
+  and the `drive.appdata` scope are allowed only after explicit connection. Do
+  not request email, profile, `openid`, or userinfo scopes. Disconnecting Drive
+  disables automatic synchronization; reconnecting re-enables it explicitly.
+  Each
   browser writes `cubelab-backup-<sanitized-deviceId>.json`; every sync follows
   every file-list page, validates, and merges all CubeLab snapshots. A failed
   page, malformed/repeated token, or `incompleteSearch` must stop synchronization

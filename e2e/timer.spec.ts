@@ -239,14 +239,14 @@ test('inspection supports count-down, count-up, and independent warnings', async
   await settings.getByTestId('inspection-setting').click()
   await settings.getByTestId('inspection-direction').selectOption('down')
   await expect(settings.getByTestId('inspection-warning-8s').locator('..')).toContainText(
-    '8 seconds elapsed',
+    '7 seconds remaining',
   )
   await expect(settings.getByTestId('inspection-warning-12s').locator('..')).toContainText(
-    '12 seconds elapsed',
+    '3 seconds remaining',
   )
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('inspection-warning-12s').check()
-  // Inspection warnings follow the alert channel; use visual feedback here.
+  // Inspection warnings keep their visual pulse regardless of the channel.
   await settings.getByTestId('alert-channel').selectOption('visual')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
@@ -296,6 +296,31 @@ test('inspection supports count-down, count-up, and independent warnings', async
   expect(stored?.settings.inspectionCountDirection).toBe('up')
   expect(stored?.settings.inspectionWarning8s).toBe(true)
   expect(stored?.settings.inspectionWarning12s).toBe(true)
+})
+
+test('inspection warnings stay visible with sound-only alerts', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+  await page.clock.install()
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('inspection-setting').click()
+  await settings.getByTestId('alert-channel').selectOption('sound')
+  await settings.getByTestId('inspection-warning-8s').check()
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await page.keyboard.press('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
+  await page.clock.fastForward(8_100)
+
+  await expect(page.locator('.timer-alert')).toBeVisible()
+  await expect(page.locator('.timer-alert')).toHaveClass(/is-warning/)
+  await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(
+    '7 seconds remaining',
+  )
 })
 
 test('settings dialog contains focus and restores it to the header button', async ({
@@ -681,8 +706,26 @@ test('expanded and custom statistics are display-only and persist', async ({
   await settings.getByTestId('stat-visible-ao100').check()
   await settings.getByTestId('stat-precision').selectOption('tenths')
   await settings.getByTestId('add-custom-average').click()
-  await expect(settings.getByTestId('custom-average-size-0')).toHaveValue('6')
-  await settings.getByTestId('custom-average-size-0').fill('7')
+  const customSize = settings.getByTestId('custom-average-size-0')
+  await expect(customSize).toHaveValue('6')
+
+  // Typing a multi-digit size must not clamp or reject intermediate digits.
+  await customSize.fill('')
+  await customSize.pressSequentially('101')
+  await expect(customSize).toHaveValue('101')
+  await customSize.press('Enter')
+  await expect(customSize).toHaveValue('101')
+
+  await customSize.fill('7')
+  await customSize.press('Enter')
+  await expect(customSize).toHaveValue('7')
+
+  // A validation error does not survive closing and reopening Settings.
+  await customSize.fill('5')
+  await customSize.press('Enter')
+  await expect(settings.getByRole('alert')).toContainText(
+    'ao5 is already available above.',
+  )
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -697,6 +740,7 @@ test('expanded and custom statistics are display-only and persist', async ({
   await expect(settings.getByTestId('stat-visible-ao25')).toBeChecked()
   await expect(settings.getByTestId('stat-visible-ao100')).toBeChecked()
   await expect(settings.getByTestId('custom-average-size-0')).toHaveValue('7')
+  await expect(settings.getByRole('alert')).toHaveCount(0)
 
   await settings.getByTestId('stat-visible-single').uncheck()
   await settings.getByTestId('stat-visible-ao5').uncheck()
@@ -1099,6 +1143,81 @@ test('per-session inspection overrides the global default and persists', async (
   ).toHaveAttribute('aria-checked', 'false')
 })
 
+test('per-session inspection can be cleared back to the global setting', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  let sessionDialog = await openSessionSettings(page)
+  const sessionSwitch = sessionDialog.getByTestId('session-inspection-setting')
+  await expect(sessionSwitch).toHaveAttribute('aria-checked', 'false')
+  await sessionSwitch.click()
+  await expect(sessionSwitch).toHaveAttribute('aria-checked', 'true')
+  await expect(
+    sessionDialog.getByTestId('session-inspection-use-global'),
+  ).toBeVisible()
+
+  await sessionDialog.getByTestId('session-inspection-use-global').click()
+  await expect(
+    sessionDialog.getByTestId('session-inspection-use-global'),
+  ).toHaveCount(0)
+  await expect(sessionSwitch).toHaveAttribute('aria-checked', 'false')
+  await expect(sessionDialog).toContainText(
+    'This session is using the global inspection default.',
+  )
+  await sessionDialog.getByTestId('session-settings-done').click()
+  await expect(sessionDialog).toBeHidden()
+
+  const settings = await openSettings(page)
+  await settings.getByRole('switch', { name: /Inspection/ }).click()
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  sessionDialog = await openSessionSettings(page)
+  await expect(
+    sessionDialog.getByTestId('session-inspection-setting'),
+  ).toHaveAttribute('aria-checked', 'true')
+  await expect(
+    sessionDialog.getByTestId('session-inspection-use-global'),
+  ).toHaveCount(0)
+  await sessionDialog.getByTestId('session-settings-done').click()
+  await expect(sessionDialog).toBeHidden()
+
+  await page.reload()
+  await waitForApp(page)
+  sessionDialog = await openSessionSettings(page)
+  await expect(
+    sessionDialog.getByTestId('session-inspection-setting'),
+  ).toHaveAttribute('aria-checked', 'true')
+  await expect(
+    sessionDialog.getByTestId('session-inspection-use-global'),
+  ).toHaveCount(0)
+})
+
+test('changing a session event saves its default name immediately', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+  expect(await selectedSessionName(page)).toBe('Session 1')
+
+  const sessionDialog = await openSessionSettings(page)
+  await sessionDialog.locator('select').selectOption('222')
+  // Close without focusing or blurring the name field. The rename must already
+  // have been committed when the event-driven default name was chosen.
+  await sessionDialog.getByTestId('session-settings-done').click()
+  await expect(sessionDialog).toBeHidden()
+  expect(await selectedSessionName(page)).toBe('2×2')
+
+  const stored = await storedSessions(page)
+  expect(stored?.sessions[0]?.name).toBe('2×2')
+
+  await page.reload()
+  await waitForApp(page)
+  expect(await selectedSessionName(page)).toBe('2×2')
+})
+
 test('session controls lock while the timer is active', async ({ page }) => {
   await page.goto('/')
   await waitForApp(page)
@@ -1362,8 +1481,110 @@ test('google drive backup and restore work in mock mode', async ({ page }) => {
   await expect(deleteDialog).toBeVisible()
   await deleteDialog.getByRole('button', { name: 'Delete backups' }).click()
   await expect(drive).toContainText('No remote backup found yet.')
+
+  // Disconnecting turns automatic synchronization off instead of leaving a
+  // preference that can only fail with an auth-required status.
+  await drive.getByTestId('drive-disconnect').click()
+  await expect(page.locator('.toast')).toContainText(
+    'Google Drive disconnected. Automatic synchronization is off.',
+  )
+  await expect(
+    drive.getByRole('checkbox', { name: 'Automatic synchronization' }),
+  ).not.toBeChecked()
+  await expect(drive.getByTestId('sync-now')).toBeDisabled()
+
+  // Reconnecting restores the opt-in synchronization preference.
+  await drive.getByTestId('drive-connect').click()
+  await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+  await expect(
+    drive.getByRole('checkbox', { name: 'Automatic synchronization' }),
+  ).toBeChecked()
+
   await drive.getByTestId('drive-done').click()
   await expect(drive).toBeHidden()
+})
+
+test('delete remote backups works without a local snapshot', async ({ page }) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  // Only another device's snapshot exists. This browser has no remote file ID.
+  await page.evaluate(async () => {
+    const storedSettings = JSON.parse(
+      localStorage.getItem('cubelab:settings:v1') ?? '{}',
+    ) as { settings: Record<string, unknown> }
+    const storedSessions = JSON.parse(
+      localStorage.getItem('cubelab:sessions:v1') ?? '{}',
+    ) as Record<string, unknown>
+    const now = Date.now()
+    const backup = {
+      app: 'CubeLab',
+      format: 'cubelab-backup',
+      version: 1,
+      exportedAt: new Date(now).toISOString(),
+      sessions: storedSessions,
+      settings: storedSettings.settings,
+      sync: {
+        protocolVersion: 1,
+        revision: 1,
+        deviceId: 'remote-device',
+        updatedAt: now,
+        tombstones: [],
+        conflicts: [],
+        sessionRedirects: [],
+      },
+    }
+    const mockDrive = (
+      window as {
+        __cubeLabMockDrive?: {
+          connect: () => Promise<void>
+          disconnect: () => void
+          uploadDeviceBackup: (
+            content: string,
+            deviceId: string,
+          ) => Promise<unknown>
+        }
+      }
+    ).__cubeLabMockDrive
+    await mockDrive?.connect()
+    await mockDrive?.uploadDeviceBackup(
+      JSON.stringify(backup),
+      'remote-device',
+    )
+    mockDrive?.disconnect()
+  })
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-drive-button').click()
+  const drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive).toBeVisible()
+  await drive.getByRole('button', { name: /Advanced settings/ }).click()
+
+  // Deletion is available before this browser owns a remote file. The action
+  // connects first, then removes every CubeLab snapshot.
+  const deleteButton = drive.getByTestId('drive-delete-remote')
+  await expect(deleteButton).toBeEnabled()
+  await deleteButton.click()
+  const deleteDialog = page.getByRole('dialog', {
+    name: 'Delete all Google Drive backups?',
+  })
+  await deleteDialog.getByRole('button', { name: 'Delete backups' }).click()
+  await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+  await expect(page.locator('.toast')).toContainText(
+    'Google Drive backup deleted',
+  )
+
+  const remaining = await page.evaluate(async () => {
+    const mockDrive = (
+      window as {
+        __cubeLabMockDrive?: {
+          listBackups: () => Promise<unknown[]>
+        }
+      }
+    ).__cubeLabMockDrive
+    return (await mockDrive?.listBackups())?.length ?? 0
+  })
+  expect(remaining).toBe(0)
 })
 
 test('invalid google drive backup is rejected', async ({ page }) => {
@@ -1576,6 +1797,28 @@ test('duplicate session names from Drive are reviewed and merged', async ({
     "'Shared'",
   )
   await expect(drive.getByTestId('review-duplicate-sessions')).toBeVisible()
+
+  // A typed confirmation is scoped to one open dialog. Cancelling and opening
+  // the review again must not leave the destructive action pre-approved.
+  await drive.getByTestId('review-duplicate-sessions').click()
+  const reviewMerge = page.getByRole('dialog', { name: 'Merge sessions' })
+  await expect(reviewMerge).toBeVisible()
+  await reviewMerge.getByLabel('Typed confirmation').fill('MERGE SESSIONS')
+  await expect(
+    reviewMerge.getByRole('button', { name: 'Confirm merge' }),
+  ).toBeEnabled()
+  await reviewMerge.getByRole('button', { name: 'Cancel merge' }).click()
+  await expect(reviewMerge).toBeHidden()
+  await expect(drive).toBeVisible()
+
+  await drive.getByTestId('review-duplicate-sessions').click()
+  await expect(reviewMerge).toBeVisible()
+  await expect(reviewMerge.getByLabel('Typed confirmation')).toHaveValue('')
+  await expect(
+    reviewMerge.getByRole('button', { name: 'Confirm merge' }),
+  ).toBeDisabled()
+  await reviewMerge.getByRole('button', { name: 'Cancel merge' }).click()
+  await expect(reviewMerge).toBeHidden()
 
   // Close the modal dialog so the actionable toast can be clicked.
   await drive.getByTestId('drive-done').click()

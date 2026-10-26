@@ -7,6 +7,7 @@ import {
   resolveRedirectConflicts,
 } from './sync'
 import { DEFAULT_SESSION_NAME } from './sessions'
+import { mergeSolveFields } from './solveMerge'
 import { isActiveTombstone, type SyncConflict, type Tombstone } from './syncStorage'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
@@ -513,6 +514,38 @@ describe('cross-device session ownership safety', () => {
     const local = sessionsData({ sessions: [session({ id: 'local-333', event: '333', solves: [solve({ id: 'bad-owner' })] })] })
     const remote = sessionsData({ sessions: [session({ id: 'remote-444', event: '444', solves: [solve({ id: 'bad-owner' })] })] })
     expect(() => mergeSessionsData({ local, remote, tombstones: [], deviceId: 'd', manualConflictReview: false })).toThrow(/does not match its session event/)
+  })
+})
+
+describe('equal solve values and merge provenance', () => {
+  it('does not fabricate field metadata for equal legacy values', () => {
+    const local = solve()
+    const remote = solve({ updatedAt: 1_700_000_001_000 })
+    const conflicts: SyncConflict[] = []
+
+    const merged = mergeSolveFields(local, remote, false, conflicts)
+
+    expect(conflicts).toHaveLength(0)
+    expect(merged.rawMs).toBe(local.rawMs)
+    expect(merged.updatedAt).toBe(1_700_000_001_000)
+    expect(merged.fieldUpdates).toBeUndefined()
+  })
+
+  it('carries only explicit metadata when an equal value meets a modern record', () => {
+    const explicit = { updatedAt: 200, editorId: 'phone' }
+    const local = solve()
+    const remote = solve({
+      fieldUpdates: { penalty: explicit },
+    })
+    const conflicts: SyncConflict[] = []
+
+    const merged = mergeSolveFields(local, remote, false, conflicts)
+
+    expect(conflicts).toHaveLength(0)
+    expect(merged.fieldUpdates?.penalty).toEqual(explicit)
+    expect(merged.fieldUpdates?.rawMs).toBeUndefined()
+    expect(merged.fieldUpdates?.scramble).toBeUndefined()
+    expect(merged.fieldUpdates?.comment).toBeUndefined()
   })
 })
 

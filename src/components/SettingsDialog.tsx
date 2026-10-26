@@ -79,18 +79,11 @@ function SettingsContent({
   onOpenDriveBackup,
   onClose,
 }: Omit<SettingsDialogProps, 'open'>) {
-  const [customAverageError, setCustomAverageError] = useState<string | null>(
-    null,
-  )
-
   const updateCustomAverages = (next: CustomAverageSetting[]): string | null => {
     const sizes = next.map((average) => average.size)
     if (new Set(sizes).size !== sizes.length) {
-      const error = 'Custom averages must use different sizes.'
-      setCustomAverageError(error)
-      return error
+      return 'Custom averages must use different sizes.'
     }
-    setCustomAverageError(null)
     onChange({ customAverages: next })
     return null
   }
@@ -101,14 +94,10 @@ function SettingsContent({
       size < MIN_CUSTOM_AVERAGE_SIZE ||
       size > MAX_CUSTOM_AVERAGE_SIZE
     ) {
-      const error = `Use a whole number from ${MIN_CUSTOM_AVERAGE_SIZE} to ${MAX_CUSTOM_AVERAGE_SIZE}.`
-      setCustomAverageError(error)
-      return error
+      return `Use a whole number from ${MIN_CUSTOM_AVERAGE_SIZE} to ${MAX_CUSTOM_AVERAGE_SIZE}.`
     }
     if (isBuiltInAverageSize(size)) {
-      const error = `ao${size} is already available above.`
-      setCustomAverageError(error)
-      return error
+      return `ao${size} is already available above.`
     }
     return updateCustomAverages(
       settings.customAverages.map((average) =>
@@ -511,11 +500,6 @@ function SettingsContent({
                 {MIN_CUSTOM_AVERAGE_SIZE} to ao{MAX_CUSTOM_AVERAGE_SIZE}. Built-in
                 sizes such as ao5 and ao12 are already listed above.
               </p>
-              {customAverageError ? (
-                <p className="settings-error" role="alert">
-                  {customAverageError}
-                </p>
-              ) : null}
             </div>
 
             <label className="settings-field">

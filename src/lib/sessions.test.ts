@@ -284,6 +284,58 @@ describe('solve mutations', () => {
     expect(setSessionInspection(updated, 'session-2', true, 6)).toBe(updated)
   })
 
+  it('clears a per-session inspection override back to the global setting', () => {
+    const current = data({
+      sessions: [
+        session(),
+        session({
+          id: 'session-2',
+          name: 'Evening',
+          inspectionEnabled: true,
+          preferences: {
+            inspectionEnabled: true,
+            inspectionWarning8s: true,
+          },
+          fieldUpdates: {
+            inspectionEnabled: { updatedAt: 4, editorId: 'laptop' },
+            preferences: {
+              inspectionEnabled: { updatedAt: 4, editorId: 'laptop' },
+              inspectionWarning8s: { updatedAt: 4, editorId: 'laptop' },
+            },
+          },
+        }),
+      ],
+    })
+
+    const cleared = setSessionInspection(
+      current,
+      'session-2',
+      undefined,
+      10,
+      'laptop',
+    )
+    const sessionAfter = cleared.sessions[1]
+    expect(sessionAfter?.inspectionEnabled).toBeUndefined()
+    expect(sessionAfter?.preferences).toEqual({ inspectionWarning8s: true })
+    expect(sessionAfter?.fieldUpdates?.inspectionEnabled).toEqual({
+      updatedAt: 10,
+      editorId: 'laptop',
+    })
+    // The legacy preference form is stamped too, so an older boolean cannot
+    // resurrect the override from another snapshot.
+    expect(
+      sessionAfter?.fieldUpdates?.preferences?.inspectionEnabled,
+    ).toEqual({ updatedAt: 10, editorId: 'laptop' })
+    expect(
+      sessionAfter?.fieldUpdates?.preferences?.inspectionWarning8s,
+    ).toEqual({ updatedAt: 4, editorId: 'laptop' })
+
+    // Clearing an already-global session is a no-op.
+    expect(setSessionInspection(cleared, 'session-2', undefined, 11)).toBe(
+      cleared,
+    )
+  })
+
   it('updates penalties without overwriting raw time', () => {
     const current = data({ sessions: [session({ solves: [solve()] })] })
     const next = setSolvePenalty(current, 'solve-1', '+2', 5)

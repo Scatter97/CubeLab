@@ -123,6 +123,22 @@ function deleteSolve(device: DeviceState, id: string, deletedAt: number): void {
   ]
 }
 
+function restoreDeletedSolve(
+  device: DeviceState,
+  removed: Solve,
+  restoredAt: number,
+): void {
+  addSolves(device, [removed])
+  device.tombstones = device.tombstones.map((tombstone) =>
+    tombstone.kind === 'solve' && tombstone.id === removed.id
+      ? {
+          ...tombstone,
+          restoredAt: Math.max(restoredAt, tombstone.deletedAt + 1),
+        }
+      : tombstone,
+  )
+}
+
 function editSolve(
   device: DeviceState,
   id: string,
@@ -384,6 +400,61 @@ describe('multi-device synchronization stress', () => {
     )
     for (const device of devices) {
       expect(new Set(allSolveIds(device.sessions)).size).toBe(4)
+    }
+  })
+
+  it('propagates a durable undo through delayed three-device snapshots', async () => {
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const laptop = deviceState('laptop', [solve('seed', 100)])
+    const phone = deviceState('phone')
+    const tablet = deviceState('tablet')
+    const devices = [laptop, phone, tablet]
+
+    for (let round = 0; round < 2; round += 1) {
+      await Promise.all(devices.map((device) => syncDevice(device, transport)))
+    }
+    for (const device of devices) {
+      expect(allSolveIds(device.sessions)).toEqual(['seed'])
+    }
+
+    const removed = sessionById(laptop.sessions, 'session-1')?.solves.find(
+      (item) => item.id === 'seed',
+    )
+    if (!removed) throw new Error('seed solve is missing')
+    deleteSolve(laptop, 'seed', 9_000)
+    await syncDevice(laptop, transport)
+    await syncDevice(phone, transport)
+    // This device has not seen the deletion yet, so its stale snapshot still
+    // contains the solve and an older view of the tombstone set.
+    expect(allSolveIds(tablet.sessions)).toEqual(['seed'])
+
+    restoreDeletedSolve(laptop, removed, 10_000)
+    await syncDevice(laptop, transport)
+
+    for (let round = 0; round < 3; round += 1) {
+      await Promise.all(devices.map((device) => syncDevice(device, transport)))
+    }
+    for (const device of devices) {
+      expect(allSolveIds(device.sessions)).toEqual(['seed'])
+      const tombstone = device.tombstones.find(
+        (item) => item.kind === 'solve' && item.id === 'seed',
+      )
+      expect(tombstone?.restoredAt).toBe(10_000)
+    }
+
+    // A later deliberate deletion wins over the propagated restoration.
+    deleteSolve(tablet, 'seed', 20_000)
+    for (let round = 0; round < 3; round += 1) {
+      await Promise.all(devices.map((device) => syncDevice(device, transport)))
+    }
+    for (const device of devices) {
+      expect(allSolveIds(device.sessions)).toEqual([])
+      const tombstone = device.tombstones.find(
+        (item) => item.kind === 'solve' && item.id === 'seed',
+      )
+      expect(tombstone?.deletedAt).toBe(20_000)
+      expect(tombstone?.restoredAt).toBeUndefined()
     }
   })
 })

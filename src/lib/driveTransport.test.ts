@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  DRIVE_BACKUP_SCOPE,
+  createGoogleDriveTransport,
   deviceBackupFileName,
   fetchDriveBackupFiles,
   isDriveBackupFileName,
@@ -262,6 +264,50 @@ describe('delete-all with paginated discovery', () => {
 
     await expect(deleteAllRemoteBackups(transport)).resolves.toBe(3)
     expect(deleted.sort()).toEqual(['device-a', 'device-b', 'legacy'])
+  })
+})
+
+describe('Google Identity Services authorization', () => {
+  afterEach(() => {
+    delete (window as Window & { google?: unknown }).google
+    vi.restoreAllMocks()
+  })
+
+  it('requests only the Drive app-data scope and never calls userinfo', async () => {
+    const initTokenClient = vi.fn(
+      (config: {
+        scope: string
+        callback: (response: { access_token?: string; error?: string }) => void
+      }) => {
+        config.callback({ access_token: 'access-token' })
+        return { requestAccessToken: vi.fn() }
+      },
+    )
+    ;(window as Window & { google?: unknown }).google = {
+      accounts: {
+        oauth2: {
+          initTokenClient,
+          revoke: vi.fn(),
+        },
+      },
+    }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    const transport = createGoogleDriveTransport('client-id')
+    await transport.connect()
+
+    expect(initTokenClient).toHaveBeenCalledTimes(1)
+    expect(initTokenClient.mock.calls[0]?.[0].scope).toBe(DRIVE_BACKUP_SCOPE)
+    expect(initTokenClient.mock.calls[0]?.[0].scope).toBe(
+      'https://www.googleapis.com/auth/drive.appdata',
+    )
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(transport.accountLabel).toBe('Google Drive connected')
+    expect(transport.isConnected()).toBe(true)
+
+    transport.disconnect()
+    expect(transport.accountLabel).toBeNull()
+    expect(transport.isConnected()).toBe(false)
   })
 })
 

@@ -45,8 +45,9 @@ phases and their acceptance gates.
   optional comment, and a stable unique ID. Click a row or press <kbd>Enter</kbd>
   to open a floating action menu. Each row also has inline **+2** and **DNF**
   controls, while other actions remain in the menu.
-- **Solve actions**: add/remove `+2`, mark/clear DNF, delete with undo, copy the
-  scramble, solve time, or full solve text, and add or edit a persisted comment.
+- **Solve actions**: add/remove `+2`, mark/clear DNF, delete with a durable
+  synchronized undo, copy the scramble, solve time, or full solve text, and add
+  or edit a persisted comment.
   Session clearing and deletion live in the session settings gear.
 - **JSON backup and restore** covering every session, solve, and setting. Imports
   are validated and replace local data only after explicit confirmation.
@@ -153,6 +154,8 @@ settings before changing anything. Valid data replaces the local sessions and
 settings only after a confirmation dialog explains the current and incoming
 counts. Cancelling the confirmation leaves local data untouched. Imports are
 limited to 10 MB; invalid files produce an inline error and are not applied.
+Imports also reject sessions whose solves belong to a different puzzle event
+instead of storing data that would later block synchronization.
 
 ### Google Drive synchronization
 
@@ -226,9 +229,12 @@ limitations.
 Google Drive synchronization is optional; all timer, session, storage, and local
 JSON backup features work without it. Build with `VITE_GOOGLE_CLIENT_ID` to
 enable the controls; otherwise the dialog explains that Drive is not configured.
-OAuth tokens are kept in memory only and are not stored in `localStorage`. The
-connected account label is stored locally. Deleting the remote backup does not
-change local sessions or settings.
+OAuth tokens are kept in memory only and are not stored in `localStorage`. Only
+the `drive.appdata` scope is requested; CubeLab does not request email, profile,
+or identity scopes. The connected account label is stored locally. Disconnecting
+Google Drive also turns automatic synchronization off, and reconnecting enables
+it again through the explicit connection flow. Deleting the remote backup does
+not change local sessions or settings.
 
 ### Inspection rules
 

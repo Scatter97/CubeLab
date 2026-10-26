@@ -12,6 +12,7 @@ import { DEFAULT_SESSION_NAME } from '../lib/sessions'
 import { createSyncEnvelope } from '../lib/sync'
 import {
   createDefaultSyncStorage,
+  resetDeviceIdCacheForTests,
   saveSyncStorage,
 } from '../lib/syncStorage'
 import { useDriveBackup } from './useDriveBackup'
@@ -53,6 +54,7 @@ function sessionsWithSolve(id: string) {
 describe('useDriveBackup', () => {
   beforeEach(() => {
     localStorage.clear()
+    resetDeviceIdCacheForTests()
   })
 
   it('connects with the mock transport', async () => {
@@ -162,6 +164,57 @@ describe('useDriveBackup', () => {
     expect(await transport.downloadBackup(foreign!.id)).toBe(foreignContent)
   })
 
+  it('never associates another device snapshot with this browser', async () => {
+    saveSyncStorage(createDefaultSyncStorage('device-hook'))
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const foreign = await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          sessionsWithSolve('foreign'),
+          DEFAULT_SETTINGS,
+          new Date('2026-01-02T00:00:00.000Z'),
+          { ...createSyncEnvelope('other-device', 2, [], []), updatedAt: 200 },
+        ),
+      ),
+      'other-device',
+    )
+    const own = await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          sessionsWithSolve('local'),
+          DEFAULT_SETTINGS,
+          new Date('2026-01-01T00:00:00.000Z'),
+          { ...createSyncEnvelope('device-hook', 1, [], []), updatedAt: 100 },
+        ),
+      ),
+      'device-hook',
+    )
+
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: sessionsWithSolve('local'),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+    })
+    expect(result.current.metadata.remoteFileId).toBe(own.id)
+    expect(result.current.metadata.remoteFileId).not.toBe(foreign.id)
+
+    await act(async () => {
+      await result.current.restoreFromDrive()
+    })
+    expect(result.current.metadata.remoteFileId).toBe(own.id)
+    expect(result.current.metadata.remoteModifiedTime).toBe(own.modifiedTime)
+  })
+
   it('restores one merged view from every device snapshot', async () => {
     const transport = createMemoryDriveTransport()
     await transport.connect()
@@ -255,6 +308,12 @@ describe('useDriveBackup', () => {
 
     await act(async () => {
       await result.current.connect()
+    })
+    // Other devices' snapshots are visible, but this browser has not uploaded
+    // its own file yet. Deletion must still be available.
+    expect(result.current.metadata.remoteFileId).toBeNull()
+
+    await act(async () => {
       await result.current.deleteRemoteBackup()
     })
 

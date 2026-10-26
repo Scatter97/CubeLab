@@ -278,6 +278,26 @@ describe('session persistence', () => {
     expect(loaded.activeSessionId).toBe(loaded.sessions[0]?.id)
   })
 
+  it('migrates a legacy history larger than the argument-spread limit', () => {
+    const storage = new MemoryStorage()
+    const count = 130_000
+    const base = 1_700_000_000_000
+    const solves = Array.from({ length: count }, (_, index) =>
+      solve({
+        id: `large-${index}`,
+        rawMs: 10_000 + (index % 1_000),
+        createdAt: base + index,
+      }),
+    )
+    seedLegacy(storage, solves)
+
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions).toHaveLength(1)
+    expect(loaded.sessions[0]?.solves).toHaveLength(count)
+    expect(loaded.sessions[0]?.createdAt).toBe(base)
+    expect(loaded.sessions[0]?.updatedAt).toBe(base + count - 1)
+  })
+
   it('prefers valid session data over the legacy record', () => {
     const storage = new MemoryStorage()
     seedLegacy(storage, [solve({ id: 'legacy' })])
