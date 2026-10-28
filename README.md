@@ -182,9 +182,11 @@ reports partial failures instead of claiming complete success.
 Automatic synchronization is enabled only after the user connects Google Drive.
 It defaults to combined mode at 5 minutes or 10 solves, whichever comes first,
 with minimum values of 1 minute and 1 solve. Startup, exit, and reconnection
-synchronization are available as advanced options. Failed automatic syncs retry
-with bounded backoff; when that budget is exhausted, CubeLab pauses automatic
-retries and asks you to use **Sync now**.
+synchronization are available as advanced options. Exit sync is attempted when
+the page becomes hidden, on `pagehide`, and on `freeze`, with duplicate exit
+events collapsed over a short window. Failed automatic syncs retry with bounded
+backoff; when that budget is exhausted, CubeLab pauses automatic retries and
+asks you to use **Sync now**.
 
 There is no separate manual **Backup now** button and no
 **Restore from Drive** button. Synchronization is the reconciliation path:
@@ -209,6 +211,19 @@ cloud-only choices are labelled **Use newest cloud** / **Use other cloud**. The
 stored conflict queue is not capped, and the dialog pages the list five at a
 time with a **Show all** action.
 
+Every manual decision is also recorded in a local-only **review history** in the
+Drive dialog, newest first and capped at 50 entries. **Undo** reverses the stored
+choice when that exact conflict is still current; the next sync then applies the
+other version if a cloud snapshot still contains it. A decision that has been
+superseded by a later edit, an already-applied session redirect merge, and a
+legacy recovery that already restored solves cannot be reversed automatically.
+A **Keep deleted** legacy decision can still be changed to **Recover solves**.
+Review history never leaves this browser: it is not
+uploaded, synchronized, or included in JSON backups. **Repair sync state**, under
+advanced settings, clears only derived bookkeeping so the next sync re-reads
+every cloud snapshot; sessions, deletions, approvals, pending conflicts, and
+review history are kept.
+
 Separate sessions that share a name are never merged automatically. CubeLab
 recomputes collisions against the final merged collection and shows a **Review
 Merge** action in the sync notification; the Drive dialog also keeps a persistent
@@ -221,19 +236,36 @@ solves are moved into a clearly labelled **Session (recovered)** rather than
 being lost. Later offline devices merge their solves into that recovered session
 by solve ID. New session tombstones record the deleting device's known solve IDs,
 allowing unknown offline solves to be recovered even when device clocks
-disagree; legacy tombstones use the timestamp fallback.
+disagree; legacy tombstones use the timestamp fallback. If an old deletion
+predates solve tracking and CubeLab cannot tell whether orphan solves were
+already deleted or were offline edits, it pauses with a mandatory **legacy
+recovery** review: **Keep deleted** drops the ambiguous solves, while **Recover
+solves** restores them. Choosing one records the exact reviewed candidate set; a
+later arrival raises a fresh review instead of being silently included.
 
-Synchronization is not a substitute for the local JSON backup. Google Drive still
-does not provide verified atomic compare-and-swap protection in this transport.
-Each write is now a uniquely named, immutable snapshot, so writes cannot replace
-another writer's snapshot (cross-device or shared-device). Automatic sync and
-manual backup still share a Web Lock to avoid intermixing same-origin I/O. The
-optimistic changed-file recheck remains only for the legacy fixed-name transport,
-whose file is still mutable. In-flight guards prevent a download from replacing
-solves recorded while it was running, but remote writes are not transactional and
-convergence is eventual, not synchronous. Snapshots accumulate until you delete
-them. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync
-limitations.
+Synchronization is not a substitute for the local JSON backup. Automatic writes
+are uniquely named immutable snapshots, so one writer cannot replace another
+writer's snapshot (cross-device or shared-device). Because Google Drive v3 does
+not return ETags, the legacy mutable fixed-name file is read through Drive v2
+metadata and replaced only with a v2 media update carrying `If-Match`; a stale
+precondition (HTTP 412) or a missing ETag aborts the write instead of falling
+back to an unconditional overwrite. That is a verified conditional update for
+one file, not a transaction across files. Automatic sync and manual backup share
+a Web Lock to avoid intermixing same-origin I/O. The optimistic changed-file
+recheck remains only for the legacy fixed-name transport. In-flight guards
+prevent a download from replacing solves recorded while it was running, but
+remote writes are not transactional and convergence is eventual, not
+synchronous. Snapshots accumulate until you delete them. See
+[`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync limitations.
+
+If synchronization looks stuck or you suspect a partially applied merge, open
+**Settings → Data → Google Drive backup → Advanced settings → Repair sync
+state**, then use **Sync now**. Repair re-reads every cloud snapshot and does not
+delete local sessions, deletions, approvals, or review history. If a manual
+decision was wrong, use **Undo** in the review history while it is still
+reversible. For local corruption or lost browser data, import the newest JSON
+backup instead of clearing site data; Drive synchronization merges snapshots and
+is not a blind remote restore.
 
 Google Drive synchronization is optional; all timer, session, storage, and local
 JSON backup features work without it. Build with `VITE_GOOGLE_CLIENT_ID` to
@@ -260,7 +292,6 @@ displayed direction: count-up warns at 8 seconds and 12 seconds elapsed;
 count-down warns at 7 seconds and 3 seconds remaining, matching the same
 elapsed points. The visual warning can pulse the timer surface or the entire
 screen according to **Settings → Alerts → Inspection warning display**. The
-penalty is determined at the moment timing starts. `Esc` cancels inspection
 penalty is determined at the moment timing starts. `Esc` cancels inspection
 before the solve begins. Inspection cannot be changed while timing is active;
 the header Settings button is disabled until the timer returns to idle.
@@ -453,9 +484,10 @@ merging, tombstones, conflict review, and scheduled sync.
 Sessions can be set to 3×3, 2×2, 4×4, or 3×3 OH and use `cubing.js` scrambles for
 the selected event. Additional events, social features, and non-Google cloud
 providers remain outside scope. Unique immutable snapshots prevent writers from
-overwriting one another, but Google Drive provides no verified atomic
-compare-and-swap here: local state remains replaceable, convergence is eventual,
-and snapshots accumulate until you use **Delete remote backups**. See
+overwriting one another; the legacy mutable fixed-name file uses a Drive v2
+ETag/`If-Match` conditional update, and no cross-file transaction exists. Local
+state remains replaceable, convergence is eventual, and snapshots accumulate
+until you use **Delete remote backups**. See
 [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 
 For implementation status and handoff details, see

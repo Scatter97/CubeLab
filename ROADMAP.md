@@ -193,8 +193,10 @@ proven.
   until delete-all; there is no cleanup policy or per-device management UI yet.
 - Same-origin automatic/manual writes share a Web Lock. Per-device transports do
   not re-list or recheck because their snapshots are immutable; the optimistic
-  changed-file recheck remains only for the legacy fixed-name transport. This is
-  best effort and not provider CAS.
+  changed-file recheck remains only for the legacy fixed-name transport, which is
+  additionally replaced through a Drive v2 ETag/`If-Match` conditional update.
+  The lock is best effort, and there is still no transaction across the snapshot
+  set.
 - Sessions schema v4 field metadata plus global settings metadata in the sync
   runtime. Session names, events, inspection overrides, individual preferences,
   and global settings merge independently by timestamp with deterministic
@@ -228,6 +230,13 @@ proven.
 - 2026-10-27 remediation for unique immutable snapshots, an uncapped conflict
   queue with paginated rendering, remote-snapshot disagreement review, and
   envelope-based own-snapshot identity.
+- 2026-10-28 Stage 1 hardening: conditional Drive v2 ETag/`If-Match` updates for
+  the legacy mutable fixed-name file, failing closed on HTTP 412 or a missing
+  ETag; local-only resolution audit history with exact-match Undo; approval
+  matching that survives local/remote orientation changes; mandatory
+  `legacyRecovery` review for ambiguous old deletions; remote-only redirect
+  disagreement review; deduplicated visibility/`pagehide`/`freeze` exit sync;
+  and a non-destructive **Repair sync state** recovery action.
 
 **Acceptance gate — partially met:**
 
@@ -244,18 +253,32 @@ proven.
       a three-device stress scenario converges after a follow-up sync. Every write
       is a uniquely named immutable snapshot, so even writers sharing one device
       identity cannot replace each other's file.
-- [ ] The user can understand and reverse the result of every merge.
-- [ ] A documented recovery path exists for corrupted or partially applied syncs.
-- [ ] Remote writes have verified atomic compare-and-swap protection.
+- [x] Manual conflict decisions are recorded in a local review history and can be
+      reversed while the exact stored approval is still current. Applied redirect
+      merges and active-session selection are not automatically reversible.
+- [x] A documented, non-destructive recovery action re-reads every cloud snapshot
+      while preserving sessions, tombstones, approvals, pending conflicts, and
+      review history.
+- [x] The legacy mutable fixed-name file is replaced only through a verified
+      Drive v2 ETag/`If-Match` conditional update; stale or unverifiable writes
+      fail closed.
+- [ ] Real-provider multi-device concurrency has been validated end to end. The
+      conditional write and recovery paths are covered by deterministic unit,
+      hook, stress, and mock-transport E2E tests only.
+- [ ] Provider-level compare-and-swap or a transaction across immutable snapshots
+      exists.
 
-**Remaining work:** A stale-writer/conditional-write strategy against the real
-provider (unique immutable files remove the overwrite race, but there is still no
-CAS), conflict-resolution audit/undo, a documented recovery path for corrupted or
-partially applied syncs, guaranteed sync-on-exit, explicit recovery for ambiguous
-legacy-tombstone edits, redirect consensus/recovery, and selective/device-visible
-remote snapshot management with a stale-snapshot cleanup policy. The Web Lock
-serializes same-origin writes but is not a remote transaction. Until those are
-addressed, do not describe synchronization as data-loss-proof.
+**Remaining work:** Real Google Drive multi-device validation (Stage 3) and a
+conditional-write/transaction strategy beyond the legacy mutable file. The
+legacy file is now protected by a provider-enforced `If-Match` update, but
+immutable snapshots are create-only and there is no transaction across the
+snapshot set. Conflict review now has local audit/undo, but applied redirect
+merges are not automatically reversible and redirect handling remains
+deterministic rather than consensus-based. Exit sync is hardened but still best
+effort. Also outstanding: selective/device-visible remote snapshot management
+with a stale-snapshot cleanup policy and field-level active-session merging. The
+Web Lock serializes same-origin writes but is not a remote transaction. Until
+those are addressed, do not describe synchronization as data-loss-proof.
 
 ## Phase 3 — More WCA events
 

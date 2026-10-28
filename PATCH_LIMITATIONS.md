@@ -52,9 +52,10 @@ eventually consistent remote store, not a transaction coordinator.
   uniquely named snapshots are immutable, so a concurrent writer cannot be
   overwritten. The optimistic changed-file recheck remains only for the legacy
   fixed-name transport, whose single file is still mutable.
-- The lock is best effort, not a remote transaction. Google Drive still exposes
-  no verified conditional write/compare-and-swap; local state remains
-  replaceable and convergence is eventual.
+- The lock is best effort, not a remote transaction. The legacy mutable file
+  additionally uses a Drive v2 ETag/`If-Match` conditional update; immutable
+  snapshots are create-only. There is still no transaction across the snapshot
+  set, local state remains replaceable, and convergence is eventual.
 
 ### Duplicate-name review
 
@@ -100,8 +101,10 @@ eventually consistent remote store, not a transaction coordinator.
   and resumes once when the timer becomes idle.
 - Automatic retries have a bounded budget. External triggers reset the budget;
   exhausted retries surface an explicit paused status instead of spinning.
-- Startup resumes a sync that was persisted as `syncing`, and sync-on-exit is
-  attempted on visibility loss, `pagehide`, and `beforeunload`.
+- Startup resumes a sync that was persisted as `syncing`. Exit sync is attempted
+  on visibility loss, `pagehide`, and `freeze`, with duplicate lifecycle events
+  collapsed over a 2-second window. `beforeunload` is not used because it does
+  not reliably await asynchronous network work.
 - Fingerprints detect local edits during download and upload, skip redundant
   uploads when the confirmed remote and local state are unchanged, and report
   unsynchronized changes and pending conflicts in the status line.
@@ -172,15 +175,78 @@ eventually consistent remote store, not a transaction coordinator.
   and no server-side ordering. Real-provider multi-device behavior remains
   unvalidated. Growth is documented.
 
+## 2026-10-28 Stage 1 hardening
+
+### Legacy mutable-file conditional write
+
+- Google Drive v3 does not expose ETags. The legacy mutable
+  `cubelab-backup.json` is listed through v3 and its ETag is read through Drive
+  v2 metadata. Replacement uses a v2 media `PUT` with `If-Match`.
+- A pre-write ETag mismatch and a provider HTTP 412 raise
+  `DrivePreconditionError`; automatic sync treats the write as `remote-changed`
+  and re-merges, while manual backup reports a retryable conflict. A missing ETag
+  fails closed instead of falling back to an unconditional overwrite.
+- Immutable per-device snapshots are create-only and do not need a precondition.
+  There is still no conditional write across the snapshot set.
+- Covered by `driveTransport.test.ts` (success, stale ETag, HTTP 412, missing
+  ETag, in-memory conditional writes) and hook/UI tests. **Not validated against
+  a real Google Drive account.**
+
+### Conflict-resolution audit and undo
+
+- `ConflictAuditEntry` records each manual decision in `cubelab:sync:v1`, newest
+  first, capped at 50 display/history entries. The audit is local-only and is
+  never included in sync envelopes, remote snapshots, or JSON backups.
+- The Drive dialog renders the history five at a time with **Show all** and an
+  **Undo** action. Undo requires the stored conflict to still carry the exact
+  recorded resolution and `updatedAt`; it flips the approval with a newer
+  timestamp. Superseded decisions and applied redirect merges are refused with
+  an explanatory error. A legacy recovery that restored solves cannot be
+  reversed automatically because recovery adds a `(recovered)` session; a
+  **Keep deleted** decision can still be changed to **Recover solves**.
+- Approvals now match the reviewed local/remote pair in either orientation,
+  because snapshots are merged one at a time. This prevents an approved choice
+  from re-prompting when a second snapshot presents the pair reversed.
+
+### Exit sync and recovery
+
+- `beforeunload` was removed. Exit sync now listens for visibility loss,
+  `pagehide`, and `freeze`, and collapses duplicate triggers within 2 seconds.
+- Exit sync remains best effort: the browser may terminate OAuth/network work.
+  Local storage is the durability boundary and a persisted `syncing` status is
+  resumed on startup.
+- **Repair sync state** clears only `lastSyncedFingerprint`,
+  `lastRemoteRevision`, `lastSyncStatus`, and `lastError`, then triggers a fresh
+  all-snapshot read when automatic synchronization is enabled. Sessions,
+  tombstones, redirects, pending conflicts, audit history, and settings metadata
+  are preserved. This is the documented recovery path for suspected stuck or
+  partially applied syncs; it cannot repair corrupted local storage.
+
+### Legacy tombstone and redirect review
+
+- Ambiguous orphan solves behind a pre-`knownSolveIds` session tombstone now
+  raise a mandatory `session`/`legacyRecovery` conflict even when manual review is
+  disabled. **Keep deleted** drops only the ambiguous candidate set; **Recover
+  solves** restores it. The review records the exact candidate IDs, so a later
+  arrival raises a fresh conflict.
+- The wall-clock heuristic still recovers solves that are clearly newer than the
+  legacy deletion; only the remaining ambiguous set requires review.
+- A local redirect approval no longer hides a disagreement between two cloud
+  destinations. When the local approval matches the automatic winner, the losing
+  cloud destination is still surfaced as `remoteOnly`. Redirect handling remains
+  deterministic, not consensus-based, and an applied redirect merge cannot be
+  undone automatically.
+
 ## Still unresolved
 
-- **No verified provider compare-and-swap.** Unique immutable snapshot names
-  prevent a write from replacing another writer's file, including two tabs or
-  profiles that share a device identity. Google Drive still has no conditional
-  write in this transport, and local state remains replaceable, so product copy
-  must describe eventual convergence rather than atomic writes. Web Locks
-  serialize same-origin writes but are not a remote transaction. Do not claim
-  atomic remote writes.
+- **Provider conditional writes are limited to the legacy mutable file.**
+  Unique immutable snapshot names prevent a write from replacing another
+  writer's file, including two tabs or profiles that share a device identity. The
+  legacy fixed-name file now uses a verified Drive v2 ETag/`If-Match` update, but
+  there is no transaction across the immutable snapshot set, and local state
+  remains replaceable. Product copy must describe eventual convergence rather
+  than atomic writes. Web Locks serialize same-origin writes but are not a remote
+  transaction.
 - **Duplicate review is advisory.** Collisions are detected and surfaced, but
   CubeLab never merges same-named sessions automatically. A user who dismisses
   the toast and closes the Drive dialog still has to reopen the merge action
@@ -189,7 +255,8 @@ eventually consistent remote store, not a transaction coordinator.
 - **No real multi-device provider validation.** Automated coverage uses the
   deterministic in-memory transport. Real Google Identity Services and Drive
   backup/restore were validated earlier; concurrent multi-device sync against
-  real Drive was not.
+  real Drive and the new v2 ETag/`If-Match` path against the live provider were
+  not. The Stage 1 gate is therefore only partially met.
 - **Eventual convergence, not synchronous consistency.** Each device must run a
   later merge before it sees another device's newest snapshot. There is no
   server-side ordering, push notification, or read-after-write guarantee.
@@ -197,19 +264,26 @@ eventually consistent remote store, not a transaction coordinator.
   stale-snapshot cleanup policy, or UI showing which device owns each file.
   Because every write adds an immutable snapshot, remote files accumulate until
   delete-all.
-- **Legacy tombstones still use wall-clock comparison.** Tombstones without
-  `knownSolveIds` cannot distinguish an unknown offline edit from an intentional
-  deletion, so ambiguous old edits can still be lost.
+- **Legacy tombstone ambiguity is reviewed, not eliminated.** Tombstones without
+  `knownSolveIds` still fall back to wall-clock comparison for obviously newer
+  solves. The remaining ambiguous set now requires explicit review, but a user
+  can still choose the wrong side, and old builds that do not know the
+  `legacyRecovery` field cannot participate in that review.
 - **Redirect handling is deterministic, not consensus-based.** Devices with
   different approval sets can resolve differently until they exchange the same
-  set. Divergent approved destinations have no separate recovery flow.
-- **Conflict review has no audit history or undo.** Resolutions are stored as
-  current runtime records. Pending conflicts and approvals needed to complete
-  an active merge are never evicted by a display or history cap; the stored
-  queue is deduplicated by field key, and its rendering is paginated. Past
-  choices cannot be inspected or reversed from the UI.
-- **Sync-on-exit is best effort.** Browsers may terminate async OAuth and network
-  work while closing. Local storage remains the durability boundary.
+  set. Remote-snapshot destination disagreements are surfaced for review, but
+  there is no consensus protocol, and an applied redirect merge cannot be undone
+  automatically.
+- **Resolution history is local, bounded, and not always reversible.** Review
+  history is capped at 50 entries, is never synchronized or exported, and is lost
+  if `cubelab:sync:v1` is cleared. Undo requires the exact stored conflict to
+  still be current; a later edit or a cleared conflict makes the decision
+  irreversible. Applied redirect merges and a legacy recovery that already
+  restored solves are never automatically reversible.
+- **Sync-on-exit is best effort.** Visibility loss, `pagehide`, and `freeze` are
+  deduplicated before requesting a sync, but browsers may still terminate async
+  OAuth and network work while closing. Local storage remains the durability
+  boundary.
 - **Active-session selection is not field-merged.** The active session is kept
   when it still exists locally; concurrent selection changes are not reviewed.
 - **In-flight identity checks assume immutable React state.** An accidental
@@ -230,5 +304,12 @@ synchronization protocol.
 Stage 0 on 2026-10-28 ran `npm run check` as one command with Node v22.23.2.
 Typecheck and lint passed, **287/287 unit tests** passed in 21 files, the
 production build passed (95 modules; PWA 22 entries, 2,286.77 KiB), **29/29
-Playwright tests** passed, and `git diff --check` was clean. No real Google Drive
-multi-device test was run.
+Playwright tests** passed, and `git diff --check` was clean.
+
+Stage 1 on 2026-10-28 passed `npm run check` as one command after sync
+hardening: typecheck and lint passed, **308/308 unit tests** passed in 21 files,
+the production build passed (95 modules; PWA 22 entries, 2,296.43 KiB), **29/29
+Playwright tests** passed, and `git diff --check` was clean. The manual-conflict
+E2E covers review history, Undo, and Repair. No real Google Drive multi-device or
+live-provider ETag test was run; the Stage 1 gate is partially unmet and real
+provider validation remains Stage 3 work.
