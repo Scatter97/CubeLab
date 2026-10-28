@@ -1,5 +1,11 @@
 # Phase 2B Design Brief — Google Drive Backup
 
+> **Superseded by Phase 2C.** This file is a historical design brief. The
+> manual-only fixed-file path it describes was replaced by local-first
+> synchronization with unique immutable snapshots, field-level merging, and
+> conflict review. See `README.md`, `PATCH_LIMITATIONS.md`, and
+> `PROJECT_PROGRESS.md` for current behavior.
+
 Status: **Draft for approval before implementation**  
 Last updated: 2026-10-23  
 Related milestone: CubeLab Phase 2B (Google Drive backup only; no Phase 2C sync)

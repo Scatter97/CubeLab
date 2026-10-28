@@ -1,6 +1,6 @@
 import type { Session, SessionsData, Solve } from '../types'
 import { DEFAULT_SESSION_NAME, MAX_SESSION_NAME_LENGTH, normalizeSessionName } from './sessions'
-import { applySessionRedirects, findSessionRedirectDivergences, normalizeSessionRedirects } from './sessionRedirects'
+import { applySessionRedirects, findRemoteRedirectDisagreements, findSessionRedirectDivergences, newestRedirectFor, normalizeSessionRedirects } from './sessionRedirects'
 import { maxSessionFieldUpdateTime, mergeSessionMetadata } from './sessionMetadata'
 import {
   isActiveTombstone,
@@ -90,6 +90,42 @@ export function mergeTombstones(...groups: ReadonlyArray<ReadonlyArray<Tombstone
 }
 
 
+/**
+ * Redirect approvals are matched by their unordered pair of destinations, and
+ * the chosen destination is anchored to the reviewed record's own values: an
+ * approval of "use cloud" always means the cloud value that was shown for
+ * review, regardless of which side a later merge lists first. Redirect
+ * approvals are rewritten whenever sync materializes a winner, so a matched
+ * pair is a stable review identity: a later approval of a different destination
+ * changes the pair and raises a fresh conflict, while re-approving the same pair
+ * keeps the existing decision instead of prompting on every merge.
+ */
+function findRedirectApproval(
+  fromId: string,
+  pair: readonly [string, string],
+  resolvedConflicts: readonly SyncConflict[],
+): SyncConflict | undefined {
+  return resolvedConflicts
+    .filter(
+      (conflict) =>
+        conflict.kind === 'redirect' &&
+        conflict.id === fromId &&
+        conflict.field === 'redirect' &&
+        conflict.resolution !== 'manual-pending' &&
+        ((Object.is(conflict.localValue, pair[0]) &&
+          Object.is(conflict.remoteValue, pair[1])) ||
+          (Object.is(conflict.localValue, pair[1]) &&
+            Object.is(conflict.remoteValue, pair[0]))),
+    )
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+}
+
+function chosenDestination(approval: SyncConflict): string {
+  return String(
+    approval.resolution === 'local' ? approval.localValue : approval.remoteValue,
+  )
+}
+
 export function resolveRedirectConflicts(input: {
   local: ReadonlyArray<SessionRedirect>
   remote: ReadonlyArray<SessionRedirect>
@@ -99,33 +135,25 @@ export function resolveRedirectConflicts(input: {
   const { local, remote, manualConflictReview, resolvedConflicts } = input
   const combined = [...local, ...remote]
   const conflicts: SyncConflict[] = []
+  const normalizedTargetFor = (fromId: string) =>
+    normalizeSessionRedirects(combined).find(
+      (redirect) => redirect.fromId === fromId,
+    )?.toId
+
   const divergences = findSessionRedirectDivergences(local, remote)
   for (const divergence of divergences) {
     const localValue = divergence.local!.toId
     const remoteValue = divergence.remote!.toId
     const localUpdatedAt = divergence.local!.approvedAt
     const remoteUpdatedAt = divergence.remote!.approvedAt
-    // Redirect approvals are rewritten whenever sync materializes a winner, so
-    // their timestamps are not stable review identities. The exact pair of
-    // destinations is: a later approval of a different destination changes the
-    // pair and raises a fresh conflict. Re-approving the same pair keeps the
-    // existing decision instead of prompting on every merge.
-    const resolved = resolvedConflicts
-      .filter(
-        (conflict) =>
-          conflict.kind === 'redirect' &&
-          conflict.id === divergence.fromId &&
-          conflict.field === 'redirect' &&
-          conflict.resolution !== 'manual-pending' &&
-          Object.is(conflict.localValue, localValue) &&
-          Object.is(conflict.remoteValue, remoteValue),
-      )
-      .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+    const resolved = findRedirectApproval(
+      divergence.fromId,
+      [localValue, remoteValue],
+      resolvedConflicts,
+    )
 
     let winner: 'local' | 'remote'
-    if (resolved) {
-      winner = resolved.resolution === 'remote' ? 'remote' : 'local'
-    } else if (localUpdatedAt !== remoteUpdatedAt) {
+    if (localUpdatedAt !== remoteUpdatedAt) {
       winner = localUpdatedAt > remoteUpdatedAt ? 'local' : 'remote'
     } else if ((divergence.local!.byDeviceId ?? '') !== (divergence.remote!.byDeviceId ?? '')) {
       winner =
@@ -150,15 +178,12 @@ export function resolveRedirectConflicts(input: {
         updatedAt: Math.max(localUpdatedAt, remoteUpdatedAt, Date.now()),
       })
     }
-
-    const chosen = winner === 'local' ? localValue : remoteValue
+    const chosen = resolved ? chosenDestination(resolved) : winner === 'local' ? localValue : remoteValue
     // Only materialize a tiebreak redirect when the normalizer would otherwise
     // publish the losing destination (for example equal approval timestamps
     // ordered by destination ID). Repeated syncs must not invent a new
     // timestamp every run.
-    const normalizedTarget = normalizeSessionRedirects(combined).find(
-      (redirect) => redirect.fromId === divergence.fromId,
-    )?.toId
+    const normalizedTarget = normalizedTargetFor(divergence.fromId)
     if (normalizedTarget !== chosen) {
       combined.push({
         fromId: divergence.fromId,
@@ -174,6 +199,57 @@ export function resolveRedirectConflicts(input: {
       })
     }
   }
+
+  // A device that holds no local approval for a source can still see two
+  // remote snapshots approve different destinations. Automatic merging would
+  // silently discard the loser; surface the pair for review instead. Snapshot
+  // lists are normalized to one approval per source, so a disagreement always
+  // comes from independent snapshots, never from superseded history.
+  for (const disagreement of findRemoteRedirectDisagreements(remote)) {
+    if (newestRedirectFor(local, disagreement.fromId)) continue
+    const pair = [disagreement.winner.toId, disagreement.other.toId] as const
+    const resolved = findRedirectApproval(
+      disagreement.fromId,
+      pair,
+      resolvedConflicts,
+    )
+    const chosen = resolved ? chosenDestination(resolved) : disagreement.winner.toId
+    if (!resolved) {
+      conflicts.push({
+        id: disagreement.fromId,
+        kind: 'redirect',
+        sessionId: disagreement.fromId,
+        field: 'redirect',
+        localValue: pair[0],
+        remoteValue: pair[1],
+        localUpdatedAt: disagreement.winner.approvedAt,
+        remoteUpdatedAt: disagreement.other.approvedAt,
+        resolution: manualConflictReview ? 'manual-pending' : 'local',
+        updatedAt: Math.max(
+          disagreement.winner.approvedAt,
+          disagreement.other.approvedAt,
+          Date.now(),
+        ),
+        remoteOnly: true,
+      })
+    }
+    const normalizedTarget = normalizedTargetFor(disagreement.fromId)
+    if (normalizedTarget !== chosen) {
+      combined.push({
+        fromId: disagreement.fromId,
+        toId: chosen,
+        approvedAt:
+          Math.max(
+            resolved?.updatedAt ?? 0,
+            disagreement.winner.approvedAt,
+            disagreement.other.approvedAt,
+            Date.now(),
+          ) + 1,
+        byDeviceId: resolved ? 'manual-approval' : 'sync-tiebreak',
+      })
+    }
+  }
+
   return {
     sessionRedirects: normalizeSessionRedirects(combined),
     conflicts,

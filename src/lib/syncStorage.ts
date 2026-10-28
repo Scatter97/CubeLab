@@ -65,6 +65,14 @@ export interface SyncConflict {
   remoteUpdatedAt: number
   resolution: 'local' | 'remote' | 'manual-pending'
   updatedAt: number
+  /**
+   * True when both reviewed values come from remote snapshots and this device
+   * has no independent stake in the pair. `localValue` is then the value that
+   * automatic merging would pick (for example the newest remote snapshot or
+   * the newest approval), not a value edited on this device. Older records
+   * without the marker keep their original local/remote meaning.
+   */
+  remoteOnly?: boolean
 }
 
 export interface SessionRedirect {

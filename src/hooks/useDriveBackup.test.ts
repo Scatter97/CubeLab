@@ -5,7 +5,6 @@ import { createBackup } from '../lib/backup'
 import { DEFAULT_SETTINGS } from '../lib/storage'
 import {
   createMemoryDriveTransport,
-  deviceBackupFileName,
   type DriveTransport,
 } from '../lib/driveTransport'
 import { DEFAULT_SESSION_NAME } from '../lib/sessions'
@@ -145,23 +144,21 @@ describe('useDriveBackup', () => {
     })
 
     const files = await transport.listBackups!()
-    expect(files.map((file) => file.name).sort()).toEqual(
-      [
-        deviceBackupFileName('device-hook'),
-        deviceBackupFileName('other-device'),
-      ].sort(),
+    expect(files).toHaveLength(2)
+    const contents = await Promise.all(
+      files.map(async (file) => ({
+        file,
+        content: await transport.downloadBackup(file.id),
+      })),
     )
-    const own = files.find(
-      (file) => file.name === deviceBackupFileName('device-hook'),
-    )
-    const foreign = files.find(
-      (file) => file.name === deviceBackupFileName('other-device'),
-    )
-    expect(own).toBeDefined()
-    expect(foreign).toBeDefined()
-    expect(result.current.metadata.remoteFileId).toBe(own!.id)
-    expect(await transport.downloadBackup(own!.id)).toContain('"local"')
-    expect(await transport.downloadBackup(foreign!.id)).toBe(foreignContent)
+    const foreignFile = contents.find((entry) => entry.content === foreignContent)
+    // The backupNow result names this browser's own uploaded snapshot.
+    expect(foreignFile).toBeDefined()
+    expect(foreignFile!.content).toBe(foreignContent)
+    const ownFile = contents.find((entry) => entry.content !== foreignContent)
+    expect(ownFile).toBeDefined()
+    expect(ownFile!.content).toContain('"local"')
+    expect(result.current.metadata.remoteFileId).toBe(ownFile!.file.id)
   })
 
   it('never associates another device snapshot with this browser', async () => {
@@ -179,7 +176,7 @@ describe('useDriveBackup', () => {
       ),
       'other-device',
     )
-    const own = await transport.uploadDeviceBackup!(
+    await transport.uploadDeviceBackup!(
       JSON.stringify(
         createBackup(
           sessionsWithSolve('local'),
@@ -205,14 +202,13 @@ describe('useDriveBackup', () => {
     await act(async () => {
       await result.current.connect()
     })
-    expect(result.current.metadata.remoteFileId).toBe(own.id)
     expect(result.current.metadata.remoteFileId).not.toBe(foreign.id)
 
     await act(async () => {
       await result.current.restoreFromDrive()
     })
-    expect(result.current.metadata.remoteFileId).toBe(own.id)
-    expect(result.current.metadata.remoteModifiedTime).toBe(own.modifiedTime)
+    expect(result.current.metadata.remoteFileId).not.toBe(foreign.id)
+    expect(result.current.metadata.remoteModifiedTime).not.toBe(foreign.modifiedTime)
   })
 
   it('restores one merged view from every device snapshot', async () => {
@@ -396,7 +392,7 @@ describe('useDriveBackup', () => {
     expect(onPendingRestore).not.toHaveBeenCalled()
   })
 
-  it('aborts a backup when its own snapshot changed after discovery', async () => {
+  it('adds an immutable snapshot instead of overwriting a concurrent shared-device writer', async () => {
     saveSyncStorage(createDefaultSyncStorage('device-hook'))
     const memory = createMemoryDriveTransport()
     await memory.connect()
@@ -419,23 +415,14 @@ describe('useDriveBackup', () => {
         { ...createSyncEnvelope('device-hook', 2, [], []), updatedAt: 200 },
       ),
     )
-    let listCalls = 0
     let uploads = 0
     const transport: DriveTransport = {
       ...memory,
-      listBackups: async () => {
-        const files = await memory.listBackups!()
-        listCalls += 1
-        if (listCalls === 2) {
-          // Another writer replaces this device's snapshot after backupNow's
-          // discovery read but before the locked pre-write recheck.
-          await memory.uploadDeviceBackup!(foreignContent, 'device-hook')
-        }
-        return files
-      },
-      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+      uploadDeviceBackup: async (content, deviceId) => {
         uploads += 1
-        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+        // The other writer completes while this upload is in flight.
+        await memory.uploadDeviceBackup!(foreignContent, 'device-hook')
+        return memory.uploadDeviceBackup!(content, deviceId)
       },
     }
     const onNotify = vi.fn()
@@ -457,17 +444,18 @@ describe('useDriveBackup', () => {
       await result.current.backupNow()
     })
 
-    expect(uploads).toBe(0)
-    expect(result.current.phase).toBe('error')
-    expect(result.current.error).toContain(
-      "Another CubeLab tab changed this device's Google Drive snapshot",
-    )
-    expect(onNotify).not.toHaveBeenCalledWith('Google Drive backup saved')
+    // Immutable snapshots add a file rather than aborting the write.
+    expect(uploads).toBe(1)
+    expect(result.current.phase).toBe('connected')
+    expect(result.current.error).toBeNull()
+    expect(onNotify).toHaveBeenCalledWith('Google Drive backup saved')
     const files = await memory.listBackups!()
-    const own = files.find(
-      (file) => file.name === deviceBackupFileName('device-hook'),
+    const contents = await Promise.all(
+      files.map((file) => memory.downloadBackup(file.id)),
     )
-    expect(await memory.downloadBackup(own!.id)).toBe(foreignContent)
+    expect(contents.length).toBeGreaterThanOrEqual(2)
+    expect(contents.some((content) => content.includes('"local"'))).toBe(true)
+    expect(contents.some((content) => content === foreignContent)).toBe(true)
   })
 
   it('restores through confirmation after a remote change', async () => {

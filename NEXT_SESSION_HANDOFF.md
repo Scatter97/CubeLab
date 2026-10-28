@@ -1,54 +1,65 @@
 # Next Session Handoff
 
-**Updated:** 2026-10-26 (context checkpoint at 95%)
-**Objective:** Finish audit-remediation docs and commit the verified changes.
+**Updated:** 2026-10-28 (Stage 0 complete)
+**Objective:** Continue `Oct_28_AM_Plan.md` after Stage 0. Stages 1–3 need explicit
+approval; Stages 4 and 5 are approved.
 **Branch:** `master`
-**Latest commit:** `acb5bc4` — Complete audit remediation verification and coverage
-**Working tree:** clean; all verification and documentation changes committed.
-**Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8).
+**Working tree:** clean after the Stage 0 commit
+**Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8)
 
 ## Status
 
-All H1–H3, M1–M9, and L1–L8 code fixes are implemented. Missing regression
-coverage was added, and the verification chain passes.
+The 2026-10-27 synchronization remediation is complete and verified: writes use
+unique immutable Drive snapshots, the conflict queue is uncapped (rendering is
+paginated), and disagreements between remote snapshots are surfaced for review.
+Stage 0 on 2026-10-28 aligned `AGENTS.md`, `README.md`, `ROADMAP.md`,
+`PROJECT_PROGRESS.md`, `PATCH_LIMITATIONS.md`, `AUDIT_FIX_PROGRESS.md`, and this
+handoff, then ran the full chain as one command.
 
 | Check | Result |
 | --- | --- |
+| `npm run check` | **Passed as one command** |
 | `npm run typecheck` | Passed |
-| `npm run lint` | Passed |
-| `npm test` | **283/283 passed**, 21 files |
-| `npm run build` | Passed; 95 modules; PWA 22 entries, 2284.38 KiB |
+| `npm run lint` | Passed with no warnings |
+| `npm test` | **287/287 passed**, 21 files |
+| `npm run build` | Passed; 95 modules; PWA 22 entries, 2,286.77 KiB |
 | `npm run test:e2e` | **29/29 passed**, Chromium |
 | `git diff --check` | Passed |
 
-`npm run check` was not rerun as one command, but every constituent command
-passed. No real Google Drive multi-device test was run; cloud tests use the
-deterministic in-memory transport.
+No real Google Drive multi-device test was run; cloud tests use the deterministic
+in-memory transport. Provider compare-and-swap remains unavailable.
 
-## Uncommitted files
+## Stage status
 
-- `e2e/timer.spec.ts` — 7/3 countdown labels; sound-only visual warnings;
-  immediate event-driven rename; inspection “Use global setting”; custom-average
-  multi-digit typing and stale-error reset; merge confirmation reset; delete-all
-  without a local snapshot; disconnect disables automatic sync.
-- `src/components/SettingsDialog.tsx` — one row-local custom-average error
-  instead of duplicate parent/row alerts.
-- `src/hooks/useDriveBackup.test.ts` — own-snapshot association; delete without a
-  local `remoteFileId`.
-- `src/lib/driveTransport.test.ts` — OAuth uses only `drive.appdata`, no userinfo.
-- `src/lib/sessionMetadata.test.ts` — explicit inspection-override removal.
-- `src/lib/sessions.test.ts` — clearing a per-session inspection override.
-- `src/lib/storage.test.ts` — 130,000-solve legacy migration regression.
-- `src/lib/storage.ts` — JSDoc cleanup only.
-- `src/lib/sync.stress.test.ts` — three-device delayed durable undo.
-- `src/lib/sync.test.ts` — equal legacy solve values do not gain fabricated
-  field metadata.
+- **Stage 0 — complete.** Documentation matches the code, `npm run check` is
+  recorded as one result, and the working tree is clean after the commit.
+- **Stage 1 — not started; requires approval.** Real-provider concurrency
+  validation, conflict-resolution audit/undo, sync-on-exit hardening, and legacy
+  tombstone/redirect recovery design.
+- **Stage 2 — not started; requires approval.** Snapshot cleanup policy,
+  per-device management UI, and growth documentation.
+- **Stage 3 — not started; requires approval and a real Google Drive test
+  account.** Concurrent multi-device validation and OAuth publishing/branding.
+- **Stage 4 — approved 2026-10-28; not started.** Phase 3 completion: per-event
+  E2E, event-specific WCA rules, and storage-migration verification.
+- **Stage 5 — approved 2026-10-28; not started.** Phase 4 platform work:
+  virtualization, cross-browser coverage, accessibility audit, PWA/bundle review.
+- **Stage 6 — polish, no extra approval.** Dark theme only after a full contrast
+  audit; the inspection reset is already implemented.
 
-## Remaining work
+## Current sync behavior to preserve
 
-1. Optionally run `npm run check` once for a single recorded acceptance result.
-2. Seek explicit approval before starting any further phase. The audit
-   remediation itself is complete; no Phase 3/4 work is authorized.
+- Each write creates `cubelab-backup-<device-id>-<uuid>.json` and never overwrites
+  a file. `uploadDeviceBackup` has no `existingFileId` parameter.
+- Same-origin writes share the Web Lock. Per-device transports do not re-list or
+  recheck; the optimistic recheck remains only for the legacy fixed-name
+  transport.
+- Conflicts are deduplicated by `kind:id:field`, never truncated to 100, and
+  rendered 5 at a time with **Show all**. Remote-only disagreements are marked
+  `remoteOnly` and use **Use newest cloud** / **Use other cloud**.
+- Redirect approvals match by unordered destination pair.
+- `isOwnSnapshot` identifies this device by envelope `deviceId`, falling back to
+  the legacy fixed filename.
 
 ## Pitfalls
 
@@ -59,3 +70,7 @@ deterministic in-memory transport.
 - Disconnecting Drive must leave automatic synchronization disabled.
 - E2E expects countdown warning labels at **7 seconds remaining** and **3 seconds
   remaining**.
+- Do not claim atomic remote writes or data-loss-proof synchronization. Snapshots
+  accumulate until delete-all; there is no cleanup policy yet.
+- Hidden older cloud approvals remain possible when a device already holds a newer
+  approval for one side of a multi-remote disagreement.

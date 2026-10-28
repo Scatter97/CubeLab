@@ -1,10 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { SessionsData, Settings } from '../types'
 import { createBackup } from '../lib/backup'
-import {
-  deviceBackupFileName,
-  type DriveTransport,
-} from '../lib/driveTransport'
+import type { DriveTransport } from '../lib/driveTransport'
 import { countSolves } from '../lib/sessions'
 import {
   loadDriveBackupState,
@@ -15,7 +12,7 @@ import { getSyncDeviceId, loadSyncStorage } from '../lib/syncStorage'
 import { createSyncEnvelope } from '../lib/sync'
 import {
   deleteAllRemoteBackups,
-  findDeviceBackup,
+  findOwnSnapshots,
   listRemoteBackups,
   mergeRemoteBackupSnapshots,
   readRemoteBackups,
@@ -88,13 +85,12 @@ export function useDriveBackup({
     try {
       await transport.connect()
       const files = await listRemoteBackups(transport)
-      // Only this browser's own snapshot may be reported as its remote file.
-      // Another device's snapshot is still listed and merged, but it is not an
-      // upload target and must not drive this device's delete metadata.
-      const ownName = deviceBackupFileName(getSyncDeviceId())
-      const file = transport.uploadDeviceBackup
-        ? findDeviceBackup(files, ownName)
-        : files[0]
+      // Only legacy single-file transports have one stable own file to report.
+      // Per-device snapshots are immutable and uniquely named, so this
+      // browser's file is identified by the envelope of what it writes, not by
+      // picking a file from the list; another device's snapshot is never
+      // adopted as this browser's remote file.
+      const file = transport.uploadDeviceBackup ? null : files[0] ?? null
       setConnected(true)
       persistMetadata({
         ...metadata,
@@ -139,36 +135,30 @@ export function useDriveBackup({
         syncStorage.runtime.settingsFieldUpdates,
       )
       const backup = createBackup(sessions, settings, new Date(), envelope)
-      const remoteFiles = await listRemoteBackups(transport)
-      const ownName = deviceBackupFileName(deviceId)
-      const ownFile = remoteFiles.find((file) => file.name === ownName)
-      const expectedOwnFile = transport.uploadDeviceBackup
-        ? ownFile
-        : remoteFiles[0]
-      // A device may only replace its own snapshot. Falling back to
-      // `metadata.remoteFileId` could point at another device's file and
-      // overwrite it; that fallback is safe only for legacy single-file
-      // transports.
       const content = JSON.stringify(backup)
+      // Legacy transports discover the mutable fixed-name file before the lock
+      // so the locked re-list can detect a same-origin change.
+      const discoveredLegacyFile = transport.uploadDeviceBackup
+        ? null
+        : (await listRemoteBackups(transport))[0] ?? null
       const result = await runWithDriveWriteLock(async () => {
-        // Serialize same-browser writes and re-check the own snapshot inside the
-        // lock. If another tab already replaced it, abort rather than overwrite
-        // its newer content with this tab's starting view.
+        if (transport.uploadDeviceBackup) {
+          // Immutable, uniquely named snapshot: this write adds a new file and
+          // can never overwrite another writer's data, even one sharing this
+          // device ID. Manual and automatic writes stay serialized by the same
+          // Web Lock so same-origin writers do not interleave.
+          return transport.uploadDeviceBackup(content, deviceId)
+        }
+        // Legacy single-file transport: the fixed-name file is still mutable,
+        // so keep the optimistic recheck and replace only that file.
         const currentFiles = await listRemoteBackups(transport)
-        const currentOwnFile = transport.uploadDeviceBackup
-          ? currentFiles.find((file) => file.name === ownName)
-          : currentFiles[0]
-        if (ownSnapshotChanged(expectedOwnFile, currentOwnFile)) {
+        if (ownSnapshotChanged(discoveredLegacyFile, currentFiles[0] ?? null)) {
           throw new Error(
-            "Another CubeLab tab changed this device's Google Drive snapshot. Try the backup again.",
+            'Another CubeLab tab changed the Google Drive backup. Try the backup again.',
           )
         }
-        const existingId = transport.uploadDeviceBackup
-          ? currentOwnFile?.id ?? null
-          : currentOwnFile?.id ?? metadata.remoteFileId
-        return transport.uploadDeviceBackup
-          ? transport.uploadDeviceBackup(content, deviceId, existingId)
-          : transport.uploadBackup(content, existingId)
+        const existingId = currentFiles[0]?.id ?? metadata.remoteFileId
+        return transport.uploadBackup(content, existingId)
       })
       const next = {
         ...metadata,
@@ -199,14 +189,13 @@ export function useDriveBackup({
       const snapshots = await readRemoteBackups(transport)
       if (snapshots.length === 0) throw new Error('No Google Drive backup was found.')
       const merged = mergeRemoteBackupSnapshots(snapshots)
-      // Keep this browser's own snapshot identity. Picking `newest` would
-      // associate another device's file with this browser.
-      const ownName = deviceBackupFileName(getSyncDeviceId())
+      // Keep this browser's own snapshot identity (envelope device ID, with the
+      // legacy fixed name as fallback). Picking `newest` would associate
+      // another device's file with this browser.
+      const deviceId = getSyncDeviceId()
       const ownFile = transport.uploadDeviceBackup
-        ? snapshots
-            .map((snapshot) => snapshot.file)
-            .find((file) => file.name === ownName)
-        : snapshots[0]?.file
+        ? findOwnSnapshots(snapshots, deviceId).at(-1)?.file ?? null
+        : snapshots[0]?.file ?? null
       persistMetadata({
         ...metadata,
         remoteFileId: ownFile?.id ?? null,

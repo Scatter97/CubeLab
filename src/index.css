@@ -2362,6 +2362,16 @@ kbd {
   gap: 6px;
 }
 
+/* The pagination note wraps its label and Show-all button on separate lines
+   so the button stays a 28px+ touch target at narrow widths. */
+.sync-conflict-list .sync-conflict-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
 @media (max-width: 640px) {
   .sync-conflict-item {
     flex-direction: column;

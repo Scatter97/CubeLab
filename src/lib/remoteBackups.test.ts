@@ -8,7 +8,6 @@ import {
 } from './driveTransport'
 import {
   deleteAllRemoteBackups,
-  findDeviceBackup,
   listRemoteBackups,
   mergeRemoteBackupSnapshots,
   readRemoteBackups,
@@ -83,8 +82,12 @@ describe('remote backup snapshots', () => {
       'device-a',
       'device-b',
     ])
-    expect(findDeviceBackup(files, 'cubelab-backup-device-b.json')?.name).toBe(
-      'cubelab-backup-device-b.json',
+    const snapshotsForB = snapshots.filter(
+      (snapshot) => snapshot.backup.sync?.deviceId === 'device-b',
+    )
+    expect(snapshotsForB).toHaveLength(1)
+    expect(snapshotsForB[0]!.file.name.startsWith('cubelab-backup-device-b-')).toBe(
+      true,
     )
   })
 

@@ -166,15 +166,18 @@ cloud changes. The timer is never interrupted: if a scheduled or manual sync is
 requested while the timer is armed, running, or inspecting, it is deferred and
 resumed once when the timer is idle.
 
-Each browser writes its own snapshot named
-`cubelab-backup-<device-id>.json` in Google Drive app data. Every run lists every
-page of app-data files, validates, and merges **all** CubeLab snapshots,
-including the legacy fixed-name `cubelab-backup.json` from earlier releases. A
-device only replaces its own snapshot, so simultaneous uploads from different
-devices cannot overwrite one another. Invalid or unsupported snapshots are
-rejected before local mutation. Deleting remote backups removes every CubeLab
-snapshot, including the legacy file, and reports partial failures instead of
-claiming complete success.
+Each browser now publishes a *new immutable snapshot* with a unique name,
+`cubelab-backup-<device-id>-<uuid>.json`, instead of replacing one file per
+device. Every run lists every page of app-data files, validates, and merges
+**all** CubeLab snapshots, including the legacy per-device names and the
+legacy fixed-name `cubelab-backup.json` from earlier releases. Because writes
+never overwrite an existing snapshot, simultaneous uploads from different devices
+(or from two browser profiles sharing one device identity) cannot destroy each
+other's unique data; every snapshot stays discoverable and converges on the next
+run. Old snapshots are not garbage-collected, so they accumulate over time.
+Invalid or unsupported snapshots are rejected before local mutation. Deleting
+remote backups removes every CubeLab snapshot, including legacy files, and
+reports partial failures instead of claiming complete success.
 
 Automatic synchronization is enabled only after the user connects Google Drive.
 It defaults to combined mode at 5 minutes or 10 solves, whichever comes first,
@@ -199,6 +202,12 @@ session redirects. Each conflict shows both values and **Use this device** /
 **Use cloud** actions; synchronization resumes after the last one is resolved.
 An approval only applies to the exact reviewed values and timestamps, so an edit
 made after the prompt creates a fresh conflict instead of being overwritten.
+Manual review also detects disagreements that only appear between two remote
+snapshots (including a device with no local approval for a redirect); same
+approvals are matched without ordering so they are not requested again. Those
+cloud-only choices are labelled **Use newest cloud** / **Use other cloud**. The
+stored conflict queue is not capped, and the dialog pages the list five at a
+time with a **Show all** action.
 
 Separate sessions that share a name are never merged automatically. CubeLab
 recomputes collisions against the final merged collection and shows a **Review
@@ -216,14 +225,14 @@ disagree; legacy tombstones use the timestamp fallback.
 
 Synchronization is not a substitute for the local JSON backup. Google Drive still
 does not provide verified atomic compare-and-swap protection in this transport.
-Device-owned snapshots remove the cross-device overwrite race. Automatic sync and
-manual backup also share a Web Lock and re-list this device's snapshot immediately
-before writing; if another writer changed it, the write is aborted and retried.
-That removes the avoidable same-origin tab race, but two tabs or profiles sharing
-the same device identity can still race between the recheck and the request.
-In-flight guards prevent a download from replacing solves recorded while it was
-running, but neither mechanism makes the remote write transactional. See
-[`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync
+Each write is now a uniquely named, immutable snapshot, so writes cannot replace
+another writer's snapshot (cross-device or shared-device). Automatic sync and
+manual backup still share a Web Lock to avoid intermixing same-origin I/O. The
+optimistic changed-file recheck remains only for the legacy fixed-name transport,
+whose file is still mutable. In-flight guards prevent a download from replacing
+solves recorded while it was running, but remote writes are not transactional and
+convergence is eventual, not synchronous. Snapshots accumulate until you delete
+them. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync
 limitations.
 
 Google Drive synchronization is optional; all timer, session, storage, and local
@@ -345,7 +354,7 @@ src/
   lib/settingsMerge.ts   Field-level global-settings merging and provenance
   lib/remoteBackups.ts   Read/merge/delete all device-owned Drive snapshots
   lib/driveTransport.ts  Google Drive/mock transport and paginated file listing
-  lib/driveCoordination.ts  Same-origin write lock and own-snapshot revalidation
+  lib/driveCoordination.ts  Same-origin write lock; legacy snapshot revalidation
   lib/scramble.ts        cubing.js random-state integration
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           WCA single, mo3, built-in, and custom average calculations
@@ -443,10 +452,11 @@ merging, tombstones, conflict review, and scheduled sync.
 
 Sessions can be set to 3×3, 2×2, 4×4, or 3×3 OH and use `cubing.js` scrambles for
 the selected event. Additional events, social features, and non-Google cloud
-providers remain outside scope. Device-owned snapshots avoid cross-device file
-overwrites, but Google Drive does not provide verified atomic compare-and-swap
-protection here, so tabs or profiles sharing one device identity can still race;
-see [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+providers remain outside scope. Unique immutable snapshots prevent writers from
+overwriting one another, but Google Drive provides no verified atomic
+compare-and-swap here: local state remains replaceable, convergence is eventual,
+and snapshots accumulate until you use **Delete remote backups**. See
+[`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 
 For implementation status and handoff details, see
 [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md). Contributors and future agents

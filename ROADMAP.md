@@ -1,6 +1,6 @@
 # CubeLab Roadmap
 
-**Status:** Active planning document · **Last updated:** 2026-10-25 · **Current release line:** Phase 2B manual Google Drive backup complete; Phase 2C local-first sync complete with device-owned snapshots, field-level merging, and documented provider-CAS limitations
+**Status:** Active planning document · **Last updated:** 2026-10-28 · **Current release line:** Phase 2B manual Google Drive backup complete; Phase 2C local-first sync complete with unique immutable snapshots, field-level merging, and documented provider-CAS limitations
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
 `PROJECT_PROGRESS.md` remains the source of truth for completed work and current
@@ -30,7 +30,7 @@ verification evidence.
   solve-count, and combined schedules; startup/exit/reconnect sync; ID-based
   merging; tombstones; empty-default adoption; session redirects; conflict
   review; status UI; and mock-based coverage.
-- Device-owned Drive snapshots (`cubelab-backup-<deviceId>.json`) and all-snapshot
+- Device-owned Drive snapshots (`cubelab-backup-<device-id>-<uuid>.json`) and all-snapshot
   merging remove cross-device file-overwrite races. Sessions schema v4 stores
   field-level metadata for names, events, inspection, and preferences; global
   settings metadata lives in the sync runtime. Field conflicts are reviewable for
@@ -44,9 +44,12 @@ verification evidence.
   deletion/offline-edit recovery, honest solve-count semantics, deterministic
   redirect tests, repeated recovered-session extension, stale-approval protection,
   known-solve snapshots on new session tombstones, per-device snapshots, full
-  field-level conflict review, and multi-device convergence stress tests. Google
-  Drive still lacks a verified atomic compare-and-swap for one device file. See
-  `PATCH_LIMITATIONS.md` for what remains open.
+  field-level conflict review, and multi-device convergence stress tests. The
+  2026-10-27 remediation replaced mutable per-device files with unique immutable
+  snapshots, removed the conflict-queue correctness cap (rendering stays
+  paginated), and surfaced remote-snapshot disagreements for review. Google Drive
+  still lacks a verified atomic compare-and-swap. See `PATCH_LIMITATIONS.md` for
+  what remains open.
 
 ## Product principles
 
@@ -183,9 +186,15 @@ proven.
   compatibility, per-device manual backup isolation, and delete-all with partial
   failure reporting. File discovery follows every pagination token and rejects
   incomplete or malformed listings rather than silently missing a device.
-- Same-origin automatic/manual writes share a Web Lock and re-list the device
-  snapshot before writing; a changed snapshot aborts with a pending/retry status
-  instead of overwriting newer data. This is best effort, not provider CAS.
+- Every write creates a new immutable snapshot with a unique name
+  (`cubelab-backup-<device-id>-<uuid>.json`) instead of replacing a device's
+  previous file. Writers sharing a device identity cannot overwrite each other's
+  unique data, and every snapshot is merged by the next run. Snapshots accumulate
+  until delete-all; there is no cleanup policy or per-device management UI yet.
+- Same-origin automatic/manual writes share a Web Lock. Per-device transports do
+  not re-list or recheck because their snapshots are immutable; the optimistic
+  changed-file recheck remains only for the legacy fixed-name transport. This is
+  best effort and not provider CAS.
 - Sessions schema v4 field metadata plus global settings metadata in the sync
   runtime. Session names, events, inspection overrides, individual preferences,
   and global settings merge independently by timestamp with deterministic
@@ -194,7 +203,12 @@ proven.
   settings, and redirects. Pending conflicts pause publication and offer **Use
   this device** / **Use cloud** before synchronization resumes. An approval
   applies only to the exact reviewed values and timestamps; a later edit raises a
-  new conflict.
+  new conflict. The correctness queue is not capped at 100 records; it is
+  deduplicated by field key and rendered 5 at a time with **Show all**.
+- Disagreements between two remote snapshots are surfaced for review even when the
+  local value already matches the automatic winner. These `remoteOnly` conflicts
+  use **Use newest cloud** / **Use other cloud**, and redirect approvals match by
+  unordered destination pair.
 - Solves belonging to a deleted session are moved into a deterministic
   `(recovered)` session rather than disappearing. Existing recovered sessions are
   extended by solve ID when later offline devices reconnect.
@@ -211,6 +225,9 @@ proven.
   solve-count semantics, deterministic redirect normalization, repeated
   recovered-session extension, stale-approval protection, and multi-device
   convergence.
+- 2026-10-27 remediation for unique immutable snapshots, an uncapped conflict
+  queue with paginated rendering, remote-snapshot disagreement review, and
+  envelope-based own-snapshot identity.
 
 **Acceptance gate — partially met:**
 
@@ -224,30 +241,34 @@ proven.
       successive devices without duplication.
 - [x] New session tombstones recover unknown solves independently of clock skew.
 - [x] Concurrent device uploads cannot overwrite another device's snapshot, and
-      a three-device stress scenario converges after a follow-up sync.
+      a three-device stress scenario converges after a follow-up sync. Every write
+      is a uniquely named immutable snapshot, so even writers sharing one device
+      identity cannot replace each other's file.
 - [ ] The user can understand and reverse the result of every merge.
 - [ ] A documented recovery path exists for corrupted or partially applied syncs.
 - [ ] Remote writes have verified atomic compare-and-swap protection.
 
-**Remaining work:** A verified CAS/ETag update path for the device snapshot, a
-stale-writer test against the real provider, conflict-resolution audit/undo, a
-documented recovery path for corrupted or partially applied syncs, guaranteed
-sync-on-exit, explicit recovery for ambiguous legacy-tombstone edits, redirect
-consensus/recovery, and selective/device-visible remote snapshot management. The
-Web Lock and pre-write re-list reduce the same-origin tab race but do not close
-the cross-profile race that shares a device ID. Until those are addressed, do not
-describe synchronization as data-loss-proof.
+**Remaining work:** A stale-writer/conditional-write strategy against the real
+provider (unique immutable files remove the overwrite race, but there is still no
+CAS), conflict-resolution audit/undo, a documented recovery path for corrupted or
+partially applied syncs, guaranteed sync-on-exit, explicit recovery for ambiguous
+legacy-tombstone edits, redirect consensus/recovery, and selective/device-visible
+remote snapshot management with a stale-snapshot cleanup policy. The Web Lock
+serializes same-origin writes but is not a remote transaction. Until those are
+addressed, do not describe synchronization as data-loss-proof.
 
 ## Phase 3 — More WCA events
 
 **Goal:** Extend CubeLab beyond 3×3 without duplicating timer or statistics logic.
+
+**Approval status:** Approved 2026-10-28 (Stage 4). Full completion is now
+authorized; follow the acceptance gate below.
 
 **Current partial state:** Session setup already offers 3×3, 2×2, 4×4, and 3×3 OH
 with `cubing.js` scrambles and event-compatible sync merging. This is not a
 completed Phase 3: dedicated per-event E2E coverage, event-specific WCA timing
 rules, and broader event validation are still required before the phase can be
 declared complete.
-
 **Suggested sequence:**
 
 1. Event-selection architecture and per-event session/statistics storage.
@@ -274,8 +295,9 @@ declared complete.
 
 ## Phase 4 — Performance, accessibility, and platform
 
-**Goal:** Make large histories and non-Chromium environments first-class.
+**Approval status:** Approved 2026-10-28 (Stage 5).
 
+**Goal:** Make large histories and non-Chromium environments first-class.
 **Scope:**
 
 - Virtualize or window the solve history for very large sessions.

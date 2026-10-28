@@ -101,6 +101,53 @@ export function findSessionRedirectDivergences(
   return divergences
 }
 
+export interface RemoteRedirectDisagreement {
+  fromId: string
+  /** The approval automatic merging would pick (the newest remote approval). */
+  winner: SessionRedirect
+  /** The newest approval that disagrees with the winner. */
+  other: SessionRedirect
+}
+
+/**
+ * Finds sources where two or more remote snapshots approve different merge
+ * destinations while this device holds no local approval. Each snapshot list is
+ * normalized to one approval per source, so two entries for one source always
+ * come from independent snapshots; a snapshot that merely carries another
+ * device's propagated approval (same destination) is harmless history and does
+ * not create a disagreement. The pair order is deterministic: the automatic
+ * winner first, then the newest disagreeing alternative.
+ */
+export function findRemoteRedirectDisagreements(
+  remote: ReadonlyArray<SessionRedirect>,
+): RemoteRedirectDisagreement[] {
+  const bySource = new Map<string, SessionRedirect[]>()
+  for (const redirect of remote) {
+    if (!redirect.fromId || !redirect.toId || redirect.fromId === redirect.toId) continue
+    bySource.set(redirect.fromId, [
+      ...(bySource.get(redirect.fromId) ?? []),
+      redirect,
+    ])
+  }
+  const disagreements: RemoteRedirectDisagreement[] = []
+  for (const fromId of [...bySource.keys()].sort()) {
+    const entries = [...bySource.get(fromId)!].sort(
+      (left, right) =>
+        right.approvedAt - left.approvedAt ||
+        (left.byDeviceId ?? '').localeCompare(right.byDeviceId ?? '') ||
+        left.toId.localeCompare(right.toId),
+    )
+    const winner = entries[0]
+    if (!winner) continue
+    // Only independent alternatives disagree. Same-destination history from
+    // any number of snapshots is agreement, not a conflict.
+    const other = entries.find((entry) => entry.toId !== winner.toId)
+    if (!other) continue
+    disagreements.push({ fromId, winner, other })
+  }
+  return disagreements
+}
+
 export function applySessionRedirects(data: SessionsData, redirects: ReadonlyArray<SessionRedirect>): SessionsData {
   const normalized = normalizeSessionRedirects(redirects)
   if (!normalized.length) return data

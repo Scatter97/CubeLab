@@ -2,11 +2,15 @@ import type { DriveFile } from './driveTransport'
 
 /**
  * Same-origin writes (automatic sync and manual backup) share this lock. It
- * serializes the re-check and the Drive write, which removes the avoidable
- * same-browser-tab race. It is not a remote transaction: Google Drive does not
- * provide a verified compare-and-swap for media uploads, so a copied browser
- * profile that shares a device ID can still write between the re-check and the
- * request.
+ * serializes the local-change re-check and the Drive request so two tabs in one
+ * browser do not interleave their writes. It is **not** a remote transaction.
+ *
+ * Per-device snapshots are now immutable and uniquely named, so a write can no
+ * longer overwrite another writer's data and the lock no longer pretends to
+ * make overwriting safe. The optimistic re-check in `ownSnapshotChanged` remains
+ * only for legacy single-file transports whose fixed-name file is still
+ * mutable. Google Drive provides no verified compare-and-swap for media
+ * uploads; do not claim atomic remote writes.
  */
 export const DRIVE_WRITE_LOCK_NAME = 'cubelab-drive-write'
 
@@ -42,10 +46,12 @@ export async function runWithDriveWriteLock<T>(
 }
 
 /**
- * Best-effort optimistic check for the current device's own snapshot. A changed
- * ID, name, or modification time means another writer touched the file after we
- * read it. The comparison is deliberately conservative: any doubt aborts the
- * write and lets the next merge run again.
+ * Best-effort optimistic check for a legacy transport's single mutable file. A
+ * changed ID, name, or modification time means another writer touched the file
+ * after we read it. The comparison is deliberately conservative: any doubt
+ * aborts the write and lets the next merge run again. Per-device transports do
+ * not need this: their uniquely named snapshots are immutable, so a concurrent
+ * writer (including one sharing this device ID) cannot be overwritten.
  */
 export function ownSnapshotChanged(
   expected: DriveFile | undefined | null,

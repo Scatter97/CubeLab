@@ -18,13 +18,15 @@ export interface DriveTransport {
   /**
    * Per-device synchronization snapshots. Legacy transports may omit these;
    * callers fall back to findBackup/uploadBackup.
+   *
+   * Each call creates a **new immutable snapshot** with a unique name. A
+   * writer never overwrites an existing file, so two writers sharing a device
+   * ID (for example a copied browser profile) cannot destroy each other's
+   * unique solves; every snapshot stays discoverable and is merged by the next
+   * synchronization run.
    */
   listBackups?(): Promise<DriveFile[]>
-  uploadDeviceBackup?(
-    content: string,
-    deviceId: string,
-    existingFileId?: string | null,
-  ): Promise<DriveFile>
+  uploadDeviceBackup?(content: string, deviceId: string): Promise<DriveFile>
 }
 
 export const DRIVE_BACKUP_FILE_NAME = 'cubelab-backup.json'
@@ -156,13 +158,40 @@ export async function fetchDriveBackupFiles(
 }
 
 /** Sanitizes a device ID for use in a Drive file name. */
-export function deviceBackupFileName(deviceId: string): string {
-  const safe =
+export function sanitizeDeviceId(deviceId: string): string {
+  return (
     deviceId
       .replace(/[^A-Za-z0-9_-]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 64) || 'unknown-device'
-  return `${DRIVE_BACKUP_FILE_PREFIX}-${safe}.json`
+  )
+}
+
+/**
+ * The legacy mutable per-device snapshot name. Readers still discover and
+ * merge files with this name, but new writes go to uniquely named immutable
+ * snapshots instead of replacing it.
+ */
+export function deviceBackupFileName(deviceId: string): string {
+  return `${DRIVE_BACKUP_FILE_PREFIX}-${sanitizeDeviceId(deviceId)}.json`
+}
+
+function snapshotUniqueToken(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
+/**
+ * A unique, immutable snapshot name for one write from one device. Because the
+ * name is never reused, two concurrent writers sharing a device ID both keep
+ * their files; Google Drive still has no verified compare-and-swap, so unique
+ * immutable names replace the optimistic recheck that could not be atomic.
+ */
+export function deviceSnapshotFileName(deviceId: string): string {
+  return `${DRIVE_BACKUP_FILE_PREFIX}-${sanitizeDeviceId(deviceId)}-${snapshotUniqueToken()}.json`
 }
 
 export function isDriveBackupFileName(name: string): boolean {
@@ -383,11 +412,11 @@ export function createGoogleDriveTransport(
       // Manual/legacy callers keep the fixed compatibility name.
       return writeFile(content, DRIVE_BACKUP_FILE_NAME, existingFileId)
     },
-    async uploadDeviceBackup(content, deviceId, existingFileId) {
-      const name = deviceBackupFileName(deviceId)
-      if (existingFileId) return writeFile(content, name, existingFileId)
-      const existing = (await listBackupFiles()).find((file) => file.name === name)
-      return writeFile(content, name, existing?.id)
+    async uploadDeviceBackup(content, deviceId) {
+      // Immutable snapshot: a fresh unique name per write. Never overwrite an
+      // existing file, so a concurrent writer sharing this device ID cannot
+      // lose its unique data to this upload.
+      return writeFile(content, deviceSnapshotFileName(deviceId), null)
     },
     async downloadBackup(fileId) {
       const response = await apiFetch(
@@ -499,7 +528,10 @@ export function createMemoryDriveTransport(
     },
     async uploadDeviceBackup(content, deviceId) {
       if (!connected) throw new Error('Connect Google Drive first.')
-      return writeFile(content, deviceBackupFileName(deviceId))
+      // Immutable snapshot with a unique name: each upload adds a file instead
+      // of replacing the device's previous snapshot, so a stale or concurrent
+      // writer can never overwrite another writer's unique data.
+      return writeFile(content, deviceSnapshotFileName(deviceId))
     },
     async downloadBackup(fileId) {
       if (!connected) throw new Error('Connect Google Drive first.')

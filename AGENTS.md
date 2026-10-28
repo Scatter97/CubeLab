@@ -33,8 +33,9 @@ local-data work:
 - typed destructive confirmations for clearing or deleting a session
 - JSON export/import of all sessions, comments, and settings
 - automatic migration from the original single-session storage key
-- optional local-first Google Drive synchronization with device-owned snapshots,
-  field-level session/settings merging, conflict review, tombstones, and recovery
+- optional local-first Google Drive synchronization with unique immutable
+  snapshots, field-level session/settings merging, conflict review, tombstones,
+  and recovery
 - a Settings dialog centralizing inspection direction and warnings, alerts,
   accent color, statistics display and custom averages, scramble presentation,
   controls reference, local data, Drive synchronization, and backup/restore access
@@ -44,9 +45,11 @@ local-data work:
 Phase 2A, the Phase 2A.1 Settings design update, Phase 2A.2 settings groups,
 Phase 2A.3 timer/history/session refinements, Phase 2B optional manual Google
 Drive backup, and Phase 2C local-first Google Drive synchronization are
-complete. Do not begin Phase 3, Phase 4, or any other cloud/account feature
-without an explicit user instruction. Do not broaden to other puzzle events or
-social features as drive-by additions.
+complete. Phase 3 (More WCA events) and Phase 4 (Performance, accessibility,
+and platform) are explicitly approved as of 2026-10-28 (Stage 4 and Stage 5 in
+`Oct_28_AM_Plan.md`); their scope and acceptance gates are defined in
+`ROADMAP.md`. Do not begin any other cloud/account feature or broaden to
+social features as drive-by additions without an explicit user instruction.
 
 ## Commands
 
@@ -150,19 +153,21 @@ the production build because it tests the service worker and offline reload.
   and the `drive.appdata` scope are allowed only after explicit connection. Do
   not request email, profile, `openid`, or userinfo scopes. Disconnecting Drive
   disables automatic synchronization; reconnecting re-enables it explicitly.
-  Each
-  browser writes `cubelab-backup-<sanitized-deviceId>.json`; every sync follows
+  Each browser writes a new immutable snapshot named
+  `cubelab-backup-<sanitized-deviceId>-<uuid>.json`; `uploadDeviceBackup` never
+  accepts an existing file ID and never overwrites a file. Every sync follows
   every file-list page, validates, and merges all CubeLab snapshots. A failed
   page, malformed/repeated token, or `incompleteSearch` must stop synchronization
   instead of returning a partial list. The legacy `cubelab-backup.json` file
-  remains readable and is included in delete-all. Manual backup may replace only
-  the current device's snapshot. Never fall back to another device's
-  `remoteFileId` on a per-device transport. Deleting remote backups removes every
-  CubeLab snapshot and must surface partial failures. Same-origin automatic and
-  manual writes must share the Web Lock and re-list the device snapshot
-  immediately before writing; a changed snapshot aborts with a pending/retry
-  status. There is still no provider compare-and-swap for the same device file;
-  do not claim atomic remote writes.
+  remains readable and is included in delete-all, as are legacy per-device names.
+  Never fall back to another device's `remoteFileId`. Deleting remote backups
+  removes every CubeLab snapshot and must surface partial failures. Same-origin
+  automatic and manual writes must share the Web Lock. Per-device transports do
+  not re-list or recheck before writing because their snapshots are immutable;
+  the optimistic changed-file recheck remains only for the legacy fixed-name
+  transport, whose file is still mutable. There is no provider compare-and-swap,
+  so do not claim atomic remote writes, and snapshots accumulate until delete-all
+  because there is no cleanup policy.
 - **Duplicate names are review-only.** Recompute duplicate session names against
   the final merged collection after every snapshot. Never merge same-named
   sessions automatically. Keep one actionable notification carrying the sync
@@ -174,7 +179,18 @@ the production build because it tests the service worker and offline reload.
   values must not acquire fabricated persisted metadata. Setting timestamps live
   in the sync runtime, not the settings schema. A manual conflict approval
   applies only to the exact reviewed values and field timestamps; a later edit
-  must raise a new conflict. Redirect approvals match by source/destination pair.
+  must raise a new conflict. Redirect approvals match by unordered
+  source/destination pair.
+- **Conflict review is complete and uncapped.** Keep pending conflicts and the
+  approvals needed to finish an active merge as correctness state. Never evict
+  them with a display or history cap. The queue is not capped at 100 records; it
+  is deduplicated by `kind:id:field`, and the Drive dialog paginates rendering
+  (5 per page plus **Show all**). Surface disagreements between remote snapshots
+  even when the local value matches the automatic winner, label them `remoteOnly`,
+  and present them as **Use newest cloud** / **Use other cloud**. A device that
+  already holds an approval for one side of a multi-remote disagreement can still
+  hide an older independent cloud approval; document that caveat rather than
+  claiming consensus.
 - **Sync recovery is ID-based.** Session tombstones record the deleting device's
   `knownSolveIds`; recovery extends an existing `recovered:<sessionId>` session
   by stable solve ID, preserves event and preferences, and uses wall-clock

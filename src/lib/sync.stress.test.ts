@@ -3,7 +3,6 @@ import type { Session, SessionsData, Settings, Solve } from '../types'
 import { DEFAULT_SETTINGS } from './storage'
 import {
   createMemoryDriveTransport,
-  deviceBackupFileName,
   type DriveTransport,
 } from './driveTransport'
 import { createBackup } from './backup'
@@ -14,7 +13,9 @@ import {
 } from './sync'
 import { mergeSettingsData } from './settingsMerge'
 import {
+  findOwnSnapshots,
   listRemoteBackups,
+  mergeRemoteBackupSnapshots,
   readRemoteBackups,
 } from './remoteBackups'
 import type {
@@ -265,9 +266,8 @@ async function syncDevice(
       device.revision,
       ...snapshots.map((snapshot) => snapshotRevision(snapshot.backup.sync)),
     ) + 1
-  const ownFile = files.find(
-    (file) => file.name === deviceBackupFileName(device.id),
-  )
+  // Immutable uniquely named snapshot: every upload adds a file. A concurrent
+  // writer sharing this device ID can never be overwritten.
   const backup = createBackup(
     sessions,
     settings,
@@ -281,11 +281,7 @@ async function syncDevice(
       settingsFieldUpdates,
     ),
   )
-  await transport.uploadDeviceBackup!(
-    JSON.stringify(backup),
-    device.id,
-    ownFile?.id,
-  )
+  await transport.uploadDeviceBackup!(JSON.stringify(backup), device.id)
 
   device.sessions = sessions
   device.settings = settings
@@ -315,14 +311,54 @@ describe('multi-device synchronization stress', () => {
     await Promise.all(devices.map((device) => syncDevice(device, transport)))
 
     const files = await listRemoteBackups(transport)
-    expect(files.map((file) => file.name).sort()).toEqual(
-      devices.map((device) => deviceBackupFileName(device.id)).sort(),
-    )
+    // Each concurrent upload produced its own immutable file; no writer
+    // replaced another writer's snapshot.
+    expect(files).toHaveLength(3)
+    expect(new Set(files.map((file) => file.name)).size).toBe(3)
     const snapshots = await readRemoteBackups(transport, files)
     expect(snapshots).toHaveLength(3)
     for (const snapshot of snapshots) {
+      // Isolation: each snapshot carries only its own writer's solve.
       expect(allSolveIds(snapshot.backup.sessions)).toHaveLength(1)
     }
+  })
+
+  it('keeps both writers when two writers share one device ID', async () => {
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    // Two browser profiles copied between machines share one device ID and
+    // therefore one "own snapshot" name. Both add a different new solve.
+    const writerA = deviceState('shared', [solve('writer-a-1', 1_000)])
+    const writerB = deviceState('shared', [solve('writer-b-1', 2_000)])
+
+    // Both writers run a full merge and upload; with immutable unique names
+    // neither write can destroy the other's snapshot.
+    await Promise.all([
+      syncDevice(writerA, transport),
+      syncDevice(writerB, transport),
+    ])
+
+    const files = await listRemoteBackups(transport)
+    expect(files).toHaveLength(2)
+    const snapshots = await readRemoteBackups(transport, files)
+    // Both solves remain discoverable remotely.
+    expect(
+      snapshots
+        .flatMap((snapshot) => allSolveIds(snapshot.backup.sessions))
+        .sort(),
+    ).toEqual(['writer-a-1', 'writer-b-1'])
+
+    // A subsequent sync on either writer converges on both solves.
+    await syncDevice(writerA, transport)
+    await syncDevice(writerB, transport)
+    expect(allSolveIds(writerA.sessions).sort()).toEqual([
+      'writer-a-1',
+      'writer-b-1',
+    ])
+    expect(allSolveIds(writerB.sessions).sort()).toEqual([
+      'writer-a-1',
+      'writer-b-1',
+    ])
   })
 
   it('converges solves, deletions, names, and settings across three devices', async () => {
@@ -371,25 +407,40 @@ describe('multi-device synchronization stress', () => {
       expect(device.tombstones.some((tombstone) => tombstone.id === 'seed')).toBe(true)
     }
 
+    // Immutable snapshots accumulate: every write adds a file instead of
+    // replacing the device's previous one, so the store carries the full
+    // history of every device's published states.
     const files = await listRemoteBackups(transport)
-    expect(files.map((file) => file.name).sort()).toEqual(
-      devices.map((device) => deviceBackupFileName(device.id)).sort(),
-    )
+    expect(files.length).toBeGreaterThan(devices.length)
     const snapshots = await readRemoteBackups(transport, files)
-    for (const snapshot of snapshots) {
-      const ids = allSolveIds(snapshot.backup.sessions)
+    for (const device of devices) {
+      const own = findOwnSnapshots(snapshots, device.id)
+      expect(own.length).toBeGreaterThan(0)
+      // Each device's newest snapshot reflects the converged state.
+      const newest = own.at(-1)!
+      const ids = allSolveIds(newest.backup.sessions)
       expect([...ids].sort()).toEqual(expectedSolveIds)
-      expect(snapshot.backup.settings.accentColor).toBe('blue')
-      expect(snapshot.backup.settings.alertVolume).toBe(55)
-      expect(sessionById(snapshot.backup.sessions, 'session-1')?.name).toBe(
+      expect(newest.backup.settings.accentColor).toBe('blue')
+      expect(newest.backup.settings.alertVolume).toBe(55)
+      expect(sessionById(newest.backup.sessions, 'session-1')?.name).toBe(
         'Phone Session',
       )
       expect(
-        snapshot.backup.sync?.tombstones.some(
+        newest.backup.sync?.tombstones.some(
           (tombstone) => tombstone.id === 'seed',
         ),
       ).toBe(true)
     }
+    // The full merged view across every immutable snapshot converges too:
+    // stale files stay readable, and tombstones/newest-field metadata win.
+    const mergedView = mergeRemoteBackupSnapshots(snapshots)
+    expect(
+      mergedView.sessions.sessions
+        .flatMap((session) => session.solves.map((solve) => solve.id))
+        .sort(),
+    ).toEqual(expectedSolveIds)
+    expect(mergedView.settings.accentColor).toBe('blue')
+    expect(mergedView.settings.alertVolume).toBe(55)
 
     // Repeating the merge without edits is idempotent and does not reintroduce
     // deleted or duplicate solves.

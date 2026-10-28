@@ -227,9 +227,9 @@ describe('useSync scheduling and retries', () => {
     let syncUploads = 0
     const transport: DriveTransport = {
       ...memory,
-      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+      uploadDeviceBackup: async (content, deviceId) => {
         syncUploads += 1
-        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+        return memory.uploadDeviceBackup!(content, deviceId)
       },
     }
     const { result, rerender } = renderHook(
@@ -315,9 +315,9 @@ describe('useSync scheduling and retries', () => {
     let uploads = 0
     const transport: DriveTransport = {
       ...memory,
-      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+      uploadDeviceBackup: async (content, deviceId) => {
         uploads += 1
-        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+        return memory.uploadDeviceBackup!(content, deviceId)
       },
     }
     const { result } = renderStatefulSync({
@@ -697,9 +697,9 @@ describe('useSync field-level conflict resolution', () => {
     let uploads = 0
     const transport: DriveTransport = {
       ...memory,
-      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+      uploadDeviceBackup: async (content, deviceId) => {
         uploads += 1
-        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+        return memory.uploadDeviceBackup!(content, deviceId)
       },
     }
     const { result } = renderStatefulSync({
@@ -946,12 +946,378 @@ describe('useSync imported solve summaries', () => {
   })
 })
 
+describe('useSync conflict queue integrity', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  /**
+   * Reproduces the original bug: with more than 100 conflicting solve fields,
+   * the stored queue was truncated before the pending filter ran, so pending
+   * conflicts and the approvals needed to finish the merge were evicted by a
+   * display/history cap. Fields silently auto-resolved, and approvals kept
+   * being requested again.
+   */
+  function bulkConflictingSessions(count: number, prefix: string): SessionsData {
+    const solves: Solve[] = []
+    for (let index = 0; index < count; index += 1) {
+      solves.push(
+        solve({
+          id: `${prefix}-${index}`,
+          comment: `${prefix} comment ${index}`,
+          fieldUpdates: {
+            comment: {
+              updatedAt: index % 2 === 0 ? 100 + index : 200 + index,
+              editorId: index % 2 === 0 ? 'device-test' : 'remote-device',
+            },
+          },
+        }),
+      )
+    }
+    return sessionsData({
+      sessions: [
+        session({
+          id: 'session-bulk',
+          name: 'Bulk',
+          solves: [...solves].sort((left, right) => right.createdAt - left.createdAt),
+        }),
+      ],
+      activeSessionId: 'session-bulk',
+    })
+  }
+
+  it('keeps every pending conflict above the old 100-record cap and converges', async () => {
+    const CONFLICTS = 101
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+
+    // Two remote devices disagree with this device on 101 solve comments.
+    const remoteA = bulkConflictingSessions(CONFLICTS, 'remote-a')
+    const remoteB = bulkConflictingSessions(CONFLICTS, 'remote-b')
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          remoteA,
+          DEFAULT_SETTINGS,
+          new Date('2026-01-01T00:00:00.000Z'),
+          {
+            ...createSyncEnvelope('remote-a', 1, [], []),
+            updatedAt: 100,
+          },
+        ),
+      ),
+      'remote-a',
+    )
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          remoteB,
+          DEFAULT_SETTINGS,
+          new Date('2026-01-02T00:00:00.000Z'),
+          {
+            ...createSyncEnvelope('remote-b', 1, [], []),
+            updatedAt: 200,
+          },
+        ),
+      ),
+      'remote-b',
+    )
+
+    const localSolves: Solve[] = []
+    for (let index = 0; index < CONFLICTS; index += 1) {
+      localSolves.push(
+        solve({
+          id: `remote-a-${index}`,
+          comment: `local comment ${index}`,
+          fieldUpdates: {
+            comment: {
+              updatedAt: 300 + index,
+              editorId: 'device-test',
+            },
+          },
+        }),
+      )
+    }
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-bulk',
+          name: 'Bulk',
+          solves: [...localSolves].sort(
+            (left, right) => right.createdAt - left.createdAt,
+          ),
+        }),
+      ],
+      activeSessionId: 'session-bulk',
+    })
+
+    const { result, unmount } = renderStatefulSync({
+      transport,
+      sessions: local,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    // Every conflicting field stays pending. The old cap silently auto-resolved
+    // and dropped records past the first 100.
+    expect(result.current.pendingConflicts).toHaveLength(CONFLICTS)
+    expect(result.current.conflictsCount).toBe(CONFLICTS)
+    expect(result.current.phase).toBe('conflict')
+    expect(result.current.hasPendingChanges).toBe(true)
+
+    // Resolve every conflict through the normal workflow, choosing this
+    // device's value each time.
+    await act(async () => {
+      for (const conflict of result.current.pendingConflicts) {
+        result.current.resolveConflict(
+          conflict.id,
+          conflict.field,
+          'local',
+          conflict.kind,
+        )
+      }
+    })
+    expect(result.current.pendingConflicts).toHaveLength(0)
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+
+    // The published snapshot preserves every chosen local value.
+    const files = await transport.listBackups!()
+    // Find the published envelope's resolved conflict set + sessions together.
+    const publishedContents = await Promise.all(
+      files.map(async (file) => transport.downloadBackup(file.id)),
+    )
+    // Resolve conflicts live on the last (newest) snapshot's sessions/solves.
+    const sessionSolutions = publishedContents.map((content) => {
+      const parsed = JSON.parse(content) as {
+        sessions?: { sessions?: Array<{ solves?: Array<{ id?: string; comment?: string }> }> }
+        sync?: { revision?: number }
+      }
+      const solves =
+        parsed.sessions?.sessions?.flatMap((entry) => entry.solves ?? []) ?? []
+      return { solves, revision: parsed.sync?.revision ?? 0 }
+    })
+    const newest = sessionSolutions.reduce((winner, candidate) =>
+      candidate.revision > winner.revision ? candidate : winner,
+    )
+    for (let index = 0; index < CONFLICTS; index += 1) {
+      const solve = newest.solves.find(
+        (item) => item.id === `remote-a-${index}`,
+      )
+      expect(solve?.comment).toBe(`local comment ${index}`)
+    }
+
+    // Repeated syncs do not request the discarded approvals again.
+    const conflictCountBefore = loadSyncStorage().runtime.conflicts.length
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    expect(result.current.pendingConflicts).toHaveLength(0)
+    expect(loadSyncStorage().runtime.conflicts.length).toBe(conflictCountBefore)
+
+    unmount()
+  })
+
+  it('persists mixed pending and resolved records across a reload', async () => {
+    const CONFLICTS = 101
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const remote = bulkConflictingSessions(CONFLICTS, 'remote-a')
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          remote,
+          DEFAULT_SETTINGS,
+          new Date('2026-01-01T00:00:00.000Z'),
+          { ...createSyncEnvelope('remote-a', 1, [], []), updatedAt: 100 },
+        ),
+      ),
+      'remote-a',
+    )
+    const localSolves: Solve[] = []
+    for (let index = 0; index < CONFLICTS; index += 1) {
+      localSolves.push(
+        solve({
+          id: `remote-a-${index}`,
+          comment: `local comment ${index}`,
+          fieldUpdates: {
+            comment: { updatedAt: 300 + index, editorId: 'device-test' },
+          },
+        }),
+      )
+    }
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-bulk',
+          name: 'Bulk',
+          solves: [...localSolves].sort(
+            (left, right) => right.createdAt - left.createdAt,
+          ),
+        }),
+      ],
+      activeSessionId: 'session-bulk',
+    })
+    const { result, unmount } = renderStatefulSync({
+      transport,
+      sessions: local,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.pendingConflicts).toHaveLength(CONFLICTS)
+
+    // Approve one field before the reload.
+    await act(async () => {
+      const first = result.current.pendingConflicts[0]!
+      result.current.resolveConflict(first.id, first.field, 'local', first.kind)
+    })
+    expect(result.current.pendingConflicts).toHaveLength(CONFLICTS - 1)
+
+    // A reload re-reads the persisted queue: resolved and pending records
+    // alike survive storage, above and below the old 100 cap.
+    const stored = JSON.parse(
+      localStorage.getItem(SYNC_STORAGE_KEY) ?? '{}',
+    ) as { runtime?: { conflicts?: unknown[] } }
+    expect(stored.runtime?.conflicts?.length).toBe(CONFLICTS)
+    const persisted = loadSyncStorage()
+    expect(
+      persisted.runtime.conflicts.filter(
+        (conflict) => conflict.resolution === 'manual-pending',
+      ).length,
+    ).toBe(CONFLICTS - 1)
+    expect(
+      persisted.runtime.conflicts.filter(
+        (conflict) => conflict.resolution !== 'manual-pending',
+      ).length,
+    ).toBe(1)
+
+    unmount()
+  })
+
+  it('raises a fresh conflict when a reviewed value is edited after approval', async () => {
+    const CONFLICTS = 101
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const remote = bulkConflictingSessions(CONFLICTS, 'remote-a')
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(
+          remote,
+          DEFAULT_SETTINGS,
+          new Date('2026-01-01T00:00:00.000Z'),
+          { ...createSyncEnvelope('remote-a', 1, [], []), updatedAt: 100 },
+        ),
+      ),
+      'remote-a',
+    )
+    const localSolves: Solve[] = []
+    for (let index = 0; index < CONFLICTS; index += 1) {
+      localSolves.push(
+        solve({
+          id: `remote-a-${index}`,
+          comment: `local comment ${index}`,
+          fieldUpdates: {
+            comment: { updatedAt: 300 + index, editorId: 'device-test' },
+          },
+        }),
+      )
+    }
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-bulk',
+          name: 'Bulk',
+          solves: [...localSolves].sort(
+            (left, right) => right.createdAt - left.createdAt,
+          ),
+        }),
+      ],
+      activeSessionId: 'session-bulk',
+    })
+    const { result, rerender, unmount } = renderHook(
+      ({ sessions }: { sessions: SessionsData }) =>
+        useSync({
+          transport,
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: false,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { sessions: local } },
+    )
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.pendingConflicts).toHaveLength(CONFLICTS)
+
+    // Approve the exact reviewed value of one field.
+    const target = result.current.pendingConflicts[0]!
+    await act(async () => {
+      result.current.resolveConflict(target.id, target.field, 'local', target.kind)
+    })
+
+    // A distinct later edit to the same field must invalidate the approval and
+    // raise a fresh conflict instead of being decided by the old choice.
+    const edited = local.sessions[0]!.solves.map((item) =>
+      item.id === target.id
+        ? {
+            ...item,
+            comment: 'edited after approval',
+            fieldUpdates: {
+              ...item.fieldUpdates,
+              comment: { updatedAt: 9_000, editorId: 'device-test' },
+            },
+          }
+        : item,
+    )
+    const editedSessions: SessionsData = {
+      ...local,
+      sessions: [{ ...local.sessions[0]!, solves: edited }],
+    }
+    await act(async () => {
+      rerender({ sessions: editedSessions })
+      await result.current.syncNow('manual')
+    })
+
+    await vi.waitFor(() => expect(result.current.phase).toBe('conflict'))
+    const fresh = result.current.pendingConflicts.find(
+      (conflict) => conflict.id === target.id && conflict.field === 'comment',
+    )
+    expect(fresh).toMatchObject({
+      resolution: 'manual-pending',
+      localValue: 'edited after approval',
+      remoteValue: 'remote-a comment 0',
+    })
+    // The other 100 fields keep their existing decisions.
+    expect(result.current.pendingConflicts).toHaveLength(CONFLICTS)
+
+    unmount()
+  })
+})
+
 describe('useSync same-device write safety', () => {
   beforeEach(() => {
     localStorage.clear()
   })
 
-  it('aborts an upload when its own snapshot changed after discovery', async () => {
+  it('adds an immutable snapshot instead of overwriting a concurrent shared-device writer', async () => {
     enableSync()
     const memory = createMemoryDriveTransport()
     await memory.connect()
@@ -964,7 +1330,9 @@ describe('useSync same-device write safety', () => {
       ],
       activeSessionId: 'session-test',
     })
-    await memory.uploadDeviceBackup!(
+    // This browser's earlier snapshot, written by a build that predates unique
+    // snapshot names. It stays readable; nothing overwrites it.
+    await memory.uploadBackup(
       JSON.stringify(
         createBackup(
           local,
@@ -973,45 +1341,43 @@ describe('useSync same-device write safety', () => {
           { ...createSyncEnvelope('device-test', 1, [], []), updatedAt: 100 },
         ),
       ),
-      'device-test',
+      null,
     )
 
+    // A second browser profile copied from this one shares the device ID and
+    // holds a different new solve. It finishes its upload while ours is in
+    // flight — after every pre-write check, the exact race the old optimistic
+    // recheck could not make atomic.
     const foreign = sessionsData({
       sessions: [
         session({
           id: 'session-test',
-          solves: [solve({ id: 'foreign-1' })],
+          solves: [
+            solve({ id: 'local-1' }),
+            solve({ id: 'foreign-1' }),
+          ],
         }),
       ],
       activeSessionId: 'session-test',
     })
-    let listCalls = 0
+    const foreignContent = JSON.stringify(
+      createBackup(
+        foreign,
+        DEFAULT_SETTINGS,
+        new Date('2026-01-02T00:00:00.000Z'),
+        { ...createSyncEnvelope('device-test', 2, [], []), updatedAt: 200 },
+      ),
+    )
     let uploads = 0
     const transport: DriveTransport = {
       ...memory,
-      listBackups: async () => {
-        const files = await memory.listBackups!()
-        listCalls += 1
-        if (listCalls === 1) {
-          // Simulate a copied profile sharing this device ID writing between
-          // discovery and the locked pre-write recheck.
-          await memory.uploadDeviceBackup!(
-            JSON.stringify(
-              createBackup(
-                foreign,
-                DEFAULT_SETTINGS,
-                new Date('2026-01-02T00:00:00.000Z'),
-                { ...createSyncEnvelope('device-test', 2, [], []), updatedAt: 200 },
-              ),
-            ),
-            'device-test',
-          )
-        }
-        return files
-      },
-      uploadDeviceBackup: async (content, deviceId, existingFileId) => {
+      uploadDeviceBackup: async (content: string, deviceId: string) => {
         uploads += 1
-        return memory.uploadDeviceBackup!(content, deviceId, existingFileId)
+        if (uploads === 1) {
+          // The shared-ID writer lands while this device's request is delayed.
+          await memory.uploadDeviceBackup!(foreignContent, 'device-test')
+        }
+        return memory.uploadDeviceBackup!(content, deviceId)
       },
     }
     const { result, unmount } = renderStatefulSync({
@@ -1024,11 +1390,40 @@ describe('useSync same-device write safety', () => {
       await result.current.syncNow('manual')
     })
 
-    expect(uploads).toBe(0)
-    expect(result.current.phase).toBe('pending')
-    expect(result.current.error).toContain(
-      "changed this device's cloud snapshot",
+    // Immutable snapshots: this sync publishes instead of aborting, and the
+    // concurrent writer's unique data is not overwritten.
+    expect(uploads).toBe(1)
+    expect(result.current.phase).toBe('synced')
+    const files = await memory.listBackups!()
+    expect(files.length).toBeGreaterThanOrEqual(2)
+    const contents = await Promise.all(
+      files.map(async (file) => memory.downloadBackup(file.id)),
     )
+    // Both writers' solves remain discoverable remotely.
+    expect(contents.some((content) => content.includes('"local-1"'))).toBe(true)
+    expect(contents.some((content) => content.includes('"foreign-1"'))).toBe(
+      true,
+    )
+    // The concurrent writer's snapshot is intact, byte for byte.
+    expect(contents).toContain(foreignContent)
+
+    // A subsequent sync converges on both solves without losing either.
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    const published = await (async () => {
+      const currentFiles = await memory.listBackups!()
+      const currentContents = await Promise.all(
+        currentFiles.map(async (file) => memory.downloadBackup(file.id)),
+      )
+      const newest = currentContents
+        .map((content) => JSON.parse(content) as { sync?: { updatedAt?: number } })
+        .sort((left, right) => (right.sync?.updatedAt ?? 0) - (left.sync?.updatedAt ?? 0))[0]
+      return JSON.stringify(newest)
+    })()
+    expect(published).toContain('"local-1"')
+    expect(published).toContain('"foreign-1"')
     unmount()
   })
 

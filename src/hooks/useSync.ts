@@ -32,10 +32,7 @@ import { normalizeSessionRedirects, applySessionRedirects } from '../lib/session
 import { mergeSettingsData, SETTINGS_FIELD_KEYS } from '../lib/settingsMerge'
 import { syncStateFingerprint } from '../lib/syncFingerprint'
 import {
-  deviceBackupFileName,
-} from '../lib/driveTransport'
-import {
-  findDeviceBackup,
+  findOwnSnapshots,
   listRemoteBackups,
   readRemoteBackups,
 } from '../lib/remoteBackups'
@@ -108,8 +105,17 @@ function countSolvesInData(data: SessionsData): number {
 }
 
 /**
- * Keeps one record per solve/field. A newly raised conflict replaces an older
- * resolution for the same field; otherwise user resolutions survive a sync.
+ * Keeps one record per solve/session/settings/redirect field. A newly raised
+ * conflict replaces an older resolution for the same field; otherwise user
+ * resolutions survive a sync.
+ *
+ * Pending conflicts and the approvals needed to complete an active merge are
+ * correctness state and are **never** evicted here. Records are deduplicated
+ * by key, so the stored queue is bounded by the number of distinct fields that
+ * ever diverged, not by the number of sync runs. Bounding what is *displayed* is
+ * the UI's job (the Drive dialog pages its conflict list); a display or history
+ * cap must never decide which conflicts block publication or which approvals
+ * survive a reload.
  */
 function mergeConflictRecords(
   existing: readonly SyncConflict[],
@@ -122,7 +128,7 @@ function mergeConflictRecords(
   for (const conflict of incoming) {
     records.set(`${conflict.kind}:${conflict.id}:${conflict.field}`, conflict)
   }
-  return [...records.values()].sort((left, right) => left.updatedAt - right.updatedAt).slice(-100)
+  return [...records.values()].sort((left, right) => left.updatedAt - right.updatedAt)
 }
 
 function getRemoteFileId(): string | null {
@@ -146,6 +152,7 @@ export function useSync({
   const syncRef = useRef(sync)
   const timerActiveRef = useRef(timerActive)
   const runningRef = useRef<Promise<void> | null>(null)
+  const cancelledRef = useRef(false)
   const syncNowRef = useRef<((reason?: string) => Promise<void>) | null>(null)
   const knownSessionsRef = useRef<SessionsData | null>(null)
   const leaderRef = useRef(false)
@@ -420,7 +427,10 @@ export function useSync({
         },
       })
 
-      window.setTimeout(() => void syncNowRef.current?.('merge'), 0)
+      window.setTimeout(() => {
+        if (cancelledRef.current) return
+        void syncNowRef.current?.('merge')
+      }, 0)
     },
     [onReplaceSessions, persist],
   )
@@ -468,7 +478,10 @@ export function useSync({
       })
 
       if (!stillPending) {
-        window.setTimeout(() => void syncNowRef.current?.('conflict-resolution'), 0)
+        window.setTimeout(() => {
+          if (cancelledRef.current) return
+          void syncNowRef.current?.('conflict-resolution')
+        }, 0)
       }
     },
     [persist],
@@ -664,6 +677,12 @@ export function useSync({
           // Merge remote device settings with each other first, using their
           // field metadata, then merge the aggregate with this device so the
           // first-sync default policy applies exactly once.
+          //
+          // The pairwise fold still discards a losing alternative from the
+          // aggregate, so with manual review enabled it must raise the
+          // disagreement for approval *before* the value disappears. A device
+          // whose local value already matches the automatic winner would
+          // otherwise never see the remote snapshot that disagrees with it.
           let aggregateRemoteSettings: Settings | null = null
           let aggregateRemoteSettingsUpdates: SettingsFieldUpdates = {}
           if (snapshots.length > 0) {
@@ -678,10 +697,19 @@ export function useSync({
                 remoteFieldUpdates: snapshot.backup.sync?.settingsFieldUpdates ?? {},
                 remoteUpdatedAt: snapshot.updatedAt,
                 lastSyncAt: 1,
-                manualConflictReview: false,
+                manualConflictReview: syncState.preferences.manualConflictReview,
+                resolvedConflicts: syncState.runtime.conflicts,
               })
               aggregateRemoteSettings = result.settings
               aggregateRemoteSettingsUpdates = result.fieldUpdates
+              if (syncState.preferences.manualConflictReview) {
+                conflicts.push(
+                  ...result.conflicts.map((conflict) => ({
+                    ...conflict,
+                    remoteOnly: true,
+                  })),
+                )
+              }
             }
           }
 
@@ -783,16 +811,21 @@ export function useSync({
             syncState.runtime.lastRemoteRevision ?? 0,
           )
           const nextRevision = baseRevision + 1
-          const ownName = deviceBackupFileName(deviceId)
-          const ownFile = findDeviceBackup(remoteFiles, ownName)
+          const perDeviceTransport = Boolean(transport.uploadDeviceBackup)
+          // Unique immutable snapshot names mean this device can own several
+          // remote files. Identify our snapshots by envelope device ID; the
+          // legacy fixed per-device name is only a fallback for pre-envelope
+          // snapshots. Nothing here deletes or overwrites them.
+          const ownSnapshots = findOwnSnapshots(snapshots, deviceId)
+          const ownNewestFile = ownSnapshots.at(-1)?.file ?? null
           const remoteStateUnchanged =
             mergedFingerprint === syncRef.current.runtime.lastSyncedFingerprint &&
             remoteRevision <= (syncRef.current.runtime.lastRemoteRevision ?? 0) &&
             JSON.stringify(mergedTombstones) === JSON.stringify(syncRef.current.runtime.tombstones) &&
             JSON.stringify(sessionRedirects) ===
               JSON.stringify(syncRef.current.runtime.sessionRedirects ?? [])
-          const remoteStorePresent = transport.uploadDeviceBackup
-            ? Boolean(ownFile)
+          const remoteStorePresent = perDeviceTransport
+            ? ownSnapshots.length > 0
             : remoteFiles.length > 0
 
           let updatedConflicts = mergeConflictRecords(
@@ -802,8 +835,8 @@ export function useSync({
             deduplicatedConflicts,
           )
           let lastRemoteRevision = baseRevision
-          let remoteFileId: string | null = ownFile?.id ?? null
-          let remoteModifiedTime: string | null = ownFile?.modifiedTime ?? null
+          let remoteFileId: string | null = ownNewestFile?.id ?? null
+          let remoteModifiedTime: string | null = ownNewestFile?.modifiedTime ?? null
 
           if (remoteStateUnchanged && remoteStorePresent) {
             // Nothing relevant changed since the last confirmed write. Avoid a
@@ -840,35 +873,36 @@ export function useSync({
               return
             }
 
-            const expectedOwnFile = transport.uploadDeviceBackup
-              ? ownFile
-              : remoteFiles[0]
+            const expectedLegacyFile = remoteFiles[0]
             const content = JSON.stringify(backup)
             const write = await runWithDriveWriteLock(async () => {
-              // Another tab (or a copied profile with the same device ID) may
-              // have replaced this device's snapshot after our read. Re-list
-              // while holding the same-origin write lock; a changed file aborts
-              // the write instead of silently overwriting newer data.
-              const currentFiles = await listRemoteBackups(transport)
-              const currentOwnFile = transport.uploadDeviceBackup
-                ? findDeviceBackup(currentFiles, ownName)
-                : currentFiles[0]
-              if (ownSnapshotChanged(expectedOwnFile, currentOwnFile)) {
-                return { status: 'remote-changed' as const }
+              // Per-device snapshots are immutable and uniquely named: this
+              // upload creates a new file and cannot overwrite a concurrent
+              // writer sharing this device ID, so no remote recheck can make
+              // the write safe or unsafe — it is already non-destructive. The
+              // optimistic recheck remains only for legacy single-file
+              // transports whose fixed-name file is still mutable.
+              if (!perDeviceTransport) {
+                const currentFiles = await listRemoteBackups(transport)
+                if (
+                  ownSnapshotChanged(expectedLegacyFile, currentFiles[0] ?? null)
+                ) {
+                  return { status: 'remote-changed' as const }
+                }
               }
               if (!isLocalUnchanged()) {
                 return { status: 'local-changed' as const }
               }
-              const existingFileId = transport.uploadDeviceBackup
-                ? currentOwnFile?.id
-                : currentOwnFile?.id ?? getRemoteFileId()
-              const result = transport.uploadDeviceBackup
-                ? await transport.uploadDeviceBackup(
-                    content,
-                    deviceId,
-                    existingFileId,
-                  )
-                : await transport.uploadBackup(content, existingFileId)
+              if (perDeviceTransport) {
+                const result = await transport.uploadDeviceBackup!(
+                  content,
+                  deviceId,
+                )
+                return { status: 'uploaded' as const, result }
+              }
+              const existingFileId =
+                expectedLegacyFile?.id ?? getRemoteFileId()
+              const result = await transport.uploadBackup(content, existingFileId)
               return { status: 'uploaded' as const, result }
             })
 
@@ -951,7 +985,7 @@ export function useSync({
               solveCountAtLastSync: countSolvesInData(mergedSessions),
               lastRemoteRevision,
               tombstones: mergedTombstones,
-              conflicts: updatedConflicts.slice(-100),
+              conflicts: updatedConflicts,
               sessionRedirects,
               pendingDuplicateNames: duplicateSessionNames,
               settingsFieldUpdates: mergedSettingsUpdates,
@@ -1226,6 +1260,7 @@ export function useSync({
 
   useEffect(
     () => () => {
+      cancelledRef.current = true
       if (fallbackTimerRef.current !== null) {
         window.clearTimeout(fallbackTimerRef.current)
         fallbackTimerRef.current = null

@@ -65,6 +65,9 @@ function conflictKey(conflict: SyncConflict): string {
   return `${conflict.kind}:${conflict.id}:${conflict.field}`
 }
 
+/** How many conflicts render before the reviewer expands the list. */
+const CONFLICT_PAGE_SIZE = 5
+
 function conflictTitle(
   conflict: SyncConflict,
   sessions: SessionsData,
@@ -112,6 +115,7 @@ export function DriveBackupDialog({
   const { dialogRef, handleKeyDown } = useModalDialog(open)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [conflictsExpanded, setConflictsExpanded] = useState(false)
   const drive = useDriveBackup({
     transport,
     sessions,
@@ -293,7 +297,10 @@ export function DriveBackupDialog({
                     Synchronization is paused. Choose which version to keep for
                     each conflicting edit.
                   </p>
-                  {sync.pendingConflicts.map((conflict) => (
+                  {(conflictsExpanded
+                    ? sync.pendingConflicts
+                    : sync.pendingConflicts.slice(0, CONFLICT_PAGE_SIZE)
+                  ).map((conflict) => (
                     <div
                       className="sync-conflict-item"
                       key={conflictKey(conflict)}
@@ -304,8 +311,21 @@ export function DriveBackupDialog({
                           {conflictTitle(conflict, sessions)}
                         </span>
                         <span className="settings-row-description">
-                          This device: {formatConflictValue(conflict.field, conflict.localValue)} ·
-                          Cloud: {formatConflictValue(conflict.field, conflict.remoteValue)}
+                          {conflict.remoteOnly ? (
+                            <>
+                              Newest cloud version:{' '}
+                              {formatConflictValue(conflict.field, conflict.localValue)}{' '}
+                              ·{' '}
+                              Other cloud version:{' '}
+                              {formatConflictValue(conflict.field, conflict.remoteValue)}
+                            </>
+                          ) : (
+                            <>
+                              This device:{' '}
+                              {formatConflictValue(conflict.field, conflict.localValue)} ·
+                              Cloud: {formatConflictValue(conflict.field, conflict.remoteValue)}
+                            </>
+                          )}
                         </span>
                       </div>
                       <div className="sync-conflict-actions">
@@ -321,7 +341,7 @@ export function DriveBackupDialog({
                             )
                           }
                         >
-                          Use this device
+                          {conflict.remoteOnly ? 'Use newest cloud' : 'Use this device'}
                         </button>
                         <button
                           type="button"
@@ -335,11 +355,30 @@ export function DriveBackupDialog({
                             )
                           }
                         >
-                          Use cloud
+                          {conflict.remoteOnly ? 'Use other cloud' : 'Use cloud'}
                         </button>
                       </div>
                     </div>
                   ))}
+                  {!conflictsExpanded &&
+                  sync.pendingConflicts.length > CONFLICT_PAGE_SIZE ? (
+                    <p className="settings-note sync-conflict-more">
+                      <span>
+                        Showing {CONFLICT_PAGE_SIZE} of{' '}
+                        {sync.pendingConflicts.length} conflicts. Every
+                        conflict is stored and blocks publication; the list is
+                        only paginated for display.
+                      </span>
+                      <button
+                        type="button"
+                        className="button button-secondary button-small"
+                        data-testid="show-all-conflicts"
+                        onClick={() => setConflictsExpanded(true)}
+                      >
+                        Show all {sync.pendingConflicts.length}
+                      </button>
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -552,12 +591,14 @@ export function DriveBackupDialog({
                     />
                   </div>
                   <p className="settings-note">
-                    Each browser writes its own app-data snapshot, so simultaneous
-                    device uploads cannot overwrite another device's file. CubeLab
-                    serializes same-browser writes with Web Locks and rechecks the
-                    snapshot before upload, but Google Drive still has no verified
-                    atomic compare-and-swap. A copied browser profile that shares
-                    this device ID can still race.
+                    Every write uploads a new immutable snapshot with a unique
+                    name instead of replacing a device's previous file, so
+                    simultaneous writers — including two browsers sharing one
+                    device ID — cannot overwrite each other's data. Snapshots
+                    accumulate until you use Delete remote backups; there is no
+                    automatic cleanup. Same-browser writes are serialized with
+                    Web Locks, but Google Drive still has no verified atomic
+                    compare-and-swap.
                   </p>
                   <div className="settings-row">
                     <div className="settings-row-copy">

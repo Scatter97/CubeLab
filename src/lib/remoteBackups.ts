@@ -1,6 +1,6 @@
 import type { SessionsData, Settings } from '../types'
 import { MAX_BACKUP_BYTES, parseBackup, type Backup } from './backup'
-import type { DriveFile, DriveTransport } from './driveTransport'
+import { deviceBackupFileName, type DriveFile, type DriveTransport } from './driveTransport'
 import { mergeTombstones, mergeSessionsData } from './sync'
 import { mergeSettingsData } from './settingsMerge'
 import type { SettingsFieldUpdates } from './syncStorage'
@@ -148,4 +148,29 @@ export function findDeviceBackup(
   expectedName: string,
 ): DriveFile | undefined {
   return files.find((file) => file.name === expectedName)
+}
+
+/**
+ * True when a downloaded snapshot was written by this device. The envelope's
+ * `deviceId` is authoritative; the legacy per-device file name is the fallback
+ * for snapshots that predate envelopes.
+ */
+export function isOwnSnapshot(
+  snapshot: RemoteBackupSnapshot,
+  deviceId: string,
+): boolean {
+  if (snapshot.backup.sync?.deviceId === deviceId) return true
+  return snapshot.file.name === deviceBackupFileName(deviceId)
+}
+
+/**
+ * Every downloaded snapshot written by this device. Unique immutable snapshot
+ * names mean a device can own several remote files at once; all of them stay
+ * readable, and none is overwritten by a new write.
+ */
+export function findOwnSnapshots(
+  snapshots: ReadonlyArray<RemoteBackupSnapshot>,
+  deviceId: string,
+): RemoteBackupSnapshot[] {
+  return snapshots.filter((snapshot) => isOwnSnapshot(snapshot, deviceId))
 }

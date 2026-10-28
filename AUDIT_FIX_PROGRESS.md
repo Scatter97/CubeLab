@@ -78,13 +78,16 @@ required unit/E2E evidence for that finding has passed.
 
 ## Verification evidence
 
-Run 2026-10-26 with Node v22.23.2: `npm run typecheck` passed, `npm run lint`
-passed, `npm test` **283/283 passed** in 21 files, `npm run build` passed
-(95 modules; PWA 22 entries, 2284.38 KiB), `npm run test:e2e` **29/29 passed**,
-and `git diff --check` passed. `npm run check` was not rerun as one command.
+Run 2026-10-28 with Node v22.23.2 after the 2026-10-27 immutable-snapshot
+remediation and Stage 0 documentation alignment: `npm run check` passed as one
+command, so `npm run typecheck`, `npm run lint`, `npm test` (**287/287 passed** in
+21 files), `npm run build` (95 modules; PWA 22 entries, 2,286.77 KiB), and
+`npm run test:e2e` (**29/29 passed**) all passed. `git diff --check` was clean.
+The earlier 2026-10-26 run recorded 283/283 unit tests; the remediation added
+regression coverage.
 
 ## Remaining work
 
-1. Update README/AGENTS/PATCH_LIMITATIONS and PROJECT_PROGRESS.
-2. Run `npm run check` for one final recorded result.
-3. Commit the verified changes and finalize `NEXT_SESSION_HANDOFF.md`.
+1. Stage 1 and later work per `Oct_28_AM_Plan.md`; Stages 1–3 require explicit
+   approval. Stages 4 and 5 are already approved.
+2. Keep `NEXT_SESSION_HANDOFF.md` current at each stage boundary.

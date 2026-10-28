@@ -1,6 +1,6 @@
 # CubeLab synchronization hardening — limitations
 
-**Last updated:** 2026-10-26
+**Last updated:** 2026-10-28
 
 This patch substantially hardens Phase 2C, but it is deliberately **not** a claim
 that every distributed-systems problem is solved. Google Drive is still an
@@ -25,31 +25,36 @@ eventually consistent remote store, not a transaction coordinator.
 
 ### Device-owned remote snapshots
 
-- Each browser writes only its own
-  `cubelab-backup-<sanitized-device-id>.json` app-data snapshot. Simultaneous
-  uploads from different devices therefore cannot overwrite one another.
+- Each browser writes a **new immutable snapshot** named
+  `cubelab-backup-<device-id>-<uuid>.json` to its app-data folder. A write never
+  overwrites an existing file, so simultaneous writers — including two devices or
+  two profiles sharing a device identity — cannot replace one another's snapshot.
+  `uploadDeviceBackup` no longer accepts an `existingFileId`.
 - Every sync lists, validates, downloads, and merges **all** CubeLab snapshots.
-  The legacy fixed-name `cubelab-backup.json` remains readable for upgrades and
-  is included in manual restore and delete-all operations.
+  The legacy fixed-name `cubelab-backup.json` and legacy per-device file names
+  remain readable for upgrades and are included in manual restore and delete-all
+  operations.
 - File discovery now follows every `nextPageToken` page and requests the token
   fields explicitly. A failed page, malformed/repeated token, or
   `incompleteSearch` stops synchronization instead of returning a partial list
   that could miss another device's snapshot.
-- Manual backup (`useDriveBackup`) also replaces only the current device's file.
-  It never falls back to overwriting another device's file on a per-device
-  transport.
-- **Delete remote backups** now removes every CubeLab snapshot, including the
-  legacy file, and reports partial failures instead of claiming success.
+- Manual backup creates another immutable snapshot owned by this device; it never
+  overwrites or adopts another device's file.
+- **Delete remote backups** removes every CubeLab snapshot, including legacy
+  files, and reports partial failures instead of claiming success. Snapshots
+  accumulate until then; there is no automatic cleanup policy.
 
 ### Same-device write coordination
 
-- Automatic sync and manual backup share a Web Lock and re-list this device's
-  snapshot immediately before writing. A changed file ID, name, or modification
-  time aborts the write with a pending/retry status instead of overwriting a
-  newer snapshot with an older starting view.
-- The lock and recheck remove the avoidable same-origin tab race. They are best
-  effort, not a remote transaction; a copied browser profile that shares the
-  device ID can still write between the recheck and the request.
+- Automatic sync and manual backup share a Web Lock so same-origin writes do not
+  interleave.
+- Per-device transports no longer re-list or recheck before writing: their
+  uniquely named snapshots are immutable, so a concurrent writer cannot be
+  overwritten. The optimistic changed-file recheck remains only for the legacy
+  fixed-name transport, whose single file is still mutable.
+- The lock is best effort, not a remote transaction. Google Drive still exposes
+  no verified conditional write/compare-and-swap; local state remains
+  replaceable and convergence is eventual.
 
 ### Duplicate-name review
 
@@ -111,14 +116,71 @@ eventually consistent remote store, not a transaction coordinator.
 - Removal counts count unique tombstoned solves, regardless of how many
   snapshots carried the tombstone.
 
+## 2026-10-27 synchronization remediation (review fixes)
+
+### Conflict queue correctness
+- The `mergeConflictRecords` correctness state is no longer truncated to the
+  last 100 records. Pending conflicts and the approvals needed to finish an
+  active merge cannot be evicted by a display or history cap; records are
+  deduplicated by `kind:id:field`, so stored growth is bounded by the number of
+  distinct fields that have ever diverged (not by the number of sync runs).
+- Rendering in `DriveBackupDialog` pages its conflict list (5 per page, with a
+  "Show all" action) so DOM stays bounded without losing correctness state.
+- Fixes: `src/hooks/useSync.ts::mergeConflictRecords`, the final publish
+  persist, and `src/components/DriveBackupDialog.tsx`.
+- Mixed pending/resolved persistence across reload and later edits that
+  invalidate an approval remain covered by deterministic unit and hook tests.
+- Residual growth: all historical resolved conflict records remain stored
+  (storage is bounded by distinct diverged fields; see below).
+
+### Manual review of disagreements between remote snapshots
+- Settings aggregation now folds remote snapshots with review enabled and the
+  local conflict set, so a disagreement between two remote devices is raised
+  even when this device's value already matches the automatic winner.
+  Aggregation conflicts are marked `remoteOnly` so the UI labels them as
+  cloud-version choices.
+- Redirects with no local approval also surface pairwise remote disagreements
+  (`findRemoteRedirectDisagreements`) while same-destination superseded history
+  does not manufacture a conflict.
+- Approvals are matched by unordered destination pair and anchored to the
+  reviewed values, so repeated runs stay idempotent and a later distinct
+  destination raises a fresh conflict.
+- Fix: `src/lib/sessionRedirects.ts::findRemoteRedirectDisagreements`,
+  `src/lib/sync.ts::resolveRedirectConflicts`, and `src/hooks/useSync.ts`
+  settings aggregation.
+- Honest limitation: when a device already has an approval for one side of a
+  multi-remote disagreement, the normalizer's newest-approval rule can hide an
+  older independent cloud approval until that device's newer approval is absent.
+
+### Shared-device-ID writers
+- Each write now creates a fresh immutable snapshot with a unique name
+  (`cubelab-backup-<device-id>-<uuid>.json`) instead of overwriting a device's
+  previous file. `uploadDeviceBackup` never overwrites by ID or name, so two
+  writers sharing a device ID (including copied browser profiles) cannot destroy
+  each other's unique solves; every snapshot stays discoverable and is merged by
+  the next run. Web Locks still serialize same-origin writes; failures do not
+  replace newer local state.
+- Discovery, merge, restore, and delete-all continue to cover every snapshot,
+  legacy per-device names, and `cubelab-backup.json`; removed tombstone removal
+  is unchanged.
+- Redundant-upload skipping still triggers on unchanged merged fingerprints and
+  recent remote revisions; immutable names eliminate the avoidable overwrite race
+  and make the pre-write optimistic recheck unnecessary for per-device
+  transports.
+- Residual limits: snapshots accumulate over time (one per change round per
+  device). There is no automatic cleanup policy, no per-device management UI,
+  and no server-side ordering. Real-provider multi-device behavior remains
+  unvalidated. Growth is documented.
+
 ## Still unresolved
 
-- **No verified provider compare-and-swap.** Device-owned files prevent
-  cross-device file overwrites, but Google Drive still has no conditional write
-  in this transport. Two tabs or profiles sharing the same device ID can race on
-  the same file. Web Locks plus a pre-write re-list reduce same-origin tab
-  concurrency but are not a remote transaction. Do not claim atomic remote
-  writes.
+- **No verified provider compare-and-swap.** Unique immutable snapshot names
+  prevent a write from replacing another writer's file, including two tabs or
+  profiles that share a device identity. Google Drive still has no conditional
+  write in this transport, and local state remains replaceable, so product copy
+  must describe eventual convergence rather than atomic writes. Web Locks
+  serialize same-origin writes but are not a remote transaction. Do not claim
+  atomic remote writes.
 - **Duplicate review is advisory.** Collisions are detected and surfaced, but
   CubeLab never merges same-named sessions automatically. A user who dismisses
   the toast and closes the Drive dialog still has to reopen the merge action
@@ -133,14 +195,18 @@ eventually consistent remote store, not a transaction coordinator.
   server-side ordering, push notification, or read-after-write guarantee.
 - **Delete-all is all-or-nothing.** There is no selective snapshot management,
   stale-snapshot cleanup policy, or UI showing which device owns each file.
+  Because every write adds an immutable snapshot, remote files accumulate until
+  delete-all.
 - **Legacy tombstones still use wall-clock comparison.** Tombstones without
   `knownSolveIds` cannot distinguish an unknown offline edit from an intentional
   deletion, so ambiguous old edits can still be lost.
 - **Redirect handling is deterministic, not consensus-based.** Devices with
   different approval sets can resolve differently until they exchange the same
   set. Divergent approved destinations have no separate recovery flow.
-- **Conflict review has no audit history or undo.** Resolutions are stored only
-  as current runtime records; the queue is capped at 100 entries, and past
+- **Conflict review has no audit history or undo.** Resolutions are stored as
+  current runtime records. Pending conflicts and approvals needed to complete
+  an active merge are never evicted by a display or history cap; the stored
+  queue is deduplicated by field key, and its rendering is paginated. Past
   choices cannot be inspected or reversed from the UI.
 - **Sync-on-exit is best effort.** Browsers may terminate async OAuth and network
   work while closing. Local storage remains the durability boundary.
@@ -160,3 +226,9 @@ Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and
 `npm run test:e2e` with Node 20 or newer. Use an isolated mock cloud for
 concurrency scenarios. Do not treat this patch as a data-loss-proof
 synchronization protocol.
+
+Stage 0 on 2026-10-28 ran `npm run check` as one command with Node v22.23.2.
+Typecheck and lint passed, **287/287 unit tests** passed in 21 files, the
+production build passed (95 modules; PWA 22 entries, 2,286.77 KiB), **29/29
+Playwright tests** passed, and `git diff --check` was clean. No real Google Drive
+multi-device test was run.
