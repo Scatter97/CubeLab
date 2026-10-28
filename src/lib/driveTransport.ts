@@ -8,6 +8,14 @@ export interface DriveFile {
    * per-device snapshots do not need one.
    */
   etag?: string | null
+  /** Provider-reported file size in bytes, when the listing exposes it. */
+  size?: number | null
+  /**
+   * App-private metadata written with the snapshot. New writes record the
+   * owning `deviceId` here so the management UI can show ownership without
+   * downloading every file. Older snapshots fall back to their file name.
+   */
+  appProperties?: Record<string, string>
 }
 
 export interface DriveUploadOptions {
@@ -112,6 +120,27 @@ function drivePageError(status: number): Error {
   return new Error(`Could not read Google Drive app data (status ${status}).`)
 }
 
+function parseDriveFileSize(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return value
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed
+  }
+  return null
+}
+
+function parseDriveAppProperties(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string',
+  )
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
 function parseDriveFile(value: unknown): DriveFile {
   if (!isRecord(value)) {
     throw new Error('Google Drive returned an invalid file entry.')
@@ -136,11 +165,14 @@ function parseDriveFile(value: unknown): DriveFile {
   ) {
     throw new Error('Google Drive returned a file entry with an invalid ETag.')
   }
+  const appProperties = parseDriveAppProperties(value.appProperties)
   return {
     id: value.id,
     name: value.name,
     modifiedTime: (value.modifiedTime as string | null | undefined) ?? null,
     etag: (value.etag as string | null | undefined) ?? null,
+    size: parseDriveFileSize(value.size),
+    ...(appProperties ? { appProperties } : {}),
   }
 }
 
@@ -367,7 +399,7 @@ export function createGoogleDriveTransport(
         q: 'trashed=false',
         // `nextPageToken` and `incompleteSearch` are top-level response fields.
         // Omitting them from `fields` makes pagination silently impossible.
-        fields: 'nextPageToken,incompleteSearch,files(id,name,modifiedTime)',
+        fields: 'nextPageToken,incompleteSearch,files(id,name,modifiedTime,size,appProperties)',
         pageSize: String(DRIVE_LIST_PAGE_SIZE),
       })
       if (pageToken) params.set('pageToken', pageToken)
@@ -447,6 +479,7 @@ export function createGoogleDriveTransport(
     name: string,
     existingFileId?: string | null,
     options: DriveUploadOptions = {},
+    deviceId?: string,
   ): Promise<DriveFile> {
     if (existingFileId) {
       // Drive v3 dropped ETags; v2 still exposes one and honours If-Match on
@@ -511,7 +544,8 @@ export function createGoogleDriveTransport(
       appProperties: {
         app: 'CubeLab',
         format: 'cubelab-backup',
-        backupVersion: 1,
+        backupVersion: '1',
+        ...(deviceId ? { deviceId } : {}),
       },
     }
     const boundary = `cubelab-${crypto.randomUUID()}`
@@ -539,7 +573,14 @@ export function createGoogleDriveTransport(
     }
     const result = (await response.json()) as DriveFile
     const refreshed = (await listBackupFiles()).find((file) => file.id === result.id)
-    return refreshed ?? { ...result, name: result.name || name, etag: null }
+    return (
+      refreshed ?? {
+        ...result,
+        name: result.name || name,
+        etag: null,
+        appProperties: metadata.appProperties,
+      }
+    )
   }
 
   return {
@@ -581,8 +622,15 @@ export function createGoogleDriveTransport(
     async uploadDeviceBackup(content, deviceId) {
       // Immutable snapshot: a fresh unique name per write. Never overwrite an
       // existing file, so a concurrent writer sharing this device ID cannot
-      // lose its unique data to this upload.
-      return writeFile(content, deviceSnapshotFileName(deviceId), null)
+      // lose its unique data to this upload. The owning device ID is recorded
+      // in app-private metadata for the snapshot management UI.
+      return writeFile(
+        content,
+        deviceSnapshotFileName(deviceId),
+        null,
+        {},
+        deviceId,
+      )
     },
     async downloadBackup(fileId) {
       const response = await apiFetch(
@@ -614,11 +662,20 @@ export function createMemoryDriveTransport(
     modifiedTime: string
     content: string
     etag: string
+    size: number
+    appProperties: Record<string, string>
   }
   const files = new Map<string, MemoryFile>()
   let nextFileNumber = 1
   let nextEtagNumber = 1
   let lastModifiedMs = 0
+
+  const byteLength = (content: string): number => {
+    if (typeof TextEncoder !== 'undefined') {
+      return new TextEncoder().encode(content).length
+    }
+    return content.length
+  }
 
   // Two rapid writes in the same millisecond must still look different to the
   // optimistic write check. Real Drive also advances the modification time.
@@ -637,6 +694,8 @@ export function createMemoryDriveTransport(
     name: file.name,
     modifiedTime: file.modifiedTime,
     etag: file.etag,
+    size: file.size,
+    appProperties: { ...file.appProperties },
   })
 
   const sortedFiles = () =>
@@ -652,8 +711,15 @@ export function createMemoryDriveTransport(
     name: string,
     existingFileId?: string | null,
     options: DriveUploadOptions = {},
+    deviceId?: string,
   ): DriveFile {
     const modifiedTime = nextModifiedTime()
+    const appProperties = {
+      app: 'CubeLab',
+      format: 'cubelab-backup',
+      backupVersion: '1',
+      ...(deviceId ? { deviceId } : {}),
+    }
     if (existingFileId) {
       const existing = files.get(existingFileId)
       if (existing) {
@@ -672,6 +738,8 @@ export function createMemoryDriveTransport(
           modifiedTime,
           content,
           etag: nextEtag(),
+          size: byteLength(content),
+          appProperties: { ...existing.appProperties, ...appProperties },
         }
         files.set(existingFileId, next)
         return publicFile(next)
@@ -684,6 +752,8 @@ export function createMemoryDriveTransport(
         modifiedTime,
         content,
         etag: nextEtag(),
+        size: byteLength(content),
+        appProperties: { ...byName.appProperties, ...appProperties },
       }
       files.set(byName.id, next)
       return publicFile(next)
@@ -696,6 +766,8 @@ export function createMemoryDriveTransport(
       modifiedTime,
       content,
       etag: nextEtag(),
+      size: byteLength(content),
+      appProperties,
     }
     files.set(id, next)
     return publicFile(next)
@@ -741,7 +813,13 @@ export function createMemoryDriveTransport(
       // Immutable snapshot with a unique name: each upload adds a file instead
       // of replacing the device's previous snapshot, so a stale or concurrent
       // writer can never overwrite another writer's unique data.
-      return writeFile(content, deviceSnapshotFileName(deviceId))
+      return writeFile(
+        content,
+        deviceSnapshotFileName(deviceId),
+        null,
+        {},
+        deviceId,
+      )
     },
     async downloadBackup(fileId) {
       if (!connected) throw new Error('Connect Google Drive first.')

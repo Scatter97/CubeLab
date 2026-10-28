@@ -2383,6 +2383,71 @@ kbd {
   }
 }
 
+/* Remote snapshot management */
+
+.snapshot-toolbar {
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.snapshot-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  background: var(--surface-soft);
+}
+
+.snapshot-group-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.snapshot-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.snapshot-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.snapshot-file-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.snapshot-show-all {
+  align-self: flex-start;
+}
+
+@media (max-width: 640px) {
+  .snapshot-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .snapshot-item .button {
+    align-self: flex-end;
+  }
+}
+
 /* Session settings */
 
 .session-settings-dialog {

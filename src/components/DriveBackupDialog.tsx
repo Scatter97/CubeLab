@@ -1,13 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { useDriveBackup } from '../hooks/useDriveBackup'
 import { ConfirmDialog } from './ConfirmDialog'
-import type { DriveTransport } from '../lib/driveTransport'
+import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import type { UseSyncResult } from '../hooks/useSync'
 import { CloseIcon } from './Icons'
 import type { SessionsData, Settings } from '../types'
 import { loadDriveBackupState } from '../lib/driveStorage'
 import type { SyncConflict } from '../lib/syncStorage'
+import { getSyncDeviceId } from '../lib/syncStorage'
+import {
+  SNAPSHOT_KEEP_OPTIONS,
+  SNAPSHOT_MAX_AGE_OPTIONS,
+  describeSnapshotOwner,
+  groupRemoteSnapshots,
+  newestSnapshotModifiedAt,
+  selectSnapshotsForCleanup,
+  type SnapshotKeepPerDevice,
+  type SnapshotMaxAgeDays,
+} from '../lib/snapshotRetention'
 
 const FIELD_LABELS: Record<string, string> = {
   rawMs: 'time',
@@ -85,6 +96,29 @@ function conflictKey(conflict: SyncConflict): string {
 const CONFLICT_PAGE_SIZE = 5
 /** How many resolved decisions render before the history expands. */
 const AUDIT_PAGE_SIZE = 5
+/** How many snapshots of one device render before the list expands. */
+const SNAPSHOT_PAGE_SIZE = 5
+
+function formatBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'size unknown'
+  }
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`
+}
+
+function formatSnapshotTime(file: DriveFile): string {
+  if (!file.modifiedTime) return 'unknown time'
+  const parsed = Date.parse(file.modifiedTime)
+  return Number.isFinite(parsed)
+    ? new Date(parsed).toLocaleString()
+    : 'unknown time'
+}
+
+function totalSnapshotBytes(files: ReadonlyArray<DriveFile>): number {
+  return files.reduce((total, file) => total + (file.size ?? 0), 0)
+}
 
 function conflictTitle(
   conflict: Pick<SyncConflict, 'kind' | 'id' | 'field' | 'sessionId'>,
@@ -161,6 +195,34 @@ export function DriveBackupDialog({
     onNotify,
     onConnected: () => sync.updatePreferences({ enabled: true }),
   })
+  const [expandedSnapshotGroups, setExpandedSnapshotGroups] = useState<string[]>([])
+  const [snapshotDeleteTarget, setSnapshotDeleteTarget] = useState<DriveFile | null>(
+    null,
+  )
+  const [cleanupConfirmOpen, setCleanupConfirmOpen] = useState(false)
+  const [cleanupCount, setCleanupCount] = useState(0)
+  const localDeviceId = useMemo(() => getSyncDeviceId(), [])
+  const snapshotGroups = useMemo(
+    () => groupRemoteSnapshots(drive.snapshots ?? [], localDeviceId),
+    [drive.snapshots, localDeviceId],
+  )
+  const snapshotTotalBytes = useMemo(
+    () => totalSnapshotBytes(drive.snapshots ?? []),
+    [drive.snapshots],
+  )
+
+  // The hook recreates its callbacks when connection metadata changes, so keep
+  // the latest loader in a ref. Depending on the callback itself would re-run
+  // this effect after every snapshot state update and loop forever.
+  const refreshSnapshotsRef = useRef(drive.refreshSnapshots)
+  useEffect(() => {
+    refreshSnapshotsRef.current = drive.refreshSnapshots
+  }, [drive.refreshSnapshots])
+  const driveConnected = drive.connected
+  useEffect(() => {
+    if (!open || !driveConnected) return
+    void refreshSnapshotsRef.current()
+  }, [open, driveConnected])
 
   if (!open) return null
 
@@ -179,6 +241,25 @@ export function DriveBackupDialog({
     // coherent instead of advertising automatic sync that can only fail.
     sync.updatePreferences({ enabled: false })
     onNotify('Google Drive disconnected. Automatic synchronization is off.')
+  }
+  const snapshotDeleteOwner = snapshotDeleteTarget
+    ? describeSnapshotOwner(snapshotDeleteTarget, localDeviceId)
+    : null
+  const handleCleanupRequest = () => {
+    const files = drive.snapshots ?? []
+    const candidates = selectSnapshotsForCleanup(files, {
+      keepPerDevice: sync.preferences.snapshotKeepPerDevice,
+      maxAgeDays: sync.preferences.snapshotMaxAgeDays,
+      localDeviceId,
+      publishedAt: newestSnapshotModifiedAt(files),
+      ownOnly: true,
+    })
+    if (candidates.length === 0) {
+      onNotify('No old snapshots needed cleanup')
+      return
+    }
+    setCleanupCount(candidates.length)
+    setCleanupConfirmOpen(true)
   }
 
   return (
@@ -650,6 +731,238 @@ export function DriveBackupDialog({
             </section>
 
             <section
+              className="settings-section"
+              aria-labelledby="drive-snapshots-title"
+            >
+              <div className="settings-section-heading">
+                <h3 id="drive-snapshots-title">Remote snapshots</h3>
+                {drive.connected ? (
+                  <span
+                    className="settings-storage is-ok"
+                    data-testid="remote-snapshot-summary"
+                  >
+                    <span className="status-dot" aria-hidden="true" />
+                    {drive.snapshots?.length ?? 0} files ·{' '}
+                    {formatBytes(snapshotTotalBytes)}
+                  </span>
+                ) : null}
+              </div>
+
+              <p className="settings-note">
+                Every synchronization publishes a new immutable snapshot.
+                CubeLab keeps the newest snapshots per device so old files do
+                not accumulate without a limit.
+              </p>
+
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Automatic cleanup</span>
+                  <span className="settings-row-description">
+                    After a successful sync, remove snapshots beyond the limits
+                    below. The newest snapshot for every device is always kept.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Automatic snapshot cleanup"
+                  checked={sync.preferences.snapshotCleanupEnabled}
+                  onChange={(event) =>
+                    sync.updatePreferences({
+                      snapshotCleanupEnabled: event.target.checked,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="sync-field-row">
+                <div className="sync-field-copy">
+                  <span className="settings-row-label">Keep per device</span>
+                  <span className="settings-row-description">
+                    The newest snapshot for each device is always kept.
+                  </span>
+                </div>
+                <select
+                  aria-label="Snapshots kept per device"
+                  className="compact-select"
+                  value={sync.preferences.snapshotKeepPerDevice}
+                  onChange={(event) =>
+                    sync.updatePreferences({
+                      snapshotKeepPerDevice: Number(
+                        event.target.value,
+                      ) as SnapshotKeepPerDevice,
+                    })
+                  }
+                >
+                  {SNAPSHOT_KEEP_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sync-field-row">
+                <div className="sync-field-copy">
+                  <span className="settings-row-label">Delete older than</span>
+                  <span className="settings-row-description">
+                    Age is measured from the snapshot's last update.
+                  </span>
+                </div>
+                <select
+                  aria-label="Snapshot maximum age"
+                  className="compact-select"
+                  value={sync.preferences.snapshotMaxAgeDays}
+                  onChange={(event) =>
+                    sync.updatePreferences({
+                      snapshotMaxAgeDays: Number(
+                        event.target.value,
+                      ) as SnapshotMaxAgeDays,
+                    })
+                  }
+                >
+                  {SNAPSHOT_MAX_AGE_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value} days
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {!drive.connected ? (
+                <p className="settings-note">
+                  Connect Google Drive to list and manage remote snapshots.
+                </p>
+              ) : (
+                <>
+                  <div className="settings-action-inline snapshot-toolbar">
+                    <button
+                      type="button"
+                      className="button button-secondary button-small"
+                      data-testid="refresh-remote-snapshots"
+                      disabled={drive.snapshotsLoading}
+                      onClick={() => void drive.refreshSnapshots()}
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary button-small"
+                      data-testid="cleanup-remote-snapshots"
+                      disabled={
+                        busy ||
+                        drive.snapshotsLoading ||
+                        (drive.snapshots?.length ?? 0) === 0
+                      }
+                      onClick={handleCleanupRequest}
+                    >
+                      Clean up now
+                    </button>
+                  </div>
+
+                  {drive.snapshotsLoading && drive.snapshots === null ? (
+                    <p className="settings-note">Loading remote snapshots…</p>
+                  ) : null}
+                  {drive.snapshotsError ? (
+                    <p
+                      className="settings-error"
+                      role="alert"
+                      data-testid="remote-snapshot-error"
+                    >
+                      {drive.snapshotsError}
+                    </p>
+                  ) : null}
+                  {drive.snapshots !== null && drive.snapshots.length === 0 ? (
+                    <p
+                      className="settings-note"
+                      data-testid="remote-snapshot-empty"
+                    >
+                      No remote snapshots found.
+                    </p>
+                  ) : null}
+
+                  {snapshotGroups.map((group) => {
+                    const expanded = expandedSnapshotGroups.includes(group.key)
+                    const visible = expanded
+                      ? group.files
+                      : group.files.slice(0, SNAPSHOT_PAGE_SIZE)
+                    return (
+                      <div
+                        className="snapshot-group"
+                        key={group.key}
+                        data-testid="remote-snapshot-group"
+                      >
+                        <div className="snapshot-group-heading">
+                          <span className="settings-row-label">
+                            {group.owner.label}
+                          </span>
+                          <span className="settings-row-description">
+                            {group.files.length} snapshot
+                            {group.files.length === 1 ? '' : 's'} ·{' '}
+                            {formatBytes(totalSnapshotBytes(group.files))}
+                          </span>
+                        </div>
+                        {visible.map((file, index) => (
+                          <div
+                            className="snapshot-item"
+                            key={file.id}
+                            data-testid="remote-snapshot"
+                          >
+                            <div className="snapshot-item-copy">
+                              <span className="settings-row-label">
+                                {formatSnapshotTime(file)}
+                                {index === 0 ? ' · newest' : ''}
+                              </span>
+                              <span
+                                className="settings-row-description snapshot-file-name"
+                                title={file.name}
+                              >
+                                {formatBytes(file.size)} · {file.name}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="button button-danger button-small"
+                              data-testid="delete-remote-snapshot"
+                              aria-label={`Delete snapshot ${file.name}`}
+                              disabled={busy}
+                              onClick={() => setSnapshotDeleteTarget(file)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ))}
+                        {group.files.length > SNAPSHOT_PAGE_SIZE ? (
+                          <button
+                            type="button"
+                            className="button button-secondary button-small snapshot-show-all"
+                            onClick={() =>
+                              setExpandedSnapshotGroups((current) =>
+                                expanded
+                                  ? current.filter((key) => key !== group.key)
+                                  : [...current, group.key],
+                              )
+                            }
+                          >
+                            {expanded
+                              ? 'Show fewer'
+                              : `Show all ${group.files.length}`}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+
+                  <p className="settings-note">
+                    Manual cleanup removes only this device's superseded
+                    snapshots. Other devices clean up their own after a
+                    successful sync. Deleting a snapshot removes only its cloud
+                    copy; local sessions are not changed.
+                  </p>
+                </>
+              )}
+            </section>
+
+            <section
               className="settings-section sync-advanced-section"
               aria-labelledby="drive-advanced-title"
             >
@@ -723,9 +1036,9 @@ export function DriveBackupDialog({
                     Every automatic write adds a new immutable snapshot with a
                     unique name instead of replacing a device's previous file,
                     so simultaneous writers — including two browsers sharing one
-                    device ID — cannot overwrite each other's data.
-                    Snapshots accumulate until you use Delete remote backups;
-                    there is no automatic cleanup. The legacy mutable
+                    device ID — cannot overwrite each other's data. Superseded
+                    snapshots are pruned by the retention policy above; the
+                    newest snapshot for each device is kept. The legacy mutable
                     cubelab-backup.json file is replaced only through a Google
                     Drive v2 ETag/If-Match check, and CubeLab refuses the write
                     when Drive cannot verify the ETag. This is a conditional
@@ -830,6 +1143,50 @@ export function DriveBackupDialog({
         onConfirm={() => {
           setDeleteConfirmOpen(false)
           void drive.deleteRemoteBackup()
+        }}
+      />
+
+      <ConfirmDialog
+        open={snapshotDeleteTarget !== null}
+        eyebrow="Delete remote snapshot"
+        title="Delete this cloud snapshot?"
+        description={
+          snapshotDeleteTarget
+            ? `${
+                snapshotDeleteOwner?.own ? 'This device' : 'Another device'
+              } snapshot from ${formatSnapshotTime(
+                snapshotDeleteTarget,
+              )} will be removed from Google Drive. Local sessions are not changed.${
+                snapshotDeleteOwner?.own
+                  ? ' Deleting this browser’s newest snapshot is safe only if another copy exists or the data is also stored locally.'
+                  : ''
+              }`
+            : ''
+        }
+        cancelLabel="Keep snapshot"
+        confirmLabel="Delete snapshot"
+        onCancel={() => setSnapshotDeleteTarget(null)}
+        onConfirm={() => {
+          const target = snapshotDeleteTarget
+          setSnapshotDeleteTarget(null)
+          if (target) void drive.deleteSnapshot(target.id)
+        }}
+      />
+
+      <ConfirmDialog
+        open={cleanupConfirmOpen}
+        eyebrow="Clean up snapshots"
+        title="Remove superseded snapshots?"
+        description={`This removes ${cleanupCount} of this device’s older snapshots from Google Drive. The newest snapshot for every device is kept. Local sessions and settings are not changed.`}
+        cancelLabel="Keep snapshots"
+        confirmLabel="Clean up"
+        onCancel={() => setCleanupConfirmOpen(false)}
+        onConfirm={() => {
+          setCleanupConfirmOpen(false)
+          void drive.cleanupSnapshots({
+            keepPerDevice: sync.preferences.snapshotKeepPerDevice,
+            maxAgeDays: sync.preferences.snapshotMaxAgeDays,
+          })
         }}
       />
     </>

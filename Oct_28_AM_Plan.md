@@ -2,7 +2,7 @@
 
 **Created:** 2026-10-28
 **Scope:** Close out the uncommitted 2026-10-27 remediation, align documentation, then execute the prioritized roadmap through Stage 6.
-**Execution status:** Stage 0 and Stage 1 are complete. Work is paused before Stage 2 by user instruction on 2026-10-28; Stage 2 needs explicit approval.
+**Execution status:** Stages 0, 1, and 2 are complete. Stage 3 needs explicit approval and a real Google Drive test account; Stages 4 and 5 are approved.
 **Source of truth:** `AGENTS.md`, `README.md`, `ROADMAP.md`, `PROJECT_PROGRESS.md`, `PATCH_LIMITATIONS.md`, `NEXT_SESSION_HANDOFF.md`.
 
 ---
@@ -16,7 +16,7 @@
 - `npm run check` had **not** been run as a single command since the audit remediation; Stage 0 later ran and passed it.
 
 ### Known limitations at plan creation (items resolved by Stage 1 are marked there; do not claim unresolved items solved)
-Provider CAS unavailable; duplicate review advisory; no real multi-device provider validation; eventual consistency; delete-all all-or-nothing; snapshot accumulation with no cleanup policy; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; Phase 3 incomplete (no per-event E2E, no event-specific WCA rules); no dark theme; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; history renders every row (no virtualization); Chromium-only automated tests; first launch needs network; large `cubing.js` chunk (~1.2 MB).
+Provider CAS unavailable; duplicate review advisory; no real multi-device provider validation; eventual consistency; delete-all all-or-nothing; snapshot cleanup is best effort and not transactional; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; Phase 3 incomplete (no per-event E2E, no event-specific WCA rules); no dark theme; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; history renders every row (no virtualization); Chromium-only automated tests; first launch needs network; large `cubing.js` chunk (~1.2 MB).
 
 ---
 
@@ -89,13 +89,38 @@ validation remains Stage 3 work.
 
 ---
 
-## Stage 2 — Snapshot lifecycle management
+## Stage 2 — Snapshot lifecycle management (approved and delivered 2026-10-28)
 
-1. Cleanup policy for accumulated immutable snapshots (age/count thresholds).
-2. Per-device management UI: list which device owns which snapshot, selective delete, ownership display.
-3. Document growth expectations and a manual cleanup procedure in the interim.
+1. **Cleanup policy — delivered.** Automatic cleanup runs after a successful
+   all-snapshot merge and publication. It keeps the newest snapshot of every
+   device group and removes files beyond the per-device count (default 10;
+   options 3/5/10/20/50) or age (default 30 days; options 7/30/90/180/365)
+   threshold. It never removes the just-published snapshot or the legacy mutable
+   `cubelab-backup.json`. Manual cleanup is limited to this device's superseded
+   files.
+2. **Per-device management UI — delivered.** New snapshots record
+   `appProperties.deviceId`; older files fall back to the sanitized name prefix.
+   **Settings → Data → Google Drive backup → Remote snapshots** groups files by
+   device, puts this device first, and shows size, modification time, newest
+   status, five files per device with **Show all**, selective deletion with
+   confirmation, **Refresh**, and **Clean up now**.
+3. **Growth documentation — delivered.** `README.md`, `PATCH_LIMITATIONS.md`,
+   `AGENTS.md`, `ROADMAP.md`, and `PROJECT_PROGRESS.md` describe the policy,
+   ownership model, safety boundaries, and residual non-transactional limits.
 
-**Gate (Stage 2):** no unbounded growth without a documented policy; UI shows ownership; tests cover cleanup.
+**Evidence (2026-10-28, Node v22.23.2):** `npm run check` passed as one command:
+typecheck and lint passed, **332/332 unit tests** in 22 files, production build
+(96 modules; PWA 22 entries, 2,309.44 KiB), **30/30 Playwright tests**, and `git
+diff --check` passed. New coverage includes `snapshotRetention.test.ts`, policy
+migration/invalid-value tests, hook cleanup and failure-path tests, and a
+production E2E flow for ownership display, selective deletion, manual cleanup,
+and policy persistence. `ConfirmDialog` now generates unique title/description
+IDs so multiple mounted confirmations announce their own names.
+
+**Gate (Stage 2): met.** Snapshot growth has a documented, configurable policy;
+the UI shows ownership and supports selective deletion; unit, hook, and E2E tests
+cover cleanup and failure paths. Real-provider retention remains part of the
+Stage 3 validation gate.
 
 ---
 
@@ -169,4 +194,5 @@ Plus `git diff --check` and a clean `git status`.
 - `AGENTS.md` forbids starting Phase 3, Phase 4, or any new cloud/account feature without explicit user instruction. Stages 4 and 5 therefore require explicit approval before execution.
 - Stage 1 (CAS/audit/undo) was approved on 2026-10-28 and delivered except for the real-provider validation gate.
 - Stage 0 was completed and committed on 2026-10-28.
-- Stage 2 is the next stage that requires explicit approval.
+- Stage 2 was approved and delivered on 2026-10-28.
+- Stage 3 is the next stage that requires explicit approval.

@@ -108,6 +108,49 @@ describe('stable device identity', () => {
   })
 })
 
+describe('snapshot retention preferences', () => {
+  it('applies the documented defaults to records that predate the policy', () => {
+    const legacy = createDefaultSyncStorage('device-a')
+    const preferences = legacy.preferences as unknown as Record<string, unknown>
+    delete preferences.snapshotCleanupEnabled
+    delete preferences.snapshotKeepPerDevice
+    delete preferences.snapshotMaxAgeDays
+
+    expect(parseSyncStorageData(legacy)?.preferences).toMatchObject({
+      snapshotCleanupEnabled: true,
+      snapshotKeepPerDevice: 10,
+      snapshotMaxAgeDays: 30,
+    })
+  })
+
+  it('preserves valid policy choices', () => {
+    const data = createDefaultSyncStorage('device-a')
+    data.preferences.snapshotCleanupEnabled = false
+    data.preferences.snapshotKeepPerDevice = 50
+    data.preferences.snapshotMaxAgeDays = 365
+
+    expect(parseSyncStorageData(data)?.preferences).toMatchObject({
+      snapshotCleanupEnabled: false,
+      snapshotKeepPerDevice: 50,
+      snapshotMaxAgeDays: 365,
+    })
+  })
+
+  it('rejects out-of-range or malformed policy values field by field', () => {
+    const data = createDefaultSyncStorage('device-a')
+    const preferences = data.preferences as unknown as Record<string, unknown>
+    preferences.snapshotCleanupEnabled = 'yes'
+    preferences.snapshotKeepPerDevice = 4
+    preferences.snapshotMaxAgeDays = 14
+
+    expect(parseSyncStorageData(data)?.preferences).toMatchObject({
+      snapshotCleanupEnabled: true,
+      snapshotKeepPerDevice: 10,
+      snapshotMaxAgeDays: 30,
+    })
+  })
+})
+
 describe('conflict audit history', () => {
   const entry = {
     auditId: 'audit-1',

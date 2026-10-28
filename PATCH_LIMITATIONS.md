@@ -41,8 +41,8 @@ eventually consistent remote store, not a transaction coordinator.
 - Manual backup creates another immutable snapshot owned by this device; it never
   overwrites or adopts another device's file.
 - **Delete remote backups** removes every CubeLab snapshot, including legacy
-  files, and reports partial failures instead of claiming success. Snapshots
-  accumulate until then; there is no automatic cleanup policy.
+  files, and reports partial failures instead of claiming success. Superseded
+  snapshots are bounded by the retention policy described under Stage 2 below.
 
 ### Same-device write coordination
 
@@ -170,10 +170,10 @@ eventually consistent remote store, not a transaction coordinator.
   recent remote revisions; immutable names eliminate the avoidable overwrite race
   and make the pre-write optimistic recheck unnecessary for per-device
   transports.
-- Residual limits: snapshots accumulate over time (one per change round per
-  device). There is no automatic cleanup policy, no per-device management UI,
-  and no server-side ordering. Real-provider multi-device behavior remains
-  unvalidated. Growth is documented.
+- Residual limits: each change round still adds one snapshot per device until
+  cleanup runs. Cleanup is best effort, has no cross-file transaction, and can
+  leave files behind after a partial failure. There is no server-side ordering,
+  and real-provider multi-device behavior remains unvalidated.
 
 ## 2026-10-28 Stage 1 hardening
 
@@ -237,6 +237,61 @@ eventually consistent remote store, not a transaction coordinator.
   deterministic, not consensus-based, and an applied redirect merge cannot be
   undone automatically.
 
+## 2026-10-28 Stage 2 snapshot lifecycle
+
+### Retention policy
+
+- Automatic cleanup runs after a successful all-snapshot merge and publication,
+  never while the timer is armed, running, or inspecting. It evaluates the
+  listing read before the write, so a concurrent newer write is never a deletion
+  candidate.
+- A snapshot is superseded when it is beyond the per-device count threshold
+  (default 10; options 3/5/10/20/50) **or** older than the age threshold
+  (default 30 days; options 7/30/90/180/365). The newest snapshot in every device
+  group is always kept, even when it is older than the age threshold.
+- Cleanup never removes the just-published snapshot or the legacy mutable
+  `cubelab-backup.json`. Files without a parseable modification time are judged
+  only by the count threshold.
+- Manual **Clean up now** is restricted to this device's superseded snapshots.
+  It does not require a fresh all-snapshot merge and therefore must not remove a
+  foreign snapshot that this browser may not have merged yet.
+- Deleting a snapshot removes only its cloud copy. Local sessions, solves,
+  settings, tombstones, and conflict state are unchanged. A failed delete is
+  reported as a partial failure; the completed sync remains successful.
+- Preferences live in `cubelab:sync:v1` and default to enabled, 10 snapshots per
+  device, and 30 days for records created before the policy existed. Invalid
+  values fall back field by field.
+
+### Ownership and management UI
+
+- New snapshots write the owning device ID to `appProperties.deviceId`. The
+  listing requests `size` and `appProperties` alongside the existing metadata.
+  Older snapshots fall back to the sanitized `cubelab-backup-<device>-…` name
+  prefix after stripping the UUID or fallback write token.
+- **Settings → Data → Google Drive backup → Remote snapshots** groups files by
+  device, puts this device first, and shows each file's size, modification time,
+  and newest status. Each device shows five files at a time with **Show all**.
+- Selective deletion asks for confirmation and names the owning device. Manual
+  cleanup shows how many of this device's snapshots will be removed before
+  deleting. **Refresh** re-lists the remote files.
+- Delete-all remains available under Advanced settings and still removes every
+  CubeLab snapshot, including the legacy file.
+
+### Residual limits
+
+- Cleanup is a best-effort sequence of independent deletes, not a transaction.
+  A failure after some deletes leaves a partially pruned collection and is
+  surfaced instead of being retried automatically.
+- Drive file listings can lag recently written files. Automatic cleanup uses the
+  pre-write listing and only files at or before the publication time, so a
+  delayed listing entry is left for a later run rather than deleted.
+- There is no server-side retention policy, background job, or cleanup across
+  devices at the same time. Each device prunes its own files on its next
+  successful sync; automatic cleanup may also prune other devices' superseded
+  groups after merging every snapshot.
+- Real Google Drive retention behavior has not been validated; automated
+  coverage uses the deterministic in-memory transport.
+
 ## Still unresolved
 
 - **Provider conditional writes are limited to the legacy mutable file.**
@@ -260,10 +315,15 @@ eventually consistent remote store, not a transaction coordinator.
 - **Eventual convergence, not synchronous consistency.** Each device must run a
   later merge before it sees another device's newest snapshot. There is no
   server-side ordering, push notification, or read-after-write guarantee.
-- **Delete-all is all-or-nothing.** There is no selective snapshot management,
-  stale-snapshot cleanup policy, or UI showing which device owns each file.
-  Because every write adds an immutable snapshot, remote files accumulate until
-  delete-all.
+- **Snapshot cleanup is bounded but not transactional.** The retention policy
+  keeps the newest snapshot of every device and prunes beyond the configured
+  count or age thresholds. Automatic cleanup runs only after a successful
+  all-snapshot merge and publication; manual cleanup is limited to this device's
+  own superseded snapshots. A failed delete leaves that file in place and is
+  reported. Files written by an older CubeLab build without
+  `appProperties.deviceId` group by sanitized file-name prefix, so an unusual
+  renamed file may appear as a separate device group rather than being pruned
+  with its owner.
 - **Legacy tombstone ambiguity is reviewed, not eliminated.** Tombstones without
   `knownSolveIds` still fall back to wall-clock comparison for obviously newer
   solves. The remaining ambiguous set now requires explicit review, but a user
@@ -313,3 +373,13 @@ Playwright tests** passed, and `git diff --check` was clean. The manual-conflict
 E2E covers review history, Undo, and Repair. No real Google Drive multi-device or
 live-provider ETag test was run; the Stage 1 gate is partially unmet and real
 provider validation remains Stage 3 work.
+
+Stage 2 on 2026-10-28 passed `npm run check` as one command after snapshot
+lifecycle work: typecheck and lint passed, **332/332 unit tests** passed in 22
+files, the production build passed (96 modules; PWA 22 entries, 2,309.44 KiB),
+**30/30 Playwright tests** passed, and `git diff --check` was clean. New coverage
+includes retention selection and partial-delete failures, policy defaults and
+invalid values, hook listing/deletion/manual cleanup, automatic cleanup after
+publication with disabled and failing paths, and a production E2E flow for
+ownership, selective deletion, cleanup, and policy persistence. No real-provider
+retention test was run.

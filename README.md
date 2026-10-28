@@ -115,6 +115,7 @@ near the row; the menu stays inside the viewport on narrow screens.
 | Add a solve comment | Open solve actions, choose **Add comment**, then **Save comment** |
 | Export or import a backup | Open **Settings → Data → Backup & restore** |
 | Manage Google Drive synchronization | Open **Settings → Data → Google Drive backup**, then connect and use automatic or manual **Sync now** |
+| Inspect or clean up remote snapshots | Open **Settings → Data → Google Drive backup → Remote snapshots** |
 | Activate a focused button or switch | <kbd>Enter</kbd> |
 
 <kbd>Space</kbd> is reserved for timing throughout the app and never scrolls the
@@ -174,10 +175,16 @@ legacy fixed-name `cubelab-backup.json` from earlier releases. Because writes
 never overwrite an existing snapshot, simultaneous uploads from different devices
 (or from two browser profiles sharing one device identity) cannot destroy each
 other's unique data; every snapshot stays discoverable and converges on the next
-run. Old snapshots are not garbage-collected, so they accumulate over time.
-Invalid or unsupported snapshots are rejected before local mutation. Deleting
-remote backups removes every CubeLab snapshot, including legacy files, and
-reports partial failures instead of claiming complete success.
+run. Old snapshots are pruned by a retention policy: after a successful merge and
+publication, CubeLab keeps the newest snapshots for each device (10 by default)
+and removes older files beyond the age limit (30 days by default). The newest
+snapshot of every device is always kept, and the legacy mutable file is never
+removed by cleanup. **Remote snapshots** in the Drive dialog lists each device's
+files with size and modification time, supports selective deletion, and offers
+**Clean up now** for this device's superseded snapshots. Invalid or unsupported
+snapshots are rejected before local mutation. Deleting remote backups removes
+every CubeLab snapshot, including legacy files, and reports partial failures
+instead of claiming complete success.
 
 Automatic synchronization is enabled only after the user connects Google Drive.
 It defaults to combined mode at 5 minutes or 10 solves, whichever comes first,
@@ -255,7 +262,9 @@ a Web Lock to avoid intermixing same-origin I/O. The optimistic changed-file
 recheck remains only for the legacy fixed-name transport. In-flight guards
 prevent a download from replacing solves recorded while it was running, but
 remote writes are not transactional and convergence is eventual, not
-synchronous. Snapshots accumulate until you delete them. See
+synchronous. Automatic cleanup bounds snapshot growth after a successful sync;
+manual cleanup in **Remote snapshots** is limited to this device's superseded
+files. Cleanup is best effort and reports partial failures. See
 [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync limitations.
 
 If synchronization looks stuck or you suspect a partially applied merge, open
@@ -384,6 +393,7 @@ src/
   lib/sessionMetadata.ts Field-level session metadata merging
   lib/settingsMerge.ts   Field-level global-settings merging and provenance
   lib/remoteBackups.ts   Read/merge/delete all device-owned Drive snapshots
+  lib/snapshotRetention.ts  Ownership grouping and snapshot cleanup selection
   lib/driveTransport.ts  Google Drive/mock transport and paginated file listing
   lib/driveCoordination.ts  Same-origin write lock; legacy snapshot revalidation
   lib/scramble.ts        cubing.js random-state integration
@@ -393,7 +403,7 @@ src/
   lib/alerts.ts          Web Audio, vibration, DNF gain, and inspection warnings
   lib/format.ts          Display formatting
   hooks/useSync.ts       Merge orchestration, scheduling, retries, and conflicts
-  hooks/useDriveBackup.ts Drive connection, per-device backup, and remote deletion
+  hooks/useDriveBackup.ts Drive connection, snapshot listing/deletion, and cleanup
   components/            Timer, scramble, sessions, stats, history, and dialogs
   components/SettingsDialog.tsx  Timer, Alerts, Display, Appearance, Statistics,
                                  Scramble, Controls, Data, and About preferences
@@ -420,8 +430,9 @@ Storage keys are versioned:
 - `cubelab:drive:v1` — optional Google Drive connection metadata (account label
   and last remote file identity); OAuth tokens stay in memory.
 - `cubelab:sync:v1` — optional synchronization preferences and runtime state:
-  device ID, tombstones, redirects, conflict records, settings field timestamps,
-  and the last published fingerprint.
+  device ID, scheduling, snapshot retention limits, tombstones, redirects,
+  conflict records, settings field timestamps, and the last published
+  fingerprint.
 
 Each session contains `id`, `name`, optional `event` and `preferences`,
 `createdAt`, `updatedAt`, `solves`, an optional `inspectionEnabled` override, and
@@ -486,9 +497,10 @@ the selected event. Additional events, social features, and non-Google cloud
 providers remain outside scope. Unique immutable snapshots prevent writers from
 overwriting one another; the legacy mutable fixed-name file uses a Drive v2
 ETag/`If-Match` conditional update, and no cross-file transaction exists. Local
-state remains replaceable, convergence is eventual, and snapshots accumulate
-until you use **Delete remote backups**. See
-[`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+state remains replaceable and convergence is eventual. Snapshot growth is bounded
+by the configurable retention policy; **Remote snapshots** shows ownership and
+supports selective deletion, and **Delete remote backups** still removes every
+CubeLab file. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 
 For implementation status and handoff details, see
 [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md). Contributors and future agents

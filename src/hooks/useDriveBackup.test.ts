@@ -458,6 +458,154 @@ describe('useDriveBackup', () => {
     expect(contents.some((content) => content === foreignContent)).toBe(true)
   })
 
+  it('lists remote snapshots with size and ownership metadata', async () => {
+    saveSyncStorage(createDefaultSyncStorage('device-hook'))
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('own'), DEFAULT_SETTINGS)),
+      'device-hook',
+    )
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('foreign'), DEFAULT_SETTINGS)),
+      'other-device',
+    )
+
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.refreshSnapshots()
+    })
+
+    expect(result.current.snapshots).toHaveLength(2)
+    expect(result.current.snapshotsLoading).toBe(false)
+    expect(result.current.snapshotsError).toBeNull()
+    expect(
+      result.current.snapshots?.map((file) => file.appProperties?.deviceId).sort(),
+    ).toEqual(['device-hook', 'other-device'])
+    expect(
+      result.current.snapshots?.every((file) => (file.size ?? 0) > 0),
+    ).toBe(true)
+  })
+
+  it('deletes one selected snapshot without touching the others', async () => {
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const own = await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('own'), DEFAULT_SETTINGS)),
+      'device-a',
+    )
+    const foreign = await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('foreign'), DEFAULT_SETTINGS)),
+      'device-b',
+    )
+    const onNotify = vi.fn()
+
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.refreshSnapshots()
+      await result.current.deleteSnapshot(own.id)
+    })
+
+    expect(result.current.phase).toBe('connected')
+    expect(result.current.error).toBeNull()
+    expect(result.current.snapshots?.map((file) => file.id)).toEqual([foreign.id])
+    expect((await transport.listBackups!()).map((file) => file.id)).toEqual([
+      foreign.id,
+    ])
+    expect(onNotify).toHaveBeenCalledWith('Remote snapshot deleted')
+  })
+
+  it('manually cleans up only this device’s superseded snapshots', async () => {
+    saveSyncStorage(createDefaultSyncStorage('device-hook'))
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const ownOld = await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('own-old'), DEFAULT_SETTINGS)),
+      'device-hook',
+    )
+    const ownMiddle = await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(sessionsWithSolve('own-middle'), DEFAULT_SETTINGS),
+      ),
+      'device-hook',
+    )
+    const ownNewer = await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(sessionsWithSolve('own-newer'), DEFAULT_SETTINGS),
+      ),
+      'device-hook',
+    )
+    const ownNew = await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('own-new'), DEFAULT_SETTINGS)),
+      'device-hook',
+    )
+    const foreignOld = await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('foreign-old'), DEFAULT_SETTINGS)),
+      'other-device',
+    )
+    const foreignNew = await transport.uploadDeviceBackup!(
+      JSON.stringify(createBackup(sessionsWithSolve('foreign-new'), DEFAULT_SETTINGS)),
+      'other-device',
+    )
+    const onNotify = vi.fn()
+
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.refreshSnapshots()
+    })
+    let cleanupResult: Awaited<
+      ReturnType<typeof result.current.cleanupSnapshots>
+    > | null = null
+    await act(async () => {
+      cleanupResult = await result.current.cleanupSnapshots({
+        keepPerDevice: 3,
+        maxAgeDays: 365,
+      })
+    })
+
+    expect(cleanupResult!.deleted).toBe(1)
+    expect(cleanupResult!.failures).toEqual([])
+    expect(result.current.phase).toBe('connected')
+    expect(result.current.error).toBeNull()
+    expect(result.current.snapshots?.map((file) => file.id).sort()).toEqual(
+      [ownMiddle.id, ownNewer.id, ownNew.id, foreignOld.id, foreignNew.id].sort(),
+    )
+    expect((await transport.listBackups!()).some((file) => file.id === ownOld.id)).toBe(
+      false,
+    )
+    expect(onNotify).toHaveBeenCalledWith('1 old snapshot removed')
+  })
+
   it('restores through confirmation after a remote change', async () => {
     const transport = createMemoryDriveTransport()
     const onPendingRestore = vi.fn()

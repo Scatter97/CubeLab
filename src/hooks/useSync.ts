@@ -39,6 +39,7 @@ import {
   listRemoteBackups,
   readRemoteBackups,
 } from '../lib/remoteBackups'
+import { cleanupRemoteSnapshots } from '../lib/snapshotRetention'
 import {
   ownSnapshotChanged,
   runWithDriveWriteLock,
@@ -1017,6 +1018,10 @@ export function useSync({
           let lastRemoteRevision = baseRevision
           let remoteFileId: string | null = ownNewestFile?.id ?? null
           let remoteModifiedTime: string | null = ownNewestFile?.modifiedTime ?? null
+          // Set only when this run actually created a new immutable snapshot.
+          // Cleanup is safe only after the merged state has been published.
+          let publishedSnapshot: { id: string; modifiedTime: string | null } | null =
+            null
 
           if (remoteStateUnchanged && remoteStorePresent) {
             // Nothing relevant changed since the last confirmed write. Avoid a
@@ -1127,6 +1132,10 @@ export function useSync({
             remoteFileId = result.id
             remoteModifiedTime = result.modifiedTime
             lastRemoteRevision = nextRevision
+            publishedSnapshot = {
+              id: result.id,
+              modifiedTime: result.modifiedTime,
+            }
 
             // Do not overwrite solves added while the network upload was in
             // progress. The uploaded snapshot is now the confirmed remote
@@ -1201,6 +1210,41 @@ export function useSync({
             })
           }
 
+          // The merged state is now published, so every snapshot read before
+          // the write is superseded. Prune only beyond the configured count and
+          // age thresholds; the newest snapshot of each device and the legacy
+          // mutable file are always kept. Cleanup is best effort and never turns
+          // a completed synchronization into a failure.
+          let cleanupDeleted = 0
+          let cleanupFailure: string | null = null
+          if (
+            publishedSnapshot &&
+            perDeviceTransport &&
+            syncRef.current.preferences.snapshotCleanupEnabled
+          ) {
+            const cleanup = await cleanupRemoteSnapshots(
+              transport,
+              remoteFiles,
+              {
+                keepPerDevice:
+                  syncRef.current.preferences.snapshotKeepPerDevice,
+                maxAgeDays: syncRef.current.preferences.snapshotMaxAgeDays,
+                localDeviceId: deviceId,
+                publishedFileId: publishedSnapshot.id,
+                publishedAt: publishedSnapshot.modifiedTime
+                  ? Date.parse(publishedSnapshot.modifiedTime)
+                  : null,
+                now,
+              },
+            )
+            cleanupDeleted = cleanup.deleted
+            if (cleanup.failures.length > 0) {
+              cleanupFailure = `${cleanup.failures.length} old snapshot${
+                cleanup.failures.length === 1 ? '' : 's'
+              } could not be removed: ${cleanup.failures[0]}`
+            }
+          }
+
           if (reason === 'reconnect' || reason === 'manual') {
             const messages: string[] = []
             if (adoptedLocalDefault) {
@@ -1239,6 +1283,14 @@ export function useSync({
                 } automatically resolved`,
               )
             }
+            if (cleanupDeleted > 0) {
+              messages.push(
+                `${cleanupDeleted} old snapshot${
+                  cleanupDeleted === 1 ? '' : 's'
+                } removed`,
+              )
+            }
+            if (cleanupFailure) messages.push(cleanupFailure)
 
             const duplicateMessage =
               duplicateSessionNames.length > 0
@@ -1271,6 +1323,14 @@ export function useSync({
                 onNotify('Synchronization complete. No new solves were exchanged.')
               }
             }
+          }
+
+          if (
+            cleanupFailure &&
+            reason !== 'reconnect' &&
+            reason !== 'manual'
+          ) {
+            onNotify(`Synchronization completed, but ${cleanupFailure}`)
           }
         } catch (caught) {
           const message = toMessage(caught)

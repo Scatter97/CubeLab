@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { AlertIcon } from './Icons'
 
@@ -26,6 +26,11 @@ export function ConfirmDialog({
   onConfirm,
 }: ConfirmDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
+  // Several ConfirmDialog instances can be mounted together. Each dialog needs
+  // its own labelled elements or `aria-labelledby` resolves to the first title
+  // in the document and every dialog announces the wrong name.
+  const titleId = useId()
+  const descriptionId = useId()
   const [confirmationText, setConfirmationText] = useState('')
   const confirmationMatches = !requireText || confirmationText === requireText
 
@@ -39,8 +44,8 @@ export function ConfirmDialog({
     <dialog
       ref={dialogRef}
       className="confirm-dialog"
-      aria-labelledby="confirm-title"
-      aria-describedby="confirm-description"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       onKeyDown={handleKeyDown}
       onCancel={(event) => {
         event.preventDefault()
@@ -55,8 +60,8 @@ export function ConfirmDialog({
           <AlertIcon size={22} />
         </span>
         <span className="eyebrow">{eyebrow}</span>
-        <h2 id="confirm-title">{title}</h2>
-        <p id="confirm-description">{description}</p>
+        <h2 id={titleId}>{title}</h2>
+        <p id={descriptionId}>{description}</p>
         {requireText ? (
           <label className="confirm-typed-field">
             <span>

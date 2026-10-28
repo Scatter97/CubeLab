@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { SessionsData, Settings } from '../types'
 import { createBackup } from '../lib/backup'
-import type { DriveTransport } from '../lib/driveTransport'
+import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import { isDrivePreconditionError } from '../lib/driveTransport'
 import { countSolves } from '../lib/sessions'
 import {
@@ -18,6 +18,13 @@ import {
   mergeRemoteBackupSnapshots,
   readRemoteBackups,
 } from '../lib/remoteBackups'
+import {
+  cleanupRemoteSnapshots,
+  newestSnapshotModifiedAt,
+  type SnapshotCleanupResult,
+  type SnapshotKeepPerDevice,
+  type SnapshotMaxAgeDays,
+} from '../lib/snapshotRetention'
 
 import {
   ownSnapshotChanged,
@@ -65,6 +72,9 @@ export function useDriveBackup({
   )
   const [error, setError] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<DriveBackupState>(() => loadDriveBackupState())
+  const [snapshots, setSnapshots] = useState<DriveFile[] | null>(null)
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false)
+  const [snapshotsError, setSnapshotsError] = useState<string | null>(null)
 
   const persistMetadata = useCallback((next: DriveBackupState) => {
     setMetadata(next)
@@ -257,6 +267,120 @@ export function useDriveBackup({
     }
   }, [connect, connected, metadata, onNotify, persistMetadata, transport])
 
+  const refreshSnapshots = useCallback(async (): Promise<DriveFile[]> => {
+    if (!transport) return []
+    setSnapshotsLoading(true)
+    setSnapshotsError(null)
+    try {
+      if (!connected) {
+        await connect()
+        if (!transport.isConnected()) return []
+      }
+      const files = await listRemoteBackups(transport)
+      setSnapshots(files)
+      return files
+    } catch (caught) {
+      setSnapshotsError(toMessage(caught))
+      return []
+    } finally {
+      setSnapshotsLoading(false)
+    }
+  }, [connect, connected, transport])
+
+  const deleteSnapshot = useCallback(
+    async (fileId: string): Promise<boolean> => {
+      if (!transport) return false
+      setPhase('deleting')
+      setError(null)
+      setSnapshotsError(null)
+      try {
+        if (!connected) {
+          await connect()
+          if (!transport.isConnected()) return false
+        }
+        await runWithDriveWriteLock(() => transport.deleteBackup(fileId))
+        if (metadata.remoteFileId === fileId) {
+          persistMetadata({
+            ...metadata,
+            remoteFileId: null,
+            remoteModifiedTime: null,
+          })
+        }
+        setSnapshots((current) =>
+          current ? current.filter((file) => file.id !== fileId) : current,
+        )
+        setPhase('connected')
+        onNotify('Remote snapshot deleted')
+        return true
+      } catch (caught) {
+        setError(toMessage(caught))
+        setPhase('error')
+        return false
+      }
+    },
+    [connect, connected, metadata, onNotify, persistMetadata, transport],
+  )
+
+  /**
+   * Manual cleanup prunes only this device's superseded snapshots. Other
+   * devices clean up their own after a successful all-snapshot merge, so a
+   * manual action never removes a foreign snapshot that may not have been
+   * merged into this browser yet.
+   */
+  const cleanupSnapshots = useCallback(
+    async (options: {
+      keepPerDevice: SnapshotKeepPerDevice
+      maxAgeDays: SnapshotMaxAgeDays
+    }): Promise<SnapshotCleanupResult | null> => {
+      if (!transport) return null
+      setPhase('deleting')
+      setError(null)
+      setSnapshotsError(null)
+      try {
+        if (!connected) {
+          await connect()
+          if (!transport.isConnected()) return null
+        }
+        const files = await listRemoteBackups(transport)
+        const result = await runWithDriveWriteLock(() =>
+          cleanupRemoteSnapshots(transport, files, {
+            keepPerDevice: options.keepPerDevice,
+            maxAgeDays: options.maxAgeDays,
+            localDeviceId: getSyncDeviceId(),
+            publishedAt: newestSnapshotModifiedAt(files),
+            ownOnly: true,
+          }),
+        )
+        setSnapshots(await listRemoteBackups(transport))
+        setPhase('connected')
+        if (result.failures.length > 0) {
+          setError(
+            `Removed ${result.deleted} snapshot${
+              result.deleted === 1 ? '' : 's'
+            }, but ${result.failures.length} could not be removed: ${
+              result.failures[0]
+            }`,
+          )
+          setPhase('error')
+        } else {
+          onNotify(
+            result.deleted === 0
+              ? 'No old snapshots needed cleanup'
+              : `${result.deleted} old snapshot${
+                  result.deleted === 1 ? '' : 's'
+                } removed`,
+          )
+        }
+        return result
+      } catch (caught) {
+        setError(toMessage(caught))
+        setPhase('error')
+        return null
+      }
+    },
+    [connect, connected, onNotify, transport],
+  )
+
   return {
     configured,
     phase,
@@ -269,5 +393,11 @@ export function useDriveBackup({
     backupNow,
     restoreFromDrive,
     deleteRemoteBackup,
+    snapshots,
+    snapshotsLoading,
+    snapshotsError,
+    refreshSnapshots,
+    deleteSnapshot,
+    cleanupSnapshots,
   }
 }

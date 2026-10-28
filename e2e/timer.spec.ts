@@ -1587,6 +1587,146 @@ test('delete remote backups works without a local snapshot', async ({ page }) =>
   expect(remaining).toBe(0)
 })
 
+test('remote snapshots show ownership, selective delete, and manual cleanup', async ({
+  page,
+}) => {
+  test.setTimeout(90_000)
+  await page.goto('/')
+  await waitForApp(page)
+
+  // Seed six snapshots owned by this browser and five by another device. The
+  // mock transport records device ownership in app-private metadata, which is
+  // what the management section displays without downloading the files.
+  await page.evaluate(async () => {
+    const syncRaw = JSON.parse(
+      localStorage.getItem('cubelab:sync:v1') ?? '{}',
+    ) as { runtime?: { deviceId?: string } }
+    const deviceId = syncRaw.runtime?.deviceId
+    if (!deviceId) throw new Error('missing local device ID')
+    const storedSettings = JSON.parse(
+      localStorage.getItem('cubelab:settings:v1') ?? '{}',
+    ) as { settings: Record<string, unknown> }
+    const storedSessions = JSON.parse(
+      localStorage.getItem('cubelab:sessions:v1') ?? '{}',
+    ) as Record<string, unknown>
+    const now = Date.now()
+    const backupFor = (ownerDeviceId: string, revision: number) => ({
+      app: 'CubeLab',
+      format: 'cubelab-backup',
+      version: 1,
+      exportedAt: new Date(now - (20 - revision) * 1000).toISOString(),
+      sessions: storedSessions,
+      settings: storedSettings.settings,
+      sync: {
+        protocolVersion: 1,
+        revision,
+        deviceId: ownerDeviceId,
+        updatedAt: now - (20 - revision) * 1000,
+        tombstones: [],
+        conflicts: [],
+        sessionRedirects: [],
+      },
+    })
+    const mockDrive = (
+      window as {
+        __cubeLabMockDrive?: {
+          connect: () => Promise<void>
+          disconnect: () => void
+          uploadDeviceBackup: (
+            content: string,
+            deviceId: string,
+          ) => Promise<unknown>
+        }
+      }
+    ).__cubeLabMockDrive
+    await mockDrive?.connect()
+    for (let index = 0; index < 6; index += 1) {
+      await mockDrive?.uploadDeviceBackup(
+        JSON.stringify(backupFor(deviceId, index + 1)),
+        deviceId,
+      )
+    }
+    for (let index = 0; index < 5; index += 1) {
+      await mockDrive?.uploadDeviceBackup(
+        JSON.stringify(backupFor('other', index + 1)),
+        'other',
+      )
+    }
+    mockDrive?.disconnect()
+  })
+
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-drive-button').click()
+  const drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await expect(drive).toBeVisible()
+  await drive.getByTestId('drive-connect').click()
+  await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+
+  // Stop automatic synchronization so the fallback timer cannot publish a new
+  // snapshot in the middle of the manual-management flow.
+  await drive
+    .getByRole('checkbox', { name: 'Automatic synchronization' })
+    .uncheck()
+
+  await expect(drive.getByTestId('remote-snapshot-summary')).toContainText(
+    '11 files',
+  )
+  await expect(drive.getByTestId('remote-snapshot-group')).toHaveCount(2)
+  const ownGroup = drive
+    .getByTestId('remote-snapshot-group')
+    .filter({ hasText: 'This device' })
+  const foreignGroup = drive
+    .getByTestId('remote-snapshot-group')
+    .filter({ hasText: 'Device other' })
+  await expect(ownGroup).toContainText('6 snapshots')
+  await expect(foreignGroup).toContainText('5 snapshots')
+
+  // Selectively remove one foreign snapshot.
+  await foreignGroup.getByTestId('delete-remote-snapshot').first().click()
+  const snapshotDelete = page.getByRole('dialog', {
+    name: 'Delete this cloud snapshot?',
+  })
+  await expect(snapshotDelete).toBeVisible()
+  await expect(snapshotDelete).toContainText('Another device snapshot')
+  await snapshotDelete
+    .getByRole('button', { name: 'Delete snapshot' })
+    .click()
+  await expect(page.locator('.toast')).toContainText('Remote snapshot deleted')
+  await expect(foreignGroup).toContainText('4 snapshots')
+  await expect(drive.getByTestId('remote-snapshot-summary')).toContainText(
+    '10 files',
+  )
+
+  // Manual cleanup is restricted to this device's superseded snapshots.
+  await drive.getByLabel('Snapshots kept per device').selectOption('3')
+  await drive.getByTestId('cleanup-remote-snapshots').click()
+  const cleanup = page.getByRole('dialog', {
+    name: 'Remove superseded snapshots?',
+  })
+  await expect(cleanup).toBeVisible()
+  await expect(cleanup).toContainText(
+    "3 of this device’s older snapshots",
+  )
+  await cleanup.getByRole('button', { name: 'Clean up' }).click()
+  await expect(page.locator('.toast')).toContainText('3 old snapshots removed')
+
+  await expect(ownGroup).toContainText('3 snapshots')
+  await expect(foreignGroup).toContainText('4 snapshots')
+  await expect(drive.getByTestId('remote-snapshot-summary')).toContainText(
+    '7 files',
+  )
+  const storedPreference = await page.evaluate(() => {
+    const syncRaw = JSON.parse(
+      localStorage.getItem('cubelab:sync:v1') ?? '{}',
+    ) as { preferences?: { snapshotKeepPerDevice?: number } }
+    return syncRaw.preferences?.snapshotKeepPerDevice
+  })
+  expect(storedPreference).toBe(3)
+
+  await drive.getByTestId('drive-done').click()
+  await expect(drive).toBeHidden()
+})
+
 test('invalid google drive backup is rejected', async ({ page }) => {
   await page.goto('/')
   await waitForApp(page)

@@ -169,8 +169,19 @@ the production build because it tests the service worker and offline reload.
   ETag, the legacy file is read through Drive v2 metadata and replaced only with
   a v2 media `PUT` carrying `If-Match`. A 412 or a missing ETag must fail the
   write instead of overwriting. That is a conditional update for one file, not a
-  transaction across files. Do not claim atomic remote writes, and snapshots
-  accumulate until delete-all because there is no cleanup policy.
+  transaction across files. Do not claim atomic remote writes.
+- **Snapshot cleanup is bounded and non-destructive.** New snapshots record the
+  owning device in `appProperties.deviceId`; older files group by their sanitized
+  name prefix. Automatic cleanup runs only after a successful all-snapshot merge
+  and publication. It keeps the newest snapshot of every device group, never
+  removes the just-published snapshot, and never removes the legacy mutable
+  `cubelab-backup.json`. Files beyond the per-device count (default 10) or age
+  (default 30 days) thresholds are superseded; one threshold is enough to select
+  them. Manual cleanup is restricted to this device's own superseded snapshots.
+  Deleting a snapshot removes only its cloud copy and must report partial
+  failures instead of claiming complete success. Cleanup policy lives in
+  `cubelab:sync:v1`; the Drive dialog lists per-device ownership, supports
+  selective deletion, and paginates each device's files.
 - **Duplicate names are review-only.** Recompute duplicate session names against
   the final merged collection after every snapshot. Never merge same-named
   sessions automatically. Keep one actionable notification carrying the sync
@@ -244,9 +255,10 @@ For a behavior change:
   `src/lib/format.test.ts`.
 - Synchronization changes need focused coverage in `src/lib/sync.test.ts`,
   `src/lib/sessionMetadata.test.ts`, `src/lib/settingsMerge.test.ts`,
-  `src/lib/remoteBackups.test.ts`, `src/lib/driveTransport.test.ts`,
-  `src/lib/driveCoordination.test.ts`, `src/lib/sessionRedirects.test.ts`,
-  `src/hooks/useSync.test.ts`, and `src/hooks/useDriveBackup.test.ts`. Extend
+  `src/lib/remoteBackups.test.ts`, `src/lib/snapshotRetention.test.ts`,
+  `src/lib/driveTransport.test.ts`, `src/lib/driveCoordination.test.ts`,
+  `src/lib/sessionRedirects.test.ts`, `src/hooks/useSync.test.ts`, and
+  `src/hooks/useDriveBackup.test.ts`. Extend
   `src/lib/sync.stress.test.ts` when changing concurrency, convergence,
   per-device upload isolation, or cross-field merge behavior.
 - Add or update a Playwright test for user-visible flows, including settings

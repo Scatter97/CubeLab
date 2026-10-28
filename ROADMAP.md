@@ -1,6 +1,6 @@
 # CubeLab Roadmap
 
-**Status:** Active planning document · **Last updated:** 2026-10-28 · **Current release line:** Phase 2B manual Google Drive backup complete; Phase 2C local-first sync complete with unique immutable snapshots, field-level merging, and documented provider-CAS limitations
+**Status:** Active planning document · **Last updated:** 2026-10-28 · **Current release line:** Phase 2B manual Google Drive backup complete; Phase 2C local-first sync complete with unique immutable snapshots, field-level merging, bounded snapshot retention, and documented provider-CAS limitations
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
 `PROJECT_PROGRESS.md` remains the source of truth for completed work and current
@@ -189,8 +189,11 @@ proven.
 - Every write creates a new immutable snapshot with a unique name
   (`cubelab-backup-<device-id>-<uuid>.json`) instead of replacing a device's
   previous file. Writers sharing a device identity cannot overwrite each other's
-  unique data, and every snapshot is merged by the next run. Snapshots accumulate
-  until delete-all; there is no cleanup policy or per-device management UI yet.
+  unique data, and every snapshot is merged by the next run. Snapshot growth is
+  bounded by a configurable retention policy (10 per device and 30 days by
+  default); automatic cleanup runs after a successful merge and publication,
+  keeps the newest snapshot of every device, and never removes the just-published
+  snapshot or the legacy mutable file.
 - Same-origin automatic/manual writes share a Web Lock. Per-device transports do
   not re-list or recheck because their snapshots are immutable; the optimistic
   changed-file recheck remains only for the legacy fixed-name transport, which is
@@ -237,6 +240,12 @@ proven.
   `legacyRecovery` review for ambiguous old deletions; remote-only redirect
   disagreement review; deduplicated visibility/`pagehide`/`freeze` exit sync;
   and a non-destructive **Repair sync state** recovery action.
+- 2026-10-28 Stage 2 snapshot lifecycle: per-device ownership metadata, a
+  configurable count/age retention policy, automatic post-publication cleanup,
+  and a **Remote snapshots** management section with ownership groups, file
+  sizes and dates, selective deletion, pagination, refresh, and own-only manual
+  cleanup. The newest snapshot per device and the legacy mutable file are always
+  protected; partial delete failures are reported.
 
 **Acceptance gate — partially met:**
 
@@ -262,9 +271,14 @@ proven.
 - [x] The legacy mutable fixed-name file is replaced only through a verified
       Drive v2 ETag/`If-Match` conditional update; stale or unverifiable writes
       fail closed.
-- [ ] Real-provider multi-device concurrency has been validated end to end. The
-      conditional write and recovery paths are covered by deterministic unit,
-      hook, stress, and mock-transport E2E tests only.
+- [x] Snapshot growth is bounded by a documented count/age policy. Cleanup keeps
+      the newest snapshot of every device, protects the just-published snapshot
+      and legacy file, and reports partial failures.
+- [x] The Drive dialog shows per-device snapshot ownership and supports selective
+      deletion plus own-only manual cleanup.
+- [ ] Real-provider multi-device concurrency and retention have been validated end
+      to end. The conditional write, recovery, and cleanup paths are covered by
+      deterministic unit, hook, stress, and mock-transport E2E tests only.
 - [ ] Provider-level compare-and-swap or a transaction across immutable snapshots
       exists.
 
@@ -275,10 +289,11 @@ immutable snapshots are create-only and there is no transaction across the
 snapshot set. Conflict review now has local audit/undo, but applied redirect
 merges are not automatically reversible and redirect handling remains
 deterministic rather than consensus-based. Exit sync is hardened but still best
-effort. Also outstanding: selective/device-visible remote snapshot management
-with a stale-snapshot cleanup policy and field-level active-session merging. The
-Web Lock serializes same-origin writes but is not a remote transaction. Until
-those are addressed, do not describe synchronization as data-loss-proof.
+effort. Snapshot retention is implemented, but cleanup is a best-effort sequence
+of deletes rather than a transaction and has not been validated against real
+Drive. Also outstanding: field-level active-session merging. The Web Lock
+serializes same-origin writes but is not a remote transaction. Until those are
+addressed, do not describe synchronization as data-loss-proof.
 
 ## Phase 3 — More WCA events
 

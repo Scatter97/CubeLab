@@ -1,5 +1,13 @@
 
 import type { FieldUpdate, Settings } from '../types'
+import {
+  DEFAULT_SNAPSHOT_KEEP_PER_DEVICE,
+  DEFAULT_SNAPSHOT_MAX_AGE_DAYS,
+  isSnapshotKeepPerDevice,
+  isSnapshotMaxAgeDays,
+  type SnapshotKeepPerDevice,
+  type SnapshotMaxAgeDays,
+} from './snapshotRetention'
 
 export type SyncIntervalMinutes = 1 | 2 | 3 | 5 | 10 | 15 | 30 | 60
 export type SyncSolveThreshold = 1 | 2 | 3 | 5 | 10 | 20 | 25 | 50 | 100
@@ -21,6 +29,13 @@ export interface SyncPreferences {
   syncOnExit: boolean
   syncOnReconnect: boolean
   manualConflictReview: boolean
+  /**
+   * Remote snapshot lifecycle. Cleanup runs after a successful all-snapshot
+   * merge and publication; the newest snapshot of every device is always kept.
+   */
+  snapshotCleanupEnabled: boolean
+  snapshotKeepPerDevice: SnapshotKeepPerDevice
+  snapshotMaxAgeDays: SnapshotMaxAgeDays
 }
 
 export interface Tombstone {
@@ -155,6 +170,9 @@ export const DEFAULT_SYNC_PREFERENCES: SyncPreferences = {
   syncOnExit: true,
   syncOnReconnect: true,
   manualConflictReview: false,
+  snapshotCleanupEnabled: true,
+  snapshotKeepPerDevice: DEFAULT_SNAPSHOT_KEEP_PER_DEVICE,
+  snapshotMaxAgeDays: DEFAULT_SNAPSHOT_MAX_AGE_DAYS,
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -296,6 +314,16 @@ function normalizePreferences(value: unknown): SyncPreferences {
     syncOnExit: typeof value.syncOnExit === 'boolean' ? value.syncOnExit : fallback.syncOnExit,
     syncOnReconnect: typeof value.syncOnReconnect === 'boolean' ? value.syncOnReconnect : fallback.syncOnReconnect,
     manualConflictReview: typeof value.manualConflictReview === 'boolean' ? value.manualConflictReview : fallback.manualConflictReview,
+    snapshotCleanupEnabled:
+      typeof value.snapshotCleanupEnabled === 'boolean'
+        ? value.snapshotCleanupEnabled
+        : fallback.snapshotCleanupEnabled,
+    snapshotKeepPerDevice: isSnapshotKeepPerDevice(value.snapshotKeepPerDevice)
+      ? value.snapshotKeepPerDevice
+      : fallback.snapshotKeepPerDevice,
+    snapshotMaxAgeDays: isSnapshotMaxAgeDays(value.snapshotMaxAgeDays)
+      ? value.snapshotMaxAgeDays
+      : fallback.snapshotMaxAgeDays,
   }
 }
 

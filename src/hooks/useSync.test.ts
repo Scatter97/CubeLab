@@ -1585,6 +1585,137 @@ describe('useSync conflict queue integrity', () => {
   })
 })
 
+describe('useSync snapshot retention', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  async function seedSnapshots(
+    transport: ReturnType<typeof createMemoryDriveTransport>,
+    deviceId: string,
+    count: number,
+  ): Promise<DriveFile[]> {
+    const files: DriveFile[] = []
+    for (let index = 0; index < count; index += 1) {
+      files.push(
+        await transport.uploadDeviceBackup!(
+          JSON.stringify(
+            createBackup(
+              sessionsData(),
+              DEFAULT_SETTINGS,
+              new Date(),
+              {
+                ...createSyncEnvelope(deviceId, index + 1, [], []),
+                updatedAt: 100 + index,
+              },
+            ),
+          ),
+          deviceId,
+        ),
+      )
+    }
+    return files
+  }
+
+  it('prunes superseded snapshots after publishing the merged state', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const own = await seedSnapshots(memory, 'device-test', 12)
+    const foreign = await seedSnapshots(memory, 'other-device', 2)
+    const { result, onNotify, unmount } = renderStatefulSync({
+      transport: memory,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('synced')
+    const files = await memory.listBackups!()
+    // Twelve own snapshots prune to the newest ten; the new published snapshot
+    // and both foreign snapshots remain.
+    expect(files).toHaveLength(13)
+    expect(files.some((file) => file.id === own[0]!.id)).toBe(false)
+    expect(files.some((file) => file.id === own[1]!.id)).toBe(false)
+    expect(files.some((file) => file.id === own[2]!.id)).toBe(true)
+    expect(foreign.every((file) => files.some((entry) => entry.id === file.id))).toBe(
+      true,
+    )
+    expect(onNotify.mock.calls.flat().join(' ')).toContain(
+      '2 old snapshots removed',
+    )
+    unmount()
+  })
+
+  it('leaves every snapshot in place when automatic cleanup is off', async () => {
+    enableSync({ snapshotCleanupEnabled: false })
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const own = await seedSnapshots(memory, 'device-test', 12)
+    const foreign = await seedSnapshots(memory, 'other-device', 2)
+    const { result, onNotify, unmount } = renderStatefulSync({
+      transport: memory,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('synced')
+    const files = await memory.listBackups!()
+    expect(files).toHaveLength(15)
+    expect(own.every((file) => files.some((entry) => entry.id === file.id))).toBe(
+      true,
+    )
+    expect(foreign.every((file) => files.some((entry) => entry.id === file.id))).toBe(
+      true,
+    )
+    expect(onNotify.mock.calls.flat().join(' ')).not.toContain('snapshot')
+    unmount()
+  })
+
+  it('keeps the completed sync successful when cleanup partially fails', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const own = await seedSnapshots(memory, 'device-test', 12)
+    const transport: DriveTransport = {
+      ...memory,
+      deleteBackup: async (fileId) => {
+        if (fileId === own[0]!.id) throw new Error('permission denied')
+        return memory.deleteBackup(fileId)
+      },
+    }
+    const { result, onNotify, unmount } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('synced')
+    expect(result.current.error).toBeNull()
+    const files = await memory.listBackups!()
+    // The refused snapshot stays; the other candidate is removed and the new
+    // snapshot is published.
+    expect(files.some((file) => file.id === own[0]!.id)).toBe(true)
+    expect(files.some((file) => file.id === own[1]!.id)).toBe(false)
+    expect(files).toHaveLength(12)
+    const message = onNotify.mock.calls.flat().join(' ')
+    expect(message).toContain('1 old snapshot removed')
+    expect(message).toContain('could not be removed')
+    unmount()
+  })
+})
+
 describe('useSync same-device write safety', () => {
   beforeEach(() => {
     localStorage.clear()
