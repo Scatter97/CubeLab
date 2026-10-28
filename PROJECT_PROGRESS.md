@@ -10,8 +10,8 @@
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
 **Phase 2C:** Complete with documented limitations — local-first Google Drive synchronization with unique immutable device snapshots, field-level session/settings merging, automatic startup/exit/reconnect/combined scheduling, ID-based merging, tombstones, recovery, redirects, empty-default adoption, duplicate-name detection, manual session merges, and conflict review across solve fields, session metadata, settings, and redirects. Stage 1 additionally adds a conditional Drive v2 ETag/`If-Match` update for the legacy mutable file, local review history with exact-match Undo, mandatory legacy-recovery review, hardened exit sync, and a non-destructive repair action. Stage 2 adds bounded snapshot retention, per-device ownership display, selective deletion, and manual cleanup. Stage 3 validated concurrent immutable publishing, all-snapshot convergence, the legacy ETag conditional write, and retention cleanup against a real Google Drive test account; the OAuth app remains in Testing under another owner account, so non-test sign-in is still unverified.
 **2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixed repeated recovered-session arrivals and stale conflict approvals. The v3 follow-up adds device-owned Drive snapshots, sessions schema v4 field metadata, field-level session/settings review, settings provenance, timer-deferred sync, bounded retries, deletion hardening, and multi-device stress tests. The v4 follow-up adds complete Drive pagination, same-device write locking/revalidation, final-collection duplicate review, and recovered-solve count fixes. See [Sync hardening](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), [Hardening v3](#hardening-v3--device-owned-snapshots-and-field-level-review--2026-10-25), [Audit follow-up v4](#audit-follow-up-v4--pagination-same-device-writes-duplicate-review--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
-**Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserves the active-session event.
-**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, and the 2026-10-25 through 2026-10-28 hardening/remediation passes are implemented, verified with deterministic tests plus the Stage 3 real-provider harness, and documented. The 2026-10-27 remediation removed the 100-entry conflict cap loss, surfaced remote-snapshot disagreements for manual review, and replaced per-device file overwrites with unique immutable snapshots. Stage 0 aligned the documentation; Stage 1 added a legacy-file conditional write, review audit/undo, legacy-tombstone recovery review, exit-sync hardening, and repair. Stage 2 added a configurable snapshot retention policy, per-device ownership metadata and management UI, selective deletion, and manual cleanup. Stage 3 ran the real-provider multi-device gate against a Google Drive test account on 2026-10-28. The OAuth publishing/branding item is the remaining Stage 3 gap: the project is owned by another account and the app is still in Testing, so non-test sign-in was not validated. Convergence remains eventual and there is no cross-file transaction.
+**Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserves the active-session event. Current event support is 3×3, 2×2, 4×4, and 3×3 OH; 5×5, 6×6, and 7×7 are Stage 4 / Phase 3 completion scope and are not implemented yet.
+**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup (3×3, 2×2, 4×4, and 3×3 OH), and the 2026-10-25 through 2026-10-28 hardening/remediation passes are implemented, verified with deterministic tests plus the Stage 3 real-provider harness, and documented. Stage 4 will add 5×5, 6×6, and 7×7 with per-event E2E and WCA validation. The 2026-10-27 remediation removed the 100-entry conflict cap loss, surfaced remote-snapshot disagreements for manual review, and replaced per-device file overwrites with unique immutable snapshots. Stage 0 aligned the documentation; Stage 1 added a legacy-file conditional write, review audit/undo, legacy-tombstone recovery review, exit-sync hardening, and repair. Stage 2 added a configurable snapshot retention policy, per-device ownership metadata and management UI, selective deletion, and manual cleanup. Stage 3 ran the real-provider multi-device gate against a Google Drive test account on 2026-10-28. The OAuth publishing/branding item is the remaining Stage 3 gap: the project is owned by another account and the app is still in Testing, so non-test sign-in was not validated. Convergence remains eventual and there is no cross-file transaction.
 **2026-10-26 audit remediation:** Complete and verified — all high, medium, and low findings from the retired 2026-10-26 audit are fixed. Durable Undo now uses synchronized `restoredAt` tombstone revocations; device identity is stable and cached; remote envelopes/imports reject malformed or mixed-event data; OAuth requests only `drive.appdata`; session inspection overrides can be cleared; custom-average typing is draft-based; disconnecting Drive disables automatic sync; and inspection warnings remain visual on every channel. Regression and Playwright coverage was added. Verification on Node v22.23.2: typecheck, lint, **283/283 unit tests** in 21 files, production build (95 modules; PWA 22 entries, 2284.38 KiB), **29/29 Playwright tests**, and `git diff --check` all passed. This is the 2026-10-26 record; the current verified state is 337/337 unit tests after the 2026-10-28 Stage 3 real-provider validation. `npm run check` passed as one command at Stage 0, after Stage 1, after Stage 2, and after Stage 3. The completed per-finding tracker and original audit report were retired during the 2026-10-28 documentation cleanup; this paragraph and the sync-hardening sections below retain the outcome. See [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md).
 
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
@@ -48,8 +48,9 @@ calculations.
 - Global <kbd>Space</kbd> control with OS key-repeat suppression and page-scroll
   prevention. Focused buttons and switches remain keyboard-operable with Enter.
 - Pointer controls on the timer surface for mouse, pen, and touch input.
-- Official WCA random-state 3×3 scrambles generated by
-  `cubing.js` (`randomScrambleForEvent('333')`), with a prefetched next scramble.
+- Official WCA random-state scrambles for 3×3, 2×2, 4×4, and 3×3 OH generated by
+  `cubing.js`, with a prefetched next scramble. Stage 4 will add 5×5, 6×6, and
+  7×7.
 - Optional WCA inspection with 15-second / 17-second boundaries and automatic
   `+2` or DNF penalty at solve start. The display can count down or count up,
   with independent optional **8 seconds** and **12 seconds** warnings that follow
@@ -929,10 +930,11 @@ offline Playwright test and must not be undone casually.
 
 ## Known limitations
 
-- Sessions can select 3×3, 2×2, 4×4, or 3×3 OH and generate scrambles through
-  `cubing.js`. Event-specific WCA timing differences beyond the fixed inspection
-  thresholds and dedicated per-event production E2E coverage are not
-  implemented.
+- Sessions currently support 3×3, 2×2, 4×4, and 3×3 OH and generate scrambles
+  through `cubing.js`. 5×5, 6×6, and 7×7 are Stage 4 / Phase 3 completion scope
+  and are not implemented yet. Event-specific WCA timing differences beyond the
+  fixed inspection thresholds and dedicated per-event production E2E coverage
+  are also not implemented.
 - Appearance currently offers accent colors rather than a full dark theme.
   Adding a theme would require a broader palette audit and contrast tests.
 - Sound and haptic alerts depend on browser/device support. The visual feedback
@@ -1379,14 +1381,15 @@ Google Cloud project is owned by another account.
   contrast tests before extending the accent-only appearance setting.
 - **Approval note (2026-10-28):** Stage 4 (Phase 3 completion) and Stage 5
   (Phase 4 platform work) are explicitly approved. See `ROADMAP.md` for the
-  acceptance gates and `Oct_28_AM_Plan.md` for the stage breakdown. Per-event
-  E2E coverage, event-specific WCA rules, virtualization, cross-browser
-  coverage, and the accessibility audit are now authorized execution items.
+  acceptance gates and `Oct_28_AM_Plan.md` for the stage breakdown. Stage 4
+  includes 5×5, 6×6, and 7×7 implementation, per-event E2E coverage, and
+  event-specific WCA rules. Stage 5 includes virtualization, cross-browser
+  coverage, and the accessibility audit.
+- Implement 5×5, 6×6, and 7×7 through `cubing.js`, then add per-event E2E coverage
+  for all seven events before declaring Phase 3 complete.
 - Add WebKit/Firefox browser coverage if those engines become available.
 - Profile and virtualize history for extremely large local sessions.
 - Run a formal accessibility and physical-device touch audit.
-- Add dedicated per-event E2E coverage before expanding the event list further
-  (now authorized under Stage 4).
 
 ### Before changing anything
 

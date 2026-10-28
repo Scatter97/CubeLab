@@ -301,6 +301,10 @@ eventually consistent remote store, not a transaction coordinator.
 
 ## Still unresolved
 
+- **Event coverage is still incomplete.** Sessions currently support 3×3, 2×2,
+  4×4, and 3×3 OH. 5×5, 6×6, and 7×7 are authorized Stage 4 / Phase 3 completion
+  work; they are not implemented, and per-event E2E and event-specific WCA rule
+  verification for all seven events are still required.
 - **Provider conditional writes are limited to the legacy mutable file.**
   Unique immutable snapshot names prevent a write from replacing another
   writer's file, including two tabs or profiles that share a device identity. The

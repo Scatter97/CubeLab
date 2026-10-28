@@ -10,13 +10,13 @@
 ## 0. Baseline status (recorded at plan creation; see stage sections for completion)
 
 - All of Milestone 1, Phase 2A, 2A.1, 2A.2, 2A.3, 2B, 2C implemented and verified.
-- Phase 3 (multi-event) partially implemented at session/setup level (3×3, 2×2, 4×4, 3×3 OH) but not declared complete.
+- Phase 3 (multi-event) partially implemented at session/setup level (3×3, 2×2, 4×4, 3×3 OH); 5×5, 6×6, and 7×7 are Stage 4 implementation scope.
 - Uncommitted 2026-10-27 remediation pass: immutable device snapshots with unique names, uncapped/deduped conflict queue with paginated rendering, remote-snapshot disagreement detection.
 - Fresh verification (Node v22.23.2): typecheck pass, lint pass (no warnings), **287/287 unit tests** (21 files), build pass (95 modules, PWA 22 entries, 2286.77 KiB), **29/29 Playwright**, `git diff --check` pass.
 - `npm run check` had **not** been run as a single command since the audit remediation; Stage 0 later ran and passed it.
 
 ### Known limitations at plan creation (items resolved by Stage 1 are marked there; do not claim unresolved items solved)
-Provider CAS unavailable; duplicate review advisory; real multi-device provider validation completed at Stage 3 but OAuth publishing is still pending; eventual consistency; delete-all all-or-nothing; snapshot cleanup is best effort and not transactional; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; Phase 3 incomplete (no per-event E2E, no event-specific WCA rules); no dark theme; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; history renders every row (no virtualization); Chromium-only automated tests; first launch needs network; large `cubing.js` chunk (~1.2 MB).
+Provider CAS unavailable; duplicate review advisory; real multi-device provider validation completed at Stage 3 but OAuth publishing is still pending; eventual consistency; delete-all all-or-nothing; snapshot cleanup is best effort and not transactional; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; Phase 3 incomplete (5×5/6×6/7×7 not implemented, no per-event E2E, no event-specific WCA rules); no dark theme; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; history renders every row (no virtualization); Chromium-only automated tests; first launch needs network; large `cubing.js` chunk (~1.2 MB).
 
 ---
 
@@ -140,11 +140,12 @@ account, so non-test sign-in and published production branding are not validated
 
 ## Stage 4 — Phase 3 completion (APPROVED 2026-10-28)
 
-1. Dedicated per-event production E2E coverage (switch events, record solves, verify stats/scrambles).
-2. Event-specific WCA timing/inspection rules where they differ.
-3. Broader event validation and storage migration verification for existing 3×3 data.
+1. Implement 5×5, 6×6, and 7×7 session events through `cubing.js` (`555`, `666`, `777`), including event metadata, scramble loading/failure states, and per-event statistics.
+2. Dedicated per-event production E2E coverage for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7 (switch events, record solves, verify stats/scrambles).
+3. Event-specific WCA timing/inspection rules where they differ; document where the standard 15-second inspection and `+2`/DNF rules are shared.
+4. Broader event validation and storage migration verification for existing 3×3 data, including multi-event backup/import coverage.
 
-**Gate (Stage 4):** `ROADMAP.md` Phase 3 acceptance criteria all met; docs/screenshots updated.
+**Gate (Stage 4):** `ROADMAP.md` Phase 3 acceptance criteria for all seven events are met; docs/screenshots updated.
 
 ---
 
@@ -171,11 +172,11 @@ account, so non-test sign-in and published production branding are not validated
 
 ## Cross-cutting: scramble warm-up / UX (can run alongside Stage 0)
 
-Goal: reduce perceived 4×4 cold-start latency (~3.3 s) while staying WCA-correct and using `cubing.js`.
+Goal: reduce perceived large-cube (4×4–7×7) cold-start latency while staying WCA-correct and using `cubing.js`.
 
 1. Warm up the solver on app mount and on session/event selection (earlier than current `useScramble` fill on render).
 2. Optionally enlarge prefetch queue for slow events.
-3. Show explicit "Generating 4×4 scramble… (first one may take a few seconds)" loading state; keep timer gated on `scramble !== null`.
+3. Show explicit "Generating large-cube scramble… (first one may take a few seconds)" loading state; keep timer gated on `scramble !== null`.
 4. Optional: cache one prefetched scramble in `localStorage` (trade-off: not freshly generated at load, but still a valid `cubing.js` random-state scramble).
 
 **Constraints:** do not hand-roll scrambles; do not switch to random-move/fast scrambles without an approved design brief; do not remove the `isLoading` gate that prevents solves without a scramble.
@@ -203,4 +204,4 @@ Plus `git diff --check` and a clean `git status`.
 - Stage 2 was approved and delivered on 2026-10-28.
 - Stage 3 was approved and run on 2026-10-28. Real-provider validation is complete;
   OAuth publishing and non-test sign-in remain owner actions.
-- Stage 4 is the next approved stage.
+- Stage 4 is the next approved stage. It includes 5×5, 6×6, and 7×7 implementation, per-event E2E for all seven events, WCA rule verification, and multi-event storage verification.

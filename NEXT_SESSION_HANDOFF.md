@@ -1,9 +1,12 @@
 # Next Session Handoff
 
 **Updated:** 2026-10-28 (Stage 3 real-provider validation complete; OAuth publishing remains with the Google Cloud project owner)
-**Objective:** Continue `Oct_28_AM_Plan.md` at Stage 4. Stage 3's real-provider
-gate is closed; only OAuth publishing/non-test sign-in remains, and that requires
-the Google Cloud project owner. Stages 4 and 5 are approved.
+**Objective:** Continue `Oct_28_AM_Plan.md` at Stage 4. Stage 4 is the
+implementation stage for 5×5, 6×6, and 7×7 events and completes Phase 3 with
+per-event E2E and WCA validation.
+Stage 3's real-provider gate is closed; only OAuth publishing/non-test sign-in
+remains, and that requires the Google Cloud project owner. Stages 4 and 5 are
+approved.
 **Branch:** `master`
 **Working tree:** clean after the focused Stage 3 commit
 **Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8)
@@ -97,8 +100,10 @@ snapshot set, and convergence remains eventual.
   deletion passed 7/7 with complete cleanup. OAuth uses only `drive.appdata` and
   the consent screen is branded CubeLab, but the app is still in Testing under
   another owner account, so non-test sign-in is unverified.
-- **Stage 4 — next approved stage; not started.** Phase 3 completion: per-event
-  E2E, event-specific WCA rules, and storage-migration verification.
+- **Stage 4 — next approved stage; not started.** Phase 3 completion: implement
+  5×5, 6×6, and 7×7 events; add per-event E2E for all seven events; verify
+  event-specific WCA rules; and verify storage migration, backup, and import
+  across multiple events.
 - **Stage 5 — approved 2026-10-28; not started.** Phase 4 platform work:
   virtualization, cross-browser coverage, accessibility audit, PWA/bundle review.
 - **Stage 6 — polish, no extra approval.** Dark theme only after a full contrast

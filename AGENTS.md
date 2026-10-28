@@ -21,7 +21,8 @@ evidence in `PROJECT_PROGRESS.md`.
 This repository contains **CubeLab Milestone 1** plus the authorized **Phase 2A**
 local-data work:
 
-- 3×3 speedcubing timer
+- speedcubing timer with per-session 3×3, 2×2, 4×4, and 3×3 OH events;
+  5×5, 6×6, and 7×7 are Stage 4 implementation scope
 - WCA random-state scrambles via `cubing.js`
 - optional 15-second inspection with count-down/count-up display, independent
   8-second/12-second warnings, and `+2` / DNF
@@ -48,8 +49,10 @@ Drive backup, and Phase 2C local-first Google Drive synchronization are
 complete. Phase 3 (More WCA events) and Phase 4 (Performance, accessibility,
 and platform) are explicitly approved as of 2026-10-28 (Stage 4 and Stage 5 in
 `Oct_28_AM_Plan.md`); their scope and acceptance gates are defined in
-`ROADMAP.md`. Do not begin any other cloud/account feature or broaden to
-social features as drive-by additions without an explicit user instruction.
+`ROADMAP.md`. Stage 4 (Phase 3 completion) includes implementing 5×5, 6×6, and
+7×7 with per-event E2E and WCA rule verification. Do not begin any other
+cloud/account feature or broaden to social features as drive-by additions
+without an explicit user instruction.
 
 ## Commands
 
@@ -101,7 +104,8 @@ the production build because it tests the service worker and offline reload.
   enable `stopWithAnyKey` for stopping a running timer with any non-modifier key.
   Settings may also choose whether inspection-warning color pulses use the timer
   surface or the entire screen.
-- **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent('333')`.
+- **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent(...)`
+  with the session event ID (`333`, `222`, `444`, `333oh`, `555`, `666`, `777`).
   Unit tests verify real random-state generation.
 - **Statistics follow WCA semantics.** Averages are newest-first; every trimmed
   average removes one best and one worst; one DNF is trimmed as worst; two or
@@ -265,6 +269,9 @@ For a behavior change:
 - Real Google Drive validation is opt-in: set a short-lived `drive.appdata` access
   token and run `npm run validate:drive`. Keep network calls out of `npm test`,
   `npm run check`, and CI, and never commit or print the token.
+- Event changes need per-event production E2E coverage for 3×3, 2×2, 4×4,
+  3×3 OH, 5×5, 6×6, and 7×7, including switching events, recording solves, and
+  verifying scrambles and statistics.
 - Add or update a Playwright test for user-visible flows, including settings
   open/close and focus restoration, inspection direction/warnings and
   persistence, per-session inspection overrides, session
