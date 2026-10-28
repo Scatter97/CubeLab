@@ -5,6 +5,7 @@ import {
   getSessionNameError,
   nextSessionName,
 } from '../lib/sessions'
+import { getEventDefinition } from '../lib/events'
 import {
   CheckIcon,
   CloseIcon,
@@ -12,6 +13,10 @@ import {
   PlusIcon,
   SettingsIcon,
 } from './Icons'
+
+function eventLabel(event: string | undefined): string {
+  return getEventDefinition(event ?? '333')?.label ?? event ?? '333'
+}
 
 interface SessionPanelProps {
   sessions: readonly Session[]
@@ -197,7 +202,7 @@ export function SessionPanel({
           >
             {sessions.map((session) => (
               <option key={session.id} value={session.id}>
-                {session.name}{sessions.filter((candidate) => candidate.name.trim().toLowerCase() === session.name.trim().toLowerCase()).length > 1 ? ` · ${session.event ?? '333'} · ${session.id.slice(0, 6)}` : ''}
+                {session.name}{sessions.filter((candidate) => candidate.name.trim().toLowerCase() === session.name.trim().toLowerCase()).length > 1 ? ` · ${eventLabel(session.event)} · ${session.id.slice(0, 6)}` : ''}
               </option>
             ))}
           </select>

@@ -1,113 +1,98 @@
 # Next Session Handoff
 
-**Updated:** 2026-10-28 (Stage 3 real-provider validation complete; OAuth publishing remains with the Google Cloud project owner)
-**Objective:** Continue `Oct_28_AM_Plan.md` at Stage 4. Stage 4 is the
-implementation stage for 5×5, 6×6, and 7×7 events and completes Phase 3 with
-per-event E2E and WCA validation.
-Stage 3's real-provider gate is closed; only OAuth publishing/non-test sign-in
-remains, and that requires the Google Cloud project owner. Stages 4 and 5 are
-approved.
+**Updated:** 2026-10-28 (Stage 4 complete; Phase 3 closed; Stage 5 is next)
+**Objective:** Continue `Oct_28_AM_Plan.md` at Stage 5. Stage 4 completed Phase 3
+with 5×5, 6×6, and 7×7 events, per-event desktop/mobile E2E, and the shared WCA
+rule audit. Stage 5 is the approved Phase 4 platform work: history
+virtualization, WebKit/Firefox coverage where available, a formal
+accessibility/keyboard audit, and PWA/bundle review.
 **Branch:** `master`
-**Working tree:** clean after the focused Stage 3 commit
+**Working tree:** clean after the focused Stage 4 commit
 **Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8)
 
 ## Status
 
-Stage 0 committed the 2026-10-27 immutable-snapshot remediation and aligned the
-documentation. Stage 1 on 2026-10-28 added the highest-value sync hardening:
+Stages 0–4 are complete. Stage 1 added the legacy-file conditional write,
+review audit/undo, legacy-tombstone review, exit-sync hardening, and repair.
+Stage 2 added snapshot retention, per-device ownership management, selective
+deletion, and manual cleanup. Stage 3 validated concurrent immutable publishing,
+all-snapshot convergence, same-device writers, the live Drive v2 ETag/`If-Match`
+path, retention, and selective deletion against a real Google Drive test account.
 
-- Drive v2 ETag/`If-Match` conditional replacement for the legacy mutable
-  `cubelab-backup.json`, failing closed on HTTP 412 or a missing ETag.
-- Local-only conflict-resolution audit history with exact-match Undo.
-- Mandatory `legacyRecovery` review for ambiguous pre-`knownSolveIds` deletions.
-- Remote-only redirect-disagreement review.
-- Deduplicated visibility/`pagehide`/`freeze` exit sync.
-- A non-destructive **Repair sync state** action.
-- Documentation consolidation: the completed audit tracker, the original audit
-  report, and the superseded Phase 2B design brief were removed. Active docs are
-  `AGENTS.md`, `README.md`, `ROADMAP.md`, `PROJECT_PROGRESS.md`,
-  `PATCH_LIMITATIONS.md`, this handoff, `Oct_28_AM_Plan.md`, and the screenshots
-  referenced by `README.md`.
+Stage 4 on 2026-10-28 completed Phase 3:
 
-Stage 2 on 2026-10-28 added snapshot lifecycle management:
-
-- A configurable retention policy in `cubelab:sync:v1`: automatic cleanup
-  enabled by default, 10 snapshots kept per device, and a 30-day maximum age.
-- Automatic cleanup after a successful all-snapshot merge and publication, with
-  the published file ID and publication time as deletion boundaries.
-- `appProperties.deviceId` ownership metadata on new snapshots and name-prefix
-  fallback grouping for older files.
-- A **Remote snapshots** section with per-device groups, sizes, dates, five-file
-  pagination, selective deletion, **Refresh**, and own-only **Clean up now**.
-- Safety rules: the newest snapshot per device, the just-published snapshot, and
-  the legacy mutable `cubelab-backup.json` are never deleted. Partial failures
-  are reported without failing the completed sync.
-
-Stage 3 on 2026-10-28 added real-provider validation and OAuth guidance:
-
-- An opt-in `npm run validate:drive` harness (`src/validation/realProvider.validation.ts`,
-  `vitest.real.config.ts`) validates concurrent immutable publishing, all-snapshot
-  convergence, same-device writers, the live Drive v2 ETag/`If-Match` path,
-  retention, and selective deletion against a real account. It is excluded from
-  `npm test` and `npm run check` and needs an explicit short-lived
-  `CUBELAB_DRIVE_ACCESS_TOKEN`.
-- `describeGoogleAuthError` maps `origin_mismatch`, `access_denied`,
-  `popup_closed`, invalid-client, and related Google Identity Services errors to
-  actionable guidance that names the exact authorized origin.
-- README documents authorized JavaScript origins, Testing-mode test users,
-  publishing, and the `origin_mismatch` failure.
-- `useDriveBackup` derives `connected` and its idle phase from the transport, so a
-  sync that acquires a token outside the dialog no longer leaves **Offline** and a
-  **Connect** button after a successful sync. A regression test covers it.
-- Real app syncs created two immutable snapshots in the test account, and the
-  final harness run passed 7/7 in 24.86 s with 7 files created, 7 deleted, 2
-  baseline snapshots untouched, and 0 cleanup failures. One earlier run hit a
-  transient `ECONNRESET` on a repeated delete; an immediate rerun passed.
-- The OAuth app remains in Testing under another owner account. Non-test sign-in
-  and published production branding were not validated.
+- Added `555`, `666`, and `777` to the event registry and `PuzzleEvent` union.
+- Storage, backup, session metadata, and sync now validate all seven event IDs.
+  Legacy `cubelab:solves:v1` migration still accepts only 3×3 records.
+- Scrambles for all seven events come from `cubing.js`
+  `randomScrambleForEvent(...)`. Big-cube depth notation such as `3Rw2` is
+  accepted by the plausibility check.
+- The header, timer stage, scramble badge, and duplicate-session suffix display
+  the human-readable event label from `src/lib/events.ts`.
+- Fourteen production E2E tests cover all seven events at desktop and 390 px
+  mobile widths: switch event, fresh scramble, three solves, `+2`, DNF, stats,
+  persistence, and overflow.
+- The backup E2E now exports and restores a 3×3 + 5×5 session collection.
+- WCA audit: the 15-second inspection window, `+2` from 15–17 seconds, DNF after
+  17 seconds, and effective-time statistics are shared by every event. The timer
+  machine remains event-independent. Competition time limits and cutoffs are
+  deliberately not implemented.
+- Documentation and the ROADMAP Phase 3 gate are updated.
 
 | Check | Result |
 | --- | --- |
 | `npm run check` | **Passed as one command**, exit 0 |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed with no warnings |
-| `npm test` | **337/337 passed**, 22 files |
-| `npm run build` | Passed; 96 modules; PWA 22 entries, 2,311.30 KiB |
-| `npm run test:e2e` | **30/30 passed**, Chromium |
-| `npm run validate:drive` | **7/7 passed** against the real account (opt-in; not in CI) |
+| `npm test` | **339/339 passed**, 22 files |
+| `npm run build` | Passed; 96 modules; PWA 22 entries, 2,311.53 KiB |
+| `npm run test:e2e` | **44/44 passed**, Chromium |
 | `git diff --check` | Passed |
 
-Stage 3 closed the real-provider multi-device, conditional-write, and retention
-gate. The remaining Stage 3 item is OAuth publishing: the project owner must
-publish the app out of Testing (and complete any Google verification), then a
-non-test account must sign in. There is still no transaction across the immutable
-snapshot set, and convergence remains eventual.
+Stage 3's real-provider gate is closed; only OAuth publishing/non-test sign-in
+remains, and that requires the Google Cloud project owner. There is still no
+transaction across the immutable snapshot set, and convergence remains eventual.
 
 ## Stage status
 
 - **Stage 0 — complete.** Documentation matched the code and `npm run check`
-  passed as one command with 287/287 unit tests.
+  passed as one command.
 - **Stage 1 — complete; real-provider gate closed by Stage 3.** Conditional legacy
   write, audit/Undo, exit-sync hardening, legacy-tombstone recovery review,
-  redirect disagreement review, and repair are implemented and covered by
-  deterministic unit/hook/stress/mock E2E tests.
-- **Stage 2 — complete 2026-10-28.** Snapshot retention policy, per-device
-  ownership and management UI, selective deletion, manual cleanup, and growth
-  documentation are implemented and covered by unit, hook, and production E2E
-  tests.
-- **Stage 3 — complete except OAuth publishing — 2026-10-28.** Real-provider
-  concurrency, convergence, live ETag/`If-Match`, retention, and selective
-  deletion passed 7/7 with complete cleanup. OAuth uses only `drive.appdata` and
-  the consent screen is branded CubeLab, but the app is still in Testing under
-  another owner account, so non-test sign-in is unverified.
-- **Stage 4 — next approved stage; not started.** Phase 3 completion: implement
-  5×5, 6×6, and 7×7 events; add per-event E2E for all seven events; verify
-  event-specific WCA rules; and verify storage migration, backup, and import
-  across multiple events.
-- **Stage 5 — approved 2026-10-28; not started.** Phase 4 platform work:
+  redirect disagreement review, and repair.
+- **Stage 2 — complete.** Snapshot retention policy, per-device ownership and
+  management UI, selective deletion, and manual cleanup.
+- **Stage 3 — complete except OAuth publishing.** Real-provider concurrency,
+  convergence, live ETag/`If-Match`, retention, and selective deletion passed
+  7/7 with complete cleanup. The app remains in Testing under another owner.
+- **Stage 4 — complete 2026-10-28.** Phase 3 completion: all seven events,
+  per-event E2E, WCA rule audit, multi-event storage/backup coverage, and docs.
+- **Stage 5 — next approved stage; not started.** Phase 4 platform work:
   virtualization, cross-browser coverage, accessibility audit, PWA/bundle review.
 - **Stage 6 — polish, no extra approval.** Dark theme only after a full contrast
   audit; the inspection reset is already implemented.
+
+## Current event and WCA behavior to preserve
+
+- Supported events and `cubing.js` scramble IDs are defined only in
+  `src/lib/events.ts`: `333`, `222`, `444`, `333oh`, `555`, `666`, `777`.
+  Do not duplicate the list in components or validation.
+- `PuzzleEvent` in `src/types.ts` must stay in sync with that registry. Storage
+  and backup validation use the shared `isPuzzleEventValue` guard.
+- Do not hand-roll scrambles or add random-move fallbacks. Preserve the prefetch
+  queue, loading skeleton, failure message, retry action, and timer gating.
+- A session event is locked once the session has solves. Changing an empty
+  session's event may also rename a default-style session to the event label.
+- All seven events share the 15-second inspection, `+2`, DNF, mo3, and trimmed
+  average rules. Do not branch the timer machine or statistics on event without
+  a documented WCA rule and focused tests.
+- Event labels are presentation only. Raw times, penalties, and statistics must
+  not depend on the event.
+- Mixed-event sessions are rejected before import confirmation or mutation.
+  Unknown event IDs must not be silently rewritten to 3×3.
+- `docs/cubelab-desktop.png`, `docs/cubelab-mobile.png`, and
+  `docs/cubelab-settings.png` show the default 3×3 session; adding events did not
+  materially change those layouts.
 
 ## Current sync behavior to preserve
 
@@ -157,6 +142,9 @@ snapshot set, and convergence remains eventual.
   changed to **Recover solves**.
 - E2E expects countdown warning labels at **7 seconds remaining** and **3 seconds
   remaining**.
+- The per-event tests intentionally wait for the scramble text to change before
+  timing. Switching events clears the scramble slots after paint, so asserting
+  only the badge can race the previous event's scramble.
 - Do not claim atomic remote writes or data-loss-proof synchronization. Provider
   CAS covers only the legacy mutable file. Snapshot cleanup was validated against
   real Drive on 2026-10-28, but it remains a best-effort sequence of independent

@@ -1,14 +1,14 @@
 import { randomScrambleForEvent } from 'cubing/scramble'
+import { getEventDefinition } from './events'
 import type { PuzzleEvent } from '../types'
 
-const TOKEN_PATTERN = /^[A-Za-z]+w?(?:2|')*$/
+const TOKEN_PATTERN = /^(?:[2-3])?[URFDLB]w?(?:2|')?$/
 
 /**
  * Returns the cubing.js event id for each supported CubeLab event.
  */
 function scrambleEventId(event: PuzzleEvent): string {
-  if (event === '333oh') return '333oh'
-  return event
+  return getEventDefinition(event)?.scrambleEventId ?? event
 }
 
 /**

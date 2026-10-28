@@ -124,6 +124,9 @@ describe('legacy solve persistence', () => {
       solve({ id: 'legacy-222', event: '222' }),
       solve({ id: 'legacy-444', event: '444' }),
       solve({ id: 'legacy-oh', event: '333oh' }),
+      solve({ id: 'legacy-555', event: '555' }),
+      solve({ id: 'legacy-666', event: '666' }),
+      solve({ id: 'legacy-777', event: '777' }),
     ])
 
     expect(loadSolves(storage).map((item) => item.id)).toEqual([
@@ -242,7 +245,7 @@ describe('session persistence', () => {
 
   it('round-trips every supported puzzle event in modern sessions', () => {
     const storage = new MemoryStorage()
-    const events = ['333', '222', '444', '333oh'] as const
+    const events = ['333', '222', '444', '333oh', '555', '666', '777'] as const
     const original = sessionsData({
       activeSessionId: 'session-333oh',
       sessions: events.map((event) =>

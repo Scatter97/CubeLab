@@ -32,6 +32,7 @@ import {
   serializeBackup,
   type Backup,
 } from './lib/backup'
+import { getEventDefinition } from './lib/events'
 import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves, mergeSessionsById } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
@@ -868,6 +869,7 @@ export default function App() {
 
           <TimerStage
             state={timer.state}
+            eventLabel={getEventDefinition(activeEvent)?.label ?? activeEvent}
             elapsedMs={displayElapsed}
             inspectionElapsedMs={timer.inspectionElapsedMs}
             holdProgress={timer.holdProgress}

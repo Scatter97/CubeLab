@@ -20,6 +20,7 @@ import type {
   TimerUpdateMode,
 } from '../types'
 import { createId } from './id'
+import { isPuzzleEventValue } from './events'
 import {
   DEFAULT_SESSION_NAME,
   MAX_SOLVE_COMMENT_LENGTH,
@@ -127,7 +128,7 @@ function parseFieldUpdate(value: unknown): FieldUpdate | null {
 function parseSolve(value: unknown): Solve | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
-  if (!isPuzzleEvent(value.event)) return null
+  if (!isPuzzleEventValue(value.event)) return null
   if (
     typeof value.rawMs !== 'number' ||
     !Number.isFinite(value.rawMs) ||
@@ -175,10 +176,6 @@ function parseSolve(value: unknown): Solve | null {
         }
       : {}),
   }
-}
-
-function isPuzzleEvent(value: unknown): value is PuzzleEvent {
-  return value === '333' || value === '222' || value === '444' || value === '333oh'
 }
 
 function parseSessionFieldUpdates(value: unknown): SessionFieldUpdates | undefined {
@@ -243,7 +240,7 @@ function parseSession(value: unknown): Session | null {
   return {
     id: value.id,
     name,
-    event: isPuzzleEvent(value.event) ? value.event : '333',
+    event: isPuzzleEventValue(value.event) ? value.event : '333',
     ...(value.isAutoCreatedDefault === true ? { isAutoCreatedDefault: true } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -283,7 +280,7 @@ export function findSessionEventMismatches(value: unknown): string[] {
     const normalizedName =
       typeof candidate.name === 'string' ? normalizeSessionName(candidate.name) : ''
     const name = normalizedName || `Session ${sessionIndex + 1}`
-    const event = isPuzzleEvent(candidate.event) ? candidate.event : '333'
+    const event = isPuzzleEventValue(candidate.event) ? candidate.event : '333'
     if (!Array.isArray(candidate.solves)) continue
     for (const rawSolve of candidate.solves) {
       const solve = parseSolve(rawSolve)

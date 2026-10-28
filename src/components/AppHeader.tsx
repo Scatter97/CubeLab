@@ -1,4 +1,5 @@
 import { CubeMark, SettingsIcon } from './Icons'
+import { getEventDefinition } from '../lib/events'
 
 import type { PuzzleEvent } from '../types'
 
@@ -42,13 +43,7 @@ export function AppHeader({
         </span>
         <span className="context-dot" />
         <span className="context-meta">
-          {event === '222'
-            ? '2×2'
-            : event === '444'
-              ? '4×4'
-              : event === '333oh'
-                ? '3×3 OH'
-                : '3×3'} · Inspection {inspectionLabel}
+          {getEventDefinition(event)?.label ?? event} · Inspection {inspectionLabel}
         </span>
       </div>
 

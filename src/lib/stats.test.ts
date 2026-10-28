@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Penalty, Solve } from '../types'
+import { CUBELAB_EVENTS } from './events'
 import {
   calculateAverage,
   calculateBestAverage,
@@ -39,6 +40,33 @@ describe('effective times', () => {
     expect(effectiveTimeMs(solve(10_000))).toBe(10_000)
     expect(effectiveTimeMs(solve(10_000, '+2'))).toBe(12_000)
     expect(effectiveTimeMs(solve(10_000, 'dnf'))).toBeNull()
+  })
+
+  it('applies identical WCA penalties and mo3 rules to every event', () => {
+    for (const event of CUBELAB_EVENTS) {
+      const withEvent = (ms: number, penalty: Penalty, id: string): Solve => ({
+        ...solve(ms, penalty, `${event.id}-${id}`),
+        event: event.id,
+      })
+
+      // Newest first, as the session store supplies solves.
+      const trio: Solve[] = [
+        withEvent(30_000, '+2', 'newest'),
+        withEvent(20_000, 'none', 'middle'),
+        withEvent(10_000, 'none', 'oldest'),
+      ]
+
+      expect(effectiveTimeMs(trio[0]!)).toBe(32_000)
+      expect(calculateMeanOf3(trio)).toEqual({ status: 'value', ms: 20_670 })
+      expect(
+        calculateMeanOf3([
+          { ...trio[0]!, penalty: 'dnf' },
+          trio[1]!,
+          trio[2]!,
+        ]),
+      ).toEqual({ status: 'dnf' })
+      expect(getSessionStats(trio).count).toBe(3)
+    }
   })
 })
 

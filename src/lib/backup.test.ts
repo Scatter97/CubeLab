@@ -63,27 +63,18 @@ describe('backup format', () => {
     expect(backup.version).toBe(BACKUP_VERSION)
   })
 
-  it('preserves supported solve puzzle events in backups', () => {
+  it('preserves every supported solve puzzle event in backups', () => {
+    const events = ['333', '222', '444', '333oh', '555', '666', '777'] as const
     const mixedSessions: SessionsData = {
-      activeSessionId: 'session-2',
-      sessions: [
-        {
-          id: 'session-1',
-          name: 'Morning',
-          event: '222',
-          createdAt: 1_700_000_000_000,
-          updatedAt: 1_700_000_001_000,
-          solves: [solve({ id: 'solve-1', event: '222' })],
-        },
-        {
-          id: 'session-2',
-          name: 'Evening',
-          event: '333oh',
-          createdAt: 1_700_000_002_000,
-          updatedAt: 1_700_000_003_000,
-          solves: [solve({ id: 'solve-2', event: '333oh' })],
-        },
-      ],
+      activeSessionId: `session-${events[events.length - 1]}`,
+      sessions: events.map((event, index) => ({
+        id: `session-${event}`,
+        name: `Event ${event}`,
+        event,
+        createdAt: 1_700_000_000_000 + index * 2_000,
+        updatedAt: 1_700_000_001_000 + index * 2_000,
+        solves: [solve({ id: `solve-${event}`, event })],
+      })),
     }
     const backup = createBackup(mixedSessions, {
       ...DEFAULT_SETTINGS,
@@ -92,8 +83,11 @@ describe('backup format', () => {
     const result = parseBackup(serializeBackup(backup))
 
     expect(result).toEqual({ ok: true, backup })
-    expect(result.ok && result.backup.sessions.sessions[0]?.solves[0]?.event).toBe('222')
-    expect(result.ok && result.backup.sessions.sessions[1]?.solves[0]?.event).toBe('333oh')
+    expect(
+      result.ok
+        ? result.backup.sessions.sessions.map((session) => session.solves[0]?.event)
+        : [],
+    ).toEqual([...events])
   })
 
   it('takes a detached snapshot', () => {

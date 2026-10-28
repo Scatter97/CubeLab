@@ -11,6 +11,9 @@ export const CUBELAB_EVENTS: CubeLabEvent[] = [
   { id: '222', label: '2×2', scrambleEventId: '222' },
   { id: '444', label: '4×4', scrambleEventId: '444' },
   { id: '333oh', label: '3×3 OH', scrambleEventId: '333oh' },
+  { id: '555', label: '5×5', scrambleEventId: '555' },
+  { id: '666', label: '6×6', scrambleEventId: '666' },
+  { id: '777', label: '7×7', scrambleEventId: '777' },
 ]
 
 export function getEventDefinition(id: string): CubeLabEvent | undefined {
@@ -19,9 +22,7 @@ export function getEventDefinition(id: string): CubeLabEvent | undefined {
 
 export function isPuzzleEventValue(value: unknown): value is PuzzleEvent {
   return (
-    value === '333' ||
-    value === '222' ||
-    value === '444' ||
-    value === '333oh'
+    typeof value === 'string' &&
+    CUBELAB_EVENTS.some((event) => event.id === value)
   )
 }

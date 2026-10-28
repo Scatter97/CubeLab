@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { CUBELAB_EVENTS, type CubeLabEvent } from '../src/lib/events'
 
 const TIMER = '[data-testid="timer-surface"]'
 
 interface StoredSolve {
   id: string
+  event: string
   scramble: string
   penalty: string
   comment: string
@@ -13,6 +15,7 @@ interface StoredSolve {
 interface StoredSession {
   id: string
   name: string
+  event?: string
   solves: StoredSolve[]
   inspectionEnabled?: boolean
 }
@@ -47,6 +50,26 @@ async function recordSolve(page: Page, solveDurationMs = 120) {
   await holdSpace(page)
   await page.waitForTimeout(solveDurationMs)
   await stopWithSpace(page)
+}
+
+/**
+ * Waits until the visible scramble is no longer the one captured before an
+ * event/session switch and both queue slots are filled again. Without this,
+ * the new event's badge can render for a frame while the previous event's
+ * scramble is still on screen.
+ */
+async function waitForFreshEventScramble(page: Page, previous: string) {
+  await expect
+    .poll(
+      async () =>
+        (await page.locator('.scramble-text').allInnerTexts())[0] ?? '',
+      { timeout: 30_000 },
+    )
+    .not.toBe(previous)
+  await expect(page.locator('.queue-label')).toContainText('Queue ready', {
+    timeout: 30_000,
+  })
+  await expect(page.locator('.scramble-text')).toBeVisible()
 }
 
 async function storedSessions(page: Page): Promise<StoredSessions | null> {
@@ -99,6 +122,96 @@ async function openFirstSolveMenu(page: Page) {
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
   return menu
+}
+
+/**
+ * Exercises one puzzle event end to end: switch (if needed), generate
+ * scrambles, record three solves, apply +2 then DNF to the newest solve, check
+ * WCA statistics, and verify the session, event, scrambles, and penalty
+ * survive a reload.
+ */
+async function runEventScenario(page: Page, event: CubeLabEvent) {
+  await page.goto('/')
+  await waitForApp(page)
+
+  if (event.id !== '333') {
+    const previousScramble = await page.locator('.scramble-text').innerText()
+    const sessionDialog = await openSessionSettings(page)
+    await sessionDialog.locator('select').selectOption(event.id)
+    await sessionDialog.getByTestId('session-settings-done').click()
+    await expect(sessionDialog).toBeHidden()
+    await waitForFreshEventScramble(page, previousScramble)
+  }
+
+  await expect(page.locator('.scramble-badge')).toContainText(
+    `${event.label} · scramble`,
+  )
+  await expect(page.locator('.header-context .context-meta')).toContainText(
+    event.label,
+  )
+
+  const scrambles: string[] = []
+  for (let index = 0; index < 3; index += 1) {
+    const scramble = await page.locator('.scramble-text').innerText()
+    scrambles.push(scramble)
+    await recordSolve(page, 90)
+    if (index < 2) {
+      await waitForFreshEventScramble(page, scramble)
+    }
+  }
+
+  expect(new Set(scrambles).size).toBe(3)
+  await expect(page.getByTestId('solve-count')).toHaveText('3')
+
+  const newestRow = page.locator('[data-testid="history-row"]').first()
+  await newestRow.getByTestId('solve-plus-two').click()
+  await expect(newestRow.locator('.history-time')).toContainText('+2')
+  await newestRow.getByTestId('solve-dnf').click()
+  await expect(newestRow.locator('.history-time')).toContainText('DNF')
+
+  // A DNF makes mo3 a DNF, while the best single still comes from the valid
+  // solves. This is the same WCA rule for every event.
+  await expect(page.getByTestId('best-single')).not.toHaveText('—')
+  await expect(
+    page.locator('.stat-tile').filter({ hasText: 'mo3' }).locator('.stat-latest'),
+  ).toContainText('DNF')
+
+  const stored = await storedSessions(page)
+  const active = stored?.sessions.find(
+    (session) => session.id === stored.activeSessionId,
+  )
+  expect(active?.event ?? '333').toBe(event.id)
+  expect(active?.solves.map((solve) => solve.event)).toEqual([
+    event.id,
+    event.id,
+    event.id,
+  ])
+  expect(active?.solves.map((solve) => solve.scramble)).toEqual(
+    [...scrambles].reverse(),
+  )
+  expect(active?.solves[0]?.penalty).toBe('dnf')
+
+  await page.reload()
+  await waitForApp(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('3')
+  await expect(page.locator('.scramble-badge')).toContainText(
+    `${event.label} · scramble`,
+  )
+  await expect(
+    page.locator('[data-testid="history-row"]').first().locator('.history-time'),
+  ).toContainText('DNF')
+
+  const reloaded = await storedSessions(page)
+  expect(
+    reloaded?.sessions.find(
+      (session) => session.id === reloaded.activeSessionId,
+    )?.event ?? '333',
+  ).toBe(event.id)
+
+  const noHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+  )
+  expect(noHorizontalOverflow).toBe(true)
 }
 
 test('keyboard timing records exactly one solve and advances the scramble', async ({
@@ -1218,6 +1331,32 @@ test('changing a session event saves its default name immediately', async ({
   expect(await selectedSessionName(page)).toBe('2×2')
 })
 
+test.describe('per-event coverage — desktop', () => {
+  for (const event of CUBELAB_EVENTS) {
+    test(`records, penalizes, and persists ${event.label} solves`, async ({
+      page,
+    }) => {
+      await runEventScenario(page, event)
+    })
+  }
+})
+
+test.describe('per-event coverage — mobile', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  })
+
+  for (const event of CUBELAB_EVENTS) {
+    test(`records, penalizes, and persists ${event.label} solves`, async ({
+      page,
+    }) => {
+      await runEventScenario(page, event)
+    })
+  }
+})
+
 test('session controls lock while the timer is active', async ({ page }) => {
   await page.goto('/')
   await waitForApp(page)
@@ -1255,8 +1394,15 @@ test('backup export and import restore sessions, comments, and settings', async 
   await expect(page.getByRole('status')).toContainText('Solve comment saved')
 
   await page.getByTestId('new-session').click()
+  const previousScramble = await page.locator('.scramble-text').innerText()
   await page.getByRole('textbox', { name: 'Session name' }).fill('Evening')
+  await page
+    .getByRole('dialog', { name: 'Create new session' })
+    .locator('select')
+    .selectOption('555')
   await page.getByRole('button', { name: 'Create session', exact: true }).click()
+  await waitForFreshEventScramble(page, previousScramble)
+  await expect(page.locator('.scramble-badge')).toContainText('5×5 · scramble')
   await recordSolve(page, 100)
 
   const settings = await openSettings(page)
@@ -1316,6 +1462,9 @@ test('backup export and import restore sessions, comments, and settings', async 
     'Evening',
   ])
   expect(
+    backup.sessions.sessions.map((session) => session.event ?? '333'),
+  ).toEqual(['333', '555'])
+  expect(
     backup.sessions.sessions.reduce(
       (total, session) => total + session.solves.length,
       0,
@@ -1372,6 +1521,7 @@ test('backup export and import restore sessions, comments, and settings', async 
   await expect(page.getByTestId('settings-button')).toBeFocused()
   expect(await selectedSessionName(page)).toBe('Evening')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
+  await expect(page.locator('.scramble-badge')).toContainText('5×5 · scramble')
   await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
     2,
   )
@@ -1394,6 +1544,7 @@ test('backup export and import restore sessions, comments, and settings', async 
 
   await page.getByTestId('session-select').selectOption({ label: 'Session 1' })
   await expect(page.getByTestId('solve-count')).toHaveText('1')
+  await expect(page.locator('.scramble-badge')).toContainText('3×3 · scramble')
   await expect(page.locator('.history-comment')).toHaveText('Backup comment')
 
   await page.reload()

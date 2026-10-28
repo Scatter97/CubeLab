@@ -658,7 +658,7 @@ function SettingsContent({
             <dl className="settings-about">
               <div>
                 <dt>Timer</dt>
-                <dd>3×3 · WCA random-state</dd>
+                <dd>3×3–7×7 · WCA random-state</dd>
               </div>
               <div>
                 <dt>Data</dt>

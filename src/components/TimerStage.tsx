@@ -24,6 +24,7 @@ function splitDecimalTime(value: string): ReactNode {
 
 interface TimerStageProps {
   state: TimerState
+  eventLabel: string
   elapsedMs: number | null
   inspectionElapsedMs: number | null
   holdProgress: number
@@ -104,6 +105,7 @@ function phaseLabel(state: TimerState): string {
 
 export function TimerStage({
   state,
+  eventLabel,
   elapsedMs,
   inspectionElapsedMs,
   holdProgress,
@@ -319,7 +321,7 @@ export function TimerStage({
             ) : inspectionEnabled ? (
               'Inspection on'
             ) : (
-              <>3×3</>
+              <>{eventLabel}</>
             )}
           </span>
         </span>

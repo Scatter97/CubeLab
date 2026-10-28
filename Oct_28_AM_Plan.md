@@ -2,7 +2,7 @@
 
 **Created:** 2026-10-28
 **Scope:** Close out the uncommitted 2026-10-27 remediation, align documentation, then execute the prioritized roadmap through Stage 6.
-**Execution status:** Stages 0, 1, and 2 are complete. Stage 3 real-provider validation is complete except OAuth publishing, which is blocked on the Google Cloud project owner; Stages 4 and 5 are approved.
+**Execution status:** Stages 0–4 are complete. Stage 5 is approved and not started. Stage 3 real-provider validation is complete except OAuth publishing, which is blocked on the Google Cloud project owner.
 **Source of truth:** `AGENTS.md`, `README.md`, `ROADMAP.md`, `PROJECT_PROGRESS.md`, `PATCH_LIMITATIONS.md`, `NEXT_SESSION_HANDOFF.md`.
 
 ---
@@ -138,14 +138,35 @@ account, so non-test sign-in and published production branding are not validated
 
 ---
 
-## Stage 4 — Phase 3 completion (APPROVED 2026-10-28)
+## Stage 4 — Phase 3 completion — Complete 2026-10-28
 
-1. Implement 5×5, 6×6, and 7×7 session events through `cubing.js` (`555`, `666`, `777`), including event metadata, scramble loading/failure states, and per-event statistics.
-2. Dedicated per-event production E2E coverage for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7 (switch events, record solves, verify stats/scrambles).
-3. Event-specific WCA timing/inspection rules where they differ; document where the standard 15-second inspection and `+2`/DNF rules are shared.
-4. Broader event validation and storage migration verification for existing 3×3 data, including multi-event backup/import coverage.
+1. **5×5, 6×6, and 7×7 — delivered.** `555`, `666`, and `777` are session
+   events with `cubing.js` random-state scrambles, event metadata in sessions
+   and solves, prefetched scrambles with loading/failure/retry states, and
+   per-event statistics, history, and backups.
+2. **Per-event production E2E — delivered.** Desktop and mobile Playwright tests
+   cover all seven events: switching the session event, generating fresh
+   scrambles, recording three solves, applying `+2` then DNF, checking WCA
+   statistics, and verifying persistence across reload. The backup E2E also
+   exports and restores a 3×3 + 5×5 session collection.
+3. **WCA rule audit — delivered.** Inspection, `+2`, DNF, and effective-time
+   rules are shared by every supported event. Competition-specific time limits
+   and cutoffs are out of scope because they are set per competition, not by the
+   WCA solve regulations. The timer machine has no event input, and a unit test
+   verifies identical penalty/mo3 behavior for every event. README documents the
+   shared rules and the deliberate event independence.
+4. **Storage and backup validation — delivered.** The event registry validates
+   all seven IDs in solves and sessions. Legacy 3×3 migration still reads only
+   `cubelab:solves:v1`; modern sessions round-trip every event; backups
+   round-trip all seven events and reject mixed-event sessions before
+   confirmation.
 
-**Gate (Stage 4):** `ROADMAP.md` Phase 3 acceptance criteria for all seven events are met; docs/screenshots updated.
+**Evidence (2026-10-28, Node v22.23.2):** full gate recorded in
+`PROJECT_PROGRESS.md` after the Stage 4 implementation. Production E2E grew from
+30 to 44 tests, including 14 per-event tests and the multi-event backup flow.
+
+**Gate (Stage 4): met.** The `ROADMAP.md` Phase 3 acceptance criteria are
+checked off, and the active documentation is updated.
 
 ---
 
@@ -204,4 +225,7 @@ Plus `git diff --check` and a clean `git status`.
 - Stage 2 was approved and delivered on 2026-10-28.
 - Stage 3 was approved and run on 2026-10-28. Real-provider validation is complete;
   OAuth publishing and non-test sign-in remain owner actions.
-- Stage 4 is the next approved stage. It includes 5×5, 6×6, and 7×7 implementation, per-event E2E for all seven events, WCA rule verification, and multi-event storage verification.
+- Stage 4 was approved and delivered on 2026-10-28. It adds 5×5, 6×6, and 7×7,
+  per-event desktop/mobile E2E for all seven events, WCA rule verification, and
+  multi-event storage/backup verification.
+- Stage 5 is the next approved stage; it has not started.

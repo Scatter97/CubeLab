@@ -21,8 +21,8 @@ evidence in `PROJECT_PROGRESS.md`.
 This repository contains **CubeLab Milestone 1** plus the authorized **Phase 2A**
 local-data work:
 
-- speedcubing timer with per-session 3×3, 2×2, 4×4, and 3×3 OH events;
-  5×5, 6×6, and 7×7 are Stage 4 implementation scope
+- speedcubing timer with per-session 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and
+  7×7 events
 - WCA random-state scrambles via `cubing.js`
 - optional 15-second inspection with count-down/count-up display, independent
   8-second/12-second warnings, and `+2` / DNF
@@ -45,14 +45,12 @@ local-data work:
 
 Phase 2A, the Phase 2A.1 Settings design update, Phase 2A.2 settings groups,
 Phase 2A.3 timer/history/session refinements, Phase 2B optional manual Google
-Drive backup, and Phase 2C local-first Google Drive synchronization are
-complete. Phase 3 (More WCA events) and Phase 4 (Performance, accessibility,
-and platform) are explicitly approved as of 2026-10-28 (Stage 4 and Stage 5 in
-`Oct_28_AM_Plan.md`); their scope and acceptance gates are defined in
-`ROADMAP.md`. Stage 4 (Phase 3 completion) includes implementing 5×5, 6×6, and
-7×7 with per-event E2E and WCA rule verification. Do not begin any other
-cloud/account feature or broaden to social features as drive-by additions
-without an explicit user instruction.
+Drive backup, Phase 2C local-first Google Drive synchronization, and Phase 3
+(More WCA events: 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7) are complete.
+Phase 4 (Performance, accessibility, and platform) is explicitly approved as of
+2026-10-28 (Stage 5 in `Oct_28_AM_Plan.md`); its scope and acceptance gates are
+defined in `ROADMAP.md`. Do not begin any other cloud/account feature or broaden
+to social features as drive-by additions without an explicit user instruction.
 
 ## Commands
 
@@ -106,7 +104,13 @@ the production build because it tests the service worker and offline reload.
   surface or the entire screen.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent(...)`
   with the session event ID (`333`, `222`, `444`, `333oh`, `555`, `666`, `777`).
-  Unit tests verify real random-state generation.
+  Unit tests verify real random-state generation and plausible WCA notation for
+  every event, including big-cube depth moves such as `3Rw2`.
+- **WCA solve rules are event-independent.** The 15-second inspection window,
+  `+2` from 15–17 seconds, DNF after 17 seconds, and effective-time statistics
+  are shared by all supported events. Do not branch timer or statistics logic on
+  the puzzle event unless a documented WCA rule requires it; record such a rule
+  and its test alongside the change.
 - **Statistics follow WCA semantics.** Averages are newest-first; every trimmed
   average removes one best and one worst; one DNF is trimmed as worst; two or
   more DNFs make the average a DNF. mo3 contains no trimmed result and any DNF
