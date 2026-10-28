@@ -205,8 +205,15 @@ export function resolveRedirectConflicts(input: {
   // silently discard the loser; surface the pair for review instead. Snapshot
   // lists are normalized to one approval per source, so a disagreement always
   // comes from independent snapshots, never from superseded history.
+  //
+  // A local approval must not hide the disagreement either. When it matches the
+  // automatic winner, the losing cloud destination is still surfaced as a
+  // `remoteOnly` review. When it differs from the winner, the divergence loop
+  // above already reviewed the local/winning pair, so this loop does not add a
+  // duplicate conflict for the same key.
   for (const disagreement of findRemoteRedirectDisagreements(remote)) {
-    if (newestRedirectFor(local, disagreement.fromId)) continue
+    const localNewest = newestRedirectFor(local, disagreement.fromId)
+    if (localNewest && localNewest.toId !== disagreement.winner.toId) continue
     const pair = [disagreement.winner.toId, disagreement.other.toId] as const
     const resolved = findRedirectApproval(
       disagreement.fromId,
@@ -629,12 +636,66 @@ export function mergeSessionsData(input: {
           : [],
       ),
     )
-    const candidates = [...orphans.values()].filter((solve) => {
-      if (solveById.has(solve.id) || deletedSolveIds.has(solve.id)) return false
-      if (knownSolveIdsAvailable) return !knownSolveIds.has(solve.id)
-      return solve.createdAt > deletedAt || (solve.updatedAt ?? 0) > deletedAt
-    })
-    if (candidates.length === 0) continue
+    const eligible = [...orphans.values()].filter(
+      (solve) => !solveById.has(solve.id) && !deletedSolveIds.has(solve.id),
+    )
+    const candidates = knownSolveIdsAvailable
+      ? eligible.filter((solve) => !knownSolveIds.has(solve.id))
+      : eligible.filter(
+          (solve) =>
+            solve.createdAt > deletedAt || (solve.updatedAt ?? 0) > deletedAt,
+        )
+    let recoveryCandidates = candidates
+    if (!knownSolveIdsAvailable) {
+      const candidateIds = new Set(candidates.map((solve) => solve.id))
+      const ambiguous = eligible.filter(
+        (solve) => !candidateIds.has(solve.id),
+      )
+      if (ambiguous.length > 0) {
+        // A pre-`knownSolveIds` tombstone cannot distinguish a solve the user
+        // deliberately deleted from an older offline edit made elsewhere. The
+        // wall-clock heuristic above still recovers obviously newer edits, but
+        // the remaining candidates are surfaced instead of being dropped.
+        const recoveryValue = `recover:${ambiguous
+          .map((solve) => solve.id)
+          .sort()
+          .join(',')}`
+        const approval = resolvedConflicts.find(
+          (conflict) =>
+            conflict.kind === 'session' &&
+            conflict.id === deletedSessionId &&
+            conflict.field === 'legacyRecovery' &&
+            conflict.resolution !== 'manual-pending' &&
+            conflict.localValue === 'keep-deleted' &&
+            conflict.remoteValue === recoveryValue,
+        )
+        if (approval?.resolution === 'remote') {
+          recoveryCandidates = eligible
+        } else if (!approval) {
+          // Always pause for an ambiguous legacy deletion, regardless of the
+          // automatic review preference: guessing could either resurrect
+          // deliberately deleted solves or lose an offline edit forever.
+          conflicts.push({
+            id: deletedSessionId,
+            kind: 'session',
+            sessionId: deletedSessionId,
+            field: 'legacyRecovery',
+            localValue: 'keep-deleted',
+            remoteValue: recoveryValue,
+            localUpdatedAt: deletedAt,
+            remoteUpdatedAt: Math.max(
+              0,
+              ...ambiguous.map((solve) =>
+                Math.max(solve.createdAt, solve.updatedAt ?? 0),
+              ),
+            ),
+            resolution: 'manual-pending',
+            updatedAt: Math.max(Date.now(), deletedAt),
+          })
+        }
+      }
+    }
+    if (recoveryCandidates.length === 0) continue
 
     const recoveredId = `recovered:${deletedSessionId}`
     // A tombstone for the recovered session itself is an explicit later
@@ -642,14 +703,14 @@ export function mergeSessionsData(input: {
     if (deletedSessionIds.has(recoveredId)) continue
     const existingRecovered = mergedSessions.find((session) => session.id === recoveredId)
     if (existingRecovered) {
-      if (candidates.some((solve) => solve.event !== existingRecovered.event)) {
+      if (recoveryCandidates.some((solve) => solve.event !== existingRecovered.event)) {
         throw new Error(
           `Offline edits in deleted session ${deletedSessionId} mix puzzle events; sync stopped to preserve data.`,
         )
       }
       const solvesById = new Map(existingRecovered.solves.map((solve) => [solve.id, solve]))
       let added = 0
-      for (const candidate of candidates) {
+      for (const candidate of recoveryCandidates) {
         if (solvesById.has(candidate.id)) continue
         solvesById.set(candidate.id, candidate)
         recoveredSolveIds.add(candidate.id)
@@ -661,7 +722,7 @@ export function mergeSessionsData(input: {
         updatedAt: Math.max(
           existingRecovered.updatedAt,
           snapshot.updatedAt,
-          ...candidates.map((solve) => recordTime(solve)),
+          ...recoveryCandidates.map((solve) => recordTime(solve)),
         ),
         solves: [...solvesById.values()].sort(
           (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
@@ -691,8 +752,8 @@ export function mergeSessionsData(input: {
       continue
     }
 
-    const event = snapshot.event ?? candidates[0]!.event ?? '333'
-    if (candidates.some((solve) => solve.event !== event)) {
+    const event = snapshot.event ?? recoveryCandidates[0]!.event ?? '333'
+    if (recoveryCandidates.some((solve) => solve.event !== event)) {
       throw new Error(
         `Offline edits in deleted session ${deletedSessionId} mix puzzle events; sync stopped to preserve data.`,
       )
@@ -703,8 +764,8 @@ export function mergeSessionsData(input: {
       name: recoveredSessionName(snapshot.name, usedSessionNames),
       event,
       createdAt: snapshot.createdAt,
-      updatedAt: Math.max(snapshot.updatedAt, ...candidates.map((solve) => recordTime(solve))),
-      solves: [...candidates].sort(
+      updatedAt: Math.max(snapshot.updatedAt, ...recoveryCandidates.map((solve) => recordTime(solve))),
+      solves: [...recoveryCandidates].sort(
         (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
       ),
       ...(typeof snapshot.inspectionEnabled === 'boolean'
@@ -715,8 +776,8 @@ export function mergeSessionsData(input: {
         : {}),
     }
     mergedSessions.push(recovered)
-    for (const candidate of candidates) recoveredSolveIds.add(candidate.id)
-    recoveredSolves += candidates.length
+    for (const candidate of recoveryCandidates) recoveredSolveIds.add(candidate.id)
+    recoveredSolves += recoveryCandidates.length
   }
 
   // Count unique solves removed by tombstones. A session tombstone accounts for

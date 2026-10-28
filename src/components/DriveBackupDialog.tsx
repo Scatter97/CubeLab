@@ -36,6 +36,7 @@ const FIELD_LABELS: Record<string, string> = {
   customAverages: 'custom averages',
   statPrecision: 'statistics precision',
   redirect: 'merge destination',
+  legacyRecovery: 'legacy recovery',
 }
 
 function conflictFieldLabel(field: string): string {
@@ -45,7 +46,22 @@ function conflictFieldLabel(field: string): string {
   return FIELD_LABELS[field] ?? field
 }
 
+function recoverySolveIds(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.startsWith('recover:')) return []
+  return value
+    .slice('recover:'.length)
+    .split(',')
+    .filter((id) => id.length > 0)
+}
+
 function formatConflictValue(field: string, value: unknown): string {
+  if (field === 'legacyRecovery') {
+    if (value === 'keep-deleted') return 'keep deleted'
+    const ids = recoverySolveIds(value)
+    if (ids.length > 0) {
+      return `${ids.length} older solve${ids.length === 1 ? '' : 's'}`
+    }
+  }
   if (value === undefined) return 'not set'
   if (value === null) return 'null'
   if (typeof value === 'boolean') return value ? 'on' : 'off'
@@ -67,9 +83,11 @@ function conflictKey(conflict: SyncConflict): string {
 
 /** How many conflicts render before the reviewer expands the list. */
 const CONFLICT_PAGE_SIZE = 5
+/** How many resolved decisions render before the history expands. */
+const AUDIT_PAGE_SIZE = 5
 
 function conflictTitle(
-  conflict: SyncConflict,
+  conflict: Pick<SyncConflict, 'kind' | 'id' | 'field' | 'sessionId'>,
   sessions: SessionsData,
 ): string {
   const session = sessions.sessions.find(
@@ -82,9 +100,26 @@ function conflictTitle(
     return `Session merge${session ? ` · ${session.name}` : ''} · ${variable}`
   }
   if (conflict.kind === 'session') {
+    if (conflict.field === 'legacyRecovery') {
+      return 'Deleted session · legacy recovery'
+    }
     return `Session${session ? ` · ${session.name}` : ''} · ${variable}`
   }
   return `Solve ${conflict.id.slice(0, 8)}${session ? ` · ${session.name}` : ''} · ${variable}`
+}
+
+function resolutionLabel(
+  kind: SyncConflict['kind'],
+  remoteOnly: boolean | undefined,
+  resolution: 'local' | 'remote',
+): string {
+  if (kind === 'redirect') {
+    return resolution === 'local' ? 'newest cloud destination' : 'other cloud destination'
+  }
+  if (remoteOnly) {
+    return resolution === 'local' ? 'newest cloud version' : 'other cloud version'
+  }
+  return resolution === 'local' ? 'this device' : 'cloud'
 }
 
 interface DriveBackupDialogProps {
@@ -116,6 +151,7 @@ export function DriveBackupDialog({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [conflictsExpanded, setConflictsExpanded] = useState(false)
+  const [historyExpanded, setHistoryExpanded] = useState(false)
   const drive = useDriveBackup({
     transport,
     sessions,
@@ -311,7 +347,13 @@ export function DriveBackupDialog({
                           {conflictTitle(conflict, sessions)}
                         </span>
                         <span className="settings-row-description">
-                          {conflict.remoteOnly ? (
+                          {conflict.field === 'legacyRecovery' ? (
+                            <>
+                              This deletion predates solve tracking. CubeLab
+                              cannot tell whether the older solves in question
+                              were already deleted or were offline edits.
+                            </>
+                          ) : conflict.remoteOnly ? (
                             <>
                               Newest cloud version:{' '}
                               {formatConflictValue(conflict.field, conflict.localValue)}{' '}
@@ -341,7 +383,11 @@ export function DriveBackupDialog({
                             )
                           }
                         >
-                          {conflict.remoteOnly ? 'Use newest cloud' : 'Use this device'}
+                          {conflict.field === 'legacyRecovery'
+                            ? 'Keep deleted'
+                            : conflict.remoteOnly
+                              ? 'Use newest cloud'
+                              : 'Use this device'}
                         </button>
                         <button
                           type="button"
@@ -355,7 +401,11 @@ export function DriveBackupDialog({
                             )
                           }
                         >
-                          {conflict.remoteOnly ? 'Use other cloud' : 'Use cloud'}
+                          {conflict.field === 'legacyRecovery'
+                            ? 'Recover solves'
+                            : conflict.remoteOnly
+                              ? 'Use other cloud'
+                              : 'Use cloud'}
                         </button>
                       </div>
                     </div>
@@ -376,6 +426,85 @@ export function DriveBackupDialog({
                         onClick={() => setConflictsExpanded(true)}
                       >
                         Show all {sync.pendingConflicts.length}
+                      </button>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {sync.conflictAudit.length > 0 ? (
+                <div
+                  className="sync-conflict-list"
+                  data-testid="sync-audit-history"
+                >
+                  <p className="settings-note">
+                    Manual review history. Undo reverses the stored choice; the
+                    next sync applies the other version when it is still present
+                    in a cloud snapshot.
+                  </p>
+                  {(historyExpanded
+                    ? sync.conflictAudit
+                    : sync.conflictAudit.slice(0, AUDIT_PAGE_SIZE)
+                  ).map((entry) => (
+                    <div
+                      className="sync-conflict-item"
+                      key={entry.auditId}
+                      data-testid="sync-audit-entry"
+                    >
+                      <div className="sync-conflict-copy">
+                        <span className="settings-row-label">
+                          {conflictTitle(entry, sessions)}
+                        </span>
+                        <span className="settings-row-description">
+                          {entry.undoOf ? 'Reversed to ' : 'Chose '}
+                          {resolutionLabel(
+                            entry.kind,
+                            entry.remoteOnly,
+                            entry.resolution,
+                          )}{' '}
+                          · {new Date(entry.resolvedAt).toLocaleString()}
+                          {entry.undoneAt ? ' · Reversed' : ''}
+                        </span>
+                      </div>
+                      {entry.undoneAt === undefined &&
+                      entry.kind !== 'redirect' &&
+                      !(
+                        entry.field === 'legacyRecovery' &&
+                        entry.resolution === 'remote'
+                      ) ? (
+                        <div className="sync-conflict-actions">
+                          <button
+                            type="button"
+                            className="button button-secondary button-small"
+                            data-testid="undo-conflict-resolution"
+                            onClick={() => {
+                              const outcome = sync.undoConflictResolution(
+                                entry.auditId,
+                              )
+                              if (!outcome.ok) onNotify(outcome.error)
+                            }}
+                          >
+                            Undo
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {!historyExpanded &&
+                  sync.conflictAudit.length > AUDIT_PAGE_SIZE ? (
+                    <p className="settings-note sync-conflict-more">
+                      <span>
+                        Showing {AUDIT_PAGE_SIZE} of{' '}
+                        {sync.conflictAudit.length} decisions. The rest stay in
+                        local history.
+                      </span>
+                      <button
+                        type="button"
+                        className="button button-secondary button-small"
+                        data-testid="show-all-audit"
+                        onClick={() => setHistoryExpanded(true)}
+                      >
+                        Show all {sync.conflictAudit.length}
                       </button>
                     </p>
                   ) : null}
@@ -591,15 +720,42 @@ export function DriveBackupDialog({
                     />
                   </div>
                   <p className="settings-note">
-                    Every write uploads a new immutable snapshot with a unique
-                    name instead of replacing a device's previous file, so
-                    simultaneous writers — including two browsers sharing one
-                    device ID — cannot overwrite each other's data. Snapshots
-                    accumulate until you use Delete remote backups; there is no
-                    automatic cleanup. Same-browser writes are serialized with
-                    Web Locks, but Google Drive still has no verified atomic
-                    compare-and-swap.
+                    Every automatic write adds a new immutable snapshot with a
+                    unique name instead of replacing a device's previous file,
+                    so simultaneous writers — including two browsers sharing one
+                    device ID — cannot overwrite each other's data.
+                    Snapshots accumulate until you use Delete remote backups;
+                    there is no automatic cleanup. The legacy mutable
+                    cubelab-backup.json file is replaced only through a Google
+                    Drive v2 ETag/If-Match check, and CubeLab refuses the write
+                    when Drive cannot verify the ETag. This is a conditional
+                    update for one file, not a transaction across files.
                   </p>
+                  <div className="settings-row">
+                    <div className="settings-row-copy">
+                      <span className="settings-row-label">
+                        Repair sync state
+                      </span>
+                      <span className="settings-row-description">
+                        Re-read every cloud snapshot on the next sync. Sessions,
+                        deletions, merge approvals, pending conflicts, and review
+                        history are kept.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="button button-secondary button-small"
+                      data-testid="repair-sync-state"
+                      onClick={() => {
+                        sync.repairSyncState()
+                        onNotify(
+                          'Sync state repaired. CubeLab will re-read every cloud snapshot.',
+                        )
+                      }}
+                    >
+                      Repair
+                    </button>
+                  </div>
                   <div className="settings-row">
                     <div className="settings-row-copy">
                       <span className="settings-row-label">

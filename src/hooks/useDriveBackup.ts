@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { SessionsData, Settings } from '../types'
 import { createBackup } from '../lib/backup'
 import type { DriveTransport } from '../lib/driveTransport'
+import { isDrivePreconditionError } from '../lib/driveTransport'
 import { countSolves } from '../lib/sessions'
 import {
   loadDriveBackupState,
@@ -158,7 +159,18 @@ export function useDriveBackup({
           )
         }
         const existingId = currentFiles[0]?.id ?? metadata.remoteFileId
-        return transport.uploadBackup(content, existingId)
+        try {
+          return await transport.uploadBackup(content, existingId, {
+            expectedEtag: currentFiles[0]?.etag ?? null,
+          })
+        } catch (caught) {
+          if (isDrivePreconditionError(caught)) {
+            throw new Error(
+              'Another CubeLab tab changed the Google Drive backup. Try the backup again.',
+            )
+          }
+          throw caught
+        }
       })
       const next = {
         ...metadata,

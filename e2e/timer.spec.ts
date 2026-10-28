@@ -1700,6 +1700,84 @@ test('manual conflict review pauses and resumes after choosing a version', async
 
   const solves = await storedSolves(page)
   expect(solves[0]?.penalty).toBe('none')
+
+  // The reviewed choice is recorded locally and can be reversed. Undo must
+  // apply the other side on the next sync, even though the cloud snapshot that
+  // still carries it is merged before the snapshot this device just wrote.
+  const history = drive.getByTestId('sync-audit-history')
+  await expect(history).toBeVisible()
+  await expect(history).toContainText('Chose this device')
+  await expect(drive.getByTestId('sync-audit-entry')).toHaveCount(1)
+  await drive.getByTestId('undo-conflict-resolution').click()
+  await expect(history).toContainText('Reversed to')
+  await expect(drive.getByTestId('sync-status')).toContainText('synced', {
+    timeout: 15_000,
+  })
+  await expect
+    .poll(async () => (await storedSolves(page))[0]?.penalty, {
+      timeout: 15_000,
+    })
+    .toBe('+2')
+  await expect(drive.getByTestId('sync-audit-entry')).toHaveCount(2)
+
+  // Repair only clears derived bookkeeping. Deletions, approvals, and review
+  // history are correctness state and must survive it.
+  await drive
+    .getByRole('checkbox', { name: 'Automatic synchronization' })
+    .uncheck()
+  const beforeRepair = await page.evaluate(() => {
+    const runtime = (
+      JSON.parse(localStorage.getItem('cubelab:sync:v1') ?? '{}') as {
+        runtime?: {
+          lastSyncedFingerprint?: string | null
+          tombstones?: unknown[]
+          conflictAudit?: unknown[]
+        }
+      }
+    ).runtime
+    return {
+      fingerprint: runtime?.lastSyncedFingerprint,
+      tombstones: runtime?.tombstones?.length ?? 0,
+      audit: runtime?.conflictAudit?.length ?? 0,
+    }
+  })
+  expect(beforeRepair.fingerprint).toBeTruthy()
+  expect(beforeRepair.tombstones).toBe(0)
+  expect(beforeRepair.audit).toBe(2)
+
+  await drive.getByTestId('repair-sync-state').click()
+  await expect(page.locator('.toast')).toContainText('Sync state repaired')
+  const afterRepair = await page.evaluate(() => {
+    const runtime = (
+      JSON.parse(localStorage.getItem('cubelab:sync:v1') ?? '{}') as {
+        runtime?: {
+          lastSyncedFingerprint?: string | null
+          lastRemoteRevision?: number | null
+          lastSyncStatus?: string
+          lastError?: string | null
+          tombstones?: unknown[]
+          conflictAudit?: unknown[]
+        }
+      }
+    ).runtime
+    return {
+      fingerprint: runtime?.lastSyncedFingerprint,
+      revision: runtime?.lastRemoteRevision,
+      status: runtime?.lastSyncStatus,
+      error: runtime?.lastError,
+      tombstones: runtime?.tombstones?.length ?? 0,
+      audit: runtime?.conflictAudit?.length ?? 0,
+    }
+  })
+  expect(afterRepair).toEqual({
+    fingerprint: null,
+    revision: null,
+    status: 'disabled',
+    error: null,
+    tombstones: 0,
+    audit: 2,
+  })
+
   await drive.getByTestId('drive-done').click()
   await expect(drive).toBeHidden()
 })

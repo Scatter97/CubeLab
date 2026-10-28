@@ -4,6 +4,7 @@ import { countSolves } from '../lib/sessions'
 import { loadSessions } from '../lib/storage'
 import { createBackup } from '../lib/backup'
 import type { DriveTransport } from '../lib/driveTransport'
+import { isDrivePreconditionError } from '../lib/driveTransport'
 import {
   loadDriveBackupState,
   saveDriveBackupState,
@@ -13,11 +14,13 @@ import {
   saveSyncStorage,
   SYNC_STORAGE_KEY,
   isActiveTombstone,
+  MAX_CONFLICT_AUDIT_ENTRIES,
   type SyncPreferences,
   type SettingsFieldUpdates,
   type SyncStatus,
   type SyncStorageData,
   type SyncConflict,
+  type ConflictAuditEntry,
 } from '../lib/syncStorage'
 
 import {
@@ -66,6 +69,8 @@ export interface UseSyncResult {
   error: string | null
   conflictsCount: number
   pendingConflicts: SyncConflict[]
+  /** Local-only history of manual conflict decisions, newest first. */
+  conflictAudit: ConflictAuditEntry[]
   duplicateNames: string[]
   approveSessionMerge: (sourceId: string, targetId: string) => void
   resolveConflict: (
@@ -74,6 +79,20 @@ export interface UseSyncResult {
     resolution: 'local' | 'remote',
     kind?: SyncConflict['kind'],
   ) => void
+  /**
+   * Reverses a recorded decision. The stored approval flips; the next merge
+   * applies the other version when it is still present in a cloud snapshot.
+   * Returns an error instead of pretending a superseded decision was reversed.
+   */
+  undoConflictResolution: (
+    auditId: string,
+  ) => { ok: true } | { ok: false; error: string }
+  /**
+   * Clears only derived sync bookkeeping so the next run re-reads every remote
+   * snapshot. Sessions, tombstones, redirects, conflicts, and audit history are
+   * preserved.
+   */
+  repairSyncState: () => void
   preferences: SyncPreferences
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
@@ -133,6 +152,23 @@ function mergeConflictRecords(
 
 function getRemoteFileId(): string | null {
   return loadDriveBackupState().remoteFileId
+}
+
+function createAuditId(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
+/**
+ * `undefined` is meaningful for a cleared session override, but JSON drops it
+ * from an object property. Normalize audit display values so the history
+ * survives a reload; the conflict record remains the source of truth.
+ */
+function auditValue(value: unknown): unknown {
+  return value === undefined ? null : value
 }
 
 export function useSync({
@@ -442,6 +478,7 @@ export function useSync({
       resolution: 'local' | 'remote',
       kind?: SyncConflict['kind'],
     ) => {
+      const audits: ConflictAuditEntry[] = []
       const conflicts = syncRef.current.runtime.conflicts.map((conflict) => {
         if (
           conflict.id !== id ||
@@ -453,23 +490,47 @@ export function useSync({
         }
         // The approval must outrank both reviewed versions, including a remote
         // timestamp that is ahead because of clock skew.
+        const updatedAt = Math.max(
+          Date.now(),
+          conflict.updatedAt,
+          conflict.localUpdatedAt,
+          conflict.remoteUpdatedAt,
+        )
+        audits.push({
+          auditId: createAuditId(),
+          kind: conflict.kind,
+          id: conflict.id,
+          sessionId: conflict.sessionId,
+          field: conflict.field,
+          localValue: auditValue(conflict.localValue),
+          remoteValue: auditValue(conflict.remoteValue),
+          localUpdatedAt: conflict.localUpdatedAt,
+          remoteUpdatedAt: conflict.remoteUpdatedAt,
+          resolution,
+          resolvedAt: updatedAt,
+          byDeviceId: syncRef.current.runtime.deviceId,
+          remoteOnly: conflict.remoteOnly,
+        })
         return {
           ...conflict,
           resolution,
-          updatedAt: Math.max(
-            Date.now(),
-            conflict.updatedAt,
-            conflict.localUpdatedAt,
-            conflict.remoteUpdatedAt,
-          ),
+          updatedAt,
         }
       })
       const stillPending = conflicts.some((conflict) => conflict.resolution === 'manual-pending')
+      const conflictAudit =
+        audits.length === 0
+          ? syncRef.current.runtime.conflictAudit
+          : [...audits].reverse().concat(syncRef.current.runtime.conflictAudit).slice(
+              0,
+              MAX_CONFLICT_AUDIT_ENTRIES,
+            )
       persist({
         ...syncRef.current,
         runtime: {
           ...syncRef.current.runtime,
           conflicts,
+          conflictAudit,
           lastSyncStatus: stillPending ? 'conflict' : 'pending',
           lastError: stillPending
             ? syncRef.current.runtime.lastError
@@ -486,6 +547,125 @@ export function useSync({
     },
     [persist],
   )
+
+  /**
+   * A decision is still reversible while its stored conflict record carries the
+   * exact resolution and timestamp that the audit entry recorded. Flipping it
+   * is enough: merges compare the reviewed pair, so the other value wins on the
+   * next run whenever it still exists in a snapshot. Redirect merges are not
+   * reversible because applying them has already restructured sessions.
+   */
+  const undoConflictResolution = useCallback(
+    (auditId: string): { ok: true } | { ok: false; error: string } => {
+      const entry = syncRef.current.runtime.conflictAudit.find(
+        (candidate) => candidate.auditId === auditId,
+      )
+      if (!entry) {
+        return { ok: false, error: 'That review decision is no longer in the history.' }
+      }
+      if (entry.undoneAt !== undefined) {
+        return { ok: false, error: 'That review decision was already reversed.' }
+      }
+      if (entry.kind === 'redirect') {
+        return {
+          ok: false,
+          error: 'Approved session merges cannot be reversed automatically.',
+        }
+      }
+      if (entry.field === 'legacyRecovery' && entry.resolution === 'remote') {
+        return {
+          ok: false,
+          error:
+            'Legacy recovery cannot be reversed automatically after solves were restored.',
+        }
+      }
+      const conflicts = [...syncRef.current.runtime.conflicts]
+      const index = conflicts.findIndex(
+        (conflict) =>
+          conflict.kind === entry.kind &&
+          conflict.id === entry.id &&
+          conflict.field === entry.field,
+      )
+      const conflict = conflicts[index]
+      if (
+        !conflict ||
+        conflict.resolution !== entry.resolution ||
+        conflict.updatedAt !== entry.resolvedAt
+      ) {
+        return {
+          ok: false,
+          error:
+            'The conflict changed after that decision, so it cannot be reversed safely.',
+        }
+      }
+
+      const now = Math.max(
+        Date.now(),
+        conflict.updatedAt + 1,
+        conflict.localUpdatedAt,
+        conflict.remoteUpdatedAt,
+      )
+      const resolution = entry.resolution === 'local' ? 'remote' : 'local'
+      conflicts[index] = { ...conflict, resolution, updatedAt: now }
+      const reversed: ConflictAuditEntry = {
+        ...entry,
+        auditId: createAuditId(),
+        resolution,
+        resolvedAt: now,
+        undoOf: entry.auditId,
+        undoneAt: undefined,
+      }
+      const conflictAudit = [
+        reversed,
+        ...syncRef.current.runtime.conflictAudit.map((candidate) =>
+          candidate.auditId === entry.auditId
+            ? { ...candidate, undoneAt: now }
+            : candidate,
+        ),
+      ].slice(0, MAX_CONFLICT_AUDIT_ENTRIES)
+      const stillPending = conflicts.some(
+        (candidate) => candidate.resolution === 'manual-pending',
+      )
+      persist({
+        ...syncRef.current,
+        runtime: {
+          ...syncRef.current.runtime,
+          conflicts,
+          conflictAudit,
+          lastSyncStatus: stillPending ? 'conflict' : 'pending',
+          lastError: stillPending ? syncRef.current.runtime.lastError : null,
+        },
+      })
+      if (!stillPending) {
+        window.setTimeout(() => {
+          if (cancelledRef.current) return
+          void syncNowRef.current?.('undo-conflict-resolution')
+        }, 0)
+      }
+      return { ok: true }
+    },
+    [persist],
+  )
+
+  const repairSyncState = useCallback(() => {
+    const enabled = syncRef.current.preferences.enabled
+    persist({
+      ...syncRef.current,
+      runtime: {
+        ...syncRef.current.runtime,
+        lastSyncedFingerprint: null,
+        lastRemoteRevision: null,
+        lastSyncStatus: enabled ? 'pending' : 'disabled',
+        lastError: null,
+      },
+    })
+    if (enabled) {
+      window.setTimeout(() => {
+        if (cancelledRef.current) return
+        void syncNowRef.current?.('repair')
+      }, 0)
+    }
+  }, [persist])
 
   const updatePreferences = useCallback(
     (next: Partial<SyncPreferences>) => {
@@ -902,8 +1082,19 @@ export function useSync({
               }
               const existingFileId =
                 expectedLegacyFile?.id ?? getRemoteFileId()
-              const result = await transport.uploadBackup(content, existingFileId)
-              return { status: 'uploaded' as const, result }
+              try {
+                const result = await transport.uploadBackup(
+                  content,
+                  existingFileId,
+                  { expectedEtag: expectedLegacyFile?.etag ?? null },
+                )
+                return { status: 'uploaded' as const, result }
+              } catch (error) {
+                if (isDrivePreconditionError(error)) {
+                  return { status: 'remote-changed' as const }
+                }
+                throw error
+              }
             })
 
             if (write.status === 'remote-changed') {
@@ -1228,25 +1419,35 @@ export function useSync({
     }
   }, [persist, syncNow])
 
-  // Visibility / pagehide.
+  // Visibility / pagehide / freeze. Browsers may terminate a page before an
+  // asynchronous network write finishes, so this remains best effort. Local
+  // storage is the durability boundary; a `syncing` status left in storage is
+  // resumed on the next startup. Duplicate lifecycle events are collapsed so a
+  // visibility change followed by pagehide cannot start a second upload.
+  const lastExitSyncAtRef = useRef(0)
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden' && syncRef.current.preferences.enabled && syncRef.current.preferences.syncOnExit) {
-        void syncNow('exit')
-      }
+    const requestExitSync = () => {
+      if (!syncRef.current.preferences.enabled) return
+      if (!syncRef.current.preferences.syncOnExit) return
+      const now = Date.now()
+      if (now - lastExitSyncAtRef.current < 2_000) return
+      lastExitSyncAtRef.current = now
+      void syncNow('exit')
     }
-    const handlePageHide = () => {
-      if (syncRef.current.preferences.enabled && syncRef.current.preferences.syncOnExit) {
-        void syncNow('exit')
-      }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') requestExitSync()
+    }
+    const freezeTarget = document as unknown as {
+      addEventListener(type: string, listener: EventListener): void
+      removeEventListener(type: string, listener: EventListener): void
     }
     document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('pagehide', handlePageHide)
-    window.addEventListener('beforeunload', handlePageHide)
+    window.addEventListener('pagehide', requestExitSync)
+    freezeTarget.addEventListener('freeze', requestExitSync)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('pagehide', handlePageHide)
-      window.removeEventListener('beforeunload', handlePageHide)
+      window.removeEventListener('pagehide', requestExitSync)
+      freezeTarget.removeEventListener('freeze', requestExitSync)
     }
   }, [syncNow])
 
@@ -1360,6 +1561,7 @@ export function useSync({
     error: sync.runtime.lastError,
     conflictsCount,
     pendingConflicts,
+    conflictAudit: sync.runtime.conflictAudit ?? [],
     duplicateNames: sync.runtime.pendingDuplicateNames ?? [],
     preferences: sync.preferences,
     updatePreferences,
@@ -1375,5 +1577,7 @@ export function useSync({
     resetBase,
     approveSessionMerge,
     resolveConflict,
+    undoConflictResolution,
+    repairSyncState,
   }
 }

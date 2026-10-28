@@ -237,6 +237,41 @@ describe('resolveRedirectConflicts', () => {
     expect(result.sessionRedirects).toEqual([localRedirect])
   })
 
+  it('surfaces a losing cloud destination even when this device agrees with the newest cloud approval', () => {
+    const localAgreeing = {
+      fromId: 'source',
+      toId: 'target-b',
+      approvedAt: 300,
+      byDeviceId: 'laptop',
+    }
+    const olderCloud = {
+      fromId: 'source',
+      toId: 'target-a',
+      approvedAt: 50,
+      byDeviceId: 'tablet',
+    }
+
+    const result = resolveRedirectConflicts({
+      local: [localAgreeing],
+      remote: [remoteRedirect, olderCloud],
+      manualConflictReview: true,
+      resolvedConflicts: [],
+    })
+
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({
+        kind: 'redirect',
+        id: 'source',
+        field: 'redirect',
+        localValue: 'target-b',
+        remoteValue: 'target-a',
+        resolution: 'manual-pending',
+        remoteOnly: true,
+      }),
+    ])
+    expect(result.sessionRedirects[0]?.toId).toBe('target-b')
+  })
+
   it('chooses the newest divergent approval and records it once', () => {
     const first = resolveRedirectConflicts({
       local: [localRedirect],
@@ -615,6 +650,37 @@ describe('manual conflict resolution', () => {
     expect(result.merged.sessions[0]?.solves[0]?.penalty).toBe('+2')
   })
 
+  it('applies an approval when a snapshot presents the reviewed pair reversed', () => {
+    // The accumulator already holds the approved cloud value after merging one
+    // snapshot. A second snapshot still carries the losing local value, so the
+    // approved pair arrives with local and remote swapped.
+    const alreadyApproved = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: '+2',
+              fieldUpdates: {
+                penalty: { updatedAt: 400, editorId: 'remote-device' },
+              },
+            }),
+          ],
+        }),
+      ],
+    })
+    const result = mergeSessionsData({
+      local: alreadyApproved,
+      remote: local,
+      tombstones: [],
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [{ ...pending, resolution: 'remote', updatedAt: 400 }],
+    })
+
+    expect(result.conflicts).toHaveLength(0)
+    expect(result.merged.sessions[0]?.solves[0]?.penalty).toBe('+2')
+  })
+
   it('raises a new conflict when either side changes after approval', () => {
     const result = mergeSessionsData({
       local,
@@ -761,6 +827,112 @@ describe('deletion versus offline edits', () => {
     expect(result.merged.sessions[0]?.solves.map((item) => item.id)).toEqual([
       'offline-new',
     ])
+    // A legacy tombstone cannot classify the older solve. It is surfaced even
+    // when automatic review is off, because either choice can lose data.
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({
+        kind: 'session',
+        id: 'session-deleted',
+        field: 'legacyRecovery',
+        localValue: 'keep-deleted',
+        remoteValue: 'recover:pre-existing',
+        resolution: 'manual-pending',
+      }),
+    ])
+  })
+
+  it('recovers the ambiguous legacy candidates only after approval', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          solves: [
+            solve({ id: 'pre-existing', createdAt: deletedAt - 1_000 }),
+            solve({ id: 'offline-new', createdAt: deletedAt + 1_000 }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({ sessions: [] })
+    const first = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: true,
+    })
+    const review = first.conflicts.find(
+      (conflict) => conflict.field === 'legacyRecovery',
+    )!
+
+    const recovered = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [
+        { ...review, resolution: 'remote', updatedAt: review.updatedAt + 1 },
+      ],
+    })
+
+    expect(recovered.recoveredSolves).toBe(2)
+    expect(
+      recovered.merged.sessions[0]?.solves.map((item) => item.id).sort(),
+    ).toEqual(['offline-new', 'pre-existing'])
+    expect(
+      recovered.conflicts.some(
+        (conflict) => conflict.field === 'legacyRecovery',
+      ),
+    ).toBe(false)
+  })
+
+  it('keeps the ambiguous legacy candidates deleted when approved as local', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'session-deleted',
+          name: 'Gone',
+          solves: [
+            solve({ id: 'pre-existing', createdAt: deletedAt - 1_000 }),
+            solve({ id: 'offline-new', createdAt: deletedAt + 1_000 }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({ sessions: [] })
+    const first = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: true,
+    })
+    const review = first.conflicts.find(
+      (conflict) => conflict.field === 'legacyRecovery',
+    )!
+
+    const keptDeleted = mergeSessionsData({
+      local,
+      remote,
+      tombstones,
+      deviceId: 'd',
+      manualConflictReview: true,
+      resolvedConflicts: [
+        { ...review, resolution: 'local', updatedAt: review.updatedAt + 1 },
+      ],
+    })
+
+    expect(keptDeleted.recoveredSolves).toBe(1)
+    expect(
+      keptDeleted.merged.sessions[0]?.solves.map((item) => item.id),
+    ).toEqual(['offline-new'])
+    expect(
+      keptDeleted.conflicts.some(
+        (conflict) => conflict.field === 'legacyRecovery',
+      ),
+    ).toBe(false)
   })
 
   it('keeps recovery idempotent across repeated merges', () => {

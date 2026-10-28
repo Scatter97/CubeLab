@@ -11,6 +11,8 @@ import {
   loadSyncStorage,
   saveSyncStorage,
   SYNC_STORAGE_KEY,
+  type ConflictAuditEntry,
+  type SyncConflict,
   type SyncPreferences,
 } from '../lib/syncStorage'
 import { createBackup } from '../lib/backup'
@@ -333,6 +335,60 @@ describe('useSync scheduling and retries', () => {
     await vi.waitFor(() => expect(uploads).toBe(1))
     await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
   })
+
+  it('collapses duplicate exit events into one upload', async () => {
+    enableSync({ syncOnExit: true })
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      uploadDeviceBackup: async (content, deviceId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId)
+      },
+    }
+    renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+      window.dispatchEvent(new Event('pagehide'))
+      window.dispatchEvent(new Event('pagehide'))
+    })
+
+    await vi.waitFor(() => expect(uploads).toBe(1))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(uploads).toBe(1)
+  })
+
+  it('does not rely on beforeunload for the exit sync', async () => {
+    enableSync({ syncOnExit: true })
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      uploadDeviceBackup: async (content, deviceId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId)
+      },
+    }
+    renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(uploads).toBe(0)
+  })
 })
 
 describe('useSync manual conflict resolution', () => {
@@ -436,6 +492,223 @@ describe('useSync manual conflict resolution', () => {
     expect(onReplaceSessions).toHaveBeenCalled()
     const replacement = onReplaceSessions.mock.calls.at(-1)?.[0] as SessionsData | undefined
     expect(replacement?.sessions[0]?.solves[0]?.penalty).toBe('none')
+  })
+
+  it('records a manual resolution and reverses it from history', async () => {
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+
+    await transport.uploadBackup(
+      JSON.stringify(
+        createBackup(
+          sessionsData({
+            sessions: [
+              session({
+                solves: [
+                  solve({
+                    penalty: '+2',
+                    fieldUpdates: {
+                      penalty: {
+                        updatedAt: Date.now() + 60_000,
+                        editorId: 'remote-device',
+                      },
+                    },
+                  }),
+                ],
+              }),
+            ],
+          }),
+          DEFAULT_SETTINGS,
+          new Date(),
+          createSyncEnvelope('remote-device', 1, [], []),
+        ),
+      ),
+      null,
+    )
+
+    const localSessions = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'none',
+              fieldUpdates: {
+                penalty: { updatedAt: 100, editorId: 'local-device' },
+              },
+            }),
+          ],
+        }),
+      ],
+    })
+    const { result, onReplaceSessions } = renderStatefulSync({
+      transport,
+      sessions: localSessions,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.pendingConflicts).toHaveLength(1)
+
+    await act(async () => {
+      result.current.resolveConflict('solve-1', 'penalty', 'local')
+      await result.current.syncNow('manual')
+    })
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+
+    expect(result.current.conflictAudit).toHaveLength(1)
+    const audit = result.current.conflictAudit[0]!
+    expect(audit).toMatchObject({
+      kind: 'solve',
+      id: 'solve-1',
+      field: 'penalty',
+      localValue: 'none',
+      remoteValue: '+2',
+      resolution: 'local',
+    })
+
+    await act(async () => {
+      expect(result.current.undoConflictResolution(audit.auditId)).toEqual({
+        ok: true,
+      })
+      await result.current.syncNow('manual')
+    })
+
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    const replacement = onReplaceSessions.mock.calls.at(-1)?.[0] as
+      | SessionsData
+      | undefined
+    expect(replacement?.sessions[0]?.solves[0]?.penalty).toBe('+2')
+    expect(result.current.conflictAudit[0]).toMatchObject({
+      undoOf: audit.auditId,
+      resolution: 'remote',
+    })
+    expect(result.current.conflictAudit[1]).toMatchObject({
+      auditId: audit.auditId,
+      undoneAt: expect.any(Number),
+    })
+  })
+
+  it('refuses to reverse a legacy recovery after solves were restored', () => {
+    const base = createDefaultSyncStorage('device-test')
+    const conflict: SyncConflict = {
+      id: 'session-deleted',
+      kind: 'session',
+      sessionId: 'session-deleted',
+      field: 'legacyRecovery',
+      localValue: 'keep-deleted',
+      remoteValue: 'recover:solve-old',
+      localUpdatedAt: 100,
+      remoteUpdatedAt: 200,
+      resolution: 'remote',
+      updatedAt: 300,
+    }
+    const audit: ConflictAuditEntry = {
+      auditId: 'audit-legacy',
+      kind: 'session',
+      id: 'session-deleted',
+      sessionId: 'session-deleted',
+      field: 'legacyRecovery',
+      localValue: 'keep-deleted',
+      remoteValue: 'recover:solve-old',
+      localUpdatedAt: 100,
+      remoteUpdatedAt: 200,
+      resolution: 'remote',
+      resolvedAt: 300,
+      byDeviceId: 'device-test',
+    }
+    saveSyncStorage({
+      ...base,
+      preferences: { ...base.preferences, enabled: false },
+      runtime: {
+        ...base.runtime,
+        conflicts: [conflict],
+        conflictAudit: [audit],
+      },
+    })
+
+    const { result } = renderStatefulSync({
+      transport: createMemoryDriveTransport(),
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+    expect(result.current.undoConflictResolution('audit-legacy')).toEqual({
+      ok: false,
+      error:
+        'Legacy recovery cannot be reversed automatically after solves were restored.',
+    })
+    expect(loadSyncStorage().runtime.conflicts[0]?.resolution).toBe('remote')
+    expect(result.current.conflictAudit).toHaveLength(1)
+  })
+
+  it('refuses to reverse a decision that is no longer current', async () => {
+    enableSync({ manualConflictReview: true })
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    await transport.uploadBackup(
+      JSON.stringify(
+        createBackup(
+          sessionsData({
+            sessions: [
+              session({
+                solves: [
+                  solve({
+                    penalty: '+2',
+                    fieldUpdates: {
+                      penalty: { updatedAt: 200, editorId: 'remote-device' },
+                    },
+                  }),
+                ],
+              }),
+            ],
+          }),
+          DEFAULT_SETTINGS,
+          new Date(),
+          createSyncEnvelope('remote-device', 1, [], []),
+        ),
+      ),
+      null,
+    )
+    const localSessions = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              penalty: 'none',
+              fieldUpdates: {
+                penalty: { updatedAt: 100, editorId: 'local-device' },
+              },
+            }),
+          ],
+        }),
+      ],
+    })
+    const { result } = renderStatefulSync({
+      transport,
+      sessions: localSessions,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    await act(async () => {
+      result.current.resolveConflict('solve-1', 'penalty', 'local')
+      await result.current.syncNow('manual')
+    })
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    const audit = result.current.conflictAudit[0]!
+
+    // An explicit replacement clears the reviewed conflict record. The audit
+    // entry stays visible but can no longer be applied safely.
+    await act(async () => {
+      result.current.resetBase(localSessions)
+    })
+    const outcome = result.current.undoConflictResolution(audit.auditId)
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.error).toContain('changed')
   })
 
   it('re-raises review when local data changes before approval', async () => {
@@ -1451,5 +1724,104 @@ describe('useSync same-device write safety', () => {
     expect(after.preferences.solveThreshold).toBe(3)
     expect(after.runtime.tombstones).toEqual([])
     expect(after.runtime.lastSyncedFingerprint).toBeNull()
+  })
+})
+
+describe('useSync repair', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('clears derived bookkeeping while preserving correctness state', () => {
+    const sync = createDefaultSyncStorage('device-test')
+    saveSyncStorage({
+      ...sync,
+      preferences: { ...sync.preferences, enabled: false },
+      runtime: {
+        ...sync.runtime,
+        lastSyncedFingerprint: 'stale-fingerprint',
+        lastRemoteRevision: 42,
+        lastSyncStatus: 'failed',
+        lastError: 'stale error',
+        tombstones: [
+          {
+            kind: 'solve',
+            id: 'deleted-solve',
+            deletedAt: 10,
+            deletedByDeviceId: 'device-test',
+          },
+        ],
+        conflicts: [
+          {
+            id: 'settings',
+            kind: 'settings',
+            field: 'accentColor',
+            localValue: 'green',
+            remoteValue: 'blue',
+            localUpdatedAt: 10,
+            remoteUpdatedAt: 20,
+            resolution: 'local',
+            updatedAt: 30,
+          },
+        ],
+        conflictAudit: [
+          {
+            auditId: 'audit-1',
+            kind: 'settings',
+            id: 'settings',
+            field: 'accentColor',
+            localValue: 'green',
+            remoteValue: 'blue',
+            localUpdatedAt: 10,
+            remoteUpdatedAt: 20,
+            resolution: 'local',
+            resolvedAt: 30,
+            byDeviceId: 'device-test',
+          },
+        ],
+        sessionRedirects: [
+          {
+            fromId: 'source',
+            toId: 'target',
+            approvedAt: 20,
+            byDeviceId: 'device-test',
+          },
+        ],
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useSync({
+        transport: null,
+        sessions: sessionsData(),
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      result.current.repairSyncState()
+    })
+
+    const repaired = loadSyncStorage()
+    expect(repaired.runtime.lastSyncedFingerprint).toBeNull()
+    expect(repaired.runtime.lastRemoteRevision).toBeNull()
+    expect(repaired.runtime.lastSyncStatus).toBe('disabled')
+    expect(repaired.runtime.lastError).toBeNull()
+    expect(repaired.runtime.tombstones).toEqual([
+      {
+        kind: 'solve',
+        id: 'deleted-solve',
+        deletedAt: 10,
+        deletedByDeviceId: 'device-test',
+      },
+    ])
+    expect(repaired.runtime.conflicts).toHaveLength(1)
+    expect(repaired.runtime.conflictAudit).toHaveLength(1)
+    expect(repaired.runtime.sessionRedirects).toHaveLength(1)
   })
 })

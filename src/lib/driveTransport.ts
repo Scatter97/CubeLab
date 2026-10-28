@@ -2,6 +2,49 @@ export interface DriveFile {
   id: string
   name: string
   modifiedTime: string | null
+  /**
+   * Provider ETag for the file's metadata. Google Drive v3 no longer exposes
+   * ETags, so the legacy mutable file's ETag is read through v2. Immutable
+   * per-device snapshots do not need one.
+   */
+  etag?: string | null
+}
+
+export interface DriveUploadOptions {
+  /**
+   * ETag observed before the merge. Google Drive v2 checks it server-side with
+   * `If-Match`; a stale value is rejected with HTTP 412. When the provider does
+   * not return an ETag the legacy update fails closed instead of overwriting a
+   * concurrent write.
+   */
+  expectedEtag?: string | null
+}
+
+/**
+ * A conditional write was refused because the mutable backup changed, or
+ * because the provider could not supply an ETag to verify it. Callers must
+ * re-read and merge instead of retrying the same content blindly.
+ */
+export class DrivePreconditionError extends Error {
+  readonly code = 'drive-precondition-failed'
+
+  constructor(
+    message = 'The Google Drive backup changed before this write. CubeLab did not overwrite it.',
+  ) {
+    super(message)
+    this.name = 'DrivePreconditionError'
+  }
+}
+
+export function isDrivePreconditionError(
+  value: unknown,
+): value is DrivePreconditionError {
+  return (
+    value instanceof DrivePreconditionError ||
+    (value instanceof Error &&
+      (value as Error & { code?: unknown }).code ===
+        'drive-precondition-failed')
+  )
 }
 
 export interface DriveTransport {
@@ -12,7 +55,11 @@ export interface DriveTransport {
   disconnect(): void
   isConnected(): boolean
   findBackup(): Promise<DriveFile | null>
-  uploadBackup(content: string, existingFileId?: string | null): Promise<DriveFile>
+  uploadBackup(
+    content: string,
+    existingFileId?: string | null,
+    options?: DriveUploadOptions,
+  ): Promise<DriveFile>
   downloadBackup(fileId: string): Promise<string>
   deleteBackup(fileId: string): Promise<void>
   /**
@@ -82,10 +129,18 @@ function parseDriveFile(value: unknown): DriveFile {
   ) {
     throw new Error('Google Drive returned a file entry with an invalid date.')
   }
+  if (
+    value.etag !== undefined &&
+    value.etag !== null &&
+    typeof value.etag !== 'string'
+  ) {
+    throw new Error('Google Drive returned a file entry with an invalid ETag.')
+  }
   return {
     id: value.id,
     name: value.name,
     modifiedTime: (value.modifiedTime as string | null | undefined) ?? null,
+    etag: (value.etag as string | null | undefined) ?? null,
   }
 }
 
@@ -187,8 +242,9 @@ function snapshotUniqueToken(): string {
 /**
  * A unique, immutable snapshot name for one write from one device. Because the
  * name is never reused, two concurrent writers sharing a device ID both keep
- * their files; Google Drive still has no verified compare-and-swap, so unique
- * immutable names replace the optimistic recheck that could not be atomic.
+ * their files. No conditional write is needed for an immutable create; the
+ * legacy mutable fixed-name file is the only path that uses an ETag/If-Match
+ * precondition.
  */
 export function deviceSnapshotFileName(deviceId: string): string {
   return `${DRIVE_BACKUP_FILE_PREFIX}-${sanitizeDeviceId(deviceId)}-${snapshotUniqueToken()}.json`
@@ -305,7 +361,7 @@ export function createGoogleDriveTransport(
   }
 
   async function listBackupFiles(): Promise<DriveFile[]> {
-    return fetchDriveBackupFiles((pageToken) => {
+    const files = await fetchDriveBackupFiles((pageToken) => {
       const params = new URLSearchParams({
         spaces: 'appDataFolder',
         q: 'trashed=false',
@@ -319,30 +375,134 @@ export function createGoogleDriveTransport(
         `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
       )
     })
+
+    // Drive v3 does not expose ETags. The legacy fixed-name file is the only
+    // mutable file, so read its v2 ETag once per listing. A failure here must
+    // not break reads; the conditional write path re-reads the ETag and fails
+    // closed if it still cannot verify the precondition.
+    const legacy = files.find((file) => file.name === DRIVE_BACKUP_FILE_NAME)
+    if (!legacy) return files
+    try {
+      const metadata = await readV2FileMetadata(legacy.id)
+      const etag =
+        metadata && typeof metadata.etag === 'string' ? metadata.etag : null
+      return files.map((file) =>
+        file.id === legacy.id ? { ...file, etag } : file,
+      )
+    } catch {
+      return files
+    }
+  }
+
+  async function readV2FileMetadata(
+    fileId: string,
+  ): Promise<Record<string, unknown> | null> {
+    const response = await apiFetch(
+      `https://www.googleapis.com/drive/v2/files/${encodeURIComponent(
+        fileId,
+      )}?fields=etag,id,title,modifiedDate`,
+    )
+    if (response.status === 404) return null
+    if (!response.ok) {
+      throw new Error(
+        `Could not read Google Drive file metadata (status ${response.status}).`,
+      )
+    }
+    const data: unknown = await response.json()
+    if (!isRecord(data)) {
+      throw new Error('Google Drive returned invalid file metadata.')
+    }
+    return data
+  }
+
+  function v2DriveFile(
+    data: Record<string, unknown>,
+    fileId: string,
+    fallbackName: string,
+    fallbackEtag: string | null,
+  ): DriveFile {
+    return {
+      id: typeof data.id === 'string' && data.id ? data.id : fileId,
+      name:
+        typeof data.title === 'string' && data.title
+          ? data.title
+          : typeof data.name === 'string' && data.name
+            ? data.name
+            : fallbackName,
+      modifiedTime:
+        typeof data.modifiedDate === 'string'
+          ? data.modifiedDate
+          : typeof data.modifiedTime === 'string'
+            ? data.modifiedTime
+            : null,
+      etag:
+        typeof data.etag === 'string' && data.etag
+          ? data.etag
+          : fallbackEtag,
+    }
   }
 
   async function writeFile(
     content: string,
     name: string,
     existingFileId?: string | null,
+    options: DriveUploadOptions = {},
   ): Promise<DriveFile> {
     if (existingFileId) {
-      const response = await apiFetch(
-        `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(
-          existingFileId,
-        )}?uploadType=media`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: content,
-        },
-      )
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || 'Google Drive upload failed.')
+      // Drive v3 dropped ETags; v2 still exposes one and honours If-Match on
+      // the media update. Read the metadata ETag, verify the caller's expected
+      // value, then send the same ETag so the provider rejects a write that
+      // raced us (HTTP 412) instead of overwriting it.
+      const metadata = await readV2FileMetadata(existingFileId)
+      if (metadata) {
+        const currentEtag =
+          typeof metadata.etag === 'string' && metadata.etag.length > 0
+            ? metadata.etag
+            : null
+        if (!currentEtag) {
+          throw new DrivePreconditionError(
+            'Google Drive did not provide an ETag for the mutable backup, so CubeLab refused to overwrite it. Try again later.',
+          )
+        }
+        if (
+          options.expectedEtag !== undefined &&
+          options.expectedEtag !== null &&
+          options.expectedEtag !== currentEtag
+        ) {
+          throw new DrivePreconditionError(
+            'Another CubeLab writer changed the Google Drive backup before this upload. CubeLab did not overwrite it.',
+          )
+        }
+        const response = await apiFetch(
+          `https://www.googleapis.com/upload/drive/v2/files/${encodeURIComponent(
+            existingFileId,
+          )}?uploadType=media`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'If-Match': currentEtag,
+            },
+            body: content,
+          },
+        )
+        if (response.status === 412) {
+          throw new DrivePreconditionError(
+            'The Google Drive backup changed while CubeLab was uploading. CubeLab did not overwrite the newer version.',
+          )
+        }
+        if (!response.ok) {
+          const text = await response.text()
+          throw new Error(text || 'Google Drive upload failed.')
+        }
+        const result: unknown = await response.json()
+        if (!isRecord(result)) {
+          throw new Error('Google Drive returned an invalid upload result.')
+        }
+        return v2DriveFile(result, existingFileId, name, currentEtag)
       }
-      const result = (await response.json()) as DriveFile
-      return { ...result, name: result.name || name }
+      // A 404 means the mutable file was deleted. Creating a fresh file cannot
+      // overwrite anything, so fall through to the normal create path.
     }
 
     const metadata = {
@@ -379,7 +539,7 @@ export function createGoogleDriveTransport(
     }
     const result = (await response.json()) as DriveFile
     const refreshed = (await listBackupFiles()).find((file) => file.id === result.id)
-    return refreshed ?? { ...result, name: result.name || name }
+    return refreshed ?? { ...result, name: result.name || name, etag: null }
   }
 
   return {
@@ -408,9 +568,15 @@ export function createGoogleDriveTransport(
       return (await listBackupFiles())[0] ?? null
     },
     listBackups: listBackupFiles,
-    async uploadBackup(content, existingFileId) {
-      // Manual/legacy callers keep the fixed compatibility name.
-      return writeFile(content, DRIVE_BACKUP_FILE_NAME, existingFileId)
+    async uploadBackup(content, existingFileId, options) {
+      // Manual/legacy callers keep the fixed compatibility name. Existing
+      // files are replaced only through the v2 ETag/If-Match check.
+      return writeFile(
+        content,
+        DRIVE_BACKUP_FILE_NAME,
+        existingFileId,
+        options,
+      )
     },
     async uploadDeviceBackup(content, deviceId) {
       // Immutable snapshot: a fresh unique name per write. Never overwrite an
@@ -447,9 +613,11 @@ export function createMemoryDriveTransport(
     name: string
     modifiedTime: string
     content: string
+    etag: string
   }
   const files = new Map<string, MemoryFile>()
   let nextFileNumber = 1
+  let nextEtagNumber = 1
   let lastModifiedMs = 0
 
   // Two rapid writes in the same millisecond must still look different to the
@@ -458,11 +626,17 @@ export function createMemoryDriveTransport(
     lastModifiedMs = Math.max(Date.now(), lastModifiedMs + 1)
     return new Date(lastModifiedMs).toISOString()
   }
+  const nextEtag = () => {
+    const etag = `"cubelab-etag-${nextEtagNumber}"`
+    nextEtagNumber += 1
+    return etag
+  }
 
   const publicFile = (file: MemoryFile): DriveFile => ({
     id: file.id,
     name: file.name,
     modifiedTime: file.modifiedTime,
+    etag: file.etag,
   })
 
   const sortedFiles = () =>
@@ -473,25 +647,56 @@ export function createMemoryDriveTransport(
         left.id.localeCompare(right.id),
     )
 
-  function writeFile(content: string, name: string, existingFileId?: string | null): DriveFile {
+  function writeFile(
+    content: string,
+    name: string,
+    existingFileId?: string | null,
+    options: DriveUploadOptions = {},
+  ): DriveFile {
     const modifiedTime = nextModifiedTime()
     if (existingFileId) {
       const existing = files.get(existingFileId)
       if (existing) {
-        const next = { ...existing, name, modifiedTime, content }
+        if (
+          options.expectedEtag !== undefined &&
+          options.expectedEtag !== null &&
+          options.expectedEtag !== existing.etag
+        ) {
+          throw new DrivePreconditionError(
+            'Another CubeLab writer changed the Google Drive backup before this upload. CubeLab did not overwrite it.',
+          )
+        }
+        const next = {
+          ...existing,
+          name,
+          modifiedTime,
+          content,
+          etag: nextEtag(),
+        }
         files.set(existingFileId, next)
         return publicFile(next)
       }
     }
     const byName = [...files.values()].find((file) => file.name === name)
     if (byName) {
-      const next = { ...byName, modifiedTime, content }
+      const next = {
+        ...byName,
+        modifiedTime,
+        content,
+        etag: nextEtag(),
+      }
       files.set(byName.id, next)
       return publicFile(next)
     }
     const id = `drive-file-${nextFileNumber}`
     nextFileNumber += 1
-    const next: MemoryFile = { id, name, modifiedTime, content }
+    const next: MemoryFile = {
+      id,
+      name,
+      modifiedTime,
+      content,
+      etag: nextEtag(),
+    }
     files.set(id, next)
     return publicFile(next)
   }
@@ -519,12 +724,17 @@ export function createMemoryDriveTransport(
       if (!connected) throw new Error('Connect Google Drive first.')
       return sortedFiles().map(publicFile)
     },
-    async uploadBackup(content) {
+    async uploadBackup(content, existingFileId, options) {
       if (!connected) throw new Error('Connect Google Drive first.')
       const existing = [...files.values()].find(
         (file) => file.name === DRIVE_BACKUP_FILE_NAME,
       )
-      return writeFile(content, DRIVE_BACKUP_FILE_NAME, existing?.id)
+      return writeFile(
+        content,
+        DRIVE_BACKUP_FILE_NAME,
+        existingFileId ?? existing?.id,
+        options,
+      )
     },
     async uploadDeviceBackup(content, deviceId) {
       if (!connected) throw new Error('Connect Google Drive first.')

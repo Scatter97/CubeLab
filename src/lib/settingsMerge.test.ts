@@ -222,6 +222,43 @@ describe('mergeSettingsData field-level merging', () => {
     expect(secondApply.conflicts).toHaveLength(0)
   })
 
+  it('applies an approval when the reviewed pair arrives reversed', () => {
+    const approved: SyncConflict = {
+      kind: 'settings',
+      id: 'settings',
+      field: 'accentColor',
+      localValue: 'amber',
+      remoteValue: 'blue',
+      localUpdatedAt: 100,
+      remoteUpdatedAt: 200,
+      resolution: 'local',
+      updatedAt: 300,
+    }
+    // The accumulator already holds the approved value; a second snapshot still
+    // presents the losing value, so local and remote are swapped.
+    const result = mergeSettingsData({
+      local: settings({ accentColor: 'blue' }),
+      remote: settings({ accentColor: 'amber' }),
+      localFieldUpdates: {
+        accentColor: { updatedAt: 300, editorId: 'phone' },
+      },
+      remoteFieldUpdates: {
+        accentColor: { updatedAt: 100, editorId: 'laptop' },
+      },
+      remoteUpdatedAt: 100,
+      lastSyncAt: 1,
+      manualConflictReview: true,
+      resolvedConflicts: [approved],
+    })
+
+    expect(result.settings.accentColor).toBe('amber')
+    expect(result.conflicts).toHaveLength(0)
+    expect(result.fieldUpdates.accentColor).toEqual({
+      updatedAt: 300,
+      editorId: 'laptop',
+    })
+  })
+
   it('adopts remote-only metadata after the first sync', () => {
     const local = settings({ accentColor: 'amber' })
     const remote = settings({ accentColor: 'blue' })

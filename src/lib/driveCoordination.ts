@@ -9,8 +9,9 @@ import type { DriveFile } from './driveTransport'
  * longer overwrite another writer's data and the lock no longer pretends to
  * make overwriting safe. The optimistic re-check in `ownSnapshotChanged` remains
  * only for legacy single-file transports whose fixed-name file is still
- * mutable. Google Drive provides no verified compare-and-swap for media
- * uploads; do not claim atomic remote writes.
+ * mutable. Those writes also carry a Google Drive v2 ETag through `If-Match`,
+ * which the provider enforces with HTTP 412 when the file changed; that is a
+ * verified conditional update for one file, not a transaction across files.
  */
 export const DRIVE_WRITE_LOCK_NAME = 'cubelab-drive-write'
 

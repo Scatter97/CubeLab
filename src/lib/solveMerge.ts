@@ -70,6 +70,11 @@ function findResolvedConflict(
   // timestamp as well as the originally reviewed timestamp. A third distinct
   // edit made between review and approval changes a value and raises a fresh
   // conflict instead of being silently overridden by a stale approval.
+  //
+  // Snapshots are merged one at a time, so the reviewed pair can arrive in
+  // either orientation: the accumulator may already hold the remote value when
+  // another snapshot carries the old local one. Match the pair unordered and
+  // let the caller translate the stored side back to the current orientation.
   return resolvedConflicts
     .filter(
       (conflict) =>
@@ -79,10 +84,25 @@ function findResolvedConflict(
         conflict.resolution !== 'manual-pending' &&
         localUpdatedAt <= conflict.updatedAt &&
         remoteUpdatedAt <= conflict.updatedAt &&
-        Object.is(localValue, conflict.localValue) &&
-        Object.is(remoteValue, conflict.remoteValue),
+        ((Object.is(localValue, conflict.localValue) &&
+          Object.is(remoteValue, conflict.remoteValue)) ||
+          (Object.is(localValue, conflict.remoteValue) &&
+            Object.is(remoteValue, conflict.localValue))),
     )
     .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+}
+
+/** Translate a stored approval side into the current merge orientation. */
+function resolvedWinner(
+  conflict: SyncConflict,
+  localValue: unknown,
+  remoteValue: unknown,
+): 'local' | 'remote' {
+  const sameOrientation =
+    Object.is(localValue, conflict.localValue) &&
+    Object.is(remoteValue, conflict.remoteValue)
+  if (sameOrientation) return conflict.resolution as 'local' | 'remote'
+  return conflict.resolution === 'local' ? 'remote' : 'local'
 }
 
 export function mergeSolveFields(
@@ -150,7 +170,7 @@ export function mergeSolveFields(
       resolvedConflicts,
     )
     const winner = resolved
-      ? resolved.resolution
+      ? resolvedWinner(resolved, localValue, remoteValue)
       : pickFieldWinner(local, remote, field)
     if (field === 'rawMs') values.rawMs = winner === 'local' ? local.rawMs : remote.rawMs
     if (field === 'penalty') values.penalty = winner === 'local' ? local.penalty : remote.penalty

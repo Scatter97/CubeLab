@@ -192,8 +192,41 @@ describe('mergeSessionMetadata', () => {
     expect(secondApply.metadata.name).toBe('Local')
   })
 
-  it('raises a fresh conflict when the losing side changes after approval', () => {
+  it('applies an approval when the reviewed pair arrives reversed', () => {
+    const resolved: SyncConflict = {
+      kind: 'session',
+      id: 'session-1',
+      sessionId: 'session-1',
+      field: 'name',
+      localValue: 'Local',
+      remoteValue: 'Remote',
+      localUpdatedAt: 100,
+      remoteUpdatedAt: 200,
+      resolution: 'local',
+      updatedAt: 300,
+    }
+    // The accumulator already holds the approved value; a second snapshot still
+    // presents the losing value, so local and remote are swapped.
     const local = session({
+      name: 'Remote',
+      fieldUpdates: { name: { updatedAt: 300, editorId: 'phone' } },
+    })
+    const remote = session({
+      name: 'Local',
+      fieldUpdates: { name: { updatedAt: 100, editorId: 'laptop' } },
+    })
+
+    const { metadata, conflicts } = merge(local, remote, true, [resolved])
+
+    expect(conflicts).toHaveLength(0)
+    expect(metadata.name).toBe('Local')
+    expect(metadata.fieldUpdates?.name).toEqual({
+      updatedAt: 300,
+      editorId: 'laptop',
+    })
+  })
+
+  it('raises a fresh conflict when the losing side changes after approval', () => {    const local = session({
       name: 'Local',
       updatedAt: 100,
       fieldUpdates: { name: { updatedAt: 100, editorId: 'laptop' } },

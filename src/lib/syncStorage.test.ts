@@ -107,3 +107,73 @@ describe('stable device identity', () => {
     )
   })
 })
+
+describe('conflict audit history', () => {
+  const entry = {
+    auditId: 'audit-1',
+    kind: 'settings' as const,
+    id: 'settings',
+    field: 'accentColor',
+    localValue: 'green',
+    remoteValue: 'blue',
+    localUpdatedAt: 10,
+    remoteUpdatedAt: 20,
+    resolution: 'local' as const,
+    resolvedAt: 30,
+    byDeviceId: 'device-a',
+    remoteOnly: false,
+  }
+
+  it('round-trips valid audit entries and keeps them out of envelopes', () => {
+    const storage = memoryStorage()
+    const data = createDefaultSyncStorage('device-a')
+    data.runtime.conflictAudit = [entry]
+    saveSyncStorage(data, storage)
+
+    expect(loadSyncStorage(storage).runtime.conflictAudit).toEqual([entry])
+  })
+
+  it('drops malformed entries and caps only the displayed history', () => {
+    const data = createDefaultSyncStorage('device-a')
+    data.runtime.conflictAudit = [
+      entry,
+      { ...entry, auditId: '', resolution: 'manual-pending' },
+      { ...entry, auditId: 'audit-2', byDeviceId: '' },
+      ...Array.from({ length: 60 }, (_, index) => ({
+        ...entry,
+        auditId: `audit-${index + 3}`,
+      })),
+    ] as never
+
+    const parsed = parseSyncStorageData(data)
+    expect(parsed?.runtime.conflictAudit).toHaveLength(50)
+    expect(parsed?.runtime.conflictAudit[0]?.auditId).toBe('audit-1')
+    expect(
+      parsed?.runtime.conflictAudit.some(
+        (candidate) => candidate.auditId === 'audit-2',
+      ),
+    ).toBe(false)
+  })
+
+  it('recovers an audit entry whose cleared value serialized as null', () => {
+    const data = createDefaultSyncStorage('device-a')
+    data.runtime.conflictAudit = [
+      {
+        ...entry,
+        kind: 'session',
+        id: 'session-1',
+        field: 'inspectionEnabled',
+        localValue: null,
+        remoteValue: true,
+      },
+    ] as never
+
+    expect(
+      parseSyncStorageData(data)?.runtime.conflictAudit[0],
+    ).toMatchObject({
+      field: 'inspectionEnabled',
+      localValue: null,
+      remoteValue: true,
+    })
+  })
+})

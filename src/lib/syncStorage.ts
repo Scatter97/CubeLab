@@ -75,6 +75,36 @@ export interface SyncConflict {
   remoteOnly?: boolean
 }
 
+/**
+ * A local-only record of a conflict the user resolved. It deliberately stays
+ * out of sync envelopes: it is an audit trail for this device, and the durable
+ * decision itself remains the `SyncConflict` record. `resolvedAt` is the exact
+ * `SyncConflict.updatedAt` written by the resolution, so undo can reject a
+ * decision that a later edit has superseded.
+ */
+export interface ConflictAuditEntry {
+  auditId: string
+  kind: SyncConflict['kind']
+  id: string
+  sessionId?: string
+  field: string
+  localValue: unknown
+  remoteValue: unknown
+  localUpdatedAt: number
+  remoteUpdatedAt: number
+  resolution: 'local' | 'remote'
+  resolvedAt: number
+  byDeviceId: string
+  remoteOnly?: boolean
+  /** Set when the decision was reversed; the reversal is a separate entry. */
+  undoneAt?: number
+  /** The audit entry this entry reversed, when applicable. */
+  undoOf?: string
+}
+
+/** Display/history bound only. Correctness state is never capped. */
+export const MAX_CONFLICT_AUDIT_ENTRIES = 50
+
 export interface SessionRedirect {
   fromId: string
   toId: string
@@ -97,6 +127,8 @@ export interface SyncStorageData {
     lastRemoteRevision: number | null
     tombstones: Tombstone[]
     conflicts: SyncConflict[]
+    /** Local-only review history, newest first. Never sent in an envelope. */
+    conflictAudit: ConflictAuditEntry[]
     sessionRedirects: SessionRedirect[]
     pendingDuplicateNames: string[]
     /**
@@ -205,6 +237,38 @@ export function isConflict(value: unknown): value is SyncConflict {
   return true
 }
 
+export function isConflictAuditEntry(value: unknown): value is ConflictAuditEntry {
+  if (!isRecord(value)) return false
+  if (
+    value.kind !== 'solve' &&
+    value.kind !== 'session' &&
+    value.kind !== 'settings' &&
+    value.kind !== 'redirect'
+  ) {
+    return false
+  }
+  if (typeof value.auditId !== 'string' || value.auditId.length === 0) return false
+  if (typeof value.id !== 'string' || value.id.length === 0) return false
+  if (typeof value.field !== 'string' || value.field.length === 0) return false
+  if (!('localValue' in value) || !('remoteValue' in value)) return false
+  if (typeof value.localUpdatedAt !== 'number' || !Number.isFinite(value.localUpdatedAt)) return false
+  if (typeof value.remoteUpdatedAt !== 'number' || !Number.isFinite(value.remoteUpdatedAt)) return false
+  if (typeof value.resolvedAt !== 'number' || !Number.isFinite(value.resolvedAt)) return false
+  if (typeof value.byDeviceId !== 'string' || value.byDeviceId.length === 0) return false
+  if (value.sessionId !== undefined && typeof value.sessionId !== 'string') return false
+  if (value.resolution !== 'local' && value.resolution !== 'remote') return false
+  if (
+    value.undoneAt !== undefined &&
+    (typeof value.undoneAt !== 'number' ||
+      !Number.isFinite(value.undoneAt) ||
+      value.undoneAt < 0)
+  ) {
+    return false
+  }
+  if (value.undoOf !== undefined && typeof value.undoOf !== 'string') return false
+  return true
+}
+
 export function isSessionRedirect(value: unknown): value is SessionRedirect {
   return (
     isRecord(value) &&
@@ -272,6 +336,7 @@ export function createDefaultSyncStorage(deviceId = fallbackDeviceId()): SyncSto
       lastRemoteRevision: null,
       tombstones: [],
       conflicts: [],
+      conflictAudit: [],
       sessionRedirects: [],
       pendingDuplicateNames: [],
       settingsFieldUpdates: {},
@@ -295,6 +360,11 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
     : []
   const conflicts = Array.isArray(sourceRuntime.conflicts)
     ? sourceRuntime.conflicts.filter(isConflict)
+    : []
+  const conflictAudit = Array.isArray(sourceRuntime.conflictAudit)
+    ? sourceRuntime.conflictAudit
+        .filter(isConflictAuditEntry)
+        .slice(0, MAX_CONFLICT_AUDIT_ENTRIES)
     : []
   const sessionRedirects = Array.isArray(sourceRuntime.sessionRedirects)
     ? sourceRuntime.sessionRedirects.filter(isSessionRedirect)
@@ -340,6 +410,7 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
           : null,
       tombstones,
       conflicts,
+      conflictAudit,
       sessionRedirects,
       pendingDuplicateNames,
       settingsFieldUpdates: parseSettingsFieldUpdates(sourceRuntime.settingsFieldUpdates),

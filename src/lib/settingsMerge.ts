@@ -81,10 +81,28 @@ function findResolvedConflict(
         // later edit (which changes the value below).
         localUpdatedAt <= conflict.updatedAt &&
         remoteUpdatedAt <= conflict.updatedAt &&
-        valueEquals(conflict.localValue, localValue) &&
-        valueEquals(conflict.remoteValue, remoteValue),
+        // Remote snapshots merge one at a time, so the reviewed pair may arrive
+        // in either orientation. Match unordered and translate the stored side
+        // when choosing the winner.
+        ((valueEquals(conflict.localValue, localValue) &&
+          valueEquals(conflict.remoteValue, remoteValue)) ||
+          (valueEquals(conflict.localValue, remoteValue) &&
+            valueEquals(conflict.remoteValue, localValue))),
     )
     .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+}
+
+/** Translate a stored approval side into the current merge orientation. */
+function resolvedWinner(
+  conflict: SyncConflict,
+  localValue: unknown,
+  remoteValue: unknown,
+): 'local' | 'remote' {
+  const sameOrientation =
+    valueEquals(localValue, conflict.localValue) &&
+    valueEquals(remoteValue, conflict.remoteValue)
+  if (sameOrientation) return conflict.resolution as 'local' | 'remote'
+  return conflict.resolution === 'local' ? 'remote' : 'local'
 }
 
 export interface SettingsMergeResult {
@@ -196,7 +214,7 @@ export function mergeSettingsData(input: {
         resolvedConflicts,
       )
       const winner = resolved
-        ? resolved.resolution
+        ? resolvedWinner(resolved, localValue, remoteValue)
         : pickWinner(localUpdate, remoteUpdate, localValue, remoteValue)
       if (!resolved) {
         conflicts.push({

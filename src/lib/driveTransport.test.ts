@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DRIVE_BACKUP_SCOPE,
+  DrivePreconditionError,
   createGoogleDriveTransport,
+  createMemoryDriveTransport,
   deviceBackupFileName,
   fetchDriveBackupFiles,
   isDriveBackupFileName,
+  isDrivePreconditionError,
   type DriveFile,
   type DrivePageResponse,
   type DriveTransport,
@@ -325,5 +328,196 @@ describe('backup file names', () => {
       'cubelab-backup-device-with-spaces.json',
     )
     expect(deviceBackupFileName('***')).toBe('cubelab-backup-unknown-device.json')
+  })
+})
+
+function fakeResponse(status: number, body: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return body
+    },
+    async text() {
+      return JSON.stringify(body)
+    },
+  } as Response
+}
+
+async function connectedGoogleTransport() {
+  const initTokenClient = vi.fn(
+    (config: {
+      callback: (response: { access_token?: string; error?: string }) => void
+    }) => {
+      config.callback({ access_token: 'access-token' })
+      return { requestAccessToken: vi.fn() }
+    },
+  )
+  ;(window as Window & { google?: unknown }).google = {
+    accounts: {
+      oauth2: {
+        initTokenClient,
+        revoke: vi.fn(),
+      },
+    },
+  }
+  const transport = createGoogleDriveTransport('client-id')
+  await transport.connect()
+  return transport
+}
+
+describe('legacy mutable backup conditional updates', () => {
+  afterEach(() => {
+    delete (window as Window & { google?: unknown }).google
+    vi.restoreAllMocks()
+  })
+
+  it('replaces the legacy file with a v2 ETag and If-Match', async () => {
+    const transport = await connectedGoogleTransport()
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (input, init?: RequestInit) => {
+        const url = String(input)
+        calls.push({ url, init })
+        if (
+          url.includes('https://www.googleapis.com/drive/v2/files/file-1?')
+        ) {
+          return fakeResponse(200, {
+            id: 'file-1',
+            title: 'cubelab-backup.json',
+            modifiedDate: '2026-01-01T00:00:00.000Z',
+            etag: '"etag-1"',
+          })
+        }
+        if (
+          url.includes(
+            'https://www.googleapis.com/upload/drive/v2/files/file-1?uploadType=media',
+          )
+        ) {
+          return fakeResponse(200, {
+            id: 'file-1',
+            title: 'cubelab-backup.json',
+            modifiedDate: '2026-01-01T00:00:01.000Z',
+            etag: '"etag-2"',
+          })
+        }
+        throw new Error(`Unexpected fetch ${url}`)
+      },
+    )
+
+    const result = await transport.uploadBackup('{}', 'file-1', {
+      expectedEtag: '"etag-1"',
+    })
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.init?.method).toBeUndefined()
+    expect(calls[1]?.init?.method).toBe('PUT')
+    expect(
+      (calls[1]?.init?.headers as Record<string, string> | undefined)?.[
+        'If-Match'
+      ],
+    ).toBe('"etag-1"')
+    expect(result).toMatchObject({
+      id: 'file-1',
+      name: 'cubelab-backup.json',
+      modifiedTime: '2026-01-01T00:00:01.000Z',
+      etag: '"etag-2"',
+    })
+  })
+
+  it('refuses a stale expected ETag without sending the upload', async () => {
+    const transport = await connectedGoogleTransport()
+    const methods: Array<string | undefined> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (_input, init?: RequestInit) => {
+        methods.push(init?.method)
+        return fakeResponse(200, {
+          id: 'file-1',
+          title: 'cubelab-backup.json',
+          modifiedDate: '2026-01-01T00:00:00.000Z',
+          etag: '"etag-2"',
+        })
+      },
+    )
+
+    await expect(
+      transport.uploadBackup('{}', 'file-1', { expectedEtag: '"etag-1"' }),
+    ).rejects.toBeInstanceOf(DrivePreconditionError)
+    expect(methods).toEqual([undefined])
+  })
+
+  it('maps a provider 412 to a precondition failure', async () => {
+    const transport = await connectedGoogleTransport()
+    const methods: Array<string | undefined> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (input, init?: RequestInit) => {
+        methods.push(init?.method)
+        const url = String(input)
+        if (url.includes('/upload/drive/v2/')) {
+          return fakeResponse(412, { error: 'Precondition Failed' })
+        }
+        return fakeResponse(200, {
+          id: 'file-1',
+          title: 'cubelab-backup.json',
+          modifiedDate: '2026-01-01T00:00:00.000Z',
+          etag: '"etag-1"',
+        })
+      },
+    )
+
+    await expect(
+      transport.uploadBackup('{}', 'file-1', { expectedEtag: '"etag-1"' }),
+    ).rejects.toBeInstanceOf(DrivePreconditionError)
+    expect(methods).toEqual([undefined, 'PUT'])
+  })
+
+  it('fails closed when Drive returns no ETag for the mutable file', async () => {
+    const transport = await connectedGoogleTransport()
+    const methods: Array<string | undefined> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (_input, init?: RequestInit) => {
+        methods.push(init?.method)
+        return fakeResponse(200, {
+          id: 'file-1',
+          title: 'cubelab-backup.json',
+          modifiedDate: '2026-01-01T00:00:00.000Z',
+        })
+      },
+    )
+
+    await expect(
+      transport.uploadBackup('{}', 'file-1', { expectedEtag: null }),
+    ).rejects.toBeInstanceOf(DrivePreconditionError)
+    expect(methods).toEqual([undefined])
+  })
+
+  it('recognizes precondition failures across the error shape', () => {
+    expect(isDrivePreconditionError(new DrivePreconditionError())).toBe(true)
+    expect(
+      isDrivePreconditionError(
+        Object.assign(new Error('changed'), {
+          code: 'drive-precondition-failed',
+        }),
+      ),
+    ).toBe(true)
+    expect(isDrivePreconditionError(new Error('other failure'))).toBe(false)
+  })
+
+  it('enforces the expected ETag in the in-memory transport', async () => {
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const first = await memory.uploadBackup('one', null)
+    expect(first.etag).toBeTruthy()
+
+    await expect(
+      memory.uploadBackup('two', first.id, { expectedEtag: '"stale"' }),
+    ).rejects.toBeInstanceOf(DrivePreconditionError)
+    expect(await memory.downloadBackup(first.id)).toBe('one')
+
+    const second = await memory.uploadBackup('two', first.id, {
+      expectedEtag: first.etag,
+    })
+    expect(second.etag).not.toBe(first.etag)
+    expect(await memory.downloadBackup(first.id)).toBe('two')
   })
 })
