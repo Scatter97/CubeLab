@@ -246,8 +246,15 @@ proven.
   sizes and dates, selective deletion, pagination, refresh, and own-only manual
   cleanup. The newest snapshot per device and the legacy mutable file are always
   protected; partial delete failures are reported.
+- 2026-10-28 Stage 3 real-provider validation: an opt-in harness exercised
+  concurrent immutable publishes, all-snapshot convergence, same-device writers,
+  a live Drive v2 ETag/`If-Match` conditional write, retention selection, and
+  selective deletion against a real test account. The final run passed 7/7 with
+  complete cleanup. OAuth used only `drive.appdata`; the app remains in Testing
+  under another owner account, so non-test sign-in is still pending.
 
-**Acceptance gate — partially met:**
+**Acceptance gate — partially met (OAuth publishing and a cross-file transaction
+remain):**
 
 - [x] Deterministic conflict tests cover add/add, edit/edit, delete/edit, and
       session-selection conflicts.
@@ -276,24 +283,28 @@ proven.
       and legacy file, and reports partial failures.
 - [x] The Drive dialog shows per-device snapshot ownership and supports selective
       deletion plus own-only manual cleanup.
-- [ ] Real-provider multi-device concurrency and retention have been validated end
-      to end. The conditional write, recovery, and cleanup paths are covered by
-      deterministic unit, hook, stress, and mock-transport E2E tests only.
+- [x] Real-provider multi-device concurrency, the live ETag/`If-Match` path, and
+      retention/cleanup were validated end to end on 2026-10-28 against a Google
+      Drive test account. The run used two independent transports in one process,
+      not two physical devices.
+- [ ] OAuth publishing: the app is still in Testing under another owner account.
+      Non-test users cannot be validated until the owner publishes it and
+      completes any Google verification.
 - [ ] Provider-level compare-and-swap or a transaction across immutable snapshots
       exists.
 
-**Remaining work:** Real Google Drive multi-device validation (Stage 3) and a
-conditional-write/transaction strategy beyond the legacy mutable file. The
-legacy file is now protected by a provider-enforced `If-Match` update, but
-immutable snapshots are create-only and there is no transaction across the
+**Remaining work:** OAuth publishing and non-test sign-in validation (owner
+action), plus a conditional-write/transaction strategy beyond the legacy mutable
+file. The legacy file is now protected by a provider-enforced `If-Match` update,
+but immutable snapshots are create-only and there is no transaction across the
 snapshot set. Conflict review now has local audit/undo, but applied redirect
 merges are not automatically reversible and redirect handling remains
 deterministic rather than consensus-based. Exit sync is hardened but still best
-effort. Snapshot retention is implemented, but cleanup is a best-effort sequence
-of deletes rather than a transaction and has not been validated against real
-Drive. Also outstanding: field-level active-session merging. The Web Lock
-serializes same-origin writes but is not a remote transaction. Until those are
-addressed, do not describe synchronization as data-loss-proof.
+effort. Snapshot retention was validated against real Drive on 2026-10-28, but
+cleanup remains a best-effort sequence of deletes rather than a transaction.
+Also outstanding: field-level active-session merging. The Web Lock serializes
+same-origin writes but is not a remote transaction. Until those are addressed, do
+not describe synchronization as data-loss-proof.
 
 ## Phase 3 — More WCA events
 

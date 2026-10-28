@@ -1,6 +1,6 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-28 (Stage 2 snapshot lifecycle; full check after retention, ownership UI, and cleanup tests)
+**Last verified:** 2026-10-28 (Stage 3 real-provider validation; full check after the opt-in Drive harness and OAuth guidance)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
@@ -8,11 +8,11 @@
 **Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v4
 **Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
-**Phase 2C:** Complete with documented limitations — local-first Google Drive synchronization with unique immutable device snapshots, field-level session/settings merging, automatic startup/exit/reconnect/combined scheduling, ID-based merging, tombstones, recovery, redirects, empty-default adoption, duplicate-name detection, manual session merges, and conflict review across solve fields, session metadata, settings, and redirects. Stage 1 additionally adds a conditional Drive v2 ETag/`If-Match` update for the legacy mutable file, local review history with exact-match Undo, mandatory legacy-recovery review, hardened exit sync, and a non-destructive repair action. Stage 2 adds bounded snapshot retention, per-device ownership display, selective deletion, and manual cleanup.
+**Phase 2C:** Complete with documented limitations — local-first Google Drive synchronization with unique immutable device snapshots, field-level session/settings merging, automatic startup/exit/reconnect/combined scheduling, ID-based merging, tombstones, recovery, redirects, empty-default adoption, duplicate-name detection, manual session merges, and conflict review across solve fields, session metadata, settings, and redirects. Stage 1 additionally adds a conditional Drive v2 ETag/`If-Match` update for the legacy mutable file, local review history with exact-match Undo, mandatory legacy-recovery review, hardened exit sync, and a non-destructive repair action. Stage 2 adds bounded snapshot retention, per-device ownership display, selective deletion, and manual cleanup. Stage 3 validated concurrent immutable publishing, all-snapshot convergence, the legacy ETag conditional write, and retention cleanup against a real Google Drive test account; the OAuth app remains in Testing under another owner account, so non-test sign-in is still unverified.
 **2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixed repeated recovered-session arrivals and stale conflict approvals. The v3 follow-up adds device-owned Drive snapshots, sessions schema v4 field metadata, field-level session/settings review, settings provenance, timer-deferred sync, bounded retries, deletion hardening, and multi-device stress tests. The v4 follow-up adds complete Drive pagination, same-device write locking/revalidation, final-collection duplicate review, and recovered-solve count fixes. See [Sync hardening](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), [Hardening v3](#hardening-v3--device-owned-snapshots-and-field-level-review--2026-10-25), [Audit follow-up v4](#audit-follow-up-v4--pagination-same-device-writes-duplicate-review--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 **Phase 3/4:** Additional session-preferences work completed — SessionSetupDialog with per-session event, inspection, scramble, and timer preferences; effective session settings applied during solve/timing; AppHeader event display; session-specific setup preserves the active-session event.
-**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, and the 2026-10-25 through 2026-10-28 hardening/remediation passes are implemented, verified with mocks, and documented. The 2026-10-27 remediation removed the 100-entry conflict cap loss, surfaced remote-snapshot disagreements for manual review, and replaced per-device file overwrites with unique immutable snapshots. Stage 0 aligned the documentation; Stage 1 added a legacy-file conditional write, review audit/undo, legacy-tombstone recovery review, exit-sync hardening, and repair. Stage 2 added a configurable snapshot retention policy, per-device ownership metadata and management UI, selective deletion, and manual cleanup. The real-provider multi-device gate remains unmet because no Google Drive test account/OAuth credentials were available; convergence is eventual and there is no cross-file transaction.
-**2026-10-26 audit remediation:** Complete and verified — all high, medium, and low findings from the retired 2026-10-26 audit are fixed. Durable Undo now uses synchronized `restoredAt` tombstone revocations; device identity is stable and cached; remote envelopes/imports reject malformed or mixed-event data; OAuth requests only `drive.appdata`; session inspection overrides can be cleared; custom-average typing is draft-based; disconnecting Drive disables automatic sync; and inspection warnings remain visual on every channel. Regression and Playwright coverage was added. Verification on Node v22.23.2: typecheck, lint, **283/283 unit tests** in 21 files, production build (95 modules; PWA 22 entries, 2284.38 KiB), **29/29 Playwright tests**, and `git diff --check` all passed. This is the 2026-10-26 record; the current verified state is 332/332 unit tests after the 2026-10-28 Stage 2 snapshot lifecycle work. `npm run check` passed as one command at Stage 0, after Stage 1, and again after Stage 2. The completed per-finding tracker and original audit report were retired during the 2026-10-28 documentation cleanup; this paragraph and the sync-hardening sections below retain the outcome. See [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md).
+**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event session setup, and the 2026-10-25 through 2026-10-28 hardening/remediation passes are implemented, verified with deterministic tests plus the Stage 3 real-provider harness, and documented. The 2026-10-27 remediation removed the 100-entry conflict cap loss, surfaced remote-snapshot disagreements for manual review, and replaced per-device file overwrites with unique immutable snapshots. Stage 0 aligned the documentation; Stage 1 added a legacy-file conditional write, review audit/undo, legacy-tombstone recovery review, exit-sync hardening, and repair. Stage 2 added a configurable snapshot retention policy, per-device ownership metadata and management UI, selective deletion, and manual cleanup. Stage 3 ran the real-provider multi-device gate against a Google Drive test account on 2026-10-28. The OAuth publishing/branding item is the remaining Stage 3 gap: the project is owned by another account and the app is still in Testing, so non-test sign-in was not validated. Convergence remains eventual and there is no cross-file transaction.
+**2026-10-26 audit remediation:** Complete and verified — all high, medium, and low findings from the retired 2026-10-26 audit are fixed. Durable Undo now uses synchronized `restoredAt` tombstone revocations; device identity is stable and cached; remote envelopes/imports reject malformed or mixed-event data; OAuth requests only `drive.appdata`; session inspection overrides can be cleared; custom-average typing is draft-based; disconnecting Drive disables automatic sync; and inspection warnings remain visual on every channel. Regression and Playwright coverage was added. Verification on Node v22.23.2: typecheck, lint, **283/283 unit tests** in 21 files, production build (95 modules; PWA 22 entries, 2284.38 KiB), **29/29 Playwright tests**, and `git diff --check` all passed. This is the 2026-10-26 record; the current verified state is 337/337 unit tests after the 2026-10-28 Stage 3 real-provider validation. `npm run check` passed as one command at Stage 0, after Stage 1, after Stage 2, and after Stage 3. The completed per-finding tracker and original audit report were retired during the 2026-10-28 documentation cleanup; this paragraph and the sync-hardening sections below retain the outcome. See [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md).
 
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
@@ -166,18 +166,18 @@ calculations.
 
 ## Verification evidence
 
-Run at 2026-10-28 12:35 (local), after Stage 2 snapshot lifecycle management. Node
-v22.23.2:
+Run on 2026-10-28 after Stage 3 real-provider validation. Node v22.23.2:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **332/332 passed**, 22 test files |
+| Unit tests | `npm test` | **337/337 passed**, 22 test files |
 | Production build | `npm run build` | Passed; 96 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,309.44 KiB** |
+| PWA generation | included in build | 22 precache entries, **2,311.30 KiB** |
 | Production E2E | `npm run test:e2e` | **30/30 passed**, Chromium |
-| Combined chain | `npm run check` | **Passed as one command** |
+| Combined chain | `npm run check` | **Passed as one command**, exit 0 |
+| Real-provider harness | `npm run validate:drive` (opt-in, real account) | **7/7 passed** in the final run; not part of `npm run check` |
 | Whitespace | `git diff --check` | Passed with no errors |
 | Layout coverage | production E2E at 320, 390, and desktop widths | Drive copy, remote snapshot ownership/cleanup, review history/Undo, Repair, paginated conflicts, session dialogs, duplicate-name review, and focus handling verified automatically; the Drive dialog was also inspected at desktop and 320 px with seeded review history and no horizontal overflow |
 
@@ -664,10 +664,10 @@ review history, Undo, and Repair. The Drive dialog was inspected at desktop and
 320 px with seeded review history (no horizontal overflow); the seeded rows were
 removed after inspection.
 
-**Gate status:** partially unmet. No real Google Drive account/OAuth credentials
-were available, so the required real-provider multi-device scenario was not run.
-The conditional-write path is covered by deterministic transport, hook, and mock
-E2E tests only. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+**Gate status:** this was partially unmet when Stage 1 closed because no real
+Google Drive account was available. Stage 3 later ran the real-provider
+multi-device, conditional-write, and retention scenarios successfully on
+2026-10-28. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
 
 ### Performance evidence
 
@@ -1204,16 +1204,18 @@ the Phase 2B manual backup path.
   disagreement review, visibility/`pagehide`/`freeze` exit sync with deduplication,
   and non-destructive **Repair sync state**.
 
-**Not proven:** the required real-provider multi-device scenario has not been
-run. A Google Drive v2 ETag/`If-Match` conditional update now protects the legacy
-mutable fixed-name file, but immutable snapshots are create-only and there is no
-transaction across the snapshot set. Local state remains replaceable and
-convergence is eventual. Real-provider concurrency, redirect consensus, applied
-redirect rollback, and active-session field merging remain unverified or
-unimplemented. Snapshot cleanup is implemented but best effort and has not been
-validated against the real provider. The remaining gaps are listed in
-[`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md); do not describe Phase 2C as
-data-loss-proof.
+**Not proven:** the real-provider multi-device and retention scenarios were run
+successfully on 2026-10-28 with two independent transports, but not with two
+physical browsers or machines. A Google Drive v2 ETag/`If-Match` conditional
+update protects the legacy mutable fixed-name file; immutable snapshots are
+create-only and there is no transaction across the snapshot set. Local state
+remains replaceable and convergence is eventual. Redirect consensus, applied
+redirect rollback, and active-session field merging remain unimplemented. The
+OAuth app is still in Testing under another owner account, so non-test sign-in
+is unverified. Snapshot cleanup is best effort; a repeat delete of an
+already-removed file hit one transient `ECONNRESET` that did not reproduce. The
+remaining gaps are listed in [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md); do
+not describe Phase 2C as data-loss-proof.
 
 ## Stage 2 — Snapshot lifecycle management — 2026-10-28
 
@@ -1272,20 +1274,104 @@ typecheck and lint passed, **332/332 unit tests** in 22 files, production build
 `git diff --check` passed. The new production E2E flow covers ownership groups,
 selective deletion, own-only manual cleanup, and policy persistence.
 
+## Stage 3 — Real-provider validation — 2026-10-28
+
+**Status:** Real-provider validation complete; OAuth publishing/branding is
+partially met. The multi-device provider gate is met. The non-test sign-in
+requirement is not met because the OAuth app is still in **Testing** and its
+Google Cloud project is owned by another account.
+
+### Delivered
+
+- `src/validation/realProvider.validation.ts` and `vitest.real.config.ts` add an
+  opt-in `npm run validate:drive` harness. It is excluded from `npm test`,
+  `npm run build`, and `npm run check`; it requires an explicit
+  `CUBELAB_DRIVE_ACCESS_TOKEN` and uses only `drive.appdata`.
+- `describeGoogleAuthError` maps `origin_mismatch`, `access_denied`,
+  `popup_closed`, `popup_failed_to_open`, `idpiframe_initialization_failed`,
+  invalid clients, and disallowed user agents to actionable guidance. The origin
+  message names the exact scheme/host/port that must be authorized. Unit coverage
+  is in `src/lib/driveTransport.test.ts`.
+- **README → Google OAuth setup** documents authorized JavaScript origins,
+  Testing-mode test users, publishing, and the `origin_mismatch` failure.
+- `useDriveBackup` now derives `connected` from `transport.isConnected()` and
+  derives its idle phase, so a sync that acquires a token outside the dialog no
+  longer leaves the dialog on **Offline** with a **Connect Google Drive** button.
+  `useDriveBackup.test.ts` covers that external-connection path.
+
+### Real-provider evidence
+
+- **Origin configuration.** Sign-in initially failed with `origin_mismatch` for
+  `http://127.0.0.1:5173` and `http://localhost:5173`. After the project owner
+  added `http://localhost:5173`, Google showed the normal CubeLab consent screen.
+  The consent screen requested only “See, create, and delete its own
+  configuration data in your Google Drive” (`drive.appdata`); CubeLab requested
+  no email, profile, or identity scopes.
+- **Real app sync.** On 2026-10-28 the app published
+  `cubelab-backup-b150465e-7eb4-4242-a6c0-a383f68272a1-a598ab57-938b-4df7-878e-764a86615380.json`
+  at `2026-10-28T17:13:19.868Z` (1,140 bytes,
+  `appProperties.deviceId=b150465e-7eb4-4242-a6c0-a383f68272a1`). The earlier
+  snapshot
+  `cubelab-backup-b150465e-7eb4-4242-a6c0-a383f68272a1-8e7a64a4-0964-4b3e-93eb-131440f9df71.json`
+  remained at `2026-10-28T17:10:01.083Z` (1,168 bytes). The dialog showed
+  **Online**, **Status: synced**, **2 files · 2.3 KB**, and a **Disconnect**
+  action, confirming the derived-connection fix. The account label remains the
+  generic “Google Drive connected” because no identity scope is requested.
+- **Harness scenarios (real Drive).** Two independent transport instances with
+  distinct device IDs published concurrently; both snapshots were discoverable
+  with the correct `appProperties.deviceId`; all snapshots downloaded and merged
+  to the same solve set from either transport; a second concurrent round
+  converged; two writers sharing one device ID kept both files; a real ETag was
+  discovered and a stale `If-Match` failed while the correct ETag replaced the
+  legacy mutable file; retention selected with own-only cleanup against real
+  modification times and ownership; selective delete removed one file and a
+  repeated delete resolved.
+- **Final run.** `2026-10-28T17:14:23.018Z`: 2 baseline app snapshots left
+  untouched, 7 files created, 7 deleted, 0 cleanup failures, 0 remaining created
+  files, **7/7 scenarios in 24.86 s**. Timings: concurrent publish 2,005 ms,
+  round-one read 812 ms, concurrent round two 2,460 ms, converged read 1,569 ms,
+  legacy conditional write 1,471 ms, retention cleanup 1,031 ms. Real ETag:
+  `"MTc5MzIwNzY1MTM0Ng"` (earlier runs observed
+  `"MTc5MzIwNjc5NjI2Mw"` and `"MTc5MzIwNzAzOTMyNw"`).
+- **Clean-account runs.** A 7/7 run completed in 29.94 s; a later run passed six
+  scenarios and hit a transient `TypeError: fetch failed` / `ECONNRESET` after
+  about 62 s on the repeated `DELETE` of an already-deleted file. Its cleanup had
+  already deleted all seven created files, and an immediate rerun passed 7/7 in
+  26.14 s. Recorded as a transient network/provider edge case, not a reproducible
+  product defect.
+- **OAuth publishing.** The consent screen is branded **CubeLab** and shows only
+  the Drive app-data permission. The app is still in **Testing**. The Google
+  Cloud project is owned by another account, and the signed-in test account lacks
+  permission to inspect or publish it. A non-test account therefore was not
+  validated and may be blocked until the owner publishes the app and completes
+  any verification Google requires.
+
+### Verification
+
+- `npm run typecheck` and `npm run lint` passed after the connection fix.
+- Focused unit coverage: **40/40** tests in
+  `src/hooks/useDriveBackup.test.ts` and `src/lib/driveTransport.test.ts`.
+- Real-provider harness: **7/7** in the final run; no harness files left behind.
+- **Fresh full check (2026-10-28, Node v22.23.2):** `npm run check` passed as
+  one command: typecheck and lint passed, **337/337 unit tests** in 22 files,
+  production build (96 modules; PWA 22 entries, 2,311.30 KiB), **30/30
+  Playwright tests**, exit 0. The opt-in real-provider harness is not part of
+  `npm run check`.
+
 ## Handoff
 
 ### Safe next work
 
 - Phase 2B and Phase 2C are implemented. Do not add telemetry, non-Google cloud
   providers, or a different sync protocol without an explicit brief.
-- Stage 2 snapshot lifecycle management is complete. The highest-value remaining
-  sync work is real-provider validation (Stage 3). The legacy file now has a
-  provider conditional write, but there is no cross-file transaction. Validate
-  the conditional-write path, snapshot cleanup, and multi-device convergence
-  against a real Google Drive account before claiming the Stage 1 gate. Then
-  address redirect consensus and field-level active-session merging. Preserve the
-  known-solve snapshot on new session tombstones and extend the Drive transport,
-  metadata store, and failure-path tests together.
+- Stage 3 real-provider validation is complete for concurrency, convergence,
+  conditional write, and retention. The remaining Stage 3 item is owned by the
+  Google Cloud project owner: publish the OAuth app out of Testing (and complete
+  any Google verification), then validate sign-in with a non-test account. The
+  legacy file has a provider conditional write, but there is no cross-file
+  transaction. Next, address redirect consensus and field-level active-session
+  merging. Preserve the known-solve snapshot on new session tombstones and extend
+  the Drive transport, metadata store, and failure-path tests together.
 - If more timer preferences are requested, extend the Settings dialog and the
   versioned settings schema together, with migration and E2E coverage. Do not
   duplicate the inspection control back into the header.

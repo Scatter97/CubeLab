@@ -1,10 +1,11 @@
 # Next Session Handoff
 
-**Updated:** 2026-10-28 (Stage 2 snapshot lifecycle complete; Stage 3 remains gated on a real provider account)
-**Objective:** Continue `Oct_28_AM_Plan.md` at Stage 3. Stage 3 needs explicit
-approval and a real Google Drive test account; Stages 4 and 5 are approved.
+**Updated:** 2026-10-28 (Stage 3 real-provider validation complete; OAuth publishing remains with the Google Cloud project owner)
+**Objective:** Continue `Oct_28_AM_Plan.md` at Stage 4. Stage 3's real-provider
+gate is closed; only OAuth publishing/non-test sign-in remains, and that requires
+the Google Cloud project owner. Stages 4 and 5 are approved.
 **Branch:** `master`
-**Working tree:** clean after the focused Stage 2 commit
+**Working tree:** clean after the focused Stage 3 commit
 **Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8)
 
 ## Status
@@ -39,39 +40,64 @@ Stage 2 on 2026-10-28 added snapshot lifecycle management:
   the legacy mutable `cubelab-backup.json` are never deleted. Partial failures
   are reported without failing the completed sync.
 
+Stage 3 on 2026-10-28 added real-provider validation and OAuth guidance:
+
+- An opt-in `npm run validate:drive` harness (`src/validation/realProvider.validation.ts`,
+  `vitest.real.config.ts`) validates concurrent immutable publishing, all-snapshot
+  convergence, same-device writers, the live Drive v2 ETag/`If-Match` path,
+  retention, and selective deletion against a real account. It is excluded from
+  `npm test` and `npm run check` and needs an explicit short-lived
+  `CUBELAB_DRIVE_ACCESS_TOKEN`.
+- `describeGoogleAuthError` maps `origin_mismatch`, `access_denied`,
+  `popup_closed`, invalid-client, and related Google Identity Services errors to
+  actionable guidance that names the exact authorized origin.
+- README documents authorized JavaScript origins, Testing-mode test users,
+  publishing, and the `origin_mismatch` failure.
+- `useDriveBackup` derives `connected` and its idle phase from the transport, so a
+  sync that acquires a token outside the dialog no longer leaves **Offline** and a
+  **Connect** button after a successful sync. A regression test covers it.
+- Real app syncs created two immutable snapshots in the test account, and the
+  final harness run passed 7/7 in 24.86 s with 7 files created, 7 deleted, 2
+  baseline snapshots untouched, and 0 cleanup failures. One earlier run hit a
+  transient `ECONNRESET` on a repeated delete; an immediate rerun passed.
+- The OAuth app remains in Testing under another owner account. Non-test sign-in
+  and published production branding were not validated.
+
 | Check | Result |
 | --- | --- |
-| `npm run check` | **Passed as one command** |
+| `npm run check` | **Passed as one command**, exit 0 |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed with no warnings |
-| `npm test` | **332/332 passed**, 22 files |
-| `npm run build` | Passed; 96 modules; PWA 22 entries, 2,309.44 KiB |
+| `npm test` | **337/337 passed**, 22 files |
+| `npm run build` | Passed; 96 modules; PWA 22 entries, 2,311.30 KiB |
 | `npm run test:e2e` | **30/30 passed**, Chromium |
+| `npm run validate:drive` | **7/7 passed** against the real account (opt-in; not in CI) |
 | `git diff --check` | Passed |
 
-The Stage 1 gate is only partially met: no real Google Drive account/OAuth
-credentials were available, so the required real-provider multi-device scenario
-was not run. Cloud tests use the deterministic in-memory transport. There is
-still no transaction across the immutable snapshot set. Stage 2's gate is met,
-but real-provider retention behavior is part of the deferred Stage 3 validation.
+Stage 3 closed the real-provider multi-device, conditional-write, and retention
+gate. The remaining Stage 3 item is OAuth publishing: the project owner must
+publish the app out of Testing (and complete any Google verification), then a
+non-test account must sign in. There is still no transaction across the immutable
+snapshot set, and convergence remains eventual.
 
 ## Stage status
 
 - **Stage 0 — complete.** Documentation matched the code and `npm run check`
   passed as one command with 287/287 unit tests.
-- **Stage 1 — complete except the real-provider gate; documentation cleanup
-  complete.** Conditional legacy write, audit/Undo, exit-sync hardening,
-  legacy-tombstone recovery review, redirect disagreement review, and repair are
-  implemented and covered by deterministic unit/hook/stress/mock E2E tests. Real
-  Drive validation is deferred to Stage 3.
+- **Stage 1 — complete; real-provider gate closed by Stage 3.** Conditional legacy
+  write, audit/Undo, exit-sync hardening, legacy-tombstone recovery review,
+  redirect disagreement review, and repair are implemented and covered by
+  deterministic unit/hook/stress/mock E2E tests.
 - **Stage 2 — complete 2026-10-28.** Snapshot retention policy, per-device
   ownership and management UI, selective deletion, manual cleanup, and growth
   documentation are implemented and covered by unit, hook, and production E2E
   tests.
-- **Stage 3 — next; requires approval and a real Google Drive test account.**
-  Concurrent multi-device validation, retention behavior against real Drive, and
-  OAuth publishing/branding.
-- **Stage 4 — approved 2026-10-28; not started.** Phase 3 completion: per-event
+- **Stage 3 — complete except OAuth publishing — 2026-10-28.** Real-provider
+  concurrency, convergence, live ETag/`If-Match`, retention, and selective
+  deletion passed 7/7 with complete cleanup. OAuth uses only `drive.appdata` and
+  the consent screen is branded CubeLab, but the app is still in Testing under
+  another owner account, so non-test sign-in is unverified.
+- **Stage 4 — next approved stage; not started.** Phase 3 completion: per-event
   E2E, event-specific WCA rules, and storage-migration verification.
 - **Stage 5 — approved 2026-10-28; not started.** Phase 4 platform work:
   virtualization, cross-browser coverage, accessibility audit, PWA/bundle review.
@@ -127,9 +153,17 @@ but real-provider retention behavior is part of the deferred Stage 3 validation.
 - E2E expects countdown warning labels at **7 seconds remaining** and **3 seconds
   remaining**.
 - Do not claim atomic remote writes or data-loss-proof synchronization. Provider
-  CAS covers only the legacy mutable file. Snapshot cleanup is a best-effort
-  sequence of independent deletes, not a transaction, and has not been validated
-  against real Drive.
+  CAS covers only the legacy mutable file. Snapshot cleanup was validated against
+  real Drive on 2026-10-28, but it remains a best-effort sequence of independent
+  deletes, not a transaction. A repeated delete of an already-removed file hit one
+  transient `ECONNRESET` that did not reproduce.
+- Do not claim non-test sign-in or production OAuth publishing. The app remains in
+  Testing under another owner account; the owner must publish it and complete any
+  Google verification before that can be verified.
+- The real-provider harness needs an explicit short-lived access token. Never
+  commit or print the token, and keep the harness out of `npm run check`/CI. Use
+  `CUBELAB_DRIVE_ALLOW_EXISTING=true` only to leave pre-existing app snapshots
+  untouched; cleanup removes only files the run created.
 - Do not run automatic cleanup before publication, and do not remove the newest
   snapshot of any device group or the legacy mutable file. A cleanup failure must
   be reported without turning a completed sync into a failure.

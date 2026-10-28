@@ -83,6 +83,34 @@ describe('useDriveBackup', () => {
     expect(result.current.metadata.connectedAccountLabel).toBe('Google Drive (mock)')
   })
 
+  it('reflects a connection acquired by a sync outside the dialog', async () => {
+    const transport = createMemoryDriveTransport()
+    const onPendingRestore = vi.fn()
+    const onNotify = vi.fn()
+    const { result, rerender } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore,
+        onNotify,
+      }),
+    )
+    expect(result.current.connected).toBe(false)
+    expect(result.current.phase).toBe('disconnected')
+
+    // useSync connects the transport directly for startup, automatic, and
+    // manual synchronization. The dialog must not keep showing "Offline".
+    await act(async () => {
+      await transport.connect()
+    })
+    act(() => rerender())
+
+    expect(result.current.connected).toBe(true)
+    expect(result.current.phase).toBe('connected')
+  })
+
   it('uploads a backup and records remote metadata', async () => {
     const transport = createMemoryDriveTransport()
     const onPendingRestore = vi.fn()

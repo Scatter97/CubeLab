@@ -10,6 +10,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "validate:drive": "vitest run --config vitest.real.config.ts",
     "test:e2e": "playwright test",
     "preview": "vite preview",
     "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:e2e"

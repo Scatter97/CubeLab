@@ -66,8 +66,7 @@ export function useDriveBackup({
   onConnected,
 }: UseDriveBackupOptions) {
   const configured = Boolean(transport?.configured)
-  const [connected, setConnected] = useState(() => transport?.isConnected() ?? false)
-  const [phase, setPhase] = useState<DriveBackupPhase>(() =>
+  const [phaseState, setPhase] = useState<DriveBackupPhase>(() =>
     configured ? (transport?.isConnected() ? 'connected' : 'disconnected') : 'unconfigured',
   )
   const [error, setError] = useState<string | null>(null)
@@ -75,6 +74,19 @@ export function useDriveBackup({
   const [snapshots, setSnapshots] = useState<DriveFile[] | null>(null)
   const [snapshotsLoading, setSnapshotsLoading] = useState(false)
   const [snapshotsError, setSnapshotsError] = useState<string | null>(null)
+
+  // The transport is the source of truth for authorization. A sync can acquire
+  // a token itself (startup, automatic, or **Sync now**), so derive both the
+  // connection flag and the idle phase instead of leaving the dialog on
+  // "Offline" after a successful synchronization. Active phases (connecting,
+  // backing up, restoring, deleting) and errors are preserved.
+  const connected = transport?.isConnected() ?? false
+  const phase: DriveBackupPhase =
+    connected && phaseState === 'disconnected'
+      ? 'connected'
+      : !connected && phaseState === 'connected'
+        ? 'disconnected'
+        : phaseState
 
   const persistMetadata = useCallback((next: DriveBackupState) => {
     setMetadata(next)
@@ -102,7 +114,6 @@ export function useDriveBackup({
       // picking a file from the list; another device's snapshot is never
       // adopted as this browser's remote file.
       const file = transport.uploadDeviceBackup ? null : files[0] ?? null
-      setConnected(true)
       persistMetadata({
         ...metadata,
         remoteFileId: file?.id ?? null,
@@ -112,7 +123,6 @@ export function useDriveBackup({
       setPhase('connected')
       onConnected?.()
     } catch (caught) {
-      setConnected(false)
       setError(toMessage(caught))
       setPhase('error')
     }
@@ -120,7 +130,6 @@ export function useDriveBackup({
 
   const disconnect = useCallback(() => {
     if (transport) transport.disconnect()
-    setConnected(false)
     setPhase('disconnected')
     setError(null)
   }, [transport])

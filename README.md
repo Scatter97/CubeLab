@@ -286,6 +286,22 @@ Google Drive also turns automatic synchronization off, and reconnecting enables
 it again through the explicit connection flow. Deleting the remote backup does
 not change local sessions or settings.
 
+#### Google OAuth setup
+
+The OAuth client used by a deployment must be a **Web application** client whose
+**Authorized JavaScript origins** include the exact origin CubeLab is served
+from. Scheme, host, and port must match, for example
+`http://localhost:5173` for local development or `https://timer.example.com`
+for a deployment. CubeLab uses the Google Identity Services token flow, so it
+does not need a redirect URI. A mismatch produces Google's `origin_mismatch`
+error; the Drive dialog names the origin that must be authorized.
+
+While the OAuth app is in **Testing**, only accounts listed under **Google Auth
+Platform → Audience → Test users** can connect. Publish the app, and finish any
+branding or verification review Google requires, before expecting other users to
+sign in. The publishing state and authorized origins live in the Google Cloud
+project that owns the client; they are not controlled by the CubeLab build.
+
 ### Inspection rules
 
 When inspection is enabled, the first press starts the 15-second inspection.
@@ -361,6 +377,16 @@ npm run test:e2e    # Playwright against the production preview
 ```
 
 `npm run check` runs the core verification chain.
+
+Real Google Drive validation is opt-in and never runs in `npm run check`:
+
+```bash
+CUBELAB_DRIVE_ACCESS_TOKEN="<short-lived drive.appdata token>" npm run validate:drive
+```
+
+Use a dedicated test account; the harness deletes only the files it creates. Set
+`CUBELAB_DRIVE_ALLOW_EXISTING=true` when the account already has CubeLab snapshots
+that must be left in place. Never commit the token or add this harness to CI.
 
 The Playwright suite builds and serves the production output, then verifies
 keyboard timing, solve-menu penalties, comments, clipboard copying, delete/undo,

@@ -2,7 +2,7 @@
 
 **Created:** 2026-10-28
 **Scope:** Close out the uncommitted 2026-10-27 remediation, align documentation, then execute the prioritized roadmap through Stage 6.
-**Execution status:** Stages 0, 1, and 2 are complete. Stage 3 needs explicit approval and a real Google Drive test account; Stages 4 and 5 are approved.
+**Execution status:** Stages 0, 1, and 2 are complete. Stage 3 real-provider validation is complete except OAuth publishing, which is blocked on the Google Cloud project owner; Stages 4 and 5 are approved.
 **Source of truth:** `AGENTS.md`, `README.md`, `ROADMAP.md`, `PROJECT_PROGRESS.md`, `PATCH_LIMITATIONS.md`, `NEXT_SESSION_HANDOFF.md`.
 
 ---
@@ -16,7 +16,7 @@
 - `npm run check` had **not** been run as a single command since the audit remediation; Stage 0 later ran and passed it.
 
 ### Known limitations at plan creation (items resolved by Stage 1 are marked there; do not claim unresolved items solved)
-Provider CAS unavailable; duplicate review advisory; no real multi-device provider validation; eventual consistency; delete-all all-or-nothing; snapshot cleanup is best effort and not transactional; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; Phase 3 incomplete (no per-event E2E, no event-specific WCA rules); no dark theme; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; history renders every row (no virtualization); Chromium-only automated tests; first launch needs network; large `cubing.js` chunk (~1.2 MB).
+Provider CAS unavailable; duplicate review advisory; real multi-device provider validation completed at Stage 3 but OAuth publishing is still pending; eventual consistency; delete-all all-or-nothing; snapshot cleanup is best effort and not transactional; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; Phase 3 incomplete (no per-event E2E, no event-specific WCA rules); no dark theme; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; history renders every row (no virtualization); Chromium-only automated tests; first launch needs network; large `cubing.js` chunk (~1.2 MB).
 
 ---
 
@@ -49,7 +49,7 @@ Apply these edits so docs match current code:
 
 ---
 
-## Stage 1 — Highest-value sync work (approved 2026-10-28; delivered except real-provider gate)
+## Stage 1 — Highest-value sync work (approved 2026-10-28; delivered; real-provider gate closed at Stage 3)
 
 **Goal:** move from "eventual convergence" to something defensible.
 
@@ -58,7 +58,7 @@ Apply these edits so docs match current code:
    Drive v2 metadata and replaced with a v2 media `PUT` carrying `If-Match`.
    HTTP 412 or a missing ETag fails closed. Immutable per-device snapshots remain
    create-only. Deterministic transport tests cover success, stale ETag, 412, and
-   missing ETag; a real-provider stale-writer test remains deferred to Stage 3.
+   missing ETag; the real-provider stale-writer test was deferred to and completed in Stage 3.
 2. **Conflict resolution audit + undo** — **delivered.** Decisions are recorded
    in a local-only `cubelab:sync:v1` history (newest first, display cap 50) and
    can be undone while the exact resolution and `updatedAt` remain current.
@@ -81,11 +81,12 @@ typecheck and lint passed, **308/308 unit tests** in 21 files, production build
 diff --check` passed. The manual-conflict E2E covers review history, Undo, and
 Repair.
 
-**Gate (Stage 1):** **partially unmet.** The required real-provider multi-device
-scenario was not run because no Google Drive test account/OAuth credentials were
-available. Failure paths are tested against the deterministic transport, and
-honest limitations are recorded in `PATCH_LIMITATIONS.md`. Real-provider
-validation remains Stage 3 work.
+**Gate (Stage 1):** **met after the Stage 3 follow-up.** The required
+real-provider multi-device scenario was not run at Stage 1 because no Google Drive
+test account was available. Failure paths are tested against the deterministic
+transport, and honest limitations are recorded in `PATCH_LIMITATIONS.md`. Stage 3
+later ran the real-provider multi-device, conditional-write, and retention
+validation successfully.
 
 ---
 
@@ -129,7 +130,11 @@ Stage 3 validation gate.
 1. Run concurrent multi-device sync against a real Google Drive test account (not mock transport); record results in `PROJECT_PROGRESS.md`.
 2. Validate OAuth publishing/branding so non-test users can sign in.
 
-**Gate (Stage 3):** real-provider evidence recorded; any new limitations documented.
+**Gate (Stage 3):** partially met. Real-provider concurrency, convergence,
+conditional write, and retention evidence is recorded in `PROJECT_PROGRESS.md`;
+the opt-in harness passes 7/7 with complete cleanup. OAuth branding was exercised
+with only `drive.appdata`, but the app remains in Testing under another owner
+account, so non-test sign-in and published production branding are not validated.
 
 ---
 
@@ -192,7 +197,10 @@ Plus `git diff --check` and a clean `git status`.
 ## Approval notes
 
 - `AGENTS.md` forbids starting Phase 3, Phase 4, or any new cloud/account feature without explicit user instruction. Stages 4 and 5 therefore require explicit approval before execution.
-- Stage 1 (CAS/audit/undo) was approved on 2026-10-28 and delivered except for the real-provider validation gate.
+- Stage 1 (CAS/audit/undo) was approved on 2026-10-28 and delivered; Stage 3 later
+  closed its real-provider validation gate, except for OAuth publishing.
 - Stage 0 was completed and committed on 2026-10-28.
 - Stage 2 was approved and delivered on 2026-10-28.
-- Stage 3 is the next stage that requires explicit approval.
+- Stage 3 was approved and run on 2026-10-28. Real-provider validation is complete;
+  OAuth publishing and non-test sign-in remain owner actions.
+- Stage 4 is the next approved stage.

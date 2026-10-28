@@ -4,6 +4,7 @@ import {
   DrivePreconditionError,
   createGoogleDriveTransport,
   createMemoryDriveTransport,
+  describeGoogleAuthError,
   deviceBackupFileName,
   fetchDriveBackupFiles,
   isDriveBackupFileName,
@@ -311,6 +312,65 @@ describe('Google Identity Services authorization', () => {
     transport.disconnect()
     expect(transport.accountLabel).toBeNull()
     expect(transport.isConnected()).toBe(false)
+  })
+
+  it('turns origin_mismatch into the exact origin to authorize', async () => {
+    let callback:
+      | ((response: { access_token?: string; error?: string }) => void)
+      | undefined
+    ;(window as Window & { google?: unknown }).google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            callback: (response: { access_token?: string; error?: string }) => void
+          }) => {
+            callback = config.callback
+            return {
+              requestAccessToken: () => callback?.({ error: 'origin_mismatch' }),
+            }
+          },
+          revoke: vi.fn(),
+        },
+      },
+    }
+
+    const transport = createGoogleDriveTransport('client-id')
+    await expect(transport.connect()).rejects.toThrow(
+      `Google rejected this page's origin (${window.location.origin})`,
+    )
+  })
+})
+
+describe('Google authorization error guidance', () => {
+  it('names the origin that must be authorized', () => {
+    const message = describeGoogleAuthError(
+      'origin_mismatch',
+      'http://localhost:5173',
+    )
+    expect(message).toContain('http://localhost:5173')
+    expect(message).toContain('Authorized JavaScript origins')
+    expect(message).not.toBe('origin_mismatch')
+  })
+
+  it('explains testing-mode access blocks and closed or blocked popups', () => {
+    expect(
+      describeGoogleAuthError('access_denied', 'https://cubelab.example'),
+    ).toContain('Test users')
+    expect(describeGoogleAuthError('popup_closed', 'https://x')).toContain(
+      'closed before access was granted',
+    )
+    expect(
+      describeGoogleAuthError('popup_failed_to_open', 'https://x'),
+    ).toContain('blocked the Google sign-in window')
+    expect(
+      describeGoogleAuthError('invalid_client', 'https://x'),
+    ).toContain('VITE_GOOGLE_CLIENT_ID')
+  })
+
+  it('passes unknown errors through unchanged', () => {
+    expect(describeGoogleAuthError('Network error', 'https://x')).toBe(
+      'Network error',
+    )
   })
 })
 

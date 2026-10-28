@@ -60,6 +60,7 @@ npm run lint        # Oxlint
 npm test            # Vitest; currently runs all unit/component tests
 npm run build       # production build + PWA
 npm run test:e2e    # Playwright against the production preview
+npm run validate:drive # opt-in real Google Drive harness; requires an access token
 npm run check       # typecheck + lint + unit + build + production e2e
 ```
 
@@ -261,6 +262,9 @@ For a behavior change:
   `src/hooks/useDriveBackup.test.ts`. Extend
   `src/lib/sync.stress.test.ts` when changing concurrency, convergence,
   per-device upload isolation, or cross-field merge behavior.
+- Real Google Drive validation is opt-in: set a short-lived `drive.appdata` access
+  token and run `npm run validate:drive`. Keep network calls out of `npm test`,
+  `npm run check`, and CI, and never commit or print the token.
 - Add or update a Playwright test for user-visible flows, including settings
   open/close and focus restoration, inspection direction/warnings and
   persistence, per-session inspection overrides, session

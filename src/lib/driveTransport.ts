@@ -287,6 +287,49 @@ export function isDriveBackupFileName(name: string): boolean {
   return new RegExp(`^${DRIVE_BACKUP_FILE_PREFIX}-[A-Za-z0-9_-]+\\.json$`).test(name)
 }
 
+/**
+ * Google Identity Services reports configuration failures as short error codes.
+ * Turn the actionable ones into guidance that names the current origin, because
+ * the most common failure is a JavaScript origin missing from the OAuth client.
+ */
+export function describeGoogleAuthError(raw: string, origin: string): string {
+  const code = raw.toLowerCase()
+  if (code.includes('origin_mismatch') || code.includes('origin mismatch')) {
+    return `Google rejected this page's origin (${origin}). In the Google Cloud project that owns this OAuth client, add ${origin} to the web client's Authorized JavaScript origins, wait a few minutes, then reload CubeLab and connect again.`
+  }
+  if (code.includes('access_denied') || code.includes('access denied')) {
+    return `Google blocked or declined this sign-in. If the OAuth app is still in Testing, add this Google account under Google Auth Platform → Audience → Test users, or publish the app. Otherwise choose Allow on the consent screen. (Google reported: ${raw})`
+  }
+  if (code.includes('popup_closed') || code.includes('popup closed')) {
+    return 'The Google sign-in window was closed before access was granted. Choose Connect Google Drive and finish the consent screen.'
+  }
+  if (code.includes('popup_failed_to_open')) {
+    return 'The browser blocked the Google sign-in window. Allow pop-ups for CubeLab, then choose Connect Google Drive again.'
+  }
+  if (code.includes('idpiframe_initialization_failed')) {
+    return 'Google Identity Services could not start. Allow third-party cookies and scripts for accounts.google.com, then reload CubeLab and try again.'
+  }
+  if (
+    code.includes('invalid_client') ||
+    code.includes('deleted_client') ||
+    code.includes('unauthorized_client')
+  ) {
+    return `This build's Google OAuth client is invalid, deleted, or not allowed for ${origin}. Check VITE_GOOGLE_CLIENT_ID and the OAuth client configuration. (Google reported: ${raw})`
+  }
+  if (code.includes('redirect_uri_mismatch')) {
+    return `Google rejected the redirect configuration for ${origin}. CubeLab uses the Google Identity Services token flow, so authorize the JavaScript origin rather than a redirect URI.`
+  }
+  if (code.includes('disallowed_useragent')) {
+    return 'Google blocks sign-in from embedded browsers. Open CubeLab in a normal browser window and try again.'
+  }
+  return raw
+}
+
+function currentOrigin(): string {
+  if (typeof window === 'undefined') return 'this origin'
+  return window.location?.origin || 'this origin'
+}
+
 declare global {
   interface Window {
     google?: {
@@ -360,7 +403,14 @@ export function createGoogleDriveTransport(
         scope: DRIVE_BACKUP_SCOPE,
         callback: (response) => {
           if (response.error || !response.access_token) {
-            reject(new Error(response.error || 'Google sign-in was cancelled.'))
+            reject(
+              new Error(
+                describeGoogleAuthError(
+                  response.error || 'Google sign-in was cancelled.',
+                  currentOrigin(),
+                ),
+              ),
+            )
             return
           }
           accessToken = response.access_token
@@ -368,7 +418,14 @@ export function createGoogleDriveTransport(
           resolve(response.access_token)
         },
         error_callback: (error) => {
-          reject(new Error(error.message || error.type || 'Google sign-in failed.'))
+          reject(
+            new Error(
+              describeGoogleAuthError(
+                error.message || error.type || 'Google sign-in failed.',
+                currentOrigin(),
+              ),
+            ),
+          )
         },
       })
       client.requestAccessToken({ prompt })

@@ -172,8 +172,10 @@ eventually consistent remote store, not a transaction coordinator.
   transports.
 - Residual limits: each change round still adds one snapshot per device until
   cleanup runs. Cleanup is best effort, has no cross-file transaction, and can
-  leave files behind after a partial failure. There is no server-side ordering,
-  and real-provider multi-device behavior remains unvalidated.
+  leave files behind after a partial failure. There is no server-side ordering.
+  Real-provider concurrent publishing and convergence were validated on
+  2026-10-28 with two independent transports, not two physical browsers or
+  machines.
 
 ## 2026-10-28 Stage 1 hardening
 
@@ -189,8 +191,10 @@ eventually consistent remote store, not a transaction coordinator.
 - Immutable per-device snapshots are create-only and do not need a precondition.
   There is still no conditional write across the snapshot set.
 - Covered by `driveTransport.test.ts` (success, stale ETag, HTTP 412, missing
-  ETag, in-memory conditional writes) and hook/UI tests. **Not validated against
-  a real Google Drive account.**
+  ETag, in-memory conditional writes) and hook/UI tests. **Validated against a
+  real Google Drive account on 2026-10-28:** a stale ETag failed, the current
+  ETag replaced the legacy file, and the test file was removed. The harness run
+  and its transient `ECONNRESET` caveat are recorded in `PROJECT_PROGRESS.md`.
 
 ### Conflict-resolution audit and undo
 
@@ -289,8 +293,11 @@ eventually consistent remote store, not a transaction coordinator.
   devices at the same time. Each device prunes its own files on its next
   successful sync; automatic cleanup may also prune other devices' superseded
   groups after merging every snapshot.
-- Real Google Drive retention behavior has not been validated; automated
-  coverage uses the deterministic in-memory transport.
+- Real Google Drive retention selection and own-only deletion were validated on
+  2026-10-28 against a test account with real modification times and ownership
+  metadata. Cleanup remains a best-effort sequence, not a transaction; a
+  transient `ECONNRESET` on a repeated delete of an already-removed file did not
+  reproduce.
 
 ## Still unresolved
 
@@ -307,11 +314,18 @@ eventually consistent remote store, not a transaction coordinator.
   the toast and closes the Drive dialog still has to reopen the merge action
   before the duplicate is resolved; the condition persists in sync runtime until
   then.
-- **No real multi-device provider validation.** Automated coverage uses the
-  deterministic in-memory transport. Real Google Identity Services and Drive
-  backup/restore were validated earlier; concurrent multi-device sync against
-  real Drive and the new v2 ETag/`If-Match` path against the live provider were
-  not. The Stage 1 gate is therefore only partially met.
+- **Real-provider validation is scoped.** On 2026-10-28, two independent
+  transports with distinct device IDs validated concurrent immutable publishing,
+  all-snapshot convergence, same-device concurrent writers, the live v2
+  ETag/`If-Match` path, retention/selective deletion, and cleanup against a real
+  Google Drive test account. This was one process, not two physical browsers or
+  machines, and it does not create a cross-file transaction. The final run left
+  the two app-created snapshots untouched and removed all seven harness files.
+- **OAuth publishing remains in Testing.** The Google Cloud project is owned by
+  another account and the OAuth app is still in Testing. Only listed test users
+  can authorize CubeLab; non-test sign-in and the published production branding
+  were not validated. The project owner must publish the app and complete any
+  verification Google requires, then retest with a non-test account.
 - **Eventual convergence, not synchronous consistency.** Each device must run a
   later merge before it sees another device's newest snapshot. There is no
   server-side ordering, push notification, or read-after-write guarantee.
@@ -358,8 +372,11 @@ eventually consistent remote store, not a transaction coordinator.
 
 Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and
 `npm run test:e2e` with Node 20 or newer. Use an isolated mock cloud for
-concurrency scenarios. Do not treat this patch as a data-loss-proof
-synchronization protocol.
+concurrency scenarios. To reproduce the real-provider run, set a short-lived
+`CUBELAB_DRIVE_ACCESS_TOKEN` with the `drive.appdata` scope and run
+`npm run validate:drive`; set `CUBELAB_DRIVE_ALLOW_EXISTING=true` only when the
+account already contains CubeLab snapshots that must be left untouched. Do not
+treat this patch as a data-loss-proof synchronization protocol.
 
 Stage 0 on 2026-10-28 ran `npm run check` as one command with Node v22.23.2.
 Typecheck and lint passed, **287/287 unit tests** passed in 21 files, the
@@ -371,8 +388,9 @@ hardening: typecheck and lint passed, **308/308 unit tests** passed in 21 files,
 the production build passed (95 modules; PWA 22 entries, 2,296.43 KiB), **29/29
 Playwright tests** passed, and `git diff --check` was clean. The manual-conflict
 E2E covers review history, Undo, and Repair. No real Google Drive multi-device or
-live-provider ETag test was run; the Stage 1 gate is partially unmet and real
-provider validation remains Stage 3 work.
+live-provider ETag test was run at Stage 1, so that gate was partially unmet then.
+Stage 3 later ran the live-provider ETag and multi-device harness on 2026-10-28;
+see below.
 
 Stage 2 on 2026-10-28 passed `npm run check` as one command after snapshot
 lifecycle work: typecheck and lint passed, **332/332 unit tests** passed in 22
@@ -382,4 +400,23 @@ includes retention selection and partial-delete failures, policy defaults and
 invalid values, hook listing/deletion/manual cleanup, automatic cleanup after
 publication with disabled and failing paths, and a production E2E flow for
 ownership, selective deletion, cleanup, and policy persistence. No real-provider
-retention test was run.
+retention test was run at Stage 2.
+
+Stage 3 on 2026-10-28 ran the opt-in `npm run validate:drive` harness against a
+real Google Drive test account. The final run passed **7/7** scenarios in 24.86 s
+with 2 baseline app snapshots, 7 files created, 7 deleted, 0 cleanup failures, and
+0 remaining created files. It exercised concurrent immutable publishing,
+all-snapshot convergence, same-device concurrent writers, a live ETag/`If-Match`
+conditional write, retention selection, and selective deletion. A clean-account
+run also passed 7/7; one earlier run passed six scenarios and hit a transient
+`TypeError: fetch failed` / `ECONNRESET` after about 62 s on the repeated delete of
+an already-removed file. Cleanup had already deleted all seven files and an
+immediate rerun passed. OAuth used only `drive.appdata`; the consent screen was
+branded **CubeLab**. The app remains in Testing under another owner account, so
+non-test sign-in and production publishing were not validated.
+
+The fresh `npm run check` after Stage 3 passed as one command: typecheck and lint
+passed, **337/337 unit tests** in 22 files, production build (96 modules; PWA 22
+entries, 2,311.30 KiB), **30/30 Playwright tests**, exit 0. The real-provider
+harness is opt-in, needs an explicit short-lived token, and is not part of
+`npm run check`.
