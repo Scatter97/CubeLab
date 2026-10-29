@@ -170,14 +170,16 @@ checked off, and the active documentation is updated.
 
 ---
 
-## Stage 5 — Phase 4 platform work (APPROVED 2026-10-28)
+## Stage 5 — Phase 4 platform work (COMPLETE 2026-10-29)
 
-1. Virtualize/window the solve history for very large sessions (2,000+ solves responsive).
-2. WebKit/Firefox coverage where available; physical iOS/Android touch audit.
-3. Formal screen-reader/keyboard audit.
-4. PWA update-behavior review and `cubing.js` bundle-splitting improvements.
+1. History virtualization for 2,000+ solves (delivered).
+2. WebKit/Firefox coverage added; physical iOS/Android touch audit not performed
+   (no device available).
+3. Formal screen-reader/keyboard audit completed and automated with axe.
+4. PWA update behavior reviewed; `cubing.js` loaded via dynamic import.
 
-**Gate (Stage 5):** seeded 2,000+ solve sessions responsive; no horizontal overflow; cross-browser limitations recorded honestly.
+**Gate (Stage 5): met.** Seeded 2,000+ solve sessions remain responsive; no
+horizontal overflow; cross-browser limitations recorded honestly.
 
 ---
 

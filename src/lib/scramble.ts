@@ -1,4 +1,3 @@
-import { randomScrambleForEvent } from 'cubing/scramble'
 import { getEventDefinition } from './events'
 import type { PuzzleEvent } from '../types'
 
@@ -16,6 +15,11 @@ function scrambleEventId(event: PuzzleEvent): string {
  * deliberately do not hand-roll a scramble algorithm.
  */
 export async function generateScramble(event: PuzzleEvent = '333'): Promise<string> {
+  // Load cubing.js on demand so its large solver chunk does not block the
+  // initial application shell. The production build still emits it as a
+  // separate cached chunk, and the worker isolation in vite.config.ts is
+  // unchanged.
+  const { randomScrambleForEvent } = await import('cubing/scramble')
   const alg = await randomScrambleForEvent(scrambleEventId(event))
   return alg.toString().trim()
 }

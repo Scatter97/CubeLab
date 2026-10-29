@@ -1462,6 +1462,29 @@ kbd {
   transition: background 120ms ease;
 }
 
+/* Virtualized rows are windowed, so content-visibility must not collapse
+   their measured height while they are near the visible area. */
+.history-list--virtualized .history-row {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
+
+.history-spacer {
+  flex: none;
+  width: 100%;
+  pointer-events: none;
+}
+
+.history-scroll.is-virtualized {
+  overflow-anchor: none;
+}
+
+.history-window-toggle {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 0;
+}
+
 .history-main {
   display: grid;
   grid-template-columns: minmax(52px, auto) minmax(0, 1fr);

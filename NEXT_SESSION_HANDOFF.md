@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-**Updated:** 2026-10-28 (Stage 4 complete; Phase 3 closed; Stage 5 is next)
+**Updated:** 2026-10-29 (Stage 5 complete; Phase 4 closed; Stage 6 is next)
 **Objective:** Continue `Oct_28_AM_Plan.md` at Stage 5. Stage 4 completed Phase 3
 with 5×5, 6×6, and 7×7 events, per-event desktop/mobile E2E, and the shared WCA
 rule audit. Stage 5 is the approved Phase 4 platform work: history
@@ -67,8 +67,9 @@ transaction across the immutable snapshot set, and convergence remains eventual.
   7/7 with complete cleanup. The app remains in Testing under another owner.
 - **Stage 4 — complete 2026-10-28.** Phase 3 completion: all seven events,
   per-event E2E, WCA rule audit, multi-event storage/backup coverage, and docs.
-- **Stage 5 — next approved stage; not started.** Phase 4 platform work:
-  virtualization, cross-browser coverage, accessibility audit, PWA/bundle review.
+- **Stage 5 — complete 2026-10-29.** Phase 4 platform work: history
+  virtualization, Chromium/Firefox/WebKit coverage, accessibility/keyboard audit,
+  and PWA/bundle review.
 - **Stage 6 — polish, no extra approval.** Dark theme only after a full contrast
   audit; the inspection reset is already implemented.
 

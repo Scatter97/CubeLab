@@ -365,12 +365,13 @@ not describe synchronization as data-loss-proof.
 - Review PWA update behavior and bundle splitting for the `cubing.js` chunk.
 - Keep offline reload and worker isolation regression tests mandatory.
 
-**Acceptance gate:**
+**Acceptance gate — met:**
 
-- Seeded 2,000+ solve sessions remain responsive.
-- No horizontal overflow at supported widths.
-- Keyboard-only and screen-reader flows are documented and tested.
-- Cross-browser limitations are recorded honestly if an engine is unavailable.
+- [x] Seeded 2,000+ solve sessions remain responsive (history windowing).
+- [x] No horizontal overflow at supported widths.
+- [x] Keyboard-only and screen-reader flows are documented and tested.
+- [x] Cross-browser limitations are recorded honestly (Firefox and WebKit skip
+      offline and touch hold-to-time tests).
 
 ## Cross-cutting backlog
 

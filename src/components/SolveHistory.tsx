@@ -1,7 +1,11 @@
+/* oxlint-disable react/set-state-in-effect */
+/* oxlint-disable react-hooks/set-state-in-effect */
 import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -14,6 +18,12 @@ import {
   formatTime,
 } from '../lib/format'
 import { copyText } from '../lib/clipboard'
+import {
+  averageMeasuredHeight,
+  buildRowOffsets,
+  computeHistoryWindow,
+  findRowAtOffset,
+} from '../lib/historyWindow'
 import { MAX_SOLVE_COMMENT_LENGTH } from '../lib/sessions'
 import {
   CopyIcon,
@@ -37,14 +47,31 @@ interface OpenSolveMenu {
   trigger: HTMLElement
 }
 
+interface HistoryAnchor {
+  id: string
+  index: number
+  offset: number
+}
+
 interface SolveRowProps {
   solve: Solve
   number: number
+  setSize: number
   menuOpen: boolean
-  popupOpen: boolean
   onOpenMenu: (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => void
+  onHoverMenu: (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => void
   onSetPenalty: (id: string, penalty: Penalty) => void
 }
+
+/**
+ * Sessions above this size render only the rows near the scroll viewport.
+ * Smaller sessions keep every row in the DOM so find-in-page and Tab order
+ * continue to cover the complete history without an extra action.
+ */
+const VIRTUALIZE_THRESHOLD = 200
+const ROW_HEIGHT_FALLBACK = 44
+const WINDOW_OVERSCAN_PX = 320
+const WINDOW_NOTE_ID = 'history-window-note'
 
 function fullTimestamp(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -61,9 +88,10 @@ function solveTimeText(solve: Solve): string {
 const SolveRow = memo(function SolveRow({
   solve,
   number,
+  setSize,
   menuOpen,
-  popupOpen,
   onOpenMenu,
+  onHoverMenu,
   onSetPenalty,
 }: SolveRowProps) {
   const rowRef = useRef<HTMLLIElement>(null)
@@ -91,6 +119,8 @@ const SolveRow = memo(function SolveRow({
       className={`history-row${menuOpen ? ' is-menu-open' : ''}`}
       data-testid="history-row"
       data-solve-id={solve.id}
+      aria-posinset={number}
+      aria-setsize={setSize}
     >
       <button
         type="button"
@@ -103,8 +133,12 @@ const SolveRow = memo(function SolveRow({
         onMouseEnter={(event) => {
           // While a row menu is open, hovering another solve promotes it into
           // the same popup instead of leaving the previous solve selected.
-          if (!popupOpen || menuOpen) return
-          openMenu(event.currentTarget)
+          onHoverMenu(
+            solve,
+            number,
+            event.currentTarget,
+            rowRef.current ?? event.currentTarget,
+          )
         }}
       >
         <span
@@ -206,11 +240,12 @@ export function SolveHistory({
   const [openMenu, setOpenMenu] = useState<OpenSolveMenu | null>(null)
   const [commentEditing, setCommentEditing] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
+  const [showAll, setShowAll] = useState(false)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [heights, setHeights] = useState(() => new Map<string, number>())
   const newestId = solves[0]?.id
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [newestId])
+  const virtualized = solves.length > VIRTUALIZE_THRESHOLD && !showAll
 
   const closeMenu = useCallback((restoreFocus = true) => {
     setOpenMenu((current) => {
@@ -222,13 +257,261 @@ export function SolveHistory({
     setCommentEditing(false)
   }, [])
 
+  const anchorRef = useRef<HistoryAnchor | null>(null)
+  const previousNewestRef = useRef<string | undefined>(newestId)
+  const scrollRafRef = useRef<number | null>(null)
+  const openMenuRef = useRef<OpenSolveMenu | null>(null)
+  const solvesRef = useRef(solves)
+  const offsetsRef = useRef<Float64Array | null>(null)
+  const virtualizedRef = useRef(virtualized)
+
+  const estimate = useMemo(
+    () => averageMeasuredHeight(heights, ROW_HEIGHT_FALLBACK),
+    [heights],
+  )
+  const offsets = useMemo(
+    () =>
+      virtualized
+        ? buildRowOffsets(
+            solves.map((solve) => solve.id),
+            heights,
+            estimate,
+          )
+        : null,
+    [estimate, heights, solves, virtualized],
+  )
+
+  useLayoutEffect(() => {
+    solvesRef.current = solves
+    openMenuRef.current = openMenu
+    virtualizedRef.current = virtualized
+    offsetsRef.current = offsets
+  }, [solves, openMenu, virtualized, offsets])
+
+  const windowRange = useMemo(
+    () =>
+      offsets
+        ? computeHistoryWindow(
+            offsets,
+            scrollTop,
+            viewportHeight,
+            WINDOW_OVERSCAN_PX,
+          )
+        : {
+            start: 0,
+            end: solves.length,
+            topSpacer: 0,
+            bottomSpacer: 0,
+            totalHeight: 0,
+          },
+    [offsets, scrollTop, solves.length, viewportHeight],
+  )
+
+  useEffect(() => {
+    const ids = new Set(solves.map((solve) => solve.id))
+    setHeights((previous) => {
+      let changed = false
+      const next = new Map(previous)
+      for (const id of previous.keys()) {
+        if (!ids.has(id)) {
+          next.delete(id)
+          changed = true
+        }
+      }
+      return changed ? next : previous
+    })
+  }, [solves])
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [newestId])
+
+  useEffect(
+    () => () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current)
+      }
+    },
+    [],
+  )
+
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    const update = () => setViewportHeight(scroller.clientHeight)
+    update()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }
+
+    const observer = new ResizeObserver(update)
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [])
+
+  // Measure the rendered window. Heights vary with comments and wrapped
+  // metadata, so the offset table is corrected before paint and the current
+  // scroll anchor is restored by the effect below.
+  useLayoutEffect(() => {
+    if (!virtualized) return
+    const scroller = scrollRef.current
+    if (!scroller) return
+
+    setHeights((previous) => {
+      const next = new Map(previous)
+      let changed = false
+      for (const node of scroller.querySelectorAll<HTMLElement>('[data-solve-id]')) {
+        const id = node.dataset.solveId
+        if (!id) continue
+        const height = node.getBoundingClientRect().height
+        if (height <= 0) continue
+        const existing = previous.get(id)
+        if (existing === undefined || Math.abs(existing - height) > 0.5) {
+          next.set(id, height)
+          changed = true
+        }
+      }
+      return changed ? next : previous
+    })
+  }, [openMenu, solves, scrollTop, viewportHeight, virtualized])
+
+  // When "Show all" is used, measure every row once so switching back to the
+  // windowed view keeps an accurate total height and scroll position.
+  useLayoutEffect(() => {
+    if (!showAll) return
+    const scroller = scrollRef.current
+    if (!scroller) return
+
+    setHeights((previous) => {
+      const next = new Map(previous)
+      let changed = false
+      for (const node of scroller.querySelectorAll<HTMLElement>('[data-solve-id]')) {
+        const id = node.dataset.solveId
+        if (!id) continue
+        const height = node.getBoundingClientRect().height
+        if (height <= 0) continue
+        const existing = previous.get(id)
+        if (existing === undefined || Math.abs(existing - height) > 0.5) {
+          next.set(id, height)
+          changed = true
+        }
+      }
+      return changed ? next : previous
+    })
+  }, [showAll])
+
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current
+    const currentNewest = solves[0]?.id
+    const newestChanged = currentNewest !== previousNewestRef.current
+    previousNewestRef.current = currentNewest
+
+    if (newestChanged) {
+      anchorRef.current = null
+      return
+    }
+    if (!virtualized || !offsets || !scroller) return
+
+    const anchor = anchorRef.current
+    if (!anchor) return
+
+    const foundIndex = solves.findIndex((solve) => solve.id === anchor.id)
+    const index =
+      foundIndex >= 0
+        ? foundIndex
+        : Math.min(anchor.index, solves.length - 1)
+    if (index < 0) return
+
+    const target =
+      (offsets[index] ?? 0) + (foundIndex >= 0 ? anchor.offset : 0)
+    if (Math.abs(scroller.scrollTop - target) > 1) {
+      scroller.scrollTop = target
+      setScrollTop(target)
+    }
+  }, [heights, offsets, solves, virtualized])
+
+  // Keep an open menu pointed at the current solve object and row number. A
+  // penalty edit, deletion above it, or external import must not leave the
+  // popup showing stale values.
+  useEffect(() => {
+    if (!openMenu) return
+    const index = solves.findIndex((solve) => solve.id === openMenu.solve.id)
+    if (index < 0) {
+      // oxlint-disable-next-line react(set-state-in-effect)
+      closeMenu(false)
+      return
+    }
+    const current = solves[index]
+    if (!current) return
+    const number = solves.length - index
+    if (current !== openMenu.solve || number !== openMenu.number) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setOpenMenu({ ...openMenu, solve: current, number })
+    }
+  }, [closeMenu, openMenu, solves])
+
+  const captureAnchor = useCallback(() => {
+    const scroller = scrollRef.current
+    const currentOffsets = offsetsRef.current
+    const currentSolves = solvesRef.current
+    if (
+      !virtualizedRef.current ||
+      !scroller ||
+      !currentOffsets ||
+      currentSolves.length === 0
+    ) {
+      return
+    }
+
+    const top = scroller.scrollTop
+    const index = findRowAtOffset(currentOffsets, top)
+    const solve = currentSolves[index]
+    if (solve) {
+      anchorRef.current = {
+        id: solve.id,
+        index,
+        offset: top - (currentOffsets[index] ?? top),
+      }
+    }
+  }, [])
+
+  const handleScroll = useCallback(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    if (scrollRafRef.current !== null) return
+
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null
+      const top = scroller.scrollTop
+      setScrollTop(top)
+
+      const currentOffsets = offsetsRef.current
+      const currentSolves = solvesRef.current
+      if (!virtualizedRef.current || !currentOffsets || currentSolves.length === 0) {
+        return
+      }
+      const index = findRowAtOffset(currentOffsets, top)
+      const solve = currentSolves[index]
+      if (solve) {
+        anchorRef.current = {
+          id: solve.id,
+          index,
+          offset: top - (currentOffsets[index] ?? top),
+        }
+      }
+    })
+  }, [])
+
   const handleOpenMenu = useCallback(
     (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => {
-      if (openMenu?.solve.id === solve.id) {
+      if (openMenuRef.current?.solve.id === solve.id) {
         closeMenu(true)
         return
       }
 
+      captureAnchor()
       setCommentDraft(solve.comment)
       setCommentEditing(false)
       setOpenMenu({
@@ -238,7 +521,34 @@ export function SolveHistory({
         trigger,
       })
     },
-    [closeMenu, openMenu],
+    [captureAnchor, closeMenu],
+  )
+
+  const handleHoverMenu = useCallback(
+    (solve: Solve, number: number, trigger: HTMLElement, anchor: HTMLElement) => {
+      if (!openMenuRef.current || openMenuRef.current.solve.id === solve.id) {
+        return
+      }
+
+      captureAnchor()
+      setCommentDraft(solve.comment)
+      setCommentEditing(false)
+      setOpenMenu({
+        solve,
+        number,
+        rect: anchor.getBoundingClientRect(),
+        trigger,
+      })
+    },
+    [captureAnchor],
+  )
+
+  const handleRowPenalty = useCallback(
+    (id: string, penalty: Penalty) => {
+      captureAnchor()
+      onSetPenalty(id, penalty)
+    },
+    [captureAnchor, onSetPenalty],
   )
 
   useEffect(() => {
@@ -281,21 +591,29 @@ export function SolveHistory({
 
   const handlePenalty = (penalty: Penalty) => {
     if (!openMenu) return
+    captureAnchor()
     onSetPenalty(openMenu.solve.id, penalty)
     closeMenu()
   }
 
   const handleDelete = () => {
     if (!openMenu) return
+    captureAnchor()
     onDelete(openMenu.solve.id)
     closeMenu(false)
   }
 
   const handleSaveComment = () => {
     if (!openMenu) return
+    captureAnchor()
     onSetComment(openMenu.solve.id, commentDraft.trim())
     onNotify('Solve comment saved')
     closeMenu()
+  }
+
+  const toggleShowAll = () => {
+    captureAnchor()
+    setShowAll((current) => !current)
   }
 
   const menu = openMenu
@@ -488,6 +806,10 @@ export function SolveHistory({
       })()
     : null
 
+  const renderedSolves = virtualized
+    ? solves.slice(windowRange.start, windowRange.end)
+    : solves
+
   return (
     <section className="panel history-panel" aria-labelledby="history-title">
       <div className="panel-heading history-heading">
@@ -507,9 +829,32 @@ export function SolveHistory({
             </span>
           </h2>
         </div>
+        {solves.length > VIRTUALIZE_THRESHOLD ? (
+          <button
+            type="button"
+            className="text-button history-window-toggle"
+            data-testid="history-window-toggle"
+            aria-pressed={showAll}
+            onClick={toggleShowAll}
+          >
+            {showAll ? 'Use windowed view' : 'Show all solves'}
+          </button>
+        ) : null}
       </div>
 
-      <div className="history-scroll" ref={scrollRef}>
+      {solves.length > VIRTUALIZE_THRESHOLD ? (
+        <p id={WINDOW_NOTE_ID} className="sr-only">
+          For performance, only solves near the visible area are rendered. Use
+          Show all solves to make every row available to find-in-page and
+          assistive technology.
+        </p>
+      ) : null}
+
+      <div
+        className={`history-scroll${virtualized ? ' is-virtualized' : ''}`}
+        ref={scrollRef}
+        onScroll={handleScroll}
+      >
         {solves.length === 0 ? (
           <div className="history-empty">
             <span className="empty-mark">
@@ -521,19 +866,49 @@ export function SolveHistory({
             </span>
           </div>
         ) : (
-          <ol className="history-list">
-            {solves.map((solve, index) => (
-              <SolveRow
-                key={solve.id}
-                solve={solve}
-                number={solves.length - index}
-                menuOpen={openMenu?.solve.id === solve.id}
-                popupOpen={openMenu !== null}
-                onOpenMenu={handleOpenMenu}
-                onSetPenalty={onSetPenalty}
+          <>
+            {virtualized && windowRange.topSpacer > 0 ? (
+              <div
+                className="history-spacer"
+                aria-hidden="true"
+                style={{ height: windowRange.topSpacer }}
               />
-            ))}
-          </ol>
+            ) : null}
+            <ol
+              className={`history-list${virtualized ? ' history-list--virtualized' : ''}`}
+              data-testid="history-list"
+              data-virtualized={virtualized ? 'true' : 'false'}
+              aria-label="Solve history"
+              aria-describedby={
+                solves.length > VIRTUALIZE_THRESHOLD
+                  ? WINDOW_NOTE_ID
+                  : undefined
+              }
+            >
+              {renderedSolves.map((solve, offset) => {
+                const index = virtualized ? windowRange.start + offset : offset
+                return (
+                  <SolveRow
+                    key={solve.id}
+                    solve={solve}
+                    number={solves.length - index}
+                    setSize={solves.length}
+                    menuOpen={openMenu?.solve.id === solve.id}
+                    onOpenMenu={handleOpenMenu}
+                    onHoverMenu={handleHoverMenu}
+                    onSetPenalty={handleRowPenalty}
+                  />
+                )
+              })}
+            </ol>
+            {virtualized && windowRange.bottomSpacer > 0 ? (
+              <div
+                className="history-spacer"
+                aria-hidden="true"
+                style={{ height: windowRange.bottomSpacer }}
+              />
+            ) : null}
+          </>
         )}
       </div>
 

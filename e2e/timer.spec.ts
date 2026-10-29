@@ -250,8 +250,11 @@ test('keyboard timing records exactly one solve and advances the scramble', asyn
 test('solve menu handles penalties, comments, copying, undo, and typed clear', async ({
   page,
   context,
+  browserName,
 }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  if (browserName === 'chromium') {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  }
   await page.goto('/')
   await waitForApp(page)
   await recordSolve(page, 120)
@@ -307,9 +310,11 @@ test('solve menu handles penalties, comments, copying, undo, and typed clear', a
   await expect(page.getByRole('status')).toContainText(
     'Scramble copied to clipboard',
   )
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(scramble)
+  if (browserName === 'chromium') {
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(scramble)
+  }
 
   menu = await openFirstSolveMenu(page)
   await menu.getByRole('menuitem', { name: 'Delete solve' }).click()
@@ -592,8 +597,11 @@ test('interface zoom fills the viewport and keeps dialogs usable', async ({
 test('display and scramble preferences apply and keyboard activation works', async ({
   page,
   context,
+  browserName,
 }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  if (browserName === 'chromium') {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  }
   await page.goto('/')
   await waitForApp(page)
 
@@ -606,9 +614,11 @@ test('display and scramble preferences apply and keyboard activation works', asy
   await expect(page.getByRole('status')).toContainText(
     'Scramble copied to clipboard',
   )
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(initialScramble)
+  if (browserName === 'chromium') {
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(initialScramble)
+  }
 
   const settings = await openSettings(page)
   await settings.locator('#decimal-small').check()
@@ -870,7 +880,12 @@ test('expanded and custom statistics are display-only and persist', async ({
 
 test('mobile layout supports hold-to-time pointer controls', async ({
   browser,
+  browserName,
 }) => {
+  test.skip(
+    browserName !== 'chromium',
+    'Pointer hold-to-time emulation is only exercised in Chromium.',
+  )
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     hasTouch: true,
@@ -1071,6 +1086,133 @@ test('long desktop sessions scroll inside the history panel', async ({ page }) =
   }))
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
   expect(metrics.pageHeight).toBeLessThanOrEqual(metrics.viewportHeight + 1)
+})
+
+test('large histories window rows without losing actions or access', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.addInitScript(() => {
+    const now = Date.now()
+    const solves = Array.from({ length: 2000 }, (_, index) => ({
+      id: `history-${index}`,
+      event: '333',
+      rawMs: 9000 + index,
+      penalty: 'none',
+      scramble: "R U R' U' F2 D L2 B' R2 U2 F R2",
+      comment: index % 53 === 0 ? 'A persisted comment that makes this row taller.' : '',
+      createdAt: now - index * 1000,
+    }))
+    localStorage.setItem(
+      'cubelab:sessions:v1',
+      JSON.stringify({
+        version: 4,
+        activeSessionId: 'history-session',
+        sessions: [
+          {
+            id: 'history-session',
+            name: 'Session 1',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves,
+          },
+        ],
+      }),
+    )
+  })
+
+  await page.goto('/')
+  await waitForApp(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('2000')
+
+  const list = page.getByTestId('history-list')
+  await expect(list).toHaveAttribute('data-virtualized', 'true')
+  const rows = page.locator('[data-testid="history-row"]')
+  expect(await rows.count()).toBeLessThan(100)
+  expect(await rows.count()).toBeGreaterThan(0)
+  await expect(rows.first()).toHaveAttribute('aria-setsize', '2000')
+
+  // Scrolling reaches the oldest solve while keeping the rendered set small.
+  const scroller = page.locator('.history-scroll')
+  await scroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await expect(rows.last()).toHaveAttribute('data-solve-id', 'history-1999', {
+    timeout: 10_000,
+  })
+  expect(await rows.count()).toBeLessThan(100)
+
+  // Penalty toggles still work on a windowed row and persist.
+  const oldest = rows.last()
+  await oldest.getByTestId('solve-plus-two').click()
+  await expect(oldest.locator('.history-time')).toContainText('+2')
+
+  // Deletion and durable undo work without rendering every row.
+  await oldest.locator('[data-testid="history-main"]').click()
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Delete solve' }).click()
+  await expect(page.getByTestId('solve-count')).toHaveText('1999')
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(page.getByTestId('solve-count')).toHaveText('2000')
+
+  // "Show all" restores full access for find-in-page and assistive technology.
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0
+  })
+  await page.getByTestId('history-window-toggle').click()
+  await expect(list).toHaveAttribute('data-virtualized', 'false')
+  await expect(rows).toHaveCount(2000, { timeout: 30_000 })
+  await page.getByTestId('history-window-toggle').click()
+  await expect(list).toHaveAttribute('data-virtualized', 'true')
+
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+  )
+  expect(overflow).toBe(true)
+})
+
+test('large histories stay contained on mobile widths', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    const now = Date.now()
+    const solves = Array.from({ length: 2000 }, (_, index) => ({
+      id: `history-${index}`,
+      event: '333',
+      rawMs: 9000 + index,
+      penalty: 'none',
+      scramble: "R U R' U' F2 D L2 B' R2 U2 F R2",
+      comment: '',
+      createdAt: now - index * 1000,
+    }))
+    localStorage.setItem(
+      'cubelab:sessions:v1',
+      JSON.stringify({
+        version: 4,
+        activeSessionId: 'history-session',
+        sessions: [
+          {
+            id: 'history-session',
+            name: 'Session 1',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves,
+          },
+        ],
+      }),
+    )
+  })
+
+  await page.goto('/')
+  await waitForApp(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('2000')
+  await expect(page.getByTestId('history-list')).toHaveAttribute(
+    'data-virtualized',
+    'true',
+  )
+
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+  )
+  expect(overflow).toBe(true)
 })
 
 test('named sessions create, switch, rename, delete, and persist', async ({
@@ -1581,7 +1723,12 @@ test('scramble failure disables timing and offers retry', async ({ page }) => {
 test('installed app loads scrambles while completely offline', async ({
   page,
   context,
+  browserName,
 }) => {
+  test.skip(
+    browserName !== 'chromium',
+    'Service-worker offline coverage remains Chromium-only in this environment.',
+  )
   await page.goto('/')
   await waitForApp(page)
 

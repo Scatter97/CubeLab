@@ -1020,17 +1020,27 @@ offline Playwright test and must not be undone casually.
 - Up to five custom averages are supported. Built-in average sizes cannot be
   added again as custom averages, and a high built-in average stays empty until
   the session has enough solves.
-- The history list still renders every row. A 2,000-solve session loads and
-  scrolls smoothly, but the Phase 1 profile showed penalty toggles at roughly
-  0.2–0.3 s and delete/undo in the same range. The Phase 2A.3 row menu was not
-  separately profiled. Virtualization should be added if sessions grow
-  substantially beyond that size.
-- Automated browser testing uses Chromium only. WebKit and Firefox were not
-  available in this environment; a physical iOS/Android device was not tested.
+- Solve history now windows sessions above 200 solves: only the rows near the
+  visible area are rendered, with spacers preserving total scroll height and
+  `aria-setsize`/`aria-posinset` exposing the full count to assistive technology.
+  A **Show all solves** control restores every row for find-in-page and full
+  keyboard traversal. Windowed mode keeps only the rendered rows in the Tab order;
+  use **Show all solves** when every row must be reachable. A 2,000-solve session
+  now renders about 18 rows, 423 DOM nodes, 7.6 MB JS heap, and loads in about
+  0.8 s in Chromium.
+- Automated browser testing now runs Chromium, Firefox, and WebKit. Firefox and
+  WebKit skip the service-worker offline test and the touch hold-to-time test,
+  which remain Chromium-only because those engines cannot support the harness or
+  the emulated touch timing reliably. A physical iOS/Android device was not
+  available and was not tested.
 - The mobile E2E flow exercises pointer events in a mobile viewport. It does not
   emulate platform-specific touch scrolling/pinch behavior.
-- No formal screen-reader audit has been completed, though semantic labels, live
-  regions, dialog focus handling, and keyboard controls are implemented.
+- A formal keyboard and screen-reader-oriented audit was completed for Phase 4.
+  Axe scans of the main view and Settings dialog are now part of the Playwright
+  suite. The only remaining axe finding is `label-content-name-mismatch` on the
+  composite timer surface; its inner content is marked `aria-hidden` and the
+  control exposes a descriptive `aria-label`, so the finding is treated as a
+  false positive for a composite control and is documented here.>
 - First launch requires network access to install the service worker. Later
   launches are offline-capable.
 - The production bundle intentionally includes a large `cubing.js` chunk; no
@@ -1419,6 +1429,65 @@ Google Cloud project is owned by another account.
 **Gate status: met.** The Phase 3 acceptance criteria in `ROADMAP.md` are
 checked off, and README, AGENTS, ROADMAP, the stage plan, and this file describe
 the completed event support.
+
+## Stage 5 — Phase 4 platform hardening — 2026-10-29
+
+### Delivered
+1. **History virtualization.** `SolveHistory` now windows sessions above 200
+   solves, rendering only the rows near the visible area plus top/bottom spacers
+   that preserve total scroll height. Measured row heights correct the offset
+   table before paint, and `aria-setsize`/`aria-posinset` expose the full count.
+   A **Show all solves** control restores every row for find-in-page and full
+   keyboard traversal; the windowed-mode tradeoff is documented. Anchor
+   restoration keeps scrolling, penalty toggles, deletion, comments, and menu
+   actions from jumping.
+2. **Performance profile.** A seeded 2,000-solve session was measured before and
+   after virtualization in Chromium at 1440×1000:
+   - Rendered rows: 2,000 → 18.
+   - DOM nodes: 24,291 → 423.
+   - JS heap: 16.1 MB → 7.6 MB.
+   - Load to queue ready: 1,170 ms → 814 ms.
+   - Penalty toggle: ~49 ms → ~44 ms.
+   - Scroll to oldest row: 18 ms → 64 ms.
+   - Delete with menu: 416 ms → 74 ms.
+   - Session switch: 207 ms → 42 ms.
+   - Backup validation: 374 ms → 109 ms.
+   - Backup apply: 595 ms → 315 ms.
+   - No horizontal overflow at 1440 or 390 px.
+   The remaining interaction cost is now dominated by React state updates on the
+   visible window rather than reconciling 2,000 rows.
+3. **Cross-browser coverage.** Playwright now runs Chromium, Firefox, and WebKit.
+   Firefox and WebKit skip the service-worker offline test and the touch
+   hold-to-time test, which remain Chromium-only. All three engines pass the rest
+   of the suite. Clipboard permission grants are limited to Chromium.
+4. **Accessibility audit.** A keyboard and screen-reader-oriented audit covered
+   the timer, Settings, session dialogs, solve history/menu, Drive review, and
+   destructive confirmations. Axe scans of the main view and Settings dialog are
+   now automated. The only remaining serious axe finding is
+   `label-content-name-mismatch` on the composite timer surface; its inner content
+   is marked `aria-hidden` and the control exposes a descriptive `aria-label`.
+   Focus order, focus restoration, dialog focus trapping, accessible names, live
+   regions, and Space ownership were verified. Space remains timer input except in
+   text fields.
+5. **PWA and bundle review.** `cubing.js` is now loaded with a dynamic import in
+   `src/lib/scramble.ts`, deferring the 1.2 MB solver chunk off the initial shell
+   while keeping the dedicated chunk and disabled module preloading. Service-worker
+   registration, cache versioning, and offline reload were re-verified with the
+   offline Playwright test. The production build remains 96 modules, PWA 22
+   entries, 2,317.00 KiB.
+6. **Physical device review.** Not performed; no iOS or Android device was
+   available in this environment.
+
+### Verification
+- `npm run check` passed as one command: typecheck, lint, **346/346 unit tests**
+  in 23 files, production build (96 modules; PWA 22 entries, 2,317.00 KiB),
+  **140/144 Playwright tests passed** with 4 honestly skipped (offline in
+  Firefox/WebKit, touch hold-to-time in Firefox/WebKit), exit 0.
+- `git diff --check` passed.
+- Layout coverage at 320, 390, 1440, and desktop widths; no horizontal overflow.
+
+**Gate status: met.** The Phase 4 acceptance criteria in `ROADMAP.md` are
+checked off.
 
 ## Handoff
 

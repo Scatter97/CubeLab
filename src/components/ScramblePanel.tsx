@@ -87,8 +87,8 @@ export function ScramblePanel({
         aria-label={
           canActivate
             ? scrambleAction === 'copy'
-              ? 'Copy scramble'
-              : 'Generate next scramble'
+              ? `Copy scramble: ${scramble}`
+              : `Generate next scramble: ${scramble}`
             : undefined
         }
         onClick={canActivate ? activateScramble : undefined}

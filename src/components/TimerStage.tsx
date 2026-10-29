@@ -262,7 +262,7 @@ export function TimerStage({
     }
     return inspectionEnabled
       ? 'Timer ready. Press Space or tap the timer to start 15-second inspection.'
-      : 'Timer ready. Hold Space or press and hold the timer to arm, then release.'
+      : `Timer ready. ${eventLabel}. Hold Space or press and hold the timer to arm, then release.`
   })()
 
   const readout = showTimerDecimalSmall
@@ -306,7 +306,7 @@ export function TimerStage({
         onPointerCancel={handlePointerCancel}
         onContextMenu={(event) => event.preventDefault()}
       >
-        <span className="stage-top">
+        <span className="stage-top" aria-hidden="true">
           <span className="phase-pill">
             <span className={`phase-dot ${isRunning ? 'is-live' : ''}`} aria-hidden="true" />
             <span id="timer-phase">
@@ -326,8 +326,12 @@ export function TimerStage({
           </span>
         </span>
 
-        <span className="readout-zone">
-          <span className="timer-display" data-testid="timer-display">
+        <span className="readout-zone" aria-hidden="true">
+          <span
+            className="timer-display"
+            data-testid="timer-display"
+            aria-hidden="true"
+          >
             {readout}
             {suffix ? <span className="timer-suffix">{suffix}</span> : null}
           </span>
@@ -356,7 +360,7 @@ export function TimerStage({
           )}
         </span>
 
-        <span className="stage-bottom">
+        <span className="stage-bottom" aria-hidden="true">
           <span className="timer-hint">{hint}</span>
           <span className="stage-key-hint" aria-hidden="true">
             <kbd>SPACE</kbd>

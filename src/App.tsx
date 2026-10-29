@@ -840,7 +840,6 @@ export default function App() {
         } as React.CSSProperties
       }
     >
-      <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
       <AppHeader
         sessionName={activeSession.name}
         event={activeEvent}
@@ -851,6 +850,7 @@ export default function App() {
       />
 
       <main className="workspace">
+        <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
         <div className="primary-column">
           <ScramblePanel
             event={activeEvent}
@@ -948,6 +948,7 @@ export default function App() {
           />
 
           <SolveHistory
+            key={activeSession.id}
             solves={solves}
             onSetPenalty={handleSetPenalty}
             onDelete={handleDelete}

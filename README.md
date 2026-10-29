@@ -79,8 +79,11 @@ data, and about preferences in one place, with progressive migration from older
 settings records. At 320 px the Settings dialog keeps the inspection label and
 its switch touch target visible, and its body scrolls independently so the Done
 button stays reachable. The desktop history rail scrolls internally rather than
-stretching the page. Offscreen history rows are skipped during rendering and
-memoized, so long sessions remain usable. Solve rows open a compact menu anchored
+stretching the page. Histories above 200 solves are windowed so only the rows
+near the visible area render; spacers preserve scroll height and
+\`aria-setsize\`/\`aria-posinset\` expose the full count. A **Show all solves**
+control restores every row for find-in-page and full keyboard traversal. Solve
+rows open a compact menu anchored
 near the row; the menu stays inside the viewport on narrow screens.
 
 ![CubeLab Settings dialog](docs/cubelab-settings.png)
@@ -532,7 +535,9 @@ merging, tombstones, conflict review, and scheduled sync.
 Sessions support 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7 and use `cubing.js`
 random-state scrambles for the selected event. Phase 3 is complete, including
 per-event desktop/mobile E2E coverage, shared WCA inspection and penalty rules,
-and multi-event storage, backup, and import verification. Social features and
+and multi-event storage, backup, and import verification. Phase 4 is complete:
+history windowing for large sessions, Chromium/Firefox/WebKit coverage,
+accessibility and keyboard audit, and PWA/bundle review. Social features and
 non-Google cloud providers remain outside scope. Unique immutable snapshots
 prevent writers from
 overwriting one another; the legacy mutable fixed-name file uses a Drive v2
