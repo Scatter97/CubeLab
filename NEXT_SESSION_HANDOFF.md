@@ -1,18 +1,21 @@
 # Next Session Handoff
 
-**Updated:** 2026-10-29 (Stage 5 complete; Phase 4 closed; Stage 6 is next)
-**Objective:** Continue `Oct_28_AM_Plan.md` at Stage 5. Stage 4 completed Phase 3
-with 5×5, 6×6, and 7×7 events, per-event desktop/mobile E2E, and the shared WCA
-rule audit. Stage 5 is the approved Phase 4 platform work: history
-virtualization, WebKit/Firefox coverage where available, a formal
-accessibility/keyboard audit, and PWA/bundle review.
+**Updated:** 2026-10-29 (Stage 6 complete; Stages 0–6 closed)
+**Objective:** Maintain the completed Milestone 1 through Phase 4 implementation
+and the Stage 6 polish. Stage 5 completed Phase 4 platform work (history
+windowing, Chromium/Firefox/WebKit coverage, accessibility/keyboard audit, and
+PWA/bundle review). Stage 6 delivered the audited light/dark/system theme,
+settings schema v7, contrast tests, dark-theme axe scans, and a pre-paint theme
+bootstrap. No further stage is approved; the remaining items are owner-blocked
+OAuth publishing/non-test sign-in, unavailable physical iOS/Android review, and
+the deliberately unchanged 10 MB import cap.
 **Branch:** `master`
-**Working tree:** clean after the focused Stage 4 commit
+**Working tree:** clean after the focused Stage 6 commit
 **Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8)
 
 ## Status
 
-Stages 0–4 are complete. Stage 1 added the legacy-file conditional write,
+Stages 0–6 are complete. Stage 1 added the legacy-file conditional write,
 review audit/undo, legacy-tombstone review, exit-sync hardening, and repair.
 Stage 2 added snapshot retention, per-device ownership management, selective
 deletion, and manual cleanup. Stage 3 validated concurrent immutable publishing,
@@ -39,14 +42,38 @@ Stage 4 on 2026-10-28 completed Phase 3:
   deliberately not implemented.
 - Documentation and the ROADMAP Phase 3 gate are updated.
 
+Stage 5 on 2026-10-29 completed Phase 4:
+
+- History windowing above 200 solves with spacers, anchor restoration, and a
+  **Show all solves** escape hatch.
+- Seeded 2,000-solve performance profile recorded in `PROJECT_PROGRESS.md`.
+- Playwright projects for Chromium, Firefox, and WebKit; offline and touch
+  hold-to-time tests remain honestly skipped outside Chromium.
+- Keyboard/screen-reader audit and axe scans for the main view and Settings.
+- `cubing.js` loaded through a dynamic import while preserving worker isolation
+  and the offline reload test.
+
+Stage 6 on 2026-10-29 completed the polish gate:
+
+- Added `light`/`dark`/`system` theme preference in **Settings → Appearance**,
+  defaulting to light. Settings schema is now `v7`.
+- Added complete tokenized dark palettes and dark variants for green, blue,
+  violet, and amber; removed hard-coded colors outside the token blocks.
+- `src/lib/theme.test.ts` audits WCAG AA contrast for every text/surface and
+  accent pair in both themes; the dark main view and Settings dialog pass axe in
+  all three browsers.
+- The `index.html` bootstrap applies the stored theme before the bundle loads,
+  and `useTheme` tracks OS changes while `system` is selected.
+- Verified that **Use global default** clears a per-session inspection override.
+
 | Check | Result |
 | --- | --- |
 | `npm run check` | **Passed as one command**, exit 0 |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed with no warnings |
-| `npm test` | **339/339 passed**, 22 files |
-| `npm run build` | Passed; 96 modules; PWA 22 entries, 2,311.53 KiB |
-| `npm run test:e2e` | **44/44 passed**, Chromium |
+| `npm test` | **360/360 passed**, 24 files |
+| `npm run build` | Passed; 99 modules; PWA 22 entries, 2,322.06 KiB |
+| `npm run test:e2e` | **149/153 passed**, 4 skipped; Chromium, Firefox, and WebKit |
 | `git diff --check` | Passed |
 
 Stage 3's real-provider gate is closed; only OAuth publishing/non-test sign-in
@@ -70,8 +97,9 @@ transaction across the immutable snapshot set, and convergence remains eventual.
 - **Stage 5 — complete 2026-10-29.** Phase 4 platform work: history
   virtualization, Chromium/Firefox/WebKit coverage, accessibility/keyboard audit,
   and PWA/bundle review.
-- **Stage 6 — polish, no extra approval.** Dark theme only after a full contrast
-  audit; the inspection reset is already implemented.
+- **Stage 6 — complete 2026-10-29.** Audited light/dark/system theme, settings
+  schema v7, contrast tests, dark-theme axe scans, pre-paint bootstrap, and
+  screenshots. The inspection reset was verified against the docs.
 
 ## Current event and WCA behavior to preserve
 
@@ -92,8 +120,29 @@ transaction across the immutable snapshot set, and convergence remains eventual.
 - Mixed-event sessions are rejected before import confirmation or mutation.
   Unknown event IDs must not be silently rewritten to 3×3.
 - `docs/cubelab-desktop.png`, `docs/cubelab-mobile.png`, and
-  `docs/cubelab-settings.png` show the default 3×3 session; adding events did not
-  materially change those layouts.
+  `docs/cubelab-settings.png` show the default 3×3 light palette.
+  `docs/cubelab-dark.png` and `docs/cubelab-dark-settings.png` show the dark
+  palette; keep both sets current when the visible design changes.
+
+## Current theme behavior to preserve
+
+- `ThemePreference` is `light`, `dark`, or `system`; the stored default is
+  `light`. Settings schema `v7` owns the field, and it merges like every other
+  global preference.
+- `src/index.css` is the only palette source. Keep light tokens on `:root`, dark
+  tokens on `:root[data-theme='dark']`, and dark accent overrides under
+  `:root[data-theme='dark'] .app-shell[data-accent='…']`. Do not add literal
+  colors in component rules.
+- Every new text/surface or accent pair must be added to `TEXT_PAIRS` or
+  `ACCENT_PAIRS` in `src/lib/theme.test.ts` and pass WCAG AA (4.5:1; 3:1 for
+  focus outlines).
+- `src/hooks/useTheme.ts` resolves `system` with `prefers-color-scheme`, updates
+  `data-theme`, `colorScheme`, and the `theme-color` meta. The `index.html`
+  bootstrap duplicates the storage key and theme colors intentionally so dark
+  users never see a light flash; update both together.
+- The PWA manifest uses fixed light-theme colors (`#ffffff` theme,
+  `#e9edf1` background) because install splash colors cannot follow a runtime
+  preference.
 
 ## Current sync behavior to preserve
 
@@ -130,6 +179,11 @@ transaction across the immutable snapshot set, and convergence remains eventual.
 
 ## Pitfalls
 
+- Do not add a color outside the token blocks in `src/index.css`; the contrast
+  audit only sees declared tokens. Re-run the theme unit test and the dark axe
+  scan after any palette or component color change.
+- Keep `index.html`'s theme bootstrap synchronized with `cubelab:settings:v1`,
+  `ThemePreference`, and `useTheme`'s `theme-color` values.
 - Do not undo durable Undo by deleting tombstones; `restoredAt` is the protocol.
 - Keep malformed remote envelopes rejecting as a whole, not filtering entries.
 - Keep mixed-event imports rejected before confirmation or mutation.

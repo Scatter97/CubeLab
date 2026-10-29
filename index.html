@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#070a08" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta
@@ -13,6 +13,38 @@
       content="CubeLab is a focused, offline-first 3×3 speedcubing timer with WCA scrambles, inspection, accurate averages, and local solve history."
     />
     <title>CubeLab — 3×3 Speedcubing Timer</title>
+    <script>
+      /*
+       * Apply the stored theme before the first paint so a dark-theme user
+       * never sees the light palette flash. Keep this storage key, the theme
+       * values, and the theme colors in sync with src/lib/storage.ts and
+       * src/hooks/useTheme.ts.
+       */
+      (() => {
+        let theme = 'light'
+        try {
+          const raw = localStorage.getItem('cubelab:settings:v1')
+          const preference = raw
+            ? JSON.parse(raw)?.settings?.theme
+            : undefined
+          if (preference === 'light' || preference === 'dark') {
+            theme = preference
+          } else if (
+            preference === 'system' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches
+          ) {
+            theme = 'dark'
+          }
+        } catch {
+          // Corrupt settings fall back to light; loadSettings recovers later.
+        }
+        document.documentElement.dataset.theme = theme
+        document.documentElement.style.colorScheme = theme
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute('content', theme === 'dark' ? '#0d1218' : '#ffffff')
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -18,8 +18,8 @@ export default defineConfig({
         short_name: 'CubeLab',
         description:
           'A focused, offline-first speedcubing timer with WCA random-state scrambles, inspection, and local solve history.',
-        theme_color: '#070a08',
-        background_color: '#070a08',
+        theme_color: '#ffffff',
+        background_color: '#e9edf1',
         display: 'standalone',
         orientation: 'portrait-primary',
         start_url: '/',
@@ -88,6 +88,9 @@ export default defineConfig({
     },
   },
   test: {
+    // theme.test.ts reads index.css through a `?raw` import. Vitest stubs CSS
+    // imports to an empty string unless CSS processing is enabled.
+    css: true,
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],

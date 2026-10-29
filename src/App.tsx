@@ -14,6 +14,7 @@ import { Toast } from './components/Toast'
 import { useScramble } from './hooks/useScramble'
 import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
+import { useTheme } from './hooks/useTheme'
 import { useTimer } from './hooks/useTimer'
 import { useToast } from './hooks/useToast'
 import { MergeSessionsDialog } from './components/MergeSessionsDialog'
@@ -137,6 +138,7 @@ export default function App() {
     updateSettings,
     replaceSettings,
   } = useSettings()
+  const resolvedTheme = useTheme(settings.theme)
   const {
     scramble,
     nextScramble,
@@ -834,6 +836,7 @@ export default function App() {
     <div
       className={appShellClassName}
       data-accent={settings.accentColor}
+      data-theme={resolvedTheme}
       style={
         {
           '--ui-scale': `${settings.uiZoomPercent / 100}`,

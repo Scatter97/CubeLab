@@ -411,6 +411,23 @@ function SettingsContent({
             </div>
 
             <label className="settings-field">
+              <span className="settings-field-label">Theme</span>
+              <select
+                data-testid="theme-setting"
+                value={settings.theme}
+                onChange={(event) =>
+                  onChange({
+                    theme: event.target.value as Settings['theme'],
+                  })
+                }
+              >
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="system">System</option>
+              </select>
+            </label>
+
+            <label className="settings-field">
               <span className="settings-field-label">Accent color</span>
               <select
                 data-testid="accent-color"

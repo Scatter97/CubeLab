@@ -75,10 +75,10 @@ events remain outside the current scope.
 - Sessions schema `v4` adds optional per-field metadata for name, event,
   inspection override, and each session preference. Sessions `v1`–`v4` load
   with field-level recovery.
-- Global settings keep field metadata in `cubelab:sync:v1` rather than changing
-  the settings schema. First-sync merging preserves a device's customized
-  settings and establishes a baseline so another device cannot replace them just
-  because it has metadata first.
+- Global settings keep field metadata in `cubelab:sync:v1`; the settings schema
+  (`v7` after the theme addition) stays a plain preference record. First-sync
+  merging preserves a device's customized settings and establishes a baseline so
+  another device cannot replace them just because it has metadata first.
 - Independent edits to a solve's time, penalty, scramble, or comment; a session's
   name, event, inspection, or preferences; or a global setting merge by field.
   Newest timestamp wins, with a stable editor-ID/value tiebreak.

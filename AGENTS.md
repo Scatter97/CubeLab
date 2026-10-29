@@ -84,24 +84,35 @@ the production build because it tests the service worker and offline reload.
   remain usable with Enter and arrow keys. Do not let a focused session select
   swallow Space.
 - **Settings are centralized.** The header Settings button opens the Settings
-  dialog. Inspection direction and warnings, alerts, accent color, statistics
-  display and custom averages, scramble presentation, the controls reference,
-  local-data status, and backup/restore access live there. Per-session
+  dialog. Inspection direction and warnings, alerts, theme and accent color,
+  statistics display and custom averages, scramble presentation, the controls
+  reference, local-data status, and backup/restore access live there. Per-session
   inspection overrides, clear, and delete live in the session-settings gear, not
   in the header or History panel. Settings opens only while the timer is idle and
   blocks timing while open. Do not reintroduce a header inspection toggle or an
   inline History clear/delete control.
-- **Settings persistence is versioned.** `v1`–`v5` settings records migrate to
-  `v6` with documented defaults and field-level corruption recovery.
+- **Settings persistence is versioned.** `v1`–`v6` settings records migrate to
+  `v7` with documented defaults and field-level corruption recovery.
   `parseSettingsData` accepts only valid fields, rejects records without
-  `inspectionEnabled`, and upgrades older backups during import. Alerts,
-  appearance, and statistics preferences must not alter raw times or WCA
+  `inspectionEnabled`, and upgrades older backups during import. Schema `v7`
+  adds the `theme` preference (`light`, `dark`, or `system`; default `light`).
+  Alerts, appearance, and statistics preferences must not alter raw times or WCA
   calculations. Enabled inspection warnings always show their direction-aware
   visual pulse and live-region announcement; sound and haptic follow the
   configured feedback channel. Settings may also
   enable `stopWithAnyKey` for stopping a running timer with any non-modifier key.
   Settings may also choose whether inspection-warning color pulses use the timer
   surface or the entire screen.
+- **Theme colors are tokenized and audited.** `src/index.css` is the authoritative
+  palette: light tokens live on `:root`, dark tokens on
+  `:root[data-theme='dark']`, and dark accent variants under
+  `:root[data-theme='dark'] .app-shell[data-accent='…']`. Do not hardcode colors
+  outside those token blocks. Every text/surface and accent pair must pass the
+  WCAG AA checks in `src/lib/theme.test.ts` for both themes and all four accents.
+  Keep the pre-paint bootstrap in `index.html` in sync with
+  `cubelab:settings:v1`, the theme values, and the `theme-color` values. The
+  stored preference defaults to `light`; `system` follows
+  `prefers-color-scheme`.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent(...)`
   with the session event ID (`333`, `222`, `444`, `333oh`, `555`, `666`, `777`).
   Unit tests verify real random-state generation and plausible WCA notation for
@@ -140,7 +151,7 @@ the production build because it tests the service worker and offline reload.
   all named sessions, solves, comments, and optional field metadata),
   `cubelab:settings:v1`, `cubelab:drive:v1` (optional connection metadata), and
   `cubelab:sync:v1` (synchronization preferences/runtime metadata). Sessions use
-  schema `v4`; settings use schema `v6`. Session field metadata lives in
+  schema `v4`; settings use schema `v7`. Session field metadata lives in
   `Session.fieldUpdates`; global settings metadata lives in
   `cubelab:sync:v1`. The original `cubelab:solves:v1` key is read only for
   migration into **Session 1**. Validate and recover from corrupt records; never
@@ -261,7 +272,8 @@ For a behavior change:
   `src/lib/backup.test.ts`; statistic definitions and custom-average validation
   in `src/lib/statDefinitions.test.ts`; WCA statistics in
   `src/lib/stats.test.ts`; statistic display precision in
-  `src/lib/format.test.ts`.
+  `src/lib/format.test.ts`; theme resolution and palette contrast in
+  `src/lib/theme.test.ts`.
 - Synchronization changes need focused coverage in `src/lib/sync.test.ts`,
   `src/lib/sessionMetadata.test.ts`, `src/lib/settingsMerge.test.ts`,
   `src/lib/remoteBackups.test.ts`, `src/lib/snapshotRetention.test.ts`,
@@ -282,9 +294,11 @@ For a behavior change:
   create/switch/rename/delete, typed clear/delete confirmations, timer locking,
   solve-menu penalties/comments/copy/undo, export, invalid import, import
   cancellation, confirmed replacement, alert feedback and volume persistence,
-  accent persistence, expanded/custom statistic visibility and precision, the
-  Controls reference, and Drive connection/delete copy. Add production coverage
-  when a conflict workflow becomes visible without requiring mock-only hooks.
+  theme/accent persistence and system-theme following, expanded/custom statistic
+  visibility and precision, the Controls reference, and Drive
+  connection/delete copy. Keep the dark-theme axe scan in
+  `e2e/accessibility.spec.ts`. Add production coverage when a conflict workflow
+  becomes visible without requiring mock-only hooks.
 - Test failure paths, not only the happy path.
 - Keep tests deterministic. Avoid asserting exact wall-clock durations from live
   timing; use ranges or state-machine timestamps.

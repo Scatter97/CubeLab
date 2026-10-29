@@ -756,6 +756,81 @@ test('alerts, accent, and controls settings apply and persist', async ({
   await expect(reopened.getByTestId('accent-color')).toHaveValue('blue')
 })
 
+test('theme setting applies dark palette, follows system, and persists', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/')
+  await waitForApp(page)
+
+  const html = page.locator('html')
+  const shell = page.locator('.app-shell')
+  const themeColor = page.locator('meta[name="theme-color"]')
+  await expect(html).toHaveAttribute('data-theme', 'light')
+  await expect(shell).toHaveAttribute('data-theme', 'light')
+  await expect(themeColor).toHaveAttribute('content', '#ffffff')
+
+  const settings = await openSettings(page)
+  await expect(settings.getByTestId('theme-setting')).toHaveValue('light')
+  await settings.getByTestId('theme-setting').selectOption('dark')
+  await settings.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+
+  await expect(html).toHaveAttribute('data-theme', 'dark')
+  await expect(shell).toHaveAttribute('data-theme', 'dark')
+  await expect(themeColor).toHaveAttribute('content', '#0d1218')
+  expect(
+    await shell.evaluate((element) =>
+      getComputedStyle(element).getPropertyValue('--bg').trim(),
+    ),
+  ).toBe('#0d1218')
+  expect(
+    await html.evaluate((element) => getComputedStyle(element).colorScheme),
+  ).toBe('dark')
+
+  await page.reload()
+  await waitForApp(page)
+  await expect(html).toHaveAttribute('data-theme', 'dark')
+  await expect(shell).toHaveAttribute('data-theme', 'dark')
+
+  const reopened = await openSettings(page)
+  await expect(reopened.getByTestId('theme-setting')).toHaveValue('dark')
+  await reopened.getByTestId('theme-setting').selectOption('system')
+  await reopened.getByTestId('settings-done').click()
+  await expect(settings).toBeHidden()
+  await expect(html).toHaveAttribute('data-theme', 'light')
+
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(html).toHaveAttribute('data-theme', 'dark')
+  await expect(shell).toHaveAttribute('data-theme', 'dark')
+
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(html).toHaveAttribute('data-theme', 'light')
+  await expect(shell).toHaveAttribute('data-theme', 'light')
+})
+
+test('stored dark theme is applied before the app bundle loads', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'cubelab:settings:v1',
+      JSON.stringify({
+        version: 7,
+        settings: { inspectionEnabled: false, theme: 'dark' },
+      }),
+    )
+  })
+  await page.route('**/assets/**/*.js', (route) => route.abort())
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    'content',
+    '#0d1218',
+  )
+})
+
 test('DNF feedback uses the danger visual alert', async ({ page }) => {
   await page.goto('/')
   await waitForApp(page)

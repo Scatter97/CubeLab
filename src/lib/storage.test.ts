@@ -478,6 +478,7 @@ describe('settings persistence', () => {
         inspectionWarning8s: true,
         inspectionWarning12s: true,
         inspectionCountDirection: 'up',
+        theme: 'dark',
         accentColor: 'violet',
         statPrecision: 'tenths',
         statVisibility: {
@@ -498,6 +499,7 @@ describe('settings persistence', () => {
       inspectionWarning8s: true,
       inspectionWarning12s: true,
       inspectionCountDirection: 'up',
+      theme: 'dark',
       accentColor: 'violet',
       statPrecision: 'tenths',
       statVisibility: {
@@ -521,6 +523,7 @@ describe('settings persistence', () => {
         alertChannel: 'telepathy',
         alertVolume: 0,
         inspectionWarning: '5s',
+        theme: 'sepia',
         accentColor: 'red',
         statPrecision: 'minutes',
         statVisibility: {
@@ -534,6 +537,7 @@ describe('settings persistence', () => {
       alertVolume: DEFAULT_SETTINGS.alertVolume,
       inspectionWarning8s: DEFAULT_SETTINGS.inspectionWarning8s,
       inspectionWarning12s: DEFAULT_SETTINGS.inspectionWarning12s,
+      theme: DEFAULT_SETTINGS.theme,
       accentColor: DEFAULT_SETTINGS.accentColor,
       statPrecision: DEFAULT_SETTINGS.statPrecision,
       statVisibility: {
@@ -661,6 +665,37 @@ describe('settings persistence', () => {
     })
   })
 
+  it('upgrades a v6 record with the default light theme', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        version: 6,
+        settings: {
+          inspectionEnabled: true,
+          accentColor: 'blue',
+          stopWithAnyKey: true,
+        },
+      }),
+    )
+
+    expect(loadSettings(storage)).toMatchObject({
+      inspectionEnabled: true,
+      accentColor: 'blue',
+      stopWithAnyKey: true,
+      theme: DEFAULT_SETTINGS.theme,
+    })
+  })
+
+  it('round-trips an explicit theme preference at schema v7', () => {
+    const storage = new MemoryStorage()
+    saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' }, storage)
+    expect(loadSettings(storage)).toMatchObject({ theme: 'dark' })
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY) ?? '{}')).toMatchObject({
+      version: 7,
+    })
+  })
+
   it('filters invalid, duplicate, built-in, and excess custom averages', () => {
     const parsed = parseSettingsData({
       inspectionEnabled: false,
@@ -698,7 +733,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 7, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 8, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })

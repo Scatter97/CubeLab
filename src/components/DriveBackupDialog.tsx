@@ -42,6 +42,7 @@ const FIELD_LABELS: Record<string, string> = {
   uiZoomPercent: 'interface zoom',
   alertChannel: 'alert channel',
   alertVolume: 'alert volume',
+  theme: 'theme',
   accentColor: 'accent color',
   statVisibility: 'statistics visibility',
   customAverages: 'custom averages',

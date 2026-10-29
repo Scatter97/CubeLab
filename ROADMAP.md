@@ -1,6 +1,6 @@
 # CubeLab Roadmap
 
-**Status:** Active planning document · **Last updated:** 2026-10-28 · **Current release line:** Phase 3 complete (3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7); Phase 2C local-first sync complete with unique immutable snapshots, field-level merging, bounded snapshot retention, and documented provider-CAS limitations
+**Status:** Active planning document · **Last updated:** 2026-10-29 · **Current release line:** Phase 4 complete (history windowing, Chromium/Firefox/WebKit coverage, accessibility/keyboard audit, PWA/bundle review); Stage 6 polish complete (audited light/dark/system theme); Phase 3 events complete (3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7); Phase 2C local-first sync complete with unique immutable snapshots, field-level merging, bounded snapshot retention, and documented provider-CAS limitations
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
 `PROJECT_PROGRESS.md` remains the source of truth for completed work and current
@@ -34,6 +34,13 @@ verification evidence.
   7×7 session events with `cubing.js` random-state scrambles, event-compatible
   storage/sync/backup validation, per-event desktop and mobile production E2E
   coverage, and documented shared WCA inspection and penalty rules.
+- Phase 4 (Performance, accessibility, and platform) is complete: history
+  windowing, Chromium/Firefox/WebKit coverage, the accessibility/keyboard audit,
+  and PWA/bundle review are verified. Physical iOS/Android review remains
+  unavailable in this environment.
+- Stage 6 polish is complete: an audited light/dark/system theme, tokenized
+  palettes for both backgrounds across all four accents, WCAG AA contrast tests,
+  a dark-theme axe scan, settings schema v7, and a pre-paint theme bootstrap.
 - Device-owned Drive snapshots (`cubelab-backup-<device-id>-<uuid>.json`) and all-snapshot
   merging remove cross-device file-overwrite races. Sessions schema v4 stores
   field-level metadata for names, events, inspection, and preferences; global
@@ -372,6 +379,42 @@ not describe synchronization as data-loss-proof.
 - [x] Keyboard-only and screen-reader flows are documented and tested.
 - [x] Cross-browser limitations are recorded honestly (Firefox and WebKit skip
       offline and touch hold-to-time tests).
+
+## Stage 6 — Polish — Complete 2026-10-29
+
+**Goal:** Close the remaining low-priority polish items without changing timer,
+statistics, or synchronization semantics.
+
+**Delivered:**
+
+- **Audited theme.** Light, dark, and system preferences in **Settings →
+  Appearance**, with a light default for existing users. Dark palettes cover
+  every surface token and all four accents; no colors are hard-coded outside the
+  token blocks in `src/index.css`.
+- **Contrast coverage.** `src/lib/theme.test.ts` parses the CSS tokens and
+  verifies 36 text/surface and accent pairs at WCAG AA in both themes and all
+  four accents. The production accessibility suite also runs axe against the dark
+  main view and Settings dialog.
+- **Pre-paint application.** A small `index.html` bootstrap applies the stored
+  preference before the app bundle loads, and `useTheme` tracks
+  `prefers-color-scheme` changes while `system` is selected. The browser
+  `theme-color` meta and PWA manifest use the light defaults.
+- **Versioned persistence.** Settings schema `v7` adds `theme`; `v1`–`v6`
+  records migrate with `light` as the default, and the field participates in
+  Drive field-level merging.
+- **Inspection reset verification.** **Use global default** in the
+  per-session settings gear clears the override and follows the global
+  inspection preference, as documented.
+
+**Acceptance gate — met:**
+
+- [x] Every palette text/surface and accent pair passes WCAG AA contrast tests.
+- [x] Light, dark, and system modes apply, persist, and update when the OS
+      preference changes.
+- [x] Dark-theme axe scans pass in Chromium, Firefox, and WebKit.
+- [x] `npm run check` passes and the active documentation and screenshots are
+      updated.
+- [x] The 10 MB import cap is unchanged; no larger-cap design was approved.
 
 ## Cross-cutting backlog
 

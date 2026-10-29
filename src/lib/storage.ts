@@ -17,6 +17,7 @@ import type {
   Solve,
   StatPrecision,
   StatVisibility,
+  ThemePreference,
   TimerUpdateMode,
 } from '../types'
 import { createId } from './id'
@@ -38,7 +39,7 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 4
-export const SETTINGS_STORAGE_VERSION = 6
+export const SETTINGS_STORAGE_VERSION = 7
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -56,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   inspectionWarning8s: false,
   inspectionWarning12s: false,
   inspectionWarningVisualScope: 'timer',
+  theme: 'light',
   accentColor: 'green',
   statVisibility: {
     single: true,
@@ -363,6 +365,10 @@ function isValidAccentColor(value: unknown): value is AccentColor {
   )
 }
 
+function isValidThemePreference(value: unknown): value is ThemePreference {
+  return value === 'light' || value === 'dark' || value === 'system'
+}
+
 function isValidStatPrecision(value: unknown): value is StatPrecision {
   return value === 'centiseconds' || value === 'tenths'
 }
@@ -485,6 +491,9 @@ export function parseSettingsData(value: unknown): Settings | null {
     accentColor: isValidAccentColor(value.accentColor)
       ? value.accentColor
       : DEFAULT_SETTINGS.accentColor,
+    theme: isValidThemePreference(value.theme)
+      ? value.theme
+      : DEFAULT_SETTINGS.theme,
     statVisibility: parseStatVisibility(value.statVisibility),
     customAverages: parseCustomAverages(value.customAverages),
     statPrecision: isValidStatPrecision(value.statPrecision)

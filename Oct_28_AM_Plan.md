@@ -2,7 +2,7 @@
 
 **Created:** 2026-10-28
 **Scope:** Close out the uncommitted 2026-10-27 remediation, align documentation, then execute the prioritized roadmap through Stage 6.
-**Execution status:** Stages 0–4 are complete. Stage 5 is approved and not started. Stage 3 real-provider validation is complete except OAuth publishing, which is blocked on the Google Cloud project owner.
+**Execution status:** Stages 0–6 are complete. Stage 5 closed Phase 4 and Stage 6 delivered the audited theme polish. Stage 3 real-provider validation is complete except OAuth publishing, which is blocked on the Google Cloud project owner.
 **Source of truth:** `AGENTS.md`, `README.md`, `ROADMAP.md`, `PROJECT_PROGRESS.md`, `PATCH_LIMITATIONS.md`, `NEXT_SESSION_HANDOFF.md`.
 
 ---
@@ -16,7 +16,7 @@
 - `npm run check` had **not** been run as a single command since the audit remediation; Stage 0 later ran and passed it.
 
 ### Known limitations at plan creation (items resolved by Stage 1 are marked there; do not claim unresolved items solved)
-Provider CAS unavailable; duplicate review advisory; real multi-device provider validation completed at Stage 3 but OAuth publishing is still pending; eventual consistency; delete-all all-or-nothing; snapshot cleanup is best effort and not transactional; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; Phase 3 incomplete (5×5/6×6/7×7 not implemented, no per-event E2E, no event-specific WCA rules); no dark theme; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; history renders every row (no virtualization); Chromium-only automated tests; first launch needs network; large `cubing.js` chunk (~1.2 MB).
+Provider CAS unavailable; duplicate review advisory; real multi-device provider validation completed at Stage 3 but OAuth publishing is still pending; eventual consistency; delete-all all-or-nothing; snapshot cleanup is best effort and not transactional; legacy tombstones use wall-clock comparison; redirect handling deterministic not consensus; conflict review has no audit history/undo (queue now uncapped/paginated, but past choices not inspectable/reversible); new 2026-10-27 caveat about hidden older cloud approvals; sync-on-exit best effort; active-session selection not field-merged; in-flight guards assume immutable React state; settings provenance depends on sync metadata; local JSON import replace-only; sound/haptic browser-dependent; multiple tabs not synchronized; backups unencrypted JSON; 10 MB import cap; session delete/clear no undo; first launch needs network; large `cubing.js` chunk (~1.2 MB). Phase 3, Phase 4, and the Stage 6 theme are now complete; physical iOS/Android review remains unavailable.
 
 ---
 
@@ -183,13 +183,28 @@ horizontal overflow; cross-browser limitations recorded honestly.
 
 ---
 
-## Stage 6 — Polish (low priority; no approval needed beyond normal)
+## Stage 6 — Polish (COMPLETE 2026-10-29)
 
-1. Dark theme — only after full palette/contrast audit and tests.
-2. Verify "use global default" inspection reset matches docs (already implemented via M6).
-3. Larger import cap only if a deliberate, tested design is approved.
+1. **Dark theme — delivered.** Added a `light`/`dark`/`system` preference with a
+   light default. `src/index.css` now owns complete tokenized light and dark
+   palettes plus dark variants for all four accents; no hard-coded colors remain
+   outside the token blocks. Settings schema `v7` adds `theme`, and older
+   records migrate with `light`.
+2. **Contrast audit — delivered.** `src/lib/theme.test.ts` verifies 36
+   text/surface and accent pairs at WCAG AA across both themes and all accents.
+   Production axe scans cover the dark main view and Settings dialog.
+3. **No-flash bootstrap — delivered.** A small `index.html` script applies the
+   stored theme before the app bundle loads; `useTheme` follows OS changes in
+   `system` mode and updates the browser `theme-color` meta.
+4. **"Use global default" inspection reset — verified.** The per-session gear
+   clears the override and follows the global inspection preference, matching
+   the README and E2E coverage.
+5. **Larger import cap — not changed.** It remains gated on an explicit,
+   deliberately tested design.
 
-**Gate (Stage 6):** contrast tests pass; docs updated.
+**Gate (Stage 6): met.** Contrast tests pass in both themes and all accents,
+dark-theme axe scans pass in all three browsers, and the documentation and
+screenshots are updated.
 
 ---
 
@@ -220,7 +235,7 @@ Plus `git diff --check` and a clean `git status`.
 
 ## Approval notes
 
-- `AGENTS.md` forbids starting Phase 3, Phase 4, or any new cloud/account feature without explicit user instruction. Stages 4 and 5 therefore require explicit approval before execution.
+- `AGENTS.md` forbids starting Phase 3, Phase 4, or any new cloud/account feature without explicit user instruction. Stages 4 and 5 were executed under the recorded 2026-10-28 approvals; Stage 6 required no additional approval.
 - Stage 1 (CAS/audit/undo) was approved on 2026-10-28 and delivered; Stage 3 later
   closed its real-provider validation gate, except for OAuth publishing.
 - Stage 0 was completed and committed on 2026-10-28.
@@ -230,4 +245,6 @@ Plus `git diff --check` and a clean `git status`.
 - Stage 4 was approved and delivered on 2026-10-28. It adds 5×5, 6×6, and 7×7,
   per-event desktop/mobile E2E for all seven events, WCA rule verification, and
   multi-event storage/backup verification.
-- Stage 5 is the next approved stage; it has not started.
+- Stage 5 was completed on 2026-10-29 (Phase 4 platform work).
+- Stage 6 was completed on 2026-10-29 (audited light/dark/system theme, contrast
+  and dark-axe coverage, schema v7, pre-paint bootstrap, and documentation).

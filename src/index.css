@@ -25,6 +25,23 @@
   --warning: #a15c00;
   --warning-soft: #fff3df;
   --warning-line: #efd4a8;
+  --danger-strong: #a91f1f;
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
+  --timer-display: #111820;
+  --switch-track: #dfe5eb;
+  --switch-thumb: #ffffff;
+  --dot: #a4aeb9;
+  --track: #e4e9ee;
+  --marker: #6d7985;
+  --scrollbar: #b8c2cc;
+  --history-scrollbar: #c3ccd5;
+  --shadow-thumb: 0 1px 2px rgba(25, 35, 45, 0.22);
+  --shadow-dialog: 0 18px 60px rgba(25, 35, 45, 0.22);
+  --shadow-toast: 0 8px 30px rgba(25, 35, 45, 0.16);
+  --shadow-menu: 0 16px 40px rgb(0 0 0 / 35%);
+  --backdrop: rgba(25, 35, 45, 0.35);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none' stroke='%235f6762' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5'/%3E%3C/svg%3E");
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial,
     sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'SFMono-Regular',
@@ -36,6 +53,57 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * Dark palette. Every semantic token is redefined here rather than derived
+ * with filters or opacity, and the contrast pairs are checked by
+ * src/lib/theme.test.ts. Accent overrides live below the light accent blocks.
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d1218;
+  --surface: #151b23;
+  --surface-soft: #1a222c;
+  --surface-muted: #202a35;
+  --line: #2c3743;
+  --line-soft: #222b35;
+  --line-strong: #3e4b59;
+  --text: #e9eef5;
+  --text-soft: #c3ceda;
+  --text-muted: #a9b5c2;
+  --text-faint: #94a2b0;
+  --accent: #82d97d;
+  --accent-strong: #a9e9a4;
+  --accent-soft: #1c2c1f;
+  --accent-line: #3a583d;
+  --timer-bg: #121a14;
+  --timer-border: #2b4230;
+  --timer-holding-bg: #151f17;
+  --timer-ready-bg: #192a1d;
+  --danger: #ff9a9a;
+  --danger-soft: #351b1e;
+  --danger-line: #6b3438;
+  --danger-strong: #ffb3b3;
+  --warning: #f3ba63;
+  --warning-soft: #33270f;
+  --warning-line: #6b5524;
+  --on-accent: #10161c;
+  --on-danger: #1c0f10;
+  --timer-display: #f4f7fb;
+  --switch-track: #2b3642;
+  --switch-thumb: #dbe2ea;
+  --dot: #677483;
+  --track: #2a3541;
+  --marker: #8d9aa8;
+  --scrollbar: #46525f;
+  --history-scrollbar: #4b5865;
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.55);
+  --shadow-dialog: 0 18px 60px rgba(0, 0, 0, 0.6);
+  --shadow-toast: 0 8px 30px rgba(0, 0, 0, 0.5);
+  --shadow-menu: 0 16px 40px rgb(0 0 0 / 65%);
+  --backdrop: rgba(0, 0, 0, 0.65);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none' stroke='%23a9b5c2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5'/%3E%3C/svg%3E");
+}
+
 * {
   box-sizing: border-box;
 }
@@ -44,7 +112,7 @@ html {
   min-width: 320px;
   min-height: 100%;
   background: var(--bg);
-  scrollbar-color: #b8c2cc var(--bg);
+  scrollbar-color: var(--scrollbar) var(--bg);
 }
 
 body {
@@ -85,7 +153,7 @@ a {
 }
 
 ::selection {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
 }
 
@@ -170,6 +238,41 @@ kbd {
   --timer-border: #ebdcc2;
   --timer-holding-bg: #fcf4e6;
   --timer-ready-bg: #f9ecd7;
+}
+
+/* Dark accent variants are selected by the root theme attribute, not by
+   inverting the light palette, so each pair is explicitly contrast-checked. */
+:root[data-theme='dark'] .app-shell[data-accent='blue'] {
+  --accent: #84c0ea;
+  --accent-strong: #aad6f3;
+  --accent-soft: #172837;
+  --accent-line: #31506a;
+  --timer-bg: #111a23;
+  --timer-border: #2a4257;
+  --timer-holding-bg: #14202b;
+  --timer-ready-bg: #172734;
+}
+
+:root[data-theme='dark'] .app-shell[data-accent='violet'] {
+  --accent: #c8a7f1;
+  --accent-strong: #dcbffb;
+  --accent-soft: #291f38;
+  --accent-line: #4d3967;
+  --timer-bg: #181322;
+  --timer-border: #3e3054;
+  --timer-holding-bg: #1e172b;
+  --timer-ready-bg: #251c35;
+}
+
+:root[data-theme='dark'] .app-shell[data-accent='amber'] {
+  --accent: #eab96d;
+  --accent-strong: #f2d197;
+  --accent-soft: #332711;
+  --accent-line: #6a5225;
+  --timer-bg: #1b1711;
+  --timer-border: #4a3b22;
+  --timer-holding-bg: #221c13;
+  --timer-ready-bg: #2b2316;
 }
 
 /* Header */
@@ -262,7 +365,7 @@ kbd {
 .context-dot {
   width: 3px;
   height: 3px;
-  background: #a4aeb9;
+  background: var(--dot);
   border-radius: 50%;
 }
 
@@ -335,7 +438,7 @@ kbd {
   flex-shrink: 0;
   width: 28px;
   height: 16px;
-  background: #dfe5eb;
+  background: var(--switch-track);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   transition:
@@ -349,9 +452,9 @@ kbd {
   left: 2px;
   width: 10px;
   height: 10px;
-  background: #fff;
+  background: var(--switch-thumb);
   border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(25, 35, 45, 0.22);
+  box-shadow: var(--shadow-thumb);
   transition: transform 120ms ease;
 }
 
@@ -374,6 +477,7 @@ kbd {
 }
 
 .settings-switch[aria-checked='true'] .switch-thumb {
+  background: var(--on-accent);
   transform: translateX(12px);
 }
 
@@ -488,7 +592,7 @@ kbd {
   height: 20px;
   padding: 0;
   margin: 0;
-  background: #dfe5eb;
+  background: var(--switch-track);
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   cursor: pointer;
@@ -504,9 +608,9 @@ kbd {
   left: 2px;
   width: 14px;
   height: 14px;
-  background: #fff;
+  background: var(--switch-thumb);
   border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(25, 35, 45, 0.22);
+  box-shadow: var(--shadow-thumb);
   transition: transform 120ms ease;
 }
 
@@ -516,6 +620,7 @@ kbd {
 }
 
 .settings-dialog input[type='checkbox']:checked::before {
+  background: var(--on-accent);
   transform: translateX(14px);
 }
 
@@ -773,7 +878,7 @@ kbd {
 .queue-indicator {
   width: 5px;
   height: 5px;
-  background: #a4aeb9;
+  background: var(--dot);
   border-radius: 50%;
 }
 
@@ -932,7 +1037,7 @@ kbd {
 .phase-dot {
   width: 6px;
   height: 6px;
-  background: #a4aeb9;
+  background: var(--dot);
   border-radius: 50%;
 }
 
@@ -977,7 +1082,7 @@ kbd {
   font-variant-numeric: tabular-nums;
   line-height: 0.9;
   letter-spacing: -0.09em;
-  color: #111820;
+  color: var(--timer-display);
 }
 
 .timer-suffix {
@@ -1020,7 +1125,7 @@ kbd {
   width: min(340px, 52%);
   height: 3px;
   overflow: hidden;
-  background: #e4e9ee;
+  background: var(--track);
   border-radius: 2px;
 }
 
@@ -1045,7 +1150,7 @@ kbd {
 .inspection-track {
   position: relative;
   height: 4px;
-  background: #e4e9ee;
+  background: var(--track);
   border-radius: 2px;
 }
 
@@ -1063,7 +1168,7 @@ kbd {
   left: 88.24%;
   width: 1px;
   height: 8px;
-  background: #6d7985;
+  background: var(--marker);
 }
 
 .inspection-labels {
@@ -1428,7 +1533,7 @@ kbd {
   padding: 0 7px 6px;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-color: #c3ccd5 transparent;
+  scrollbar-color: var(--history-scrollbar) transparent;
   scrollbar-width: thin;
 }
 
@@ -1437,7 +1542,7 @@ kbd {
 }
 
 .history-scroll::-webkit-scrollbar-thumb {
-  background: #c3ccd5;
+  background: var(--history-scrollbar);
   border-radius: 4px;
 }
 
@@ -1707,11 +1812,11 @@ kbd {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: 4px;
-  box-shadow: 0 18px 60px rgba(25, 35, 45, 0.22);
+  box-shadow: var(--shadow-dialog);
 }
 
 .confirm-dialog::backdrop {
-  background: rgba(25, 35, 45, 0.35);
+  background: var(--backdrop);
 }
 
 .dialog-content {
@@ -1779,18 +1884,18 @@ kbd {
 }
 
 .button-danger {
-  color: #fff;
+  color: var(--on-danger);
   background: var(--danger);
   border-color: var(--danger);
 }
 
 .button-danger:hover {
-  background: #a91f1f;
-  border-color: #a91f1f;
+  background: var(--danger-strong);
+  border-color: var(--danger-strong);
 }
 
 .button-primary {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -2156,7 +2261,7 @@ kbd {
   border: 1px solid var(--line-strong);
   border-left: 3px solid var(--accent);
   border-radius: 3px;
-  box-shadow: 0 8px 30px rgba(25, 35, 45, 0.16);
+  box-shadow: var(--shadow-toast);
   animation: toastIn 160ms ease-out;
 }
 
@@ -2583,7 +2688,7 @@ kbd {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: 4px;
-  box-shadow: 0 16px 40px rgb(0 0 0 / 35%);
+  box-shadow: var(--shadow-menu);
 }
 
 .solve-menu-header {
@@ -3316,7 +3421,7 @@ kbd {
   letter-spacing: 0.02em;
   color: var(--text);
   background-color: var(--surface-soft);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none' stroke='%235f6762' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5'/%3E%3C/svg%3E");
+  background-image: var(--select-arrow);
   background-repeat: no-repeat;
   background-position: right 10px center;
   border: 1px solid var(--line);

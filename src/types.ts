@@ -47,6 +47,7 @@ export type AlertChannel = 'off' | 'visual' | 'sound' | 'sound-visual' | 'haptic
 export type InspectionCountDirection = 'down' | 'up'
 export type InspectionWarningVisualScope = 'timer' | 'screen'
 export type AccentColor = 'green' | 'blue' | 'violet' | 'amber'
+export type ThemePreference = 'light' | 'dark' | 'system'
 export type StatPrecision = 'centiseconds' | 'tenths'
 export type StatKey =
   | 'single'
@@ -101,6 +102,7 @@ export interface Settings {
   inspectionWarning8s: boolean
   inspectionWarning12s: boolean
   inspectionWarningVisualScope: InspectionWarningVisualScope
+  theme: ThemePreference
   accentColor: AccentColor
   statVisibility: StatVisibility
   customAverages: CustomAverageSetting[]

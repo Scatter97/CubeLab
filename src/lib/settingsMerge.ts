@@ -22,6 +22,7 @@ export const SETTINGS_FIELD_KEYS: readonly SettingsFieldKey[] = [
   'inspectionWarning8s',
   'inspectionWarning12s',
   'inspectionWarningVisualScope',
+  'theme',
   'accentColor',
   'statVisibility',
   'customAverages',

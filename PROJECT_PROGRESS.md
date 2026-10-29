@@ -1,6 +1,6 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-28 (Stage 4 / Phase 3 completion; full `npm run check`)
+**Last verified:** 2026-10-29 (Stage 6 polish; full `npm run check`)
 **Milestone 1:** Complete — 100% of the defined milestone scope
 **Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
 **Phase 2A:** Complete — local named sessions plus JSON backup/restore
@@ -10,9 +10,9 @@
 **Phase 2B:** Complete — optional manual Google Drive backup and restore
 **Phase 2C:** Complete with documented limitations — local-first Google Drive synchronization with unique immutable device snapshots, field-level session/settings merging, automatic startup/exit/reconnect/combined scheduling, ID-based merging, tombstones, recovery, redirects, empty-default adoption, duplicate-name detection, manual session merges, and conflict review across solve fields, session metadata, settings, and redirects. Stage 1 additionally adds a conditional Drive v2 ETag/`If-Match` update for the legacy mutable file, local review history with exact-match Undo, mandatory legacy-recovery review, hardened exit sync, and a non-destructive repair action. Stage 2 adds bounded snapshot retention, per-device ownership display, selective deletion, and manual cleanup. Stage 3 validated concurrent immutable publishing, all-snapshot convergence, the legacy ETag conditional write, and retention cleanup against a real Google Drive test account; the OAuth app remains in Testing under another owner account, so non-test sign-in is still unverified.
 **2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixed repeated recovered-session arrivals and stale conflict approvals. The v3 follow-up adds device-owned Drive snapshots, sessions schema v4 field metadata, field-level session/settings review, settings provenance, timer-deferred sync, bounded retries, deletion hardening, and multi-device stress tests. The v4 follow-up adds complete Drive pagination, same-device write locking/revalidation, final-collection duplicate review, and recovered-solve count fixes. See [Sync hardening](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), [Hardening v3](#hardening-v3--device-owned-snapshots-and-field-level-review--2026-10-25), [Audit follow-up v4](#audit-follow-up-v4--pagination-same-device-writes-duplicate-review--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
-**Phase 3/4:** Phase 3 is complete — SessionSetupDialog and SessionSettingsDialog support per-session event, inspection, scramble, and timer preferences; effective session settings apply during solve/timing; AppHeader and the timer stage display the active event; session-specific setup preserves the active-session event. Supported events are 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7. Stage 4 added 5×5, 6×6, and 7×7 with per-event desktop/mobile E2E and a shared WCA rule audit.
-**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event support (all seven events), and the 2026-10-25 through 2026-10-28 hardening/remediation passes are implemented, verified with deterministic tests plus the Stage 3 real-provider harness, and documented. Stage 4 added 5×5, 6×6, and 7×7, per-event E2E coverage, event validation in storage/backup/sync, and WCA rule verification. The 2026-10-27 remediation removed the 100-entry conflict cap loss, surfaced remote-snapshot disagreements for manual review, and replaced per-device file overwrites with unique immutable snapshots. Stage 0 aligned the documentation; Stage 1 added a legacy-file conditional write, review audit/undo, legacy-tombstone recovery review, exit-sync hardening, and repair. Stage 2 added a configurable snapshot retention policy, per-device ownership metadata and management UI, selective deletion, and manual cleanup. Stage 3 ran the real-provider multi-device gate against a Google Drive test account on 2026-10-28. The OAuth publishing/branding item is the remaining Stage 3 gap: the project is owned by another account and the app is still in Testing, so non-test sign-in was not validated. Convergence remains eventual and there is no cross-file transaction.
-**2026-10-26 audit remediation:** Complete and verified — all high, medium, and low findings from the retired 2026-10-26 audit are fixed. Durable Undo now uses synchronized `restoredAt` tombstone revocations; device identity is stable and cached; remote envelopes/imports reject malformed or mixed-event data; OAuth requests only `drive.appdata`; session inspection overrides can be cleared; custom-average typing is draft-based; disconnecting Drive disables automatic sync; and inspection warnings remain visual on every channel. Regression and Playwright coverage was added. Verification on Node v22.23.2: typecheck, lint, **283/283 unit tests** in 21 files, production build (95 modules; PWA 22 entries, 2284.38 KiB), **29/29 Playwright tests**, and `git diff --check` all passed. This is the 2026-10-26 record; the current verified state is 337/337 unit tests after the 2026-10-28 Stage 3 real-provider validation. `npm run check` passed as one command at Stage 0, after Stage 1, after Stage 2, and after Stage 3. The completed per-finding tracker and original audit report were retired during the 2026-10-28 documentation cleanup; this paragraph and the sync-hardening sections below retain the outcome. See [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md).
+**Phase 3/4:** Phase 3 is complete — SessionSetupDialog and SessionSettingsDialog support per-session event, inspection, scramble, and timer preferences; effective session settings apply during solve/timing; AppHeader and the timer stage display the active event; session-specific setup preserves the active-session event. Supported events are 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7. Stage 4 added 5×5, 6×6, and 7×7 with per-event desktop/mobile E2E and a shared WCA rule audit. Stage 5 completed Phase 4: history windowing, Chromium/Firefox/WebKit coverage, and the accessibility/keyboard audit. Stage 6 adds an audited light/dark/system theme with WCAG AA contrast tests, theme persistence at settings schema v7, and a pre-paint theme bootstrap.
+**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event support (all seven events), the 2026-10-25 through 2026-10-28 hardening/remediation passes, Phase 4 platform work, and Stage 6 polish are implemented, verified with deterministic tests plus the Stage 3 real-provider harness, and documented. Stage 4 added 5×5, 6×6, and 7×7, per-event E2E coverage, event validation in storage/backup/sync, and WCA rule verification. The 2026-10-27 remediation removed the 100-entry conflict cap loss, surfaced remote-snapshot disagreements for manual review, and replaced per-device file overwrites with unique immutable snapshots. Stage 0 aligned the documentation; Stage 1 added a legacy-file conditional write, review audit/undo, legacy-tombstone recovery review, exit-sync hardening, and repair. Stage 2 added a configurable snapshot retention policy, per-device ownership metadata and management UI, selective deletion, and manual cleanup. Stage 3 ran the real-provider multi-device gate against a Google Drive test account on 2026-10-28. Stage 5 completed history virtualization, cross-browser coverage, and the accessibility audit. Stage 6 added light/dark/system appearance, dark accent variants, contrast tests, and an early theme bootstrap. The OAuth publishing/branding item is the remaining Stage 3 gap: the project is owned by another account and the app is still in Testing, so non-test sign-in was not validated. Convergence remains eventual and there is no cross-file transaction.
+**2026-10-26 audit remediation:** Complete and verified — all high, medium, and low findings from the retired 2026-10-26 audit are fixed. Durable Undo now uses synchronized `restoredAt` tombstone revocations; device identity is stable and cached; remote envelopes/imports reject malformed or mixed-event data; OAuth requests only `drive.appdata`; session inspection overrides can be cleared; custom-average typing is draft-based; disconnecting Drive disables automatic sync; and inspection warnings remain visual on every channel. Regression and Playwright coverage was added. Verification on Node v22.23.2: typecheck, lint, **283/283 unit tests** in 21 files, production build (95 modules; PWA 22 entries, 2284.38 KiB), **29/29 Playwright tests**, and `git diff --check` all passed. This is the 2026-10-26 record; the current verified state is 360/360 unit tests after the 2026-10-29 Stage 6 polish. `npm run check` passed as one command at Stage 0, after Stages 1–3, and again after Stage 6. The completed per-finding tracker and original audit report were retired during the 2026-10-28 documentation cleanup; this paragraph and the sync-hardening sections below retain the outcome. See [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md).
 
 **Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
 
@@ -27,6 +27,7 @@ trackers and superseded design briefs are intentionally not retained.
 
 CubeLab Milestone 1 is a flat, csTimer-inspired, offline-first 3×3 speedcubing
 timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
+It ships audited light and dark palettes plus a system-following theme.
 Phase 2A adds named local sessions and validated JSON backup/restore without
 changing the timer or statistics rules. Phase 2A.1 adds a centralized Settings
 dialog without adding a new persisted preference or changing timing behavior.
@@ -39,10 +40,10 @@ calculations.
 
 ### Product
 
-- Flat light interface organized like a familiar speedcubing timer: a session
-  switcher, session statistics, and solve history in the left rail; scramble
-  across the timer area; and an oversized central clock with quick ao5/ao12
-  values beneath it.
+- Flat light/dark interface organized like a familiar speedcubing timer: a
+  session switcher, session statistics, and solve history in the left rail;
+  scramble across the timer area; and an oversized central clock with quick
+  ao5/ao12 values beneath it.
 - Monotonic timer using `performance.now()`, launched by a configurable hold
   (300 ms default) and stopped by a single press or tap.
 - Global <kbd>Space</kbd> control with OS key-repeat suppression and page-scroll
@@ -59,13 +60,14 @@ calculations.
   DNFs, with adjustable alert volume (70% default). The DNF/danger tone uses a
   1.5× gain capped at 0.75, so it is louder than solve feedback without changing
   the volume control.
-- Four accent colors with WCAG AA contrast, applied to controls and the timer
-  surface.
+- Light, dark, and system theme preferences with a pre-paint bootstrap, plus
+  four accent colors in both palettes. Every text/surface pair and accent pair
+  is verified at WCAG AA by `src/lib/theme.test.ts`.
 - csTimer-inspired Settings dialog with Timer, Alerts, Display, Appearance,
   Statistics, Scramble, Controls, Data, and About sections. It centralizes
-  inspection direction and warnings, feedback, accent, statistic visibility,
-  custom averages, precision, scramble presentation, keyboard reference,
-  local-storage status, and backup/restore access.
+  inspection direction and warnings, feedback, theme, accent, statistic
+  visibility, custom averages, precision, scramble presentation, keyboard
+  reference, local-storage status, and backup/restore access.
 - Floating solve action menu opened by clicking a history row or pressing
   <kbd>Enter</kbd> on it. It supports add/remove `+2`, mark/clear DNF, delete
   with undo, copy scramble/time/solve text, and add/edit a persisted comment.
@@ -119,8 +121,9 @@ calculations.
   snapshots. Hook orchestration and network I/O stay in `useSync.ts` and
   `useDriveBackup.ts`.
 - Sessions schema `v4` stores optional per-field metadata without rewriting raw
-  solve values. Settings field metadata lives in the sync runtime so the settings
-  schema remains `v6`.
+  solve values. Settings are schema `v7`; v7 adds the `theme` preference after
+  the v6 any-key-stop record. Settings field metadata lives in the sync runtime
+  rather than the settings record.
 - Shared native modal lifecycle and Tab/Shift+Tab focus containment in
   `useModalDialog`, used by the Settings, confirmation, and backup dialogs.
 - Settings opens only while the timer is idle, blocks timing while open, and
@@ -167,20 +170,20 @@ calculations.
 
 ## Verification evidence
 
-Run on 2026-10-28 after Stage 4 / Phase 3 completion. Node v22.23.2:
+Run on 2026-10-29 after Stage 6 polish. Node v22.23.2:
 
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript | `npm run typecheck` | Passed |
 | Lint | `npm run lint` | Passed with no warnings |
-| Unit tests | `npm test` | **339/339 passed**, 22 test files |
-| Production build | `npm run build` | Passed; 96 modules transformed |
-| PWA generation | included in build | 22 precache entries, **2,311.53 KiB** |
-| Production E2E | `npm run test:e2e` | **44/44 passed**, Chromium |
+| Unit tests | `npm test` | **360/360 passed**, 24 test files |
+| Production build | `npm run build` | Passed; 99 modules transformed |
+| PWA generation | included in build | 22 precache entries, **2,322.06 KiB** |
+| Production E2E | `npm run test:e2e` | **149/153 passed**, 4 skipped; Chromium, Firefox, and WebKit |
 | Combined chain | `npm run check` | **Passed as one command**, exit 0 |
 | Real-provider harness | `npm run validate:drive` (opt-in, real account) | **7/7 passed** in the final Stage 3 run; not part of `npm run check` |
 | Whitespace | `git diff --check` | Passed with no errors |
-| Layout coverage | production E2E at 320, 390, and desktop widths | Every event at desktop and 390 px mobile now records, penalizes, and reloads solves; 320 px Settings/session/solve-menu targets, Drive copy, remote snapshot ownership/cleanup, review history/Undo, Repair, paginated conflicts, session dialogs, duplicate-name review, and focus handling remain covered |
+| Layout coverage | production E2E at 320, 390, and desktop widths | Every event at desktop and 390 px mobile records, penalizes, and reloads solves; 320 px Settings/session/solve-menu targets, Drive copy, remote snapshot ownership/cleanup, review history/Undo, Repair, paginated conflicts, session dialogs, duplicate-name review, and focus handling remain covered. Light/dark/system theme, pre-paint bootstrap, and dark-theme axe scans are covered in all three engines. |
 
 Run at 2026-10-25 18:40 (local), after the v4 audit follow-up (Drive
 pagination, same-device write coordination, and duplicate-name review) —
@@ -737,12 +740,12 @@ application code.
   Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About
   sections. It uses the shared native modal, a fixed footer, and an
   independently scrolling body on short screens.
-- The v6 settings schema stores presentation and interaction preferences as
+- The v7 settings schema stores presentation and interaction preferences as
   typed fields with documented defaults. Unknown or corrupt values fall back
-  field-by-field, while v1–v5 records upgrade automatically. Sessions use schema
+  field-by-field, while v1–v6 records upgrade automatically. Sessions use schema
   v4 with optional per-session preferences, inspection overrides, solve comments,
   and field-level merge metadata. Global settings field timestamps live in
-  `cubelab:sync:v1`, keeping the settings schema unchanged.
+  `cubelab:sync:v1`, so field provenance adds no settings-record fields.
 - Interface zoom uses CSS `zoom` with a reciprocal viewport width/height and a
   scale-adjusted dialog cap. This keeps the app filling the viewport at reduced
   zoom without introducing blank scroll space or horizontal overflow.
@@ -764,10 +767,10 @@ application code.
   dismissal. Inline penalty/delete buttons were removed from history rows.
 - Solve comments are plain text, limited to 500 characters, and stored on the
   solve record. They never affect timing or statistics.
-- The palette is flat light gray and white with a pale accent-tinted timer
-  surface. The accent can be green, blue, violet, or amber; each choice meets
-  WCAG AA contrast against white and its soft background. Penalties use amber and
-  red.
+- The palette has flat light and dark variants with a pale or deep accent-tinted
+  timer surface. The accent can be green, blue, violet, or amber in both themes;
+  every text/surface and accent pair meets WCAG AA contrast. Penalties use amber
+  and red, with theme-specific warning and danger tokens.
 - Decorative gradients, glows, grid/ambient backgrounds, and oversized rounded
   cards were removed. The interface uses 3 px panel radii, 1 px borders, and
   solid fills.
@@ -872,12 +875,13 @@ time, not as fabricated persisted history. The legacy `cubelab:solves:v1`
 migration is restricted to 3×3 records, while the modern session key keeps every
 supported event.
 
-Settings are stored at schema version 6. Loading accepts versions 1–6, upgrades
+Settings are stored at schema version 7. Loading accepts versions 1–7, upgrades
 older records with defaults, and validates each new field independently. A
 record without `inspectionEnabled` is rejected as invalid, matching the original
-settings contract. The v6 records add the optional any-key stop preference.
-Global settings field timestamps are stored in `cubelab:sync:v1` so the settings
-schema stays backward compatible.
+settings contract. The v7 records add the light/dark/system theme preference
+with a `light` default; v6 added the optional any-key stop preference. Global
+settings field timestamps are stored in `cubelab:sync:v1` so the settings schema
+stays backward compatible.
 
 Backups are versioned separately as `cubelab-backup` version 1. They are
 validated before the confirmation dialog; import replaces local data only after
@@ -944,8 +948,10 @@ offline Playwright test and must not be undone casually.
   limits and cutoffs are deliberately not implemented because they are set per
   competition. Dedicated desktop/mobile production E2E coverage exists for all
   seven events.
-- Appearance currently offers accent colors rather than a full dark theme.
-  Adding a theme would require a broader palette audit and contrast tests.
+- The theme preference is local and synchronized like other display settings.
+  The light palette remains the default for existing users and first launch;
+  the PWA manifest uses fixed light-theme colors because installed shortcuts
+  cannot vary their splash colors by preference.
 - Sound and haptic alerts depend on browser/device support. The visual feedback
   and live-region announcement remain available when those channels are absent.
 - JSON import remains replace-only. Google Drive synchronization adds merge,
@@ -1489,6 +1495,53 @@ the completed event support.
 **Gate status: met.** The Phase 4 acceptance criteria in `ROADMAP.md` are
 checked off.
 
+## Stage 6 — Polish — 2026-10-29
+
+### Delivered
+
+1. **Audited theme.** `ThemePreference` is `light`, `dark`, or `system` and
+   defaults to `light`, preserving existing users' appearance. Settings schema
+   `v7` adds the field; `v1`–`v6` records and older backups upgrade with the
+   default. The field is part of Drive field-level settings merging.
+2. **Palette audit.** `src/index.css` now owns complete light and dark token
+   sets, including dark variants for green, blue, violet, and amber. Previously
+   hard-coded switch, scrollbar, selection, timer-display, marker, track, dot,
+   shadow, backdrop, and select-arrow colors are tokens. No literal color
+   remains outside the token blocks.
+3. **Contrast tests.** `src/lib/theme.test.ts` parses the CSS through a Vite
+   `?raw` import with CSS processing enabled and checks 36 text/surface and
+   accent pairs at WCAG AA (4.5:1 text, 3:1 focus outlines) in both themes and
+   all four accents. It also verifies that the dark token set
+   covers every light token and that `resolveTheme` handles explicit and system
+   preferences.
+4. **Application.** `useTheme` resolves the preference with
+   `prefers-color-scheme`, tracks OS changes through `useSyncExternalStore`, and
+   updates `documentElement.dataset.theme`, `colorScheme`, and the
+   `theme-color` meta. A small `index.html` bootstrap applies the stored theme
+   before the app bundle loads, avoiding a light flash for dark users. The PWA
+   manifest now uses the light default colors (`#ffffff` / `#e9edf1`).
+5. **Verification.** Production E2E covers light → dark → reload persistence,
+   system-theme following under emulated media changes, and the pre-paint
+   bootstrap with the app bundle blocked. Axe scans the dark main view and
+   Settings dialog in Chromium, Firefox, and WebKit. The inspection
+   **Use global default** reset was re-verified against its E2E coverage.
+6. **Import cap review.** The 10 MB cap is unchanged; no deliberate larger-cap
+   design was approved.
+
+### Verification
+
+- `npm run check` passed as one command: typecheck, lint, **360/360 unit tests**
+  in 24 files, production build (99 modules; PWA 22 entries, 2,322.06 KiB),
+  **149/153 Playwright tests passed** with 4 honestly skipped (offline in
+  Firefox/WebKit, touch hold-to-time in Firefox/WebKit), exit 0.
+- `git diff --check` passed.
+- Desktop and 390 px dark layouts were inspected; light and dark screenshots
+  are recorded in `docs/`.
+
+**Gate status: met.** Contrast tests pass in both themes and all accents,
+dark-theme axe scans pass in all three engines, and the documentation and
+screenshots are updated.
+
 ## Handoff
 
 ### Safe next work
@@ -1506,20 +1559,22 @@ checked off.
 - If more timer preferences are requested, extend the Settings dialog and the
   versioned settings schema together, with migration and E2E coverage. Do not
   duplicate the inspection control back into the header.
-- If a full dark theme is requested, audit every surface/text pair and add
-  contrast tests before extending the accent-only appearance setting.
-- **Approval note (2026-10-28):** Stage 4 (Phase 3 completion) is complete and
-  Stage 5 (Phase 4 platform work) is explicitly approved and not started. See
-  `ROADMAP.md` for the acceptance gates and `Oct_28_AM_Plan.md` for the stage
-  breakdown. Stage 5 includes virtualization, cross-browser coverage, and the
-  accessibility audit.
+- **Approval note (2026-10-29):** Stages 0–6 are complete. Stage 5 closed Phase 4
+  and Stage 6 delivered the audited theme polish. The next work is owner-blocked
+  OAuth publishing/non-test sign-in, physical iOS/Android review, or a new
+  explicitly approved scope. Do not raise the 10 MB import cap without a
+  deliberate, tested design.
+- The theme work is complete. Preserve the CSS token palette, keep every new
+  color in both palettes, and extend `src/lib/theme.test.ts` plus the dark-theme
+  axe scan when adding surfaces. Keep the pre-paint bootstrap in `index.html` in
+  sync with the storage key and theme values.
 - Phase 3 is complete: all seven events have `cubing.js` random-state scrambles,
   event-compatible storage/backup/sync validation, desktop/mobile production E2E,
   and shared WCA inspection/penalty rules. Do not add further WCA events without
   an explicit scope change.
-- Add WebKit/Firefox browser coverage if those engines become available.
-- Profile and virtualize history for extremely large local sessions.
-- Run a formal accessibility and physical-device touch audit.
+- Phase 4 is complete: history windowing, cross-browser coverage, the
+  accessibility/keyboard audit, and PWA/bundle review are verified. Physical
+  device touch review remains unavailable in this environment.
 
 ### Before changing anything
 
@@ -1540,15 +1595,18 @@ checked off.
 
 ## Git status
 
-Milestone 1 through Phase 3, the 2026-10-25 hardening follow-ups, the
-2026-10-27 immutable-snapshot remediation, and the 2026-10-28 Stage 1–4 work
-are implemented and verified. Stage 0 aligned the documentation and
+Milestone 1 through Phase 4, the 2026-10-25 hardening follow-ups, the
+2026-10-27 immutable-snapshot remediation, and the 2026-10-28–2026-10-29 Stage
+0–6 work are implemented and verified. Stage 0 aligned the documentation and
 committed the remediation; Stage 1 added the legacy-file conditional write,
 review audit/undo, legacy-tombstone review, exit-sync hardening, and repair.
 Stage 2 added bounded snapshot retention, ownership display, selective deletion,
 and manual cleanup. Stage 3 validated the real Google Drive provider and closed
 all but OAuth publishing. Stage 4 completed Phase 3 with 5×5, 6×6, and 7×7,
-per-event desktop/mobile E2E, and the shared WCA rule audit.
+per-event desktop/mobile E2E, and the shared WCA rule audit. Stage 5 completed
+Phase 4 with history windowing, cross-browser coverage, and the
+accessibility/keyboard audit. Stage 6 added the audited light/dark/system theme,
+settings schema v7, and contrast/pre-paint coverage.
 The documentation set was consolidated at the same time: completed audit
 trackers, the original audit report, and the superseded Phase 2B design brief
 were removed. The work includes unique immutable Drive snapshots, sessions

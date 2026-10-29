@@ -9,7 +9,8 @@ and 7×7, optional WCA inspection with count-down or count-up display and
 independent 8/12-second warnings, WCA-aware statistics from single through
 ao10000 plus custom averages, named local sessions with per-session settings,
 JSON backup/restore, optional Google Drive synchronization, and a floating solve
-action menu in a responsive layout built around the clock. See
+action menu in a responsive layout built around the clock. The interface offers
+audited light and dark palettes plus a system-following theme. See
 [`ROADMAP.md`](ROADMAP.md) for the planned phases and their acceptance gates.
 
 ![CubeLab desktop interface](docs/cubelab-desktop.png)
@@ -29,10 +30,10 @@ action menu in a responsive layout built around the clock. See
 - **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance,
   Statistics, Scramble, Controls, Data, and About sections. It covers inspection
   direction and warnings, timer updates, Space-hold time, an optional any-key
-  stop, visual/sound/haptic solve and DNF alerts with adjustable volume, accent
-  color, visible statistics, custom averages, display precision, display
-  scaling, scramble presentation, local-data status, and backup/restore access.
-  Changes save automatically.
+  stop, visual/sound/haptic solve and DNF alerts with adjustable volume, a
+  light/dark/system theme, accent color, visible statistics, custom averages,
+  display precision, display scaling, scramble presentation, local-data status,
+  and backup/restore access. Changes save automatically.
   Enabled inspection warnings always show their text; sound and haptic follow
   the selected feedback channel. DNF feedback is slightly louder than solve
   feedback at the same volume setting.
@@ -67,11 +68,14 @@ action menu in a responsive layout built around the clock. See
 
 The layout follows the familiar speedcubing-timer structure: a session switcher,
 session statistics, and solve history in the left rail; the scramble above the
-timer; and the clock as the dominant element. The flat light theme uses neutral
-panels, a pale accent-tinted timer surface, and a solid accent available in
-green, blue, violet, or amber. There are no decorative gradients, glows, or
-background effects. On narrow screens the timer comes first, with the session
-controls, statistics, and history stacked below it.
+timer; and the clock as the dominant element. The flat light and dark themes
+use neutral panels, an accent-tinted timer surface, and a solid accent available
+in green, blue, violet, or amber. The theme follows **Light**, **Dark**, or
+**System** in **Settings → Appearance**; both palettes and every accent are
+checked against WCAG AA contrast pairs, and the stored choice is applied before
+the first paint. There are no decorative gradients, glows, or background
+effects. On narrow screens the timer comes first, with the session controls,
+statistics, and history stacked below it.
 
 The header **Settings** button opens a csTimer-inspired preferences dialog. The
 dialog groups timer, alerts, display, appearance, statistics, scramble, controls,
@@ -87,6 +91,12 @@ rows open a compact menu anchored
 near the row; the menu stays inside the viewport on narrow screens.
 
 ![CubeLab Settings dialog](docs/cubelab-settings.png)
+
+![CubeLab dark theme](docs/cubelab-dark.png)
+
+The same palette and accent apply throughout the Settings dialog:
+
+![CubeLab dark Settings dialog](docs/cubelab-dark-settings.png)
 
 ### Mobile layout
 
@@ -110,6 +120,7 @@ near the row; the menu stays inside the viewport on narrow screens.
 | Tune timer updates, Space hold, scramble layout, and display scaling | Open **Settings**, then adjust **Timer**, **Display**, or **Scramble** |
 | Choose solve/DNF and inspection feedback | Open **Settings → Alerts** and choose visual, sound, haptic, or a combination |
 | Adjust alert volume | Open **Settings → Alerts** and move the **Alert volume** slider |
+| Choose a light, dark, or system theme | Open **Settings → Appearance → Theme** |
 | Change the accent color | Open **Settings → Appearance** and choose green, blue, violet, or amber |
 | Show or hide statistic cards, add custom averages, and choose precision | Open **Settings → Statistics** |
 | Switch session | Choose a name in the session select; use arrow keys and <kbd>Enter</kbd> from the keyboard |
@@ -412,9 +423,11 @@ invalid-file handling, import cancellation, confirmed restore of
 sessions/comments/settings, the scramble-failure recovery state, and full
 offline scramble generation through the installed service worker. It also
 covers visual solve and DNF alerts, adjustable alert volume, accent persistence,
-the Controls reference, expanded/custom statistics, tenths precision, Google
-Drive mock synchronization, conflict review, duplicate-name review/merge, and
-delete-all remote backup wording.
+light/dark/system theme application and persistence, the pre-paint theme
+bootstrap, the Controls reference, expanded/custom statistics, tenths precision,
+Google Drive mock synchronization, conflict review, duplicate-name
+review/merge, and delete-all remote backup wording. Axe scans cover the main
+view, Settings, and the dark theme.
 
 ## Architecture
 
@@ -450,7 +463,10 @@ src/
   components/SessionSettingsDialog.tsx  Per-session inspection, clear, and delete
   components/SolveHistory.tsx  History rows and the floating solve action menu
   App.tsx                Integration, global input, session/backup orchestration
-  index.css              Flat csTimer-inspired theme and responsive layout
+  hooks/useTheme.ts      System-theme tracking and document/meta application
+  lib/theme.ts           Pure theme resolution
+  lib/theme.test.ts      WCAG AA contrast audit for both palettes and accents
+  index.css              Tokenized light/dark palettes and responsive layout
 e2e/timer.spec.ts        Production browser and offline tests
 ```
 
@@ -487,11 +503,12 @@ Sessions are stored at schema version 4; version 1–3 records load with default
 for newer fields. Missing field metadata falls back to `updatedAt` only at merge
 time and is not written back as fabricated history.
 
-Settings are stored at schema version 6. Version 1–5 records are upgraded in
+Settings are stored at schema version 7. Version 1–6 records are upgraded in
 place with field-level defaults for newer settings; invalid individual values
-fall back without discarding the rest of the record. Global settings field
-timestamps are stored in `cubelab:sync:v1` rather than in the settings record, so
-the settings schema remains backward compatible.
+fall back without discarding the rest of the record. Version 7 adds the
+`theme` preference (`light`, `dark`, or `system`), defaulting to `light`.
+Global settings field timestamps are stored in `cubelab:sync:v1` rather than in
+the settings record, so the settings schema remains backward compatible.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
 exportedAt, sessions, settings, sync? }`. The parser validates the marker,
@@ -537,8 +554,10 @@ random-state scrambles for the selected event. Phase 3 is complete, including
 per-event desktop/mobile E2E coverage, shared WCA inspection and penalty rules,
 and multi-event storage, backup, and import verification. Phase 4 is complete:
 history windowing for large sessions, Chromium/Firefox/WebKit coverage,
-accessibility and keyboard audit, and PWA/bundle review. Social features and
-non-Google cloud providers remain outside scope. Unique immutable snapshots
+accessibility and keyboard audit, and PWA/bundle review. Stage 6 polish is
+complete: an audited light/dark/system theme, automated WCAG AA palette tests,
+and a pre-paint theme bootstrap. Social features and non-Google cloud providers
+remain outside scope. Unique immutable snapshots
 prevent writers from
 overwriting one another; the legacy mutable fixed-name file uses a Drive v2
 ETag/`If-Match` conditional update, and no cross-file transaction exists. Local
