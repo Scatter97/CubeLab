@@ -295,3 +295,116 @@ describe('mergeSettingsData field-level merging', () => {
     expect(result.fieldUpdates.accentColor?.updatedAt).toBe(600)
   })
 })
+
+describe('settings approval timestamp exactness', () => {
+  const reviewedLocalUpdates: SettingsFieldUpdates = {
+    accentColor: { updatedAt: 100, editorId: 'laptop' },
+  }
+  const reviewedRemoteUpdates: SettingsFieldUpdates = {
+    accentColor: { updatedAt: 200, editorId: 'phone' },
+  }
+  const approvalOfRemote: SyncConflict = {
+    kind: 'settings',
+    id: 'settings',
+    field: 'accentColor',
+    localValue: 'amber',
+    remoteValue: 'blue',
+    localUpdatedAt: 100,
+    remoteUpdatedAt: 200,
+    resolution: 'remote',
+    updatedAt: 400,
+  }
+
+  function mergeAccent(
+    local: Settings,
+    remote: Settings,
+    localFieldUpdates: SettingsFieldUpdates,
+    remoteFieldUpdates: SettingsFieldUpdates,
+    remoteUpdatedAt: number,
+  ) {
+    return mergeSettingsData({
+      local,
+      remote,
+      localFieldUpdates,
+      remoteFieldUpdates,
+      remoteUpdatedAt,
+      lastSyncAt: 1,
+      manualConflictReview: true,
+      resolvedConflicts: [approvalOfRemote],
+    })
+  }
+
+  it('does not apply an approval after the reviewed local value returns with a newer timestamp', () => {
+    const result = mergeAccent(
+      settings({ accentColor: 'amber' }),
+      settings({ accentColor: 'blue' }),
+      { accentColor: { updatedAt: 300, editorId: 'laptop' } },
+      reviewedRemoteUpdates,
+      200,
+    )
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]).toMatchObject({
+      resolution: 'manual-pending',
+      localValue: 'amber',
+      remoteValue: 'blue',
+      localUpdatedAt: 300,
+    })
+    expect(result.settings.accentColor).toBe('amber')
+  })
+
+  it('does not apply an approval after a value changed away and back', () => {
+    const result = mergeAccent(
+      settings({ accentColor: 'amber' }),
+      settings({ accentColor: 'blue' }),
+      { accentColor: { updatedAt: 500, editorId: 'laptop' } },
+      reviewedRemoteUpdates,
+      200,
+    )
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0]?.resolution).toBe('manual-pending')
+    expect(result.settings.accentColor).toBe('amber')
+  })
+
+  it('still applies to the winning version stamped at the approval time', () => {
+    const result = mergeAccent(
+      settings({ accentColor: 'blue' }),
+      settings({ accentColor: 'amber' }),
+      { accentColor: { updatedAt: 400, editorId: 'phone' } },
+      reviewedLocalUpdates,
+      100,
+    )
+
+    expect(result.conflicts).toHaveLength(0)
+    expect(result.settings.accentColor).toBe('blue')
+    expect(result.fieldUpdates.accentColor).toEqual({
+      updatedAt: 400,
+      editorId: 'phone',
+    })
+  })
+})
+
+it('merges independent trimming side edits and retains field metadata', () => {
+  const result = mergeSettingsData({
+    local: settings({ averageTrimBetter: '1' }),
+    remote: settings({ averageTrimWorse: 'p10' }),
+    localFieldUpdates: { averageTrimBetter: { updatedAt: 300, editorId: 'laptop' }, averageTrimWorse: { updatedAt: 100, editorId: 'laptop' } },
+    remoteFieldUpdates: { averageTrimBetter: { updatedAt: 100, editorId: 'phone' }, averageTrimWorse: { updatedAt: 400, editorId: 'phone' } },
+    remoteUpdatedAt: 400, lastSyncAt: 1, manualConflictReview: false,
+  })
+  expect(result.settings).toMatchObject({ averageTrimBetter: '1', averageTrimWorse: 'p10' })
+  expect(result.fieldUpdates).toMatchObject({ averageTrimBetter: { updatedAt: 300, editorId: 'laptop' }, averageTrimWorse: { updatedAt: 400, editorId: 'phone' } })
+  expect(SETTINGS_FIELD_KEYS).toContain('averageTrimBetter')
+  expect(SETTINGS_FIELD_KEYS).toContain('averageTrimWorse')
+})
+
+it('requires conflict review for differing edits to the same trimming side', () => {
+  const result = mergeSettingsData({
+    local: settings({ averageTrimBetter: '1' }), remote: settings({ averageTrimBetter: 'p10' }),
+    localFieldUpdates: { averageTrimBetter: { updatedAt: 300, editorId: 'laptop' } },
+    remoteFieldUpdates: { averageTrimBetter: { updatedAt: 400, editorId: 'phone' } },
+    remoteUpdatedAt: 400, lastSyncAt: 1, manualConflictReview: true,
+  })
+  expect(result.conflicts).toContainEqual(expect.objectContaining({ field: 'averageTrimBetter', resolution: 'manual-pending', localValue: '1', remoteValue: 'p10' }))
+})

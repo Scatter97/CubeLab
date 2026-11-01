@@ -1,3 +1,4 @@
+import { getAverageTrimCounts } from './averageTrimming'
 import { describe, expect, it } from 'vitest'
 import {
   MAX_CUSTOM_AVERAGES,
@@ -30,4 +31,10 @@ describe('stat definitions', () => {
     expect(nextCustomAverageSize([6, 7, 12])).toBe(8)
     expect(MAX_CUSTOM_AVERAGES).toBe(5)
   })
+})
+
+
+it('uses the same trimming policy for built-in and custom average sizes', () => {
+  expect(getAverageTrimCounts(25)).toEqual({ better: 2, worse: 2, counted: 21 })
+  expect(getAverageTrimCounts(50)).toEqual({ better: 3, worse: 3, counted: 44 })
 })

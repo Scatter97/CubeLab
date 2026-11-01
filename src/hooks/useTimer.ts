@@ -17,11 +17,9 @@ export interface UseTimerOptions {
 
 export interface TimerController {
   state: TimerState
-  clock: number
   holdProgress: number
-  runningElapsedMs: number | null
   inspectionElapsedMs: number | null
-  press: (input: TimerInput) => void
+  press: (input: TimerInput, at?: number) => void
   release: (input: TimerInput) => void
   cancel: () => void
 }
@@ -60,8 +58,7 @@ export function useTimer(options: UseTimerOptions): TimerController {
   }, [])
 
   const press = useCallback(
-    (input: TimerInput) => {
-      const at = now()
+    (input: TimerInput, at = now()) => {
       applyEvent({
         type: 'press',
         at,
@@ -100,7 +97,9 @@ export function useTimer(options: UseTimerOptions): TimerController {
   }, [options.inspectionEnabled, applyEvent])
 
   useEffect(() => {
-    if (state.status === 'idle') return
+    // Running ticks are presentation-only: the readout owns its animation.
+    // Keep arming/inspection ticks here for transitions and warning feedback.
+    if (state.status === 'idle' || state.status === 'running') return
 
     let frame = 0
     const animate = () => {
@@ -143,9 +142,6 @@ export function useTimer(options: UseTimerOptions): TimerController {
     holdProgress = 1
   }
 
-  const runningElapsedMs =
-    state.status === 'running' ? Math.max(0, clock - state.startedAt) : null
-
   let inspectionStartedAt: number | null = null
   if (state.status === 'inspection') {
     inspectionStartedAt = state.inspectionStartedAt
@@ -163,9 +159,7 @@ export function useTimer(options: UseTimerOptions): TimerController {
 
   return {
     state,
-    clock,
     holdProgress,
-    runningElapsedMs,
     inspectionElapsedMs,
     press,
     release,

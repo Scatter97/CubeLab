@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import css from '../index.css?raw'
+import { CUBE_FACE_COLORS } from './cubeColors'
+import { CUBE_FACES } from './cubeNet'
 import { resolveTheme } from './theme'
 
 type Palette = Record<string, string>
@@ -107,6 +109,7 @@ function expectContrast(
 }
 
 const TEXT_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ...['single', 'ao5', 'ao12', 'ao25', 'ao50', 'ao100', 'ao200', 'ao500', 'ao1000', 'custom', 'pb'].map((key) => [`--trend-${key}`, '--surface'] as const),
   ['--text', '--surface'],
   ['--text', '--surface-soft'],
   ['--text', '--bg'],
@@ -203,6 +206,18 @@ describe('theme palette contrast', () => {
         expectContrast(palette, '--accent', '--surface', 3)
         expectContrast(palette, '--accent', '--bg', 3)
         expectContrast(palette, '--accent', '--timer-bg', 3)
+      }
+    }
+  })
+})
+
+describe('cube face tokens', () => {
+  it('matches the standard scheme shared with the 3D view', () => {
+    for (const theme of [lightRoot, darkRoot]) {
+      for (const face of CUBE_FACES) {
+        expect(theme[`--cube-face-${face.toLowerCase()}`]?.toLowerCase()).toBe(
+          CUBE_FACE_COLORS[face].toLowerCase(),
+        )
       }
     }
   })

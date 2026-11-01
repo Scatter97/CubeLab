@@ -226,7 +226,8 @@ describe('mergeSessionMetadata', () => {
     })
   })
 
-  it('raises a fresh conflict when the losing side changes after approval', () => {    const local = session({
+  it('raises a fresh conflict when the losing side changes after approval', () => {
+    const local = session({
       name: 'Local',
       updatedAt: 100,
       fieldUpdates: { name: { updatedAt: 100, editorId: 'laptop' } },
@@ -350,5 +351,90 @@ describe('mergeSessionMetadata', () => {
         },
       }),
     ).toBe(40)
+  })
+})
+
+describe('session approval timestamp exactness', () => {
+  const reviewedLocal = session({
+    name: 'Local',
+    fieldUpdates: { name: { updatedAt: 100, editorId: 'laptop' } },
+  })
+  const reviewedRemote = session({
+    name: 'Remote',
+    fieldUpdates: { name: { updatedAt: 200, editorId: 'phone' } },
+  })
+  const approvalOfRemote: SyncConflict = {
+    kind: 'session',
+    id: 'session-1',
+    sessionId: 'session-1',
+    field: 'name',
+    localValue: 'Local',
+    remoteValue: 'Remote',
+    localUpdatedAt: 100,
+    remoteUpdatedAt: 200,
+    resolution: 'remote',
+    updatedAt: 400,
+  }
+
+  it('does not apply an approval after the reviewed local value returns with a newer timestamp', () => {
+    const changedLocal = session({
+      name: 'Local',
+      fieldUpdates: { name: { updatedAt: 300, editorId: 'laptop' } },
+    })
+
+    const { metadata, conflicts } = merge(
+      changedLocal,
+      reviewedRemote,
+      true,
+      [approvalOfRemote],
+    )
+
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]).toMatchObject({
+      resolution: 'manual-pending',
+      localValue: 'Local',
+      remoteValue: 'Remote',
+      localUpdatedAt: 300,
+    })
+    expect(metadata.name).toBe('Local')
+  })
+
+  it('does not apply an approval after a value changed away and back', () => {
+    const roundTrippedLocal = session({
+      name: 'Local',
+      fieldUpdates: { name: { updatedAt: 500, editorId: 'laptop' } },
+    })
+
+    const { metadata, conflicts } = merge(
+      roundTrippedLocal,
+      reviewedRemote,
+      true,
+      [approvalOfRemote],
+    )
+
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]?.resolution).toBe('manual-pending')
+    expect(metadata.name).toBe('Local')
+  })
+
+  it('still applies to the winning version stamped at the approval time', () => {
+    const appliedLocal = session({
+      name: 'Remote',
+      fieldUpdates: { name: { updatedAt: 400, editorId: 'phone' } },
+    })
+
+    const { metadata, conflicts } = merge(
+      appliedLocal,
+      reviewedLocal,
+      true,
+      [approvalOfRemote],
+    )
+
+    expect(conflicts).toHaveLength(0)
+    expect(metadata.name).toBe('Remote')
+    expect(metadata.fieldUpdates?.name).toEqual({
+      updatedAt: 400,
+      editorId: 'phone',
+    })
   })
 })

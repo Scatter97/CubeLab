@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { formatSolveCount } from '../lib/format'
+import { AVERAGE_TRIM_OPTIONS, getAverageTrimCounts } from '../lib/averageTrimming'
 import { createId } from '../lib/id'
 import {
   BUILT_IN_STAT_DEFINITIONS,
@@ -12,6 +13,7 @@ import {
 } from '../lib/statDefinitions'
 import { ChevronRightIcon, CloseIcon } from './Icons'
 import type { CustomAverageSetting, Settings } from '../types'
+import type { DrawScrambleMode } from '../hooks/useDrawScrambleMode'
 
 interface SettingsDialogProps {
   open: boolean
@@ -19,6 +21,8 @@ interface SettingsDialogProps {
   storageOk: boolean
   sessionCount: number
   solveCount: number
+  drawScrambleMode: DrawScrambleMode
+  onDrawScrambleModeChange: (mode: DrawScrambleMode) => void
   onChange: (next: Partial<Settings>) => void
   onOpenBackup: () => void
   onOpenDriveBackup: () => void
@@ -31,6 +35,8 @@ export function SettingsDialog({
   storageOk,
   sessionCount,
   solveCount,
+  drawScrambleMode,
+  onDrawScrambleModeChange,
   onChange,
   onOpenBackup,
   onOpenDriveBackup,
@@ -59,6 +65,8 @@ export function SettingsDialog({
           storageOk={storageOk}
           sessionCount={sessionCount}
           solveCount={solveCount}
+          drawScrambleMode={drawScrambleMode}
+          onDrawScrambleModeChange={onDrawScrambleModeChange}
           onChange={onChange}
           onOpenBackup={onOpenBackup}
           onOpenDriveBackup={onOpenDriveBackup}
@@ -74,6 +82,8 @@ function SettingsContent({
   storageOk,
   sessionCount,
   solveCount,
+  drawScrambleMode,
+  onDrawScrambleModeChange,
   onChange,
   onOpenBackup,
   onOpenDriveBackup,
@@ -116,6 +126,8 @@ function SettingsContent({
       { id: createId(), size, visible: true },
     ])
   }
+
+  const trimExample = getAverageTrimCounts(1000, { better: settings.averageTrimBetter, worse: settings.averageTrimWorse })
 
   return (
     <div className="dialog-content settings-content">
@@ -451,6 +463,25 @@ function SettingsContent({
               <h3 id="settings-statistics-title">Statistics</h3>
             </div>
 
+            <fieldset className="settings-fieldset" data-testid="average-trimming-settings">
+              <legend className="settings-field-label">Average trimming</legend>
+              <label className="settings-field">
+                <span className="settings-field-label">Better side (fastest)</span>
+                <select data-testid="average-trim-better" value={settings.averageTrimBetter} onChange={(event) => onChange({ averageTrimBetter: event.target.value as Settings['averageTrimBetter'] })}>
+                  {AVERAGE_TRIM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="settings-field">
+                <span className="settings-field-label">Worse side (slowest)</span>
+                <select data-testid="average-trim-worse" value={settings.averageTrimWorse} onChange={(event) => onChange({ averageTrimWorse: event.target.value as Settings['averageTrimWorse'] })}>
+                  <option value="auto">Auto (match better side)</option>
+                  {AVERAGE_TRIM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <p className="settings-note" data-testid="average-trim-example">ao1000: drop {trimExample.better} fastest and {trimExample.worse} worst; {trimExample.counted} solves count. More than {trimExample.worse} DNFs makes it DNF.</p>
+              <p className="settings-note">Percentages round up. DNFs occupy the worst-side slots first. Changes recalculate averages and average PBs everywhere. mo3 stays untrimmed; recorded solves and single PBs stay intact.</p>
+            </fieldset>
+
             <fieldset className="settings-fieldset">
               <legend className="settings-field-label">Visible cards</legend>
               <div className="settings-checkbox-grid">
@@ -536,8 +567,8 @@ function SettingsContent({
             </label>
 
             <p className="settings-note">
-              Display only. WCA calculations always use the stored centisecond
-              value.
+              Precision changes only the display. Trimming controls the average
+              calculation; recorded-result precision is unchanged.
             </p>
           </section>
 
@@ -583,6 +614,20 @@ function SettingsContent({
                 <option value="none">Nothing</option>
                 <option value="copy">Copy scramble</option>
                 <option value="next">Next scramble</option>
+              </select>
+            </label>
+
+            <label className="settings-field">
+              <span className="settings-field-label">Draw Scramble visualization</span>
+              <select
+                data-testid="scramble-draw-mode"
+                value={drawScrambleMode}
+                onChange={(event) =>
+                  onDrawScrambleModeChange(event.target.value as DrawScrambleMode)
+                }
+              >
+                <option value="net">2D net</option>
+                <option value="3d">3D cube</option>
               </select>
             </label>
           </section>

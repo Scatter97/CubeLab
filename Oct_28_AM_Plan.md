@@ -5,6 +5,25 @@
 **Execution status:** Stages 0–6 are complete. Stage 5 closed Phase 4 and Stage 6 delivered the audited theme polish. Stage 3 real-provider validation is complete except OAuth publishing, which is blocked on the Google Cloud project owner.
 **Source of truth:** `AGENTS.md`, `README.md`, `ROADMAP.md`, `PROJECT_PROGRESS.md`, `PATCH_LIMITATIONS.md`, `NEXT_SESSION_HANDOFF.md`.
 
+## Historical plan and current checkpoint
+
+**Documentation reconciled:** 2026-11-01. This file records the completed
+October 28–29 stages; its baseline commands, counts and implementation tasks
+are historical, not the current execution plan. The latest October 31 check
+passed 503 unit/component tests in 38 files and 216 browser tests with 9 existing
+skips, plus typecheck/lint/build and supported offline coverage.
+
+Subsequent approved work delivered the October 30 audit remediation, csTimer
+import, 2D/PG3D tools, Time Trend/PB gestures and dialogs, settings-v8 trimming
+and the first timer-stop response patch. Settings v7 below is the Stage 6
+migration history; current settings are v8 and sessions remain v4.
+
+Current next steps are the 320-pixel panel overlap, Zen/enabled-sync and
+10,000-solve profiling, measured chart/hash work, and a durable-storage design.
+Use [NEXT_SESSION_HANDOFF.md](NEXT_SESSION_HANDOFF.md) for detailed acceptance
+checks. The cross-cutting ideas below remain proposals, not new authorization.
+Owner-dependent OAuth and physical-device validation remain external gates.
+
 ---
 
 ## 0. Baseline status (recorded at plan creation; see stage sections for completion)
@@ -35,7 +54,7 @@ Apply these edits so docs match current code:
 8. **`README.md`:** verify consistency (already updated for immutable snapshots and uncapped queue). No further change expected beyond confirmation.
 9. **`PATCH_LIMITATIONS.md`:** fix the garbled/duplicated first "Still unresolved" bullet (the provider-CAS paragraph currently contains two overlapping versions). Collapse to a single clean paragraph.
 10. **`docs/` cleanup:** the completed audit report, the completed per-finding tracker, and the superseded Phase 2B design brief were removed during the 2026-10-28 cleanup. Only current reference docs and UI screenshots remain.
-11. **Test-count consistency:** all active docs use the current Stage 1 result (307 unit tests, 29 E2E, `npm run check` passed).
+11. **Test-count consistency:** Stage 1 counts were historical. Active status now uses the latest October 31 result (503 unit/component tests; 216 browser passes, 9 existing skips).
 12. **`NEXT_SESSION_HANDOFF.md`:** records the Stage 1 handoff, the documentation cleanup, and the Stage 2 entry point.
 
 ### 0.2 Verification

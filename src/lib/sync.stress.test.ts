@@ -390,6 +390,8 @@ describe('multi-device synchronization stress', () => {
     addSolves(tablet, [solve('tablet-1', 4_001)])
     renameSession(tablet, 'Tablet Session', 5_000)
     editSetting(tablet, 'accentColor', 'violet', 10_000)
+    editSetting(laptop, 'averageTrimBetter', '1', 11_000)
+    editSetting(phone, 'averageTrimWorse', 'p10', 12_000)
 
     for (let round = 0; round < 5; round += 1) {
       await Promise.all(devices.map((device) => syncDevice(device, transport)))
@@ -404,6 +406,8 @@ describe('multi-device synchronization stress', () => {
       expect(sessionById(device.sessions, 'session-1')?.name).toBe('Phone Session')
       expect(device.settings.accentColor).toBe('blue')
       expect(device.settings.alertVolume).toBe(55)
+      expect(device.settings.averageTrimBetter).toBe('1')
+      expect(device.settings.averageTrimWorse).toBe('p10')
       expect(device.tombstones.some((tombstone) => tombstone.id === 'seed')).toBe(true)
     }
 
@@ -422,6 +426,8 @@ describe('multi-device synchronization stress', () => {
       expect([...ids].sort()).toEqual(expectedSolveIds)
       expect(newest.backup.settings.accentColor).toBe('blue')
       expect(newest.backup.settings.alertVolume).toBe(55)
+      expect(newest.backup.settings.averageTrimBetter).toBe('1')
+      expect(newest.backup.settings.averageTrimWorse).toBe('p10')
       expect(sessionById(newest.backup.sessions, 'session-1')?.name).toBe(
         'Phone Session',
       )

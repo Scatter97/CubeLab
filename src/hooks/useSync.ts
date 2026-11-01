@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import type { SessionsData, Settings } from '../types'
-import { countSolves } from '../lib/sessions'
+import { countSolves, reconcileExternalSessions } from '../lib/sessions'
 import { loadSessions } from '../lib/storage'
 import { createBackup } from '../lib/backup'
 import type { DriveTransport } from '../lib/driveTransport'
@@ -53,6 +54,12 @@ interface UseSyncOptions {
   timerActive: boolean
   onReplaceSessions: (data: SessionsData) => void
   onReplaceSettings: (settings: Settings) => void
+  /**
+   * Fields just adopted from another tab's settings write. Their external
+   * timestamps are authoritative, so they must not be stamped as new local
+   * edits.
+   */
+  adoptedSettingsFieldsRef?: MutableRefObject<ReadonlySet<keyof Settings> | null>
   onNotify: (message: string) => void
   /**
    * Receives duplicate names plus an optional full summary. The summary lets the
@@ -180,6 +187,7 @@ export function useSync({
   timerActive,
   onReplaceSessions,
   onReplaceSettings,
+  adoptedSettingsFieldsRef,
   onNotify,
   onDuplicateSessionDetected,
 }: UseSyncOptions): UseSyncResult {
@@ -201,6 +209,7 @@ export function useSync({
   const retryTimerRef = useRef<number | null>(null)
   const previousSettingsRef = useRef<Settings | null>(null)
   const replacementSettingsFingerprintRef = useRef<string | null>(null)
+  const previousActiveSessionIdRef = useRef<string | null>(null)
 
   // Keep the latest props available before the browser yields. A sync request
   // can finish while a local edit is being committed; the in-flight guards
@@ -211,7 +220,11 @@ export function useSync({
     timerActiveRef.current = timerActive
   }, [sessions, settings, timerActive])
 
-  useEffect(() => {
+  // Keep the latest sync storage available to the settings metadata effect
+  // before paint. An external settings write and its metadata can arrive in
+  // the same render, and the adopted fields must retain the external
+  // timestamps rather than receiving this tab's clock.
+  useLayoutEffect(() => {
     syncRef.current = sync
   }, [sync])
 
@@ -228,13 +241,17 @@ export function useSync({
   useLayoutEffect(() => {
     const previous = previousSettingsRef.current
     previousSettingsRef.current = settings
+    const adopted = adoptedSettingsFieldsRef?.current ?? null
+    if (adoptedSettingsFieldsRef) adoptedSettingsFieldsRef.current = null
     const fingerprint = settingsStateFingerprint(settings)
     if (replacementSettingsFingerprintRef.current === fingerprint) {
       replacementSettingsFingerprintRef.current = null
       return
     }
     if (!previous) return
-    const changed = changedSettingFields(previous, settings)
+    const changed = changedSettingFields(previous, settings).filter(
+      (key) => !adopted?.has(key),
+    )
     if (changed.length === 0) return
 
     const now = Date.now()
@@ -252,7 +269,7 @@ export function useSync({
         settingsFieldUpdates,
       },
     })
-  }, [persist, settings])
+  }, [persist, settings, adoptedSettingsFieldsRef])
 
   // Track deletions locally through storage changes.
   useEffect(() => {
@@ -607,7 +624,12 @@ export function useSync({
         conflict.remoteUpdatedAt,
       )
       const resolution = entry.resolution === 'local' ? 'remote' : 'local'
-      conflicts[index] = { ...conflict, resolution, updatedAt: now }
+      conflicts[index] = {
+        ...conflict,
+        resolution,
+        updatedAt: now,
+        priorUpdatedAt: conflict.updatedAt,
+      }
       const reversed: ConflictAuditEntry = {
         ...entry,
         auditId: createAuditId(),
@@ -798,6 +820,19 @@ export function useSync({
             }
           }
 
+          // Revalidate enabled/connection state after asynchronous boundaries.
+          if (!syncRef.current.preferences.enabled) {
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                lastSyncStatus: 'pending',
+                lastError: 'Synchronization disabled.',
+              },
+            })
+            return
+          }
+
           const syncState = syncRef.current
           const deviceId = syncState.runtime.deviceId
           const local = sessionsRef.current
@@ -809,6 +844,23 @@ export function useSync({
 
           const remoteFiles = await listRemoteBackups(transport)
           const snapshots = await readRemoteBackups(transport, remoteFiles)
+
+          // Re-check timer activity after the network read. A sync started while
+          // idle may finish after timing has begun; never merge or replace state
+          // while the timer is armed, running, or inspecting.
+          if (timerActiveRef.current) {
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                lastSyncStatus: 'pending',
+                lastError: 'Synchronization will resume when the timer is idle.',
+              },
+            })
+            queueRetry(500)
+            return
+          }
+
           const remoteRevision = snapshots.reduce(
             (highest, snapshot) => Math.max(highest, snapshot.backup.sync?.revision ?? 0),
             0,
@@ -834,6 +886,7 @@ export function useSync({
           let mergedSessions = local
           let adoptedLocalDefault = false
           let recoveredSolves = 0
+          let mergedActiveSessionUpdate = syncState.runtime.activeSessionFieldUpdate
           for (const snapshot of snapshots) {
             const result = mergeSessionsData({
               local: mergedSessions,
@@ -843,11 +896,16 @@ export function useSync({
               deviceId,
               manualConflictReview: syncState.preferences.manualConflictReview,
               resolvedConflicts: syncState.runtime.conflicts,
+              localActiveSessionUpdate: mergedActiveSessionUpdate,
+              remoteActiveSessionUpdate: snapshot.backup.sync?.activeSessionFieldUpdate,
             })
             mergedSessions = result.merged
             adoptedLocalDefault = adoptedLocalDefault || result.adoptedLocalDefault
             recoveredSolves += result.recoveredSolves
             conflicts.push(...result.conflicts)
+            if (result.activeSessionFieldUpdate) {
+              mergedActiveSessionUpdate = result.activeSessionFieldUpdate
+            }
           }
           // Duplicate names must be judged against the final collection. A later
           // snapshot without its own collision must not erase an earlier warning.
@@ -1034,6 +1092,7 @@ export function useSync({
               updatedConflicts,
               sessionRedirects,
               mergedSettingsUpdates,
+              mergedActiveSessionUpdate,
             )
             const backup = createBackup(
               mergedSessions,
@@ -1045,6 +1104,18 @@ export function useSync({
             // Re-check immediately before the remote write. The upload itself
             // cannot be atomic, but local data is never replaced by a stale
             // in-flight snapshot.
+            if (timerActiveRef.current) {
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'pending',
+                  lastError: 'Synchronization will resume when the timer is idle.',
+                },
+              })
+              queueRetry(500)
+              return
+            }
             if (!isLocalUnchanged()) {
               persist({
                 ...syncRef.current,
@@ -1061,6 +1132,11 @@ export function useSync({
             const expectedLegacyFile = remoteFiles[0]
             const content = JSON.stringify(backup)
             const write = await runWithDriveWriteLock(async () => {
+              // Re-check timer activity after acquiring the shared write lock;
+              // a timer may have started while waiting for the lock.
+              if (timerActiveRef.current) {
+                return { status: 'timer-active' as const }
+              }
               // Per-device snapshots are immutable and uniquely named: this
               // upload creates a new file and cannot overwrite a concurrent
               // writer sharing this device ID, so no remote recheck can make
@@ -1102,6 +1178,18 @@ export function useSync({
               }
             })
 
+            if (write.status === 'timer-active') {
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'pending',
+                  lastError: 'Synchronization will resume when the timer is idle.',
+                },
+              })
+              queueRetry(500)
+              return
+            }
             if (write.status === 'remote-changed') {
               persist({
                 ...syncRef.current,
@@ -1159,6 +1247,24 @@ export function useSync({
 
           // Publish only after upload success; failed writes cannot cause an
           // adopted snapshot to erase unsaved local work.
+          //
+          // Re-check timer activity before applying state. A sync started while
+          // idle may finish after timing has begun; never replace the session
+          // collection or settings during a solve. Defer application and rerun
+          // the merge against current local state once idle.
+          if (timerActiveRef.current) {
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                lastSyncStatus: 'pending',
+                lastError: 'Synchronization will resume when the timer is idle.',
+              },
+            })
+            queueRetry(500)
+            return
+          }
+
           knownSessionsRef.current = mergedSessions
           sessionsRef.current = mergedSessions
           settingsRef.current = mergedSettings
@@ -1189,6 +1295,7 @@ export function useSync({
               sessionRedirects,
               pendingDuplicateNames: duplicateSessionNames,
               settingsFieldUpdates: mergedSettingsUpdates,
+              activeSessionFieldUpdate: mergedActiveSessionUpdate,
               lastSyncedFingerprint: mergedFingerprint,
             },
           }
@@ -1430,7 +1537,14 @@ export function useSync({
     }
   }, [persist])
 
-  // Followers mirror storage changes.
+  // Followers mirror storage changes. External session collection changes
+  // are deferred while the timer is active so a solve cannot be redirected
+  // into a different session/event mid-timing.
+  const pendingExternalSessionsRef = useRef<{
+    external: SessionsData
+    baseline: SessionsData
+  } | null>(null)
+
   useEffect(() => {
     const handler = (event: StorageEvent) => {
       if (event.key === SYNC_STORAGE_KEY && syncRef.current?.preferences) {
@@ -1439,6 +1553,16 @@ export function useSync({
       if (event.key === 'cubelab:sessions:v1') {
         try {
           const loaded = loadSessions()
+          if (timerActiveRef.current) {
+            const previous = pendingExternalSessionsRef.current
+            pendingExternalSessionsRef.current = {
+              external: loaded,
+              // The baseline is the local collection at the first deferral.
+              // Only solves recorded after that point are merged back.
+              baseline: previous?.baseline ?? sessionsRef.current,
+            }
+            return
+          }
           onReplaceSessions(loaded)
         } catch {
           // ignore follower parse failures
@@ -1448,6 +1572,46 @@ export function useSync({
     window.addEventListener('storage', handler)
     return () => window.removeEventListener('storage', handler)
   }, [onReplaceSessions])
+
+  // Apply any deferred external session collection change once the timer is
+  // idle. Local solves recorded during the deferral are merged by stable ID so
+  // a cross-tab active-session switch cannot drop them.
+  useEffect(() => {
+    if (timerActive) return
+    const pending = pendingExternalSessionsRef.current
+    if (!pending) return
+    pendingExternalSessionsRef.current = null
+    const reconciled = reconcileExternalSessions({
+      external: pending.external,
+      local: sessionsRef.current,
+      baseline: pending.baseline,
+    })
+    onReplaceSessions(reconciled)
+  }, [timerActive, onReplaceSessions])
+
+  // Track active session selection changes so they can be field-merged across
+  // devices instead of being silently overwritten.
+  useEffect(() => {
+    const currentId = sessions.activeSessionId
+    if (previousActiveSessionIdRef.current === null) {
+      previousActiveSessionIdRef.current = currentId
+      return
+    }
+    if (previousActiveSessionIdRef.current === currentId) return
+    previousActiveSessionIdRef.current = currentId
+    if (!syncRef.current.preferences.enabled) return
+    const deviceId = syncRef.current.runtime.deviceId
+    persist({
+      ...syncRef.current,
+      runtime: {
+        ...syncRef.current.runtime,
+        activeSessionFieldUpdate: {
+          updatedAt: Date.now(),
+          editorId: deviceId,
+        },
+      },
+    })
+  }, [sessions.activeSessionId, persist])
 
   // Network listeners.
   useEffect(() => {
@@ -1512,8 +1676,10 @@ export function useSync({
   }, [syncNow])
 
   const localStateFingerprint = useMemo(
-    () => syncStateFingerprint(sessions, settings),
-    [sessions, settings],
+    // UI pending-state detection is unused while disabled. Actual sync still
+    // fingerprints current refs at its in-flight safety boundaries.
+    () => sync.preferences.enabled ? syncStateFingerprint(sessions, settings) : null,
+    [sessions, settings, sync.preferences.enabled],
   )
   const hasPendingChanges =
     sync.preferences.enabled &&

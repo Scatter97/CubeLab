@@ -32,6 +32,8 @@ export interface SyncEnvelope {
   sessionRedirects: SessionRedirect[]
   /** Field metadata for the settings snapshot carried by this envelope. */
   settingsFieldUpdates?: SettingsFieldUpdates
+  /** Field metadata for the active session selection carried by this envelope. */
+  activeSessionFieldUpdate?: { updatedAt: number; editorId: string }
 }
 
 export function mergeTombstones(...groups: ReadonlyArray<ReadonlyArray<Tombstone>>): Tombstone[] {
@@ -347,6 +349,7 @@ export interface SyncMergeResult {
   conflicts: SyncConflict[]
   mergedTombstones: Tombstone[]
   recoveredSolves: number
+  activeSessionFieldUpdate?: { updatedAt: number; editorId: string }
 }
 
 export function mergeSessionsData(input: {
@@ -357,6 +360,8 @@ export function mergeSessionsData(input: {
   deviceId: string
   manualConflictReview: boolean
   resolvedConflicts?: SyncConflict[]
+  localActiveSessionUpdate?: { updatedAt: number; editorId: string }
+  remoteActiveSessionUpdate?: { updatedAt: number; editorId: string }
 }): SyncMergeResult {
   const redirects = input.sessionRedirects ?? []
   const local = redirects.length > 0 ? applySessionRedirects(input.local, redirects) : input.local
@@ -815,12 +820,46 @@ export function mergeSessionsData(input: {
     duplicateSessionNames,
     sessionRedirects: normalizeSessionRedirects(input.sessionRedirects ?? []),
     merged: {
-      activeSessionId:
-        mergedSessions.some((session) => session.id === local.activeSessionId)
-          ? local.activeSessionId
-          : mergedSessions.some((session) => session.id === remote?.activeSessionId)
-            ? remote!.activeSessionId
-            : mergedSessions[0]?.id ?? local.activeSessionId,
+      activeSessionId: (() => {
+        const localUpdate = input.localActiveSessionUpdate
+        const remoteUpdate = input.remoteActiveSessionUpdate
+        if (localUpdate || remoteUpdate) {
+          const lTime = localUpdate?.updatedAt ?? 0
+          const rTime = remoteUpdate?.updatedAt ?? 0
+          let winner: 'local' | 'remote'
+          if (lTime !== rTime) winner = lTime > rTime ? 'local' : 'remote'
+          else if ((localUpdate?.editorId ?? '') !== (remoteUpdate?.editorId ?? '')) {
+            winner = (localUpdate?.editorId ?? '') < (remoteUpdate?.editorId ?? '') ? 'local' : 'remote'
+          } else {
+            winner = 'local'
+          }
+          const chosenId = winner === 'local' ? local.activeSessionId : (remote?.activeSessionId ?? local.activeSessionId)
+          // Surface a conflict when both sides changed the active selection to
+          // different sessions and manual review is enabled.
+          if (
+            manualConflictReview &&
+            localUpdate &&
+            remoteUpdate &&
+            local.activeSessionId !== remote?.activeSessionId
+          ) {
+            conflicts.push({
+              id: 'active-session',
+              kind: 'session',
+              field: 'activeSessionId',
+              localValue: local.activeSessionId,
+              remoteValue: remote?.activeSessionId,
+              localUpdatedAt: lTime,
+              remoteUpdatedAt: rTime,
+              resolution: 'manual-pending',
+              updatedAt: Math.max(lTime, rTime, Date.now()),
+            })
+          }
+          if (mergedSessions.some((session) => session.id === chosenId)) return chosenId
+        }
+        if (mergedSessions.some((session) => session.id === local.activeSessionId)) return local.activeSessionId
+        if (remote && mergedSessions.some((session) => session.id === remote.activeSessionId)) return remote.activeSessionId
+        return mergedSessions[0]?.id ?? local.activeSessionId
+      })(),
       sessions: mergedSessions,
     },
     addedSolves,
@@ -831,6 +870,16 @@ export function mergeSessionsData(input: {
     conflicts,
     mergedTombstones: [...tombstones],
     recoveredSolves,
+    activeSessionFieldUpdate: (() => {
+      const localUpdate = input.localActiveSessionUpdate
+      const remoteUpdate = input.remoteActiveSessionUpdate
+      if (!localUpdate && !remoteUpdate) return undefined
+      if (localUpdate && remoteUpdate) {
+        if (localUpdate.updatedAt >= remoteUpdate.updatedAt) return localUpdate
+        return remoteUpdate
+      }
+      return localUpdate ?? remoteUpdate
+    })(),
   }
 
   return result
@@ -843,6 +892,7 @@ export function createSyncEnvelope(
   conflicts: SyncConflict[],
   sessionRedirects: SessionRedirect[] = [],
   settingsFieldUpdates: SettingsFieldUpdates = {},
+  activeSessionFieldUpdate?: { updatedAt: number; editorId: string },
 ): SyncEnvelope {
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
@@ -854,6 +904,9 @@ export function createSyncEnvelope(
     sessionRedirects: normalizeSessionRedirects(sessionRedirects),
     ...(Object.keys(settingsFieldUpdates).length > 0
       ? { settingsFieldUpdates: { ...settingsFieldUpdates } }
+      : {}),
+    ...(activeSessionFieldUpdate
+      ? { activeSessionFieldUpdate: { ...activeSessionFieldUpdate } }
       : {}),
   }
 }
@@ -881,6 +934,19 @@ export function parseRemoteSyncEnvelope(value: unknown): SyncEnvelope | null {
       record.settingsFieldUpdates === null ||
       Array.isArray(record.settingsFieldUpdates) ||
       !Object.values(record.settingsFieldUpdates).every(isFieldUpdate)
+    ) {
+      return null
+    }
+  }
+  if (record.activeSessionFieldUpdate !== undefined) {
+    const candidate = record.activeSessionFieldUpdate
+    if (
+      typeof candidate !== 'object' ||
+      candidate === null ||
+      Array.isArray(candidate) ||
+      typeof (candidate as Record<string, unknown>).updatedAt !== 'number' ||
+      !Number.isFinite((candidate as Record<string, unknown>).updatedAt) ||
+      typeof (candidate as Record<string, unknown>).editorId !== 'string'
     ) {
       return null
     }

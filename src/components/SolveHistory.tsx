@@ -228,7 +228,7 @@ const SolveRow = memo(function SolveRow({
   )
 })
 
-export function SolveHistory({
+export const SolveHistory = memo(function SolveHistory({
   solves,
   onSetPenalty,
   onDelete,
@@ -915,4 +915,4 @@ export function SolveHistory({
       {menu}
     </section>
   )
-}
+})

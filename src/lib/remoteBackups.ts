@@ -5,6 +5,7 @@ import { mergeTombstones, mergeSessionsData } from './sync'
 import { mergeSettingsData } from './settingsMerge'
 import type { SettingsFieldUpdates } from './syncStorage'
 import { normalizeSessionRedirects } from './sessionRedirects'
+import { createSession, DEFAULT_SESSION_NAME } from './sessions'
 
 export interface RemoteBackupSnapshot {
   file: DriveFile
@@ -41,8 +42,18 @@ export async function readRemoteBackups(
   const remoteFiles = files ?? (await listRemoteBackups(transport))
   const snapshots: RemoteBackupSnapshot[] = []
   for (const file of remoteFiles) {
+    // A provider-reported size lets us reject an oversized file before paying
+    // for the download. It is advisory; the encoded byte check below is
+    // authoritative.
+    if (
+      typeof file.size === 'number' &&
+      Number.isFinite(file.size) &&
+      file.size > MAX_BACKUP_BYTES
+    ) {
+      throw new Error('Remote backup is too large to synchronize.')
+    }
     const raw = await transport.downloadBackup(file.id)
-    if (raw.length > MAX_BACKUP_BYTES) {
+    if (new TextEncoder().encode(raw).byteLength > MAX_BACKUP_BYTES) {
       throw new Error('Remote backup is too large to synchronize.')
     }
     const parsed = parseBackup(raw)
@@ -79,7 +90,29 @@ export function mergeRemoteBackupSnapshots(
     snapshots.flatMap((snapshot) => snapshot.backup.sync?.sessionRedirects ?? []),
   )
 
-  let sessions = first.backup.sessions
+  // Normalize even the first/single snapshot through the same merge/recovery
+  // pipeline so its tombstones and redirects are applied. Apply the shared
+  // tombstones/redirects to the first snapshot before folding in the rest.
+  let sessions: SessionsData = snapshots[0]!.backup.sessions
+  const firstNormalized = mergeSessionsData({
+    local: sessions,
+    remote: null,
+    tombstones,
+    sessionRedirects: redirects,
+    deviceId: 'manual-restore',
+    manualConflictReview: false,
+  })
+  sessions = firstNormalized.merged
+  if (sessions.sessions.length === 0) {
+    // A snapshot may legitimately delete every session it contained. Keep the
+    // at-least-one-session invariant with a fresh default instead of restoring
+    // the tombstoned collection.
+    const fresh = createSession(
+      { activeSessionId: '', sessions: [] },
+      DEFAULT_SESSION_NAME,
+    )
+    if (fresh) sessions = fresh.data
+  }
   for (const snapshot of snapshots.slice(1)) {
     const merged = mergeSessionsData({
       local: sessions,

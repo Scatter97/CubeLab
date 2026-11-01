@@ -21,6 +21,12 @@ export interface Backup {
   sessions: SessionsData
   settings: Settings
   /**
+   * How imported sessions should be applied: 'replace' overwrites local
+   * sessions (native CubeLab backups), 'add' appends them as new sessions
+   * (csTimer imports). Defaults to 'replace'.
+   */
+  importMode?: 'replace' | 'add'
+  /**
    * Optional synchronization envelope used by Phase 2C. Manual backups created
    * by older versions omit this and remain fully compatible.
    */

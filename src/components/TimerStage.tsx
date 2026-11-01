@@ -1,5 +1,6 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import type { InspectionCountDirection, InspectionWarningVisualScope, Solve } from '../types'
+import type { InspectionCountDirection, InspectionWarningVisualScope, Solve, TimerUpdateMode } from '../types'
+import { useRunningElapsed } from '../hooks/useRunningElapsed'
 import type { AlertTone } from '../lib/alerts'
 import { formatSolveTime, formatTime } from '../lib/format'
 import {
@@ -25,7 +26,7 @@ function splitDecimalTime(value: string): ReactNode {
 interface TimerStageProps {
   state: TimerState
   eventLabel: string
-  elapsedMs: number | null
+  timerUpdateMode?: TimerUpdateMode
   inspectionElapsedMs: number | null
   holdProgress: number
   latestSolve: Solve | null
@@ -36,6 +37,8 @@ interface TimerStageProps {
   showTimerDecimalSmall?: boolean
   alert?: { tone: AlertTone; id: number; message?: string; visualTone?: AlertTone } | null
   inspectionWarningVisualScope?: InspectionWarningVisualScope
+  /** Presentation-only overlay anchored inside the timer stage. */
+  overlay?: ReactNode
   onPress: (input: TimerInput) => void
   onRelease: (input: TimerInput) => void
   onCancel: () => void
@@ -106,7 +109,7 @@ function phaseLabel(state: TimerState): string {
 export function TimerStage({
   state,
   eventLabel,
-  elapsedMs,
+  timerUpdateMode = 'live',
   inspectionElapsedMs,
   holdProgress,
   latestSolve,
@@ -117,11 +120,13 @@ export function TimerStage({
   showTimerDecimalSmall = false,
   alert = null,
   inspectionWarningVisualScope = 'timer',
+  overlay = null,
   onPress,
   onRelease,
   onCancel,
 }: TimerStageProps) {
   const activePointer = useRef<number | null>(null)
+  const elapsedMs = useRunningElapsed(state.status === 'running' ? state.startedAt : null, timerUpdateMode)
   const inspection =
     state.status === 'inspection'
       ? getInspectionDisplay(inspectionElapsedMs, inspectionCountDirection)
@@ -221,14 +226,15 @@ export function TimerStage({
     if (activePointer.current !== null) return
 
     event.preventDefault()
-    event.currentTarget.focus({ preventScroll: true })
     activePointer.current = event.pointerId
+    // Capture the timing event before focus can force browser layout work.
+    onPress('pointer')
+    event.currentTarget.focus({ preventScroll: true })
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
     } catch {
       // Pointer capture is an enhancement; pointer handlers still work.
     }
-    onPress('pointer')
   }
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -379,6 +385,8 @@ export function TimerStage({
           Reset
         </button>
       ) : null}
+
+      {overlay}
     </section>
   )
 }

@@ -20,6 +20,13 @@ export async function generateScramble(event: PuzzleEvent = '333'): Promise<stri
   // separate cached chunk, and the worker isolation in vite.config.ts is
   // unchanged.
   const { randomScrambleForEvent } = await import('cubing/scramble')
+  if (typeof window !== 'undefined') {
+    // import.meta.resolve keeps the un-hashed worker filename in a Vite build.
+    // Prefer cubing.js's bundler-aware entry instead of first loading the SPA
+    // fallback HTML as a worker (a SyntaxError in WebKit).
+    const { setSearchDebug } = await import('cubing/search')
+    setSearchDebug({ prioritizeEsbuildWorkaroundForWorkerInstantiation: true })
+  }
   const alg = await randomScrambleForEvent(scrambleEventId(event))
   return alg.toString().trim()
 }

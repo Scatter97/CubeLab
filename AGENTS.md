@@ -18,7 +18,7 @@ evidence in `PROJECT_PROGRESS.md`.
 
 ## Scope
 
-This repository contains **CubeLab Milestone 1** plus the authorized **Phase 2A**
+This repository contains **CubeLab** plus the authorized **Phase 2A**
 local-data work:
 
 - speedcubing timer with per-session 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and
@@ -38,7 +38,7 @@ local-data work:
   snapshots, field-level session/settings merging, conflict review, tombstones,
   and recovery
 - a Settings dialog centralizing inspection direction and warnings, alerts,
-  accent color, statistics display and custom averages, scramble presentation,
+  accent color, statistics display, average trimming, and custom averages, scramble presentation,
   controls reference, local data, Drive synchronization, and backup/restore access
 - offline-capable PWA
 - responsive, accessible UI
@@ -47,10 +47,41 @@ Phase 2A, the Phase 2A.1 Settings design update, Phase 2A.2 settings groups,
 Phase 2A.3 timer/history/session refinements, Phase 2B optional manual Google
 Drive backup, Phase 2C local-first Google Drive synchronization, and Phase 3
 (More WCA events: 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7) are complete.
+Configurable csTimer-style average trimming is explicitly approved on
+2026-10-31 and applies to all built-in/custom averages, graphs, PB details,
+backups, and field-level settings synchronization. Default 5% / Auto migration
+recalculates historical averages and average PBs without mutating solves.
+
 Phase 4 (Performance, accessibility, and platform) is explicitly approved as of
 2026-10-28 (Stage 5 in `Oct_28_AM_Plan.md`); its scope and acceptance gates are
 defined in `ROADMAP.md`. Do not begin any other cloud/account feature or broaden
 to social features as drive-by additions without an explicit user instruction.
+
+## Current checkpoint and next work — 2026-11-01
+
+Implementation last verified October 31: **503 unit/component tests in 38 files;
+216 browser tests passed, 9 existing skips**, typecheck/lint/build and supported
+offline coverage passed. Approved follow-ups delivered csTimer import, 2D/PG3D
+tools, Time Trend gestures/PB details, settings-v8 trimming and the first timer
+stop-response patch. Do not confuse the historical “Phase 6-1” import label with
+approval of the proposed remaining-WCA-events phase.
+
+Read `NEXT_SESSION_HANDOFF.md` for the current detailed execution plan: fix the
+320-pixel panel/readout overlap, profile Zen/enabled sync at 7,000/10,000 solves,
+then evaluate measured hashing/chart/persistence costs. A documentation update
+does not authorize implementation of proposed feature phases or external writes.
+
+Only expensive **presentation** may be delayed. `useRunningElapsed` owns live
+readout animation; `usePostPaintValue` schedules presentation refresh after a
+rendering opportunity. Final readout, persistence, sync refs, deletion tracking
+and scheduling must receive current data. Do not defer saves or weaken enabled
+fingerprints/in-flight guards to improve timings. Capture press time before
+focus/audio work, preserve exact-once recording and session-ID presentation guards.
+Disabled-sync deletion tracking is still needed for later sync and must remain.
+
+The latest patch did not rerun live Drive or physical-device validation. The
+October 28 live-provider record is historical, not fresh evidence for later work.
+Use Node **22+** (package engine); system Node 18 cannot run this toolchain.
 
 ## Commands
 
@@ -85,24 +116,50 @@ the production build because it tests the service worker and offline reload.
   swallow Space.
 - **Settings are centralized.** The header Settings button opens the Settings
   dialog. Inspection direction and warnings, alerts, theme and accent color,
-  statistics display and custom averages, scramble presentation, the controls
-  reference, local-data status, and backup/restore access live there. Per-session
+  statistics display, average trimming, and custom averages, scramble presentation (including the
+  Draw Scramble 2D/3D visualization), the controls reference, local-data status,
+  and backup/restore access live there. Per-session
   inspection overrides, clear, and delete live in the session-settings gear, not
   in the header or History panel. Settings opens only while the timer is idle and
   blocks timing while open. Do not reintroduce a header inspection toggle or an
   inline History clear/delete control.
-- **Settings persistence is versioned.** `v1`–`v6` settings records migrate to
-  `v7` with documented defaults and field-level corruption recovery.
+- **Settings persistence is versioned.** `v1`–`v7` settings records migrate to
+  `v8` with documented defaults and field-level corruption recovery.
   `parseSettingsData` accepts only valid fields, rejects records without
   `inspectionEnabled`, and upgrades older backups during import. Schema `v7`
   adds the `theme` preference (`light`, `dark`, or `system`; default `light`).
-  Alerts, appearance, and statistics preferences must not alter raw times or WCA
-  calculations. Enabled inspection warnings always show their direction-aware
+  Schema `v8` adds `averageTrimBetter` (default `p5`) and
+  `averageTrimWorse` (default `auto`); old records/backups receive those defaults.
+  Alert, appearance, visibility, and precision preferences do not alter raw times.
+  Trimming explicitly changes training averages; it never changes single results,
+  inspection penalties, or the untrimmed mo3. Enabled inspection warnings always
+  show their direction-aware
   visual pulse and live-region announcement; sound and haptic follow the
   configured feedback channel. Settings may also
   enable `stopWithAnyKey` for stopping a running timer with any non-modifier key.
   Settings may also choose whether inspection-warning color pulses use the timer
   surface or the entire screen.
+- **Draw Scramble is presentation-only and scramble-derived.** The scramble
+  panel's existing **Current tool** button toggles panel visibility and must not
+  open a tool menu; the panel footer's **Function** dropdown selects the tool
+  and keeps the panel open. Do not add a second activation button or tool
+  system, and do not list placeholder tools. The panel is anchored inside the
+  bottom-right of the timer stage and must not cover the timer digits, scramble,
+  or essential controls. The 2D net must be simulated from the actual scramble
+  for the session event (no canned or random sticker state), and the 3D mode
+  must keep `twisty-player`. The 2D/3D choice lives only in Settings; do not add
+  an in-panel mode toggle.
+- **Draw Scramble panel interception.** The entire panel accepts pointer input
+  (`pointer-events: auto`) so a press on the diagram, header, or resize handle
+  can never fall through and arm the timer. Dragging starts only on the header
+  drag handle, resizing only on the bottom-right handle, and the resulting
+  layout is persisted only when the gesture ends. The panel is stage-relative
+  and clamped to the timer region on restore and viewport changes.
+- **Standard cube colour scheme.** `src/lib/cubeColors.ts` is the canonical
+  table (`U #FFFFFF`, `D #FFFF00`, `F #00FF00`, `B #0000FF`, `R #FF0000`,
+  `L #FF8000`); both the 2D net's `--cube-face-*` tokens and the 3D PG3D
+  renderer's puzzle-geometry palette use it. The 3D view forces
+  `visualization="PG3D"` because the Cube3D renderer hard-codes its palette.
 - **Theme colors are tokenized and audited.** `src/index.css` is the authoritative
   palette: light tokens live on `:root`, dark tokens on
   `:root[data-theme='dark']`, and dark accent variants under
@@ -122,10 +179,16 @@ the production build because it tests the service worker and offline reload.
   are shared by all supported events. Do not branch timer or statistics logic on
   the puzzle event unless a documented WCA rule requires it; record such a rule
   and its test alongside the change.
-- **Statistics follow WCA semantics.** Averages are newest-first; every trimmed
-  average removes one best and one worst; one DNF is trimmed as worst; two or
-  more DNFs make the average a DNF. mo3 contains no trimmed result and any DNF
-  makes it a DNF. Effective `+2` adds 2 seconds. Built-in sizes and custom
+- **Statistics use shared recorded-result and trimming rules.** Averages are newest-first; every trimmed
+  average follows the global better/worse trimming rules. Defaults remove 5%
+  from each end, rounding up; Auto matches the better-side rule. DNFs occupy
+  worst-side slots first; only DNFs left after that trim make an average DNF.
+  Fixed 0/1-result, percentage, asymmetric, and median choices are supported. An
+  even median retains the two middle results. mo3 is untrimmed and any DNF
+  makes it a DNF. Use `src/lib/averageTrimming.ts` for counts/validation and the
+  shared count/sum Fenwick rolling kernel in `src/lib/stats.ts` for best values
+  and chart windows; never implement separate trim rules in a component.
+  Effective `+2` adds 2 seconds. Built-in sizes and custom
   averages share the same calculation and validation rules. Update
   `src/lib/stats.test.ts` and `src/lib/statDefinitions.test.ts` for any change.
 - **Sessions are local and explicit.** Session names are trimmed, limited to 40
@@ -149,9 +212,12 @@ the production build because it tests the service worker and offline reload.
   the timer.
 - **Persistence is versioned.** Keys are `cubelab:sessions:v1` (active session,
   all named sessions, solves, comments, and optional field metadata),
-  `cubelab:settings:v1`, `cubelab:drive:v1` (optional connection metadata), and
-  `cubelab:sync:v1` (synchronization preferences/runtime metadata). Sessions use
-  schema `v4`; settings use schema `v7`. Session field metadata lives in
+  `cubelab:settings:v1`, `cubelab:drive:v1` (optional connection metadata),
+  `cubelab:sync:v1` (synchronization preferences/runtime metadata), and
+  `cubelab:drawScrambleMode:v1` (local Draw Scramble `net`/`3d` preference),
+  and `cubelab:toolPanelLayout:v1` (local Draw Scramble tool panel
+  stage-relative position/size, written only on gesture end, not synchronized). Sessions use
+  schema `v4`; settings use schema `v8`. Session field metadata lives in
   `Session.fieldUpdates`; global settings metadata lives in
   `cubelab:sync:v1`. The original `cubelab:solves:v1` key is read only for
   migration into **Session 1**. Validate and recover from corrupt records; never
@@ -325,8 +391,9 @@ in `docs/` if the visible design changes materially.
   evidence, known limitations, and next steps.
 - Keep the active documentation set small: `AGENTS.md`, `README.md`,
   `ROADMAP.md`, `PROJECT_PROGRESS.md`, `PATCH_LIMITATIONS.md`,
-  `NEXT_SESSION_HANDOFF.md`, `Oct_28_AM_Plan.md`, and the screenshots referenced
-  by `README.md`. Remove completed audit trackers, one-off remediation logs, and
+  `NEXT_SESSION_HANDOFF.md`, the historical `Oct_28_AM_Plan.md` and
+  `Oct_30_PM_plan.md` closure record, and the screenshots referenced
+  by `README.md`. Consolidate completed audit trackers into the dated closure record; remove one-off remediation logs and
   superseded design briefs instead of accumulating historical documentation.
 - Use a focused commit message that describes the milestone or change.
 - Do not commit `dist/`, `node_modules/`, Playwright output, or local secrets.

@@ -790,6 +790,90 @@ describe('manual conflict resolution', () => {
   })
 })
 
+describe('approval timestamp exactness', () => {
+  const reviewedLocal = solve({
+    penalty: 'none',
+    fieldUpdates: { penalty: { updatedAt: 100, editorId: 'laptop' } },
+  })
+  const reviewedRemote = solve({
+    penalty: '+2',
+    fieldUpdates: { penalty: { updatedAt: 200, editorId: 'phone' } },
+  })
+  const approvalOfRemote: SyncConflict = {
+    id: 'solve-1',
+    kind: 'solve',
+    field: 'penalty',
+    localValue: 'none',
+    remoteValue: '+2',
+    localUpdatedAt: 100,
+    remoteUpdatedAt: 200,
+    resolution: 'remote',
+    updatedAt: 400,
+  }
+
+  function mergePenalty(
+    local: Solve,
+    remote: Solve,
+    resolved: SyncConflict[] = [approvalOfRemote],
+  ) {
+    const conflicts: SyncConflict[] = []
+    const merged = mergeSolveFields(local, remote, true, conflicts, resolved)
+    return { merged, conflicts }
+  }
+
+  it('does not apply an approval after the reviewed local value returns with a newer timestamp', () => {
+    const changedLocal = solve({
+      penalty: 'none',
+      fieldUpdates: { penalty: { updatedAt: 300, editorId: 'laptop' } },
+    })
+
+    const { merged, conflicts } = mergePenalty(changedLocal, reviewedRemote)
+
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]).toMatchObject({
+      resolution: 'manual-pending',
+      localValue: 'none',
+      remoteValue: '+2',
+      localUpdatedAt: 300,
+      remoteUpdatedAt: 200,
+    })
+    // The newest local edit wins provisionally; the approved cloud value is
+    // not silently applied over it.
+    expect(merged.penalty).toBe('none')
+  })
+
+  it('does not apply an approval after a value changed away and back', () => {
+    const roundTrippedLocal = solve({
+      penalty: 'none',
+      fieldUpdates: { penalty: { updatedAt: 500, editorId: 'laptop' } },
+    })
+
+    const { merged, conflicts } = mergePenalty(roundTrippedLocal, reviewedRemote)
+
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]?.resolution).toBe('manual-pending')
+    expect(merged.penalty).toBe('none')
+  })
+
+  it('still applies to the winning version stamped at the approval time', () => {
+    // The first merge stamped the approved cloud value at updatedAt=400. A
+    // repeated merge must recognize that already-applied version.
+    const appliedLocal = solve({
+      penalty: '+2',
+      fieldUpdates: { penalty: { updatedAt: 400, editorId: 'phone' } },
+    })
+
+    const { merged, conflicts } = mergePenalty(appliedLocal, reviewedLocal)
+
+    expect(conflicts).toHaveLength(0)
+    expect(merged.penalty).toBe('+2')
+    expect(merged.fieldUpdates?.penalty).toEqual({
+      updatedAt: 400,
+      editorId: 'phone',
+    })
+  })
+})
+
 describe('deletion versus offline edits', () => {
   const deletedAt = 1_700_000_005_000
   const tombstones: Tombstone[] = [

@@ -165,6 +165,152 @@ describe('remote backup snapshots', () => {
     ).toEqual(['B', 'C'])
   })
 
+  it('applies a solve tombstone carried by a single snapshot', () => {
+    const snapshot = {
+      file: {
+        id: 'only',
+        name: 'cubelab-backup-device-a-one.json',
+        modifiedTime: null,
+      },
+      backup: createBackup(
+        sessionsData({
+          sessions: [
+            session({ solves: [solve({ id: 'deleted' }), solve({ id: 'kept' })] }),
+          ],
+        }),
+        DEFAULT_SETTINGS,
+        new Date('2026-01-01T00:00:00.000Z'),
+        {
+          ...createSyncEnvelope('device-a', 1, [
+            {
+              kind: 'solve',
+              id: 'deleted',
+              deletedAt: 300,
+              deletedByDeviceId: 'device-a',
+            },
+          ], []),
+          updatedAt: 100,
+        },
+      ),
+      updatedAt: 100,
+    }
+
+    const merged = mergeRemoteBackupSnapshots([snapshot])
+    expect(
+      merged.sessions.sessions.flatMap((item) => item.solves.map((item) => item.id)),
+    ).toEqual(['kept'])
+  })
+
+  it('does not resurrect a session tombstoned by a single snapshot', () => {
+    const snapshot = {
+      file: {
+        id: 'only',
+        name: 'cubelab-backup-device-a-one.json',
+        modifiedTime: null,
+      },
+      backup: createBackup(
+        sessionsData({
+          sessions: [
+            session({ id: 'live-session', name: 'Live' }),
+            session({ id: 'deleted-session', name: 'Deleted' }),
+          ],
+        }),
+        DEFAULT_SETTINGS,
+        new Date('2026-01-01T00:00:00.000Z'),
+        {
+          ...createSyncEnvelope('device-a', 1, [
+            {
+              kind: 'session',
+              id: 'deleted-session',
+              deletedAt: 300,
+              deletedByDeviceId: 'device-a',
+              knownSolveIds: [],
+            },
+          ], []),
+          updatedAt: 100,
+        },
+      ),
+      updatedAt: 100,
+    }
+
+    const merged = mergeRemoteBackupSnapshots([snapshot])
+    expect(merged.sessions.sessions.map((item) => item.id)).toEqual(['live-session'])
+  })
+
+  it('replaces an all-tombstoned collection with a fresh default session', () => {
+    const snapshot = {
+      file: {
+        id: 'only',
+        name: 'cubelab-backup-device-a-one.json',
+        modifiedTime: null,
+      },
+      backup: createBackup(
+        sessionsData({
+          sessions: [session({ id: 'deleted-session', name: 'Deleted' })],
+        }),
+        DEFAULT_SETTINGS,
+        new Date('2026-01-01T00:00:00.000Z'),
+        {
+          ...createSyncEnvelope('device-a', 1, [
+            {
+              kind: 'session',
+              id: 'deleted-session',
+              deletedAt: 300,
+              deletedByDeviceId: 'device-a',
+              knownSolveIds: [],
+            },
+          ], []),
+          updatedAt: 100,
+        },
+      ),
+      updatedAt: 100,
+    }
+
+    const merged = mergeRemoteBackupSnapshots([snapshot])
+    expect(merged.sessions.sessions).toHaveLength(1)
+    expect(merged.sessions.sessions[0]?.id).not.toBe('deleted-session')
+    expect(merged.sessions.activeSessionId).toBe(merged.sessions.sessions[0]?.id)
+  })
+
+  it('applies a session redirect carried by a single snapshot', () => {
+    const snapshot = {
+      file: {
+        id: 'only',
+        name: 'cubelab-backup-device-a-one.json',
+        modifiedTime: null,
+      },
+      backup: createBackup(
+        sessionsData({
+          activeSessionId: 'target',
+          sessions: [
+            session({ id: 'source', name: 'Source', solves: [solve({ id: 'moved' })] }),
+            session({ id: 'target', name: 'Target' }),
+          ],
+        }),
+        DEFAULT_SETTINGS,
+        new Date('2026-01-01T00:00:00.000Z'),
+        {
+          ...createSyncEnvelope('device-a', 1, [], [], [
+            {
+              fromId: 'source',
+              toId: 'target',
+              approvedAt: 200,
+              byDeviceId: 'device-a',
+            },
+          ]),
+          updatedAt: 100,
+        },
+      ),
+      updatedAt: 100,
+    }
+
+    const merged = mergeRemoteBackupSnapshots([snapshot])
+    expect(merged.sessions.sessions.map((item) => item.id)).toEqual(['target'])
+    expect(merged.sessions.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'moved',
+    ])
+  })
+
   it('deletes every snapshot, including the legacy file', async () => {
     const transport = createMemoryDriveTransport()
     await transport.connect()
@@ -217,5 +363,59 @@ describe('remote backup snapshots', () => {
       listBackups: async () => [oversized],
     }
     await expect(deleteAllRemoteBackups(failing)).rejects.toThrow(/could not be removed/)
+  })
+
+  it('rejects an oversized provider size before downloading', async () => {
+    let downloads = 0
+    const transport: DriveTransport = {
+      configured: true,
+      accountLabel: null,
+      connect: async () => {},
+      disconnect: () => {},
+      isConnected: () => true,
+      findBackup: async () => ({
+        id: 'big',
+        name: 'cubelab-backup-big.json',
+        modifiedTime: null,
+        size: MAX_BACKUP_BYTES + 1,
+      }),
+      uploadBackup: async () => {
+        throw new Error('not used')
+      },
+      downloadBackup: async () => {
+        downloads += 1
+        return ''
+      },
+      deleteBackup: async () => {},
+    }
+
+    await expect(readRemoteBackups(transport)).rejects.toThrow(/too large/)
+    expect(downloads).toBe(0)
+  })
+
+  it('caps remote snapshots by encoded UTF-8 bytes rather than string length', async () => {
+    // 3.34M characters encode to just over 10 MiB, below the JavaScript
+    // character-count limit but above the real byte limit.
+    const raw = '€'.repeat(Math.floor(MAX_BACKUP_BYTES / 3) + 1)
+    expect(raw.length).toBeLessThan(MAX_BACKUP_BYTES)
+    const transport: DriveTransport = {
+      configured: true,
+      accountLabel: null,
+      connect: async () => {},
+      disconnect: () => {},
+      isConnected: () => true,
+      findBackup: async () => ({
+        id: 'multibyte',
+        name: 'cubelab-backup-multibyte.json',
+        modifiedTime: null,
+      }),
+      uploadBackup: async () => {
+        throw new Error('not used')
+      },
+      downloadBackup: async () => raw,
+      deleteBackup: async () => {},
+    }
+
+    await expect(readRemoteBackups(transport)).rejects.toThrow(/too large/)
   })
 })

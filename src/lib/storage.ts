@@ -20,6 +20,7 @@ import type {
   ThemePreference,
   TimerUpdateMode,
 } from '../types'
+import { DEFAULT_AVERAGE_TRIMMING, isAverageTrimRule } from './averageTrimming'
 import { createId } from './id'
 import { isPuzzleEventValue } from './events'
 import {
@@ -39,7 +40,7 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 4
-export const SETTINGS_STORAGE_VERSION = 7
+export const SETTINGS_STORAGE_VERSION = 8
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -74,6 +75,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   customAverages: [],
   statPrecision: 'centiseconds',
+  averageTrimBetter: DEFAULT_AVERAGE_TRIMMING.better,
+  averageTrimWorse: DEFAULT_AVERAGE_TRIMMING.worse,
 }
 
 function cloneDefaultSettings(): Settings {
@@ -494,6 +497,8 @@ export function parseSettingsData(value: unknown): Settings | null {
     theme: isValidThemePreference(value.theme)
       ? value.theme
       : DEFAULT_SETTINGS.theme,
+    averageTrimBetter: isAverageTrimRule(value.averageTrimBetter) ? value.averageTrimBetter : DEFAULT_SETTINGS.averageTrimBetter,
+    averageTrimWorse: value.averageTrimWorse === 'auto' || isAverageTrimRule(value.averageTrimWorse) ? value.averageTrimWorse : DEFAULT_SETTINGS.averageTrimWorse,
     statVisibility: parseStatVisibility(value.statVisibility),
     customAverages: parseCustomAverages(value.customAverages),
     statPrecision: isValidStatPrecision(value.statPrecision)

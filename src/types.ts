@@ -48,6 +48,12 @@ export type InspectionCountDirection = 'down' | 'up'
 export type InspectionWarningVisualScope = 'timer' | 'screen'
 export type AccentColor = 'green' | 'blue' | 'violet' | 'amber'
 export type ThemePreference = 'light' | 'dark' | 'system'
+export type AverageTrimRule = '0' | '1' | 'p1' | 'p5' | 'p10' | 'p20' | 'median'
+export interface AverageTrimming {
+  better: AverageTrimRule
+  worse: AverageTrimRule | 'auto'
+}
+
 export type StatPrecision = 'centiseconds' | 'tenths'
 export type StatKey =
   | 'single'
@@ -84,7 +90,7 @@ export interface CustomAverageSetting {
 
 /**
  * User preferences. Settings are local first and are intentionally small in
- * scope: they control presentation and timer interaction, not WCA rules.
+ * scope: they control presentation, timer interaction, and training-average trimming.
  */
 export interface Settings {
   inspectionEnabled: boolean
@@ -107,6 +113,8 @@ export interface Settings {
   statVisibility: StatVisibility
   customAverages: CustomAverageSetting[]
   statPrecision: StatPrecision
+  averageTrimBetter: AverageTrimRule
+  averageTrimWorse: AverageTrimRule | 'auto'
 }
 
 /**

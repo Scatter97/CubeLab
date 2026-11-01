@@ -1292,7 +1292,10 @@ test('large histories stay contained on mobile widths', async ({ page }) => {
 
 test('named sessions create, switch, rename, delete, and persist', async ({
   page,
+  browserName,
 }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.goto('/')
   await waitForApp(page)
 
@@ -1303,8 +1306,6 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await recordSolve(page, 100)
   await expect(page.getByTestId('solve-count')).toHaveText('1')
   await page.waitForTimeout(300)
-  page.on('console', (msg) => console.error('BROWSER_CONSOLE:', msg.text()))
-  page.on('pageerror', (err) => console.error('BROWSER_PAGEERROR:', err.message))
   await expect(page.getByTestId('new-session')).toBeEnabled()
   await page.getByTestId('new-session').click()
   const input = page.getByRole('textbox', { name: 'Session name' })
@@ -1335,8 +1336,6 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await expect(page.getByTestId('session-error')).toHaveCount(0)
   expect(await selectedSessionName(page)).toBe('Evening')
   await expect(page.getByTestId('solve-count')).toHaveText('0')
-  const activeElementId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
-  console.error('SESSION_CREATE_ACTIVE_ELEMENT=' + (activeElementId ?? 'null'))
   await expect(select).toBeFocused()
 
   // Space still controls the timer while the session select is focused.
@@ -1404,6 +1403,17 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await waitForApp(page)
   expect(await selectedSessionName(page)).toBe('Evening')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+  const unexpectedErrors = pageErrors.filter((message) => {
+    // WebKit intermittently reports a non-fatal "Unexpected token '<'" while
+    // parsing a prefetched/HTML response during reload; the test's functional
+    // assertions still pass. Documented whitelist per Phase 5 P3.
+    if (browserName === 'webkit' && message.includes("Unexpected token '<'")) {
+      return false
+    }
+    return true
+  })
+  expect(unexpectedErrors).toEqual([])
 })
 
 test('per-session inspection overrides the global default and persists', async ({
@@ -1627,6 +1637,8 @@ test('backup export and import restore sessions, comments, and settings', async 
   await settings.getByTestId('inspection-direction').selectOption('up')
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('add-custom-average').click()
+  await settings.getByTestId('average-trim-better').selectOption('p10')
+  await settings.getByTestId('average-trim-worse').selectOption('1')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -1664,6 +1676,8 @@ test('backup export and import restore sessions, comments, and settings', async 
     version: number
     sessions: StoredSessions
     settings: {
+      averageTrimBetter: string
+      averageTrimWorse: string
       inspectionEnabled: boolean
       inspectionCountDirection: string
       inspectionWarning8s: boolean
@@ -1688,6 +1702,8 @@ test('backup export and import restore sessions, comments, and settings', async 
     ),
   ).toBe(2)
   expect(backup.sessions.sessions[0]?.solves[0]?.comment).toBe('Backup comment')
+  expect(backup.settings.averageTrimBetter).toBe('p10')
+  expect(backup.settings.averageTrimWorse).toBe('1')
   expect(backup.settings.inspectionEnabled).toBe(true)
   expect(backup.settings.inspectionCountDirection).toBe('up')
   expect(backup.settings.inspectionWarning8s).toBe(true)
@@ -1756,6 +1772,8 @@ test('backup export and import restore sessions, comments, and settings', async 
   await expect(importedSettings.getByTestId('custom-average-size-0')).toHaveValue(
     '6',
   )
+  await expect(importedSettings.getByTestId('average-trim-better')).toHaveValue('p10')
+  await expect(importedSettings.getByTestId('average-trim-worse')).toHaveValue('1')
   await importedSettings.getByTestId('settings-done').click()
   await expect(importedSettings).toBeHidden()
 

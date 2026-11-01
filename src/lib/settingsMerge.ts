@@ -27,6 +27,8 @@ export const SETTINGS_FIELD_KEYS: readonly SettingsFieldKey[] = [
   'statVisibility',
   'customAverages',
   'statPrecision',
+  'averageTrimBetter',
+  'averageTrimWorse',
 ]
 
 function valueEquals(left: unknown, right: unknown): boolean {
@@ -88,7 +90,17 @@ function findResolvedConflict(
         ((valueEquals(conflict.localValue, localValue) &&
           valueEquals(conflict.remoteValue, remoteValue)) ||
           (valueEquals(conflict.localValue, remoteValue) &&
-            valueEquals(conflict.remoteValue, localValue))),
+            valueEquals(conflict.remoteValue, localValue))) &&
+        // Approval applies only to the exact reviewed value/timestamp pair, or
+        // to a side already stamped at the approval time.
+        (((localUpdatedAt === conflict.localUpdatedAt &&
+           remoteUpdatedAt === conflict.remoteUpdatedAt) ||
+          (localUpdatedAt === conflict.remoteUpdatedAt &&
+           remoteUpdatedAt === conflict.localUpdatedAt)) ||
+         localUpdatedAt === conflict.updatedAt ||
+         remoteUpdatedAt === conflict.updatedAt ||
+         localUpdatedAt === conflict.priorUpdatedAt ||
+         remoteUpdatedAt === conflict.priorUpdatedAt),
     )
     .sort((left, right) => right.updatedAt - left.updatedAt)[0]
 }

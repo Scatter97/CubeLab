@@ -1,8 +1,11 @@
+import { memo } from 'react'
 import {
   formatOptionalTime,
   formatSolveCount,
   formatStatValue,
 } from '../lib/format'
+import { DEFAULT_AVERAGE_TRIMMING, averageTrimmingLabel } from '../lib/averageTrimming'
+import type { AverageTrimming } from '../types'
 import { BUILT_IN_STAT_DEFINITIONS } from '../lib/statDefinitions'
 import type { SessionStats, StatPair, StatResult } from '../lib/stats'
 import type {
@@ -16,6 +19,7 @@ interface StatsPanelProps {
   visibleStats: StatVisibility
   customAverages: readonly CustomAverageSetting[]
   precision: StatPrecision
+  trimming?: AverageTrimming
 }
 
 const EMPTY_PAIR: StatPair = { best: null, latest: null }
@@ -56,11 +60,12 @@ function StatTile({
   )
 }
 
-export function StatsPanel({
+export const StatsPanel = memo(function StatsPanel({
   stats,
   visibleStats,
   customAverages,
   precision,
+  trimming = DEFAULT_AVERAGE_TRIMMING,
 }: StatsPanelProps) {
   const builtInTiles = BUILT_IN_STAT_DEFINITIONS.filter(
     (definition) => visibleStats[definition.key],
@@ -129,9 +134,9 @@ export function StatsPanel({
       )}
 
       <p className="stats-note">
-        <span className="note-mark">WCA</span>
-        Trimmed averages. One DNF is dropped; two make the average DNF.
+        <span className="note-mark">AVG</span>
+        Trim {averageTrimmingLabel(trimming)}. DNFs count as worst.
       </p>
     </section>
   )
-}
+})

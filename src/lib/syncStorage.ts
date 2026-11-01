@@ -81,6 +81,12 @@ export interface SyncConflict {
   resolution: 'local' | 'remote' | 'manual-pending'
   updatedAt: number
   /**
+   * Optional original approval timestamp preserved across an Undo, so the
+   * already-applied version can still be recognized after the conflict is
+   * flipped to the other side.
+   */
+  priorUpdatedAt?: number
+  /**
    * True when both reviewed values come from remote snapshots and this device
    * has no independent stake in the pair. `localValue` is then the value that
    * automatic merging would pick (for example the newest remote snapshot or
@@ -151,6 +157,11 @@ export interface SyncStorageData {
      * settings key so older settings records remain compatible.
      */
     settingsFieldUpdates: SettingsFieldUpdates
+    /**
+     * Field-level metadata for the active session selection, merged like
+     * other fields instead of being silently overwritten.
+     */
+    activeSessionFieldUpdate?: { updatedAt: number; editorId: string }
     /** Fingerprint of the last successfully published local state. */
     lastSyncedFingerprint: string | null
   }
@@ -250,6 +261,13 @@ export function isConflict(value: unknown): value is SyncConflict {
   if (typeof value.localUpdatedAt !== 'number' || !Number.isFinite(value.localUpdatedAt)) return false
   if (typeof value.remoteUpdatedAt !== 'number' || !Number.isFinite(value.remoteUpdatedAt)) return false
   if (typeof value.updatedAt !== 'number' || !Number.isFinite(value.updatedAt)) return false
+  if (
+    value.priorUpdatedAt !== undefined &&
+    (typeof value.priorUpdatedAt !== 'number' ||
+      !Number.isFinite(value.priorUpdatedAt))
+  ) {
+    return false
+  }
   if (value.sessionId !== undefined && typeof value.sessionId !== 'string') return false
   if (value.resolution !== 'local' && value.resolution !== 'remote' && value.resolution !== 'manual-pending') return false
   return true
@@ -368,6 +386,7 @@ export function createDefaultSyncStorage(deviceId = fallbackDeviceId()): SyncSto
       sessionRedirects: [],
       pendingDuplicateNames: [],
       settingsFieldUpdates: {},
+    activeSessionFieldUpdate: undefined,
       lastSyncedFingerprint: null,
     },
   }
@@ -442,6 +461,20 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
       sessionRedirects,
       pendingDuplicateNames,
       settingsFieldUpdates: parseSettingsFieldUpdates(sourceRuntime.settingsFieldUpdates),
+      activeSessionFieldUpdate: (() => {
+        const candidate = sourceRuntime.activeSessionFieldUpdate as
+          | { updatedAt?: unknown; editorId?: unknown }
+          | undefined
+        if (
+          candidate &&
+          typeof candidate.updatedAt === 'number' &&
+          Number.isFinite(candidate.updatedAt) &&
+          typeof candidate.editorId === 'string'
+        ) {
+          return { updatedAt: candidate.updatedAt, editorId: candidate.editorId }
+        }
+        return undefined
+      })(),
       lastSyncedFingerprint:
         typeof sourceRuntime.lastSyncedFingerprint === 'string' &&
         sourceRuntime.lastSyncedFingerprint.length > 0

@@ -96,6 +96,23 @@ export function ResetIcon(props: IconProps) {
   )
 }
 
+export function CubeIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3.2 20 7.7v8.6L12 20.8 4 16.3V7.7L12 3.2Z" />
+      <path d="M12 12v8.8M12 12l8-4.3M12 12 4 7.7" />
+    </Icon>
+  )
+}
+
+export function WrenchIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+    </Icon>
+  )
+}
+
 export function SettingsIcon(props: IconProps) {
   return (
     <Icon {...props}>

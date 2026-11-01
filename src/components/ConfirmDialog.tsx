@@ -55,7 +55,7 @@ export function ConfirmDialog({
         if (event.target === dialogRef.current) onCancel()
       }}
     >
-      <div className="dialog-content">
+      {open ? <div className="dialog-content">
         <span className="dialog-icon" aria-hidden="true">
           <AlertIcon size={22} />
         </span>
@@ -103,7 +103,7 @@ export function ConfirmDialog({
             {confirmLabel}
           </button>
         </div>
-      </div>
+      </div> : null}
     </dialog>
   )
 }

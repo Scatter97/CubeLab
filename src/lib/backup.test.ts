@@ -299,3 +299,18 @@ describe('import trust boundaries', () => {
     expect(backup.settings.customAverages[0]?.visible).toBe(true)
   })
 })
+
+it('preserves trimming choices in backups and upgrades older backups to 5% / Auto', () => {
+  const backup = createBackup(sessions(), { ...DEFAULT_SETTINGS, averageTrimBetter: 'p10', averageTrimWorse: '1' })
+  const roundTrip = parseBackup(serializeBackup(backup))
+  expect(roundTrip).toEqual({ ok: true, backup })
+  const old = JSON.parse(serializeBackup(backup))
+  delete old.settings.averageTrimBetter
+  delete old.settings.averageTrimWorse
+  const migrated = parseBackup(JSON.stringify(old))
+  expect(migrated.ok).toBe(true)
+  if (migrated.ok) {
+    expect(migrated.backup.settings).toMatchObject({ averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
+    expect(migrated.backup.sessions).toEqual(backup.sessions)
+  }
+})

@@ -687,12 +687,12 @@ describe('settings persistence', () => {
     })
   })
 
-  it('round-trips an explicit theme preference at schema v7', () => {
+  it('round-trips an explicit theme preference at schema v8', () => {
     const storage = new MemoryStorage()
     saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' }, storage)
     expect(loadSettings(storage)).toMatchObject({ theme: 'dark' })
     expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY) ?? '{}')).toMatchObject({
-      version: 7,
+      version: 8,
     })
   })
 
@@ -733,8 +733,28 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 8, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 9, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
+  })
+})
+
+
+describe('trimming settings schema v8', () => {
+  it.each([1, 2, 3, 4, 5, 6, 7])('migrates v%i to default percentage trimming without losing preferences', (version) => {
+    const storage = new MemoryStorage()
+    storage.seed(SETTINGS_STORAGE_KEY, JSON.stringify({ version, settings: { inspectionEnabled: true, theme: 'dark' } }))
+    const settings = loadSettings(storage)
+    expect(settings).toMatchObject({ inspectionEnabled: true, theme: 'dark', averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
+    expect(saveSettings(settings, storage)).toBe(true)
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 8, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
+  })
+  it('round-trips independent side choices and recovers bad fields independently', () => {
+    const storage = new MemoryStorage()
+    const settings = { ...DEFAULT_SETTINGS, averageTrimBetter: 'p10' as const, averageTrimWorse: '0' as const }
+    saveSettings(settings, storage)
+    expect(loadSettings(storage)).toEqual(settings)
+    expect(parseSettingsData({ inspectionEnabled: true, averageTrimBetter: 'auto', averageTrimWorse: '1' })).toMatchObject({ averageTrimBetter: 'p5', averageTrimWorse: '1', inspectionEnabled: true })
+    expect(parseSettingsData({ inspectionEnabled: false, averageTrimBetter: 'median', averageTrimWorse: 'garbage' })).toMatchObject({ averageTrimBetter: 'median', averageTrimWorse: 'auto' })
   })
 })

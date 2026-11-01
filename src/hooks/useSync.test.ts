@@ -4,7 +4,7 @@ import { act, renderHook } from '@testing-library/react'
 import type { Session, SessionsData, Settings, Solve } from '../types'
 import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import { createMemoryDriveTransport } from '../lib/driveTransport'
-import { DEFAULT_SETTINGS } from '../lib/storage'
+import { DEFAULT_SETTINGS, saveSessions, saveSettings, SETTINGS_STORAGE_KEY } from '../lib/storage'
 import { DEFAULT_SESSION_NAME } from '../lib/sessions'
 import {
   createDefaultSyncStorage,
@@ -17,7 +17,9 @@ import {
 } from '../lib/syncStorage'
 import { createBackup } from '../lib/backup'
 import { createSyncEnvelope } from '../lib/sync'
+import * as syncFingerprint from '../lib/syncFingerprint'
 import { useSync } from './useSync'
+import { useSettings } from './useSettings'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
   return {
@@ -1954,5 +1956,329 @@ describe('useSync repair', () => {
     expect(repaired.runtime.conflicts).toHaveLength(1)
     expect(repaired.runtime.conflictAudit).toHaveLength(1)
     expect(repaired.runtime.sessionRedirects).toHaveLength(1)
+  })
+})
+
+describe('useSync timer-active in-flight guards', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('stops after a list/download when timing begins and publishes nothing', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let releaseList: (() => void) | null = null
+    let listStarted = false
+    let deferList = true
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      listBackups: () => {
+        if (!deferList) return memory.listBackups!()
+        return new Promise<DriveFile[]>((resolve) => {
+          listStarted = true
+          releaseList = () => {
+            deferList = false
+            resolve([])
+          }
+        })
+      },
+      uploadDeviceBackup: async (content, deviceId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId)
+      },
+    }
+    const onReplaceSessions = vi.fn()
+    const onReplaceSettings = vi.fn()
+    const rendered = renderHook(
+      ({ timerActive }: { timerActive: boolean }) =>
+        useSync({
+          transport,
+          sessions: sessionsData(),
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive,
+          onReplaceSessions,
+          onReplaceSettings,
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: false } },
+    )
+
+    let firstSync: Promise<void> | null = null
+    await act(async () => {
+      firstSync = rendered.result.current.syncNow('manual')
+      await vi.waitFor(() => expect(listStarted).toBe(true))
+    })
+
+    await act(async () => {
+      rendered.rerender({ timerActive: true })
+    })
+    await act(async () => {
+      releaseList!()
+      await firstSync
+    })
+
+    expect(uploads).toBe(0)
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+    expect(onReplaceSettings).not.toHaveBeenCalled()
+    expect(rendered.result.current.phase).toBe('pending')
+    expect(rendered.result.current.error).toContain('timer is idle')
+
+    await act(async () => {
+      rendered.rerender({ timerActive: false })
+    })
+    await vi.waitFor(() => expect(uploads).toBe(1), { timeout: 4_000 })
+    await vi.waitFor(() => expect(rendered.result.current.phase).toBe('synced'))
+  })
+
+  it('cancels while waiting for the write lock and retries once idle', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      uploadDeviceBackup: async (content, deviceId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId)
+      },
+    }
+
+    const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks')
+    let releaseWriteLock: (() => void) | null = null
+    let writeLockRequested = false
+    let deferWriteLock = true
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (
+          name: string,
+          optionsOrCallback:
+            | unknown
+            | ((lock: unknown) => Promise<unknown>),
+          maybeCallback?: (lock: unknown) => Promise<unknown>,
+        ) => {
+          const callback =
+            typeof optionsOrCallback === 'function'
+              ? optionsOrCallback
+              : maybeCallback!
+          if (name === 'cubelab-sync-leader') {
+            void callback({})
+            // Keep leadership for the life of the test.
+            return new Promise(() => {})
+          }
+          if (deferWriteLock) {
+            writeLockRequested = true
+            return new Promise((resolve) => {
+              releaseWriteLock = () => resolve(callback({}))
+            })
+          }
+          return callback({})
+        },
+      },
+    })
+
+    let rendered: any = null
+    try {
+      rendered = renderHook(
+        ({ timerActive }: { timerActive: boolean }) =>
+          useSync({
+            transport,
+            sessions: sessionsData(),
+            settings: DEFAULT_SETTINGS,
+            storageOk: true,
+            timerActive,
+            onReplaceSessions: vi.fn(),
+            onReplaceSettings: vi.fn(),
+            onNotify: vi.fn(),
+          }),
+        { initialProps: { timerActive: false } },
+      )
+
+      await vi.waitFor(() => expect((rendered!.result.current as any).phase).not.toBe('disabled'))
+
+      let firstSync: Promise<void> | null = null
+      await act(async () => {
+        firstSync = (rendered!.result.current as any).syncNow('manual')
+        await vi.waitFor(() => expect(writeLockRequested).toBe(true))
+      })
+
+      await act(async () => {
+        rendered!.rerender({ timerActive: true })
+      })
+      await act(async () => {
+        releaseWriteLock!()
+        await firstSync
+      })
+
+      expect(uploads).toBe(0)
+      expect((rendered!.result.current as { phase: string }).phase).toBe('pending')
+      expect((rendered!.result.current as { error: string | null }).error).toContain('timer is idle')
+
+      deferWriteLock = false
+      await act(async () => {
+        rendered!.rerender({ timerActive: false })
+      })
+      await vi.waitFor(() => expect(uploads).toBe(1), { timeout: 4_000 })
+      await vi.waitFor(() => expect((rendered!.result.current as any).phase).toBe('synced'))
+    } finally {
+      rendered?.unmount()
+      if (originalLocks) {
+        Object.defineProperty(navigator, 'locks', originalLocks)
+      } else {
+        Reflect.deleteProperty(navigator, 'locks')
+      }
+    }
+  })
+
+  it('defers an external active-session storage event until idle', async () => {
+    enableSync()
+    const initial = sessionsData({
+      sessions: [
+        session({ solves: [solve({ id: 'existing' })] }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    const external = {
+      ...initial,
+      activeSessionId: 'session-2',
+    }
+    const onReplaceSessions = vi.fn()
+    const rendered = renderHook(
+      ({ timerActive }: { timerActive: boolean }) =>
+        useSync({
+          transport: createMemoryDriveTransport(),
+          sessions: initial,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive,
+          onReplaceSessions,
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: true } },
+    )
+
+    await act(async () => {
+      saveSessions(external)
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'cubelab:sessions:v1',
+          newValue: JSON.stringify(external),
+        }),
+      )
+    })
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rendered.rerender({ timerActive: false })
+    })
+    await vi.waitFor(() => expect(onReplaceSessions).toHaveBeenCalledTimes(1))
+    expect(onReplaceSessions.mock.calls[0]?.[0]).toMatchObject({
+      activeSessionId: 'session-2',
+    })
+  })
+})
+
+describe('cross-tab settings metadata', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('does not stamp adopted external settings as new local edits', () => {
+    const { result } = renderHook(() => {
+      const settingsApi = useSettings()
+      const sync = useSync({
+        transport: createMemoryDriveTransport(),
+        sessions: sessionsData(),
+        settings: settingsApi.settings,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: settingsApi.replaceSettings,
+        adoptedSettingsFieldsRef: settingsApi.adoptedFieldsRef,
+        onNotify: vi.fn(),
+      })
+      return { settingsApi, sync }
+    })
+
+    act(() => {
+      saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' })
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: SETTINGS_STORAGE_KEY,
+          newValue: localStorage.getItem(SETTINGS_STORAGE_KEY),
+        }),
+      )
+    })
+
+    expect(result.current.settingsApi.settings.theme).toBe('dark')
+    // The external write owns the theme timestamp; this tab must not replace
+    // it with a fresh local edit.
+    expect(
+      loadSyncStorage().runtime.settingsFieldUpdates.theme,
+    ).toBeUndefined()
+
+    act(() => {
+      result.current.settingsApi.updateSettings({ accentColor: 'blue' })
+    })
+
+    const updates = loadSyncStorage().runtime.settingsFieldUpdates
+    expect(updates.accentColor).toBeDefined()
+    expect(updates.theme).toBeUndefined()
+    expect(result.current.sync.phase).toBe('disabled')
+  })
+})
+
+
+describe('useSync pending-state fingerprint cost', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('does not traverse history while disabled and detects edits when re-enabled', () => {
+    const fingerprint = vi.spyOn(syncFingerprint, 'syncStateFingerprint')
+    try {
+      const initial = sessionsData()
+      const edited = sessionsData({ sessions: [session({ solves: [solve()] })] })
+      const callbacks = { onReplaceSessions: vi.fn(), onReplaceSettings: vi.fn(), onNotify: vi.fn() }
+      const { result, rerender, unmount } = renderHook(
+        ({ sessions }) => useSync({ transport: null, sessions, settings: DEFAULT_SETTINGS,
+          storageOk: true, timerActive: false, ...callbacks }),
+        { initialProps: { sessions: initial } },
+      )
+      expect(result.current.hasPendingChanges).toBe(false)
+      rerender({ sessions: edited })
+      expect(fingerprint).not.toHaveBeenCalled()
+      act(() => result.current.updatePreferences({ enabled: true }))
+      expect(fingerprint).toHaveBeenCalledWith(edited, DEFAULT_SETTINGS)
+      expect(result.current.hasPendingChanges).toBe(true)
+      act(() => result.current.updatePreferences({ enabled: false }))
+      fingerprint.mockClear()
+      rerender({ sessions: initial })
+      expect(result.current.hasPendingChanges).toBe(false)
+      expect(fingerprint).not.toHaveBeenCalled()
+      unmount()
+    } finally { fingerprint.mockRestore() }
+  })
+
+  it('keeps enabled pending detection exact across edits and a revert', () => {
+    const initial = sessionsData()
+    const sync = createDefaultSyncStorage('device-test')
+    saveSyncStorage({ ...sync, preferences: { ...sync.preferences, enabled: true, syncOnStartup: false },
+      runtime: { ...sync.runtime, lastSyncStatus: 'synced',
+        lastSyncedFingerprint: syncFingerprint.syncStateFingerprint(initial, DEFAULT_SETTINGS) } })
+    const callbacks = { onReplaceSessions: vi.fn(), onReplaceSettings: vi.fn(), onNotify: vi.fn() }
+    const { result, rerender, unmount } = renderHook(
+      ({ sessions }) => useSync({ transport: null, sessions, settings: DEFAULT_SETTINGS,
+        storageOk: true, timerActive: false, ...callbacks }),
+      { initialProps: { sessions: initial } },
+    )
+    expect(result.current.hasPendingChanges).toBe(false)
+    rerender({ sessions: sessionsData({ sessions: [session({ solves: [solve()] })] }) })
+    expect(result.current.hasPendingChanges).toBe(true)
+    rerender({ sessions: initial })
+    expect(result.current.hasPendingChanges).toBe(false)
+    unmount()
   })
 })

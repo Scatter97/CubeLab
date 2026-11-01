@@ -1,5 +1,6 @@
 import { copyText } from '../lib/clipboard'
-import { RefreshIcon } from './Icons'
+import { toolLabel, type CurrentTool } from '../lib/tools'
+import { WrenchIcon, RefreshIcon } from './Icons'
 import type { ScrambleAction, ScrambleAlignment, PuzzleEvent } from '../types'
 import { CUBELAB_EVENTS } from '../lib/events'
 
@@ -16,6 +17,9 @@ interface ScramblePanelProps {
   scrambleAction?: ScrambleAction
   alignment?: ScrambleAlignment
   limitHeight?: boolean
+  activeTool: CurrentTool
+  toolPanelOpen: boolean
+  onToggleToolPanel: () => void
 }
 
 export function ScramblePanel({
@@ -31,6 +35,9 @@ export function ScramblePanel({
   scrambleAction = 'none',
   alignment,
   limitHeight = false,
+  activeTool,
+  toolPanelOpen,
+  onToggleToolPanel,
 }: ScramblePanelProps) {
   const handleCopy = async () => {
     if (!scramble) return
@@ -75,6 +82,18 @@ export function ScramblePanel({
               size={17}
               className={isLoading && !scramble ? 'is-spinning' : undefined}
             />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onToggleToolPanel}
+            aria-label={`${toolPanelOpen ? 'Hide' : 'Show'} current tool panel: ${toolLabel(activeTool)}`}
+            aria-expanded={toolPanelOpen}
+            aria-controls="tool-panel"
+            title={toolPanelOpen ? 'Hide tool panel' : 'Show tool panel'}
+            data-testid="current-tool-button"
+          >
+            <WrenchIcon size={17} />
           </button>
         </div>
       </div>

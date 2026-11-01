@@ -299,14 +299,38 @@ export async function cleanupRemoteSnapshots(
   const failures: string[] = []
 
   for (const file of candidates) {
-    try {
-      await transport.deleteBackup(file.id)
-      deleted += 1
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      if (!message.toLowerCase().includes('not found')) {
-        failures.push(`${file.name}: ${message}`)
+    let alreadyGone = false
+    let lastError: unknown = null
+    let succeeded = false
+    // Retry a failed delete a few times with backoff; "not found" is treated
+    // as success because the file is already gone.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await transport.deleteBackup(file.id)
+        succeeded = true
+        break
+      } catch (error) {
+        lastError = error
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        if (message.toLowerCase().includes('not found')) {
+          // Already gone: treat as success for failure-reporting purposes,
+          // but do not count it as a delete performed by this run.
+          succeeded = true
+          alreadyGone = true
+          break
+        }
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt))
+        }
       }
+    }
+    if (succeeded && !alreadyGone) {
+      deleted += 1
+    } else if (succeeded && alreadyGone) {
+      // no-op: already removed by another device
+    } else {
+      const message = lastError instanceof Error ? lastError.message : 'Unknown error'
+      failures.push(`${file.name}: ${message}`)
     }
   }
 

@@ -246,6 +246,101 @@ export function addSolve(
   })
 }
 
+function recoveredExternalSessionName(
+  baseName: string,
+  usedNames: Set<string>,
+): string {
+  const suffix = ' (recovered)'
+  let root = normalizeSessionName(baseName) || 'Session'
+  if (root.length + suffix.length > MAX_SESSION_NAME_LENGTH) {
+    root = root.slice(0, MAX_SESSION_NAME_LENGTH - suffix.length).trim()
+  }
+  let candidate = `${root}${suffix}`
+  let counter = 2
+  while (usedNames.has(candidate.toLowerCase())) {
+    const numbered = ` ${counter}`
+    candidate = `${root.slice(0, MAX_SESSION_NAME_LENGTH - suffix.length - numbered.length).trim()}${suffix}${numbered}`
+    counter += 1
+  }
+  usedNames.add(candidate.toLowerCase())
+  return candidate
+}
+
+/**
+ * Reconciles a deferred external session collection with local solves that
+ * were recorded while the timer was active. The external collection remains
+ * authoritative for session structure, names, and the active selection; local
+ * solves that did not exist in the pre-deferral baseline are merged back by
+ * stable solve ID so a cross-tab session switch cannot drop a completed solve.
+ * Older solves absent from the external collection are not resurrected.
+ */
+export function reconcileExternalSessions(input: {
+  external: SessionsData
+  local: SessionsData
+  baseline: SessionsData
+}): SessionsData {
+  const baselineSolveIds = new Set<string>()
+  for (const session of input.baseline.sessions) {
+    for (const solve of session.solves) baselineSolveIds.add(solve.id)
+  }
+
+  const addedBySession = new Map<string, Solve[]>()
+  for (const session of input.local.sessions) {
+    const added = session.solves.filter(
+      (solve) => !baselineSolveIds.has(solve.id),
+    )
+    if (added.length > 0) addedBySession.set(session.id, added)
+  }
+
+  if (addedBySession.size === 0) return input.external
+
+  const sessions = input.external.sessions.map((session) => ({
+    ...session,
+    solves: [...session.solves],
+  }))
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const usedNames = new Set(
+    sessions.map((session) => normalizeSessionName(session.name).toLowerCase()),
+  )
+
+  for (const [sessionId, added] of addedBySession) {
+    const source = input.local.sessions.find((session) => session.id === sessionId)
+    let target =
+      byId.get(sessionId) ?? byId.get(`recovered:${sessionId}`)
+    if (!target) {
+      if (!source) continue
+      const recoveredId = `recovered:${sessionId}`
+      target = {
+        ...source,
+        id: recoveredId,
+        name: recoveredExternalSessionName(source.name, usedNames),
+        solves: [],
+      }
+      sessions.push(target)
+      byId.set(recoveredId, target)
+    }
+
+    const existingIds = new Set(target.solves.map((solve) => solve.id))
+    const newSolves = added.filter((solve) => !existingIds.has(solve.id))
+    if (newSolves.length === 0) continue
+    target.solves = [...target.solves, ...newSolves].sort(
+      (left, right) =>
+        right.createdAt - left.createdAt || left.id.localeCompare(right.id),
+    )
+    target.updatedAt = Math.max(
+      target.updatedAt,
+      ...newSolves.map((solve) => solve.updatedAt ?? solve.createdAt),
+    )
+  }
+
+  const activeSessionId = sessions.some(
+    (session) => session.id === input.external.activeSessionId,
+  )
+    ? input.external.activeSessionId
+    : sessions[0]?.id ?? input.external.activeSessionId
+  return { activeSessionId, sessions }
+}
+
 export function setSolveComment(
   data: SessionsData,
   solveId: string,

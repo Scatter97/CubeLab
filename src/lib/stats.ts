@@ -1,4 +1,5 @@
-import type { Solve } from '../types'
+import type { AverageTrimming, Solve } from '../types'
+import { DEFAULT_AVERAGE_TRIMMING, getAverageTrimCounts } from './averageTrimming'
 import {
   BUILT_IN_AVERAGE_SIZES,
   isValidAverageSize,
@@ -25,18 +26,29 @@ export interface SessionStats {
 /** Converts a solve to its post-penalty time in milliseconds. */
 export function effectiveTimeMs(solve: Solve): number | null {
   if (solve.penalty === 'dnf') return null
-  if (solve.penalty === '+2') return solve.rawMs + 2_000
-  return solve.rawMs
+  let ms = solve.rawMs
+  if (solve.penalty === '+2') ms = ms + 2_000
+  // WCA 9f1: individual results under 10 minutes are recorded to the
+  // hundredth of a second (truncated). WCA 9f2: results at or above 10
+  // minutes are rounded to the nearest second.
+  if (ms >= 10 * 60 * 1000) {
+    return Math.round(ms / 1000) * 1000
+  }
+  return Math.floor(ms / 10) * 10
 }
 
-/** Times are stored to the hundredth; averages are rounded to match. */
-function roundToCentisecond(ms: number): number {
+/**
+ * Aggregates are rounded to the recorded precision: hundredths below ten
+ * minutes, whole seconds at or above ten minutes (WCA 9f2).
+ */
+function roundResultMs(ms: number): number {
+  if (ms >= 10 * 60 * 1000) return Math.round(ms / 1000) * 1000
   return Math.round(ms / 10) * 10
 }
 
 function meanValue(times: readonly number[]): StatValue {
   const sum = times.reduce((total, time) => total + time, 0)
-  return { status: 'value', ms: roundToCentisecond(sum / times.length) }
+  return { status: 'value', ms: roundResultMs(sum / times.length) }
 }
 
 /**
@@ -54,45 +66,22 @@ export function calculateMeanOf3(solves: readonly Solve[]): StatResult {
   return meanValue(times as number[])
 }
 
-/**
- * Trimmed average (Ao5, Ao12, and custom sizes): remove the best and worst
- * times. One DNF is treated as the worst time and trimmed; two or more DNFs
- * make the average a DNF. `solves` is newest-first and only the first `size`
- * solves are used.
- */
+/** Configurable trimmed average; DNFs occupy worst-side slots first. */
 export function calculateAverage(
   solves: readonly Solve[],
   size: number,
+  trimming: AverageTrimming = DEFAULT_AVERAGE_TRIMMING,
 ): StatResult {
-  if (!Number.isInteger(size) || size < 3) {
-    throw new Error('Average size must be an integer of at least 3')
-  }
+  const { better, worse, counted } = getAverageTrimCounts(size, trimming)
   if (solves.length < size) return null
-
-  const window = solves.slice(0, size)
-  const times: number[] = []
-  let dnfCount = 0
-
-  for (const solve of window) {
-    const time = effectiveTimeMs(solve)
-    if (time === null) dnfCount += 1
-    else times.push(time)
-  }
-
-  if (dnfCount > 1) return { status: 'dnf' }
-
-  times.sort((a, b) => a - b)
-
-  let counted: number[]
-  if (dnfCount === 1) {
-    // The DNF is the (trimmed) worst result. Remove the best valid time too.
-    counted = times.slice(1)
-  } else {
-    counted = times.slice(1, -1)
-  }
-
-  if (counted.length !== size - 2) return { status: 'dnf' }
-  return meanValue(counted)
+  const times = solves.slice(0, size).map(effectiveTimeMs)
+  const valid = times.filter((time): time is number => time !== null).sort((a, b) => a - b)
+  const dnfs = size - valid.length
+  if (dnfs > worse) return { status: 'dnf' }
+  const end = valid.length - (worse - dnfs)
+  const values = valid.slice(better, end)
+  if (values.length !== counted || counted < 1) return { status: 'dnf' }
+  return meanValue(values)
 }
 
 function isValue(
@@ -119,131 +108,74 @@ export function calculateLatestSingle(solves: readonly Solve[]): StatResult {
   return time === null ? { status: 'dnf' } : { status: 'value', ms: time }
 }
 
-/**
- * Fenwick tree over compressed time values. It stores counts only; the
- * sliding window keeps the running valid-time sum separately.
- */
-class CountFenwick {
+/** Count/sum Fenwick tree over compressed recorded results. */
+class TimeFenwick {
   private readonly counts: number[]
-
-  constructor(
-    private readonly values: readonly number[],
-    private readonly valueIndex: ReadonlyMap<number, number>,
-  ) {
+  private readonly sums: number[]
+  constructor(private readonly values: readonly number[], private readonly valueIndex: ReadonlyMap<number, number>) {
     this.counts = new Array(values.length + 1).fill(0)
+    this.sums = new Array(values.length + 1).fill(0)
   }
-
   add(value: number, delta: number): void {
     const index = this.valueIndex.get(value)
     if (!index) return
-    for (
-      let cursor = index;
-      cursor < this.counts.length;
-      cursor += cursor & -cursor
-    ) {
+    for (let cursor = index; cursor < this.counts.length; cursor += cursor & -cursor) {
       this.counts[cursor] = (this.counts[cursor] ?? 0) + delta
+      this.sums[cursor] = (this.sums[cursor] ?? 0) + value * delta
     }
   }
-
-  /** Returns the value at the 1-based order statistic `order`. */
-  kth(order: number): number {
-    let index = 0
-    let remaining = order
-    let bit = 1
+  sumSmallest(order: number): number {
+    if (order <= 0) return 0
+    let index = 0, remaining = order, sum = 0, bit = 1
     while (bit * 2 < this.counts.length) bit *= 2
-
     for (; bit > 0; bit >>= 1) {
       const next = index + bit
       const count = this.counts[next]
       if (next < this.counts.length && count !== undefined && count < remaining) {
-        index = next
-        remaining -= count
+        index = next; remaining -= count; sum += this.sums[next] ?? 0
       }
     }
-
-    return this.values[index] ?? 0
+    return sum + remaining * (this.values[index] ?? 0)
   }
 }
 
-/**
- * Finds the best trimmed average across every contiguous window without
- * sorting each window. This keeps ao1000–ao10000 responsive.
- */
-function calculateBestAverageFast(
-  solves: readonly Solve[],
-  size: number,
-): number | null {
-  if (solves.length < size) return null
-
-  const validTimes = solves
-    .map(effectiveTimeMs)
-    .filter((time): time is number => time !== null)
-  if (validTimes.length < size - 1) return null
-
-  const values = [...new Set(validTimes)].sort((a, b) => a - b)
-  const valueIndex = new Map(values.map((value, index) => [value, index + 1]))
-  const fenwick = new CountFenwick(values, valueIndex)
-
-  let dnfCount = 0
-  let validSum = 0
-
-  const changeWindow = (solve: Solve, delta: number) => {
-    const time = effectiveTimeMs(solve)
-    if (time === null) {
-      dnfCount += delta
-      return
+/** O(n log n) for every window, including percentage trims on long histories. */
+function visitAverageWindows(solves: readonly Solve[], size: number, trimming: AverageTrimming, visit: (result: StatValue) => void) {
+  const { better, worse, counted } = getAverageTrimCounts(size, trimming)
+  if (solves.length < size) return
+  const times = solves.map(effectiveTimeMs)
+  const values = [...new Set(times.filter((time): time is number => time !== null))].sort((a, b) => a - b)
+  const tree = new TimeFenwick(values, new Map(values.map((value, index) => [value, index + 1])))
+  let dnfs = 0
+  const change = (index: number, delta: number) => {
+    const time = times[index]
+    if (time === null) dnfs += delta
+    else if (time !== undefined) tree.add(time, delta)
+  }
+  for (let index = 0; index < size; index++) change(index, 1)
+  for (let start = 0; start <= times.length - size; start++) {
+    if (dnfs > worse || counted < 1) visit({ status: 'dnf' })
+    else {
+      const sum = tree.sumSmallest(size - worse) - tree.sumSmallest(better)
+      visit({ status: 'value', ms: roundResultMs(sum / counted) })
     }
-    fenwick.add(time, delta)
-    validSum += time * delta
+    if (start + size < times.length) { change(start, -1); change(start + size, 1) }
   }
+}
 
-  for (let index = 0; index < size; index += 1) {
-    const solve = solves[index]
-    if (solve) changeWindow(solve, 1)
-  }
+/** Complete-window results, ordered like the input; no data is mutated. */
+export function calculateRollingAverages(solves: readonly Solve[], size: number, trimming: AverageTrimming = DEFAULT_AVERAGE_TRIMMING): StatValue[] {
+  const results: StatValue[] = []
+  visitAverageWindows(solves, size, trimming, (result) => results.push(result))
+  return results
+}
 
+export function calculateBestAverage(solves: readonly Solve[], size: number, trimming: AverageTrimming = DEFAULT_AVERAGE_TRIMMING): number | null {
   let best: number | null = null
-
-  for (let start = 0; start <= solves.length - size; start += 1) {
-    if (dnfCount <= 1) {
-      const validCount = size - dnfCount
-      const minimum = fenwick.kth(1)
-      let countedSum = validSum - minimum
-      let countedCount = validCount - 1
-
-      if (dnfCount === 0) {
-        countedSum -= fenwick.kth(validCount)
-        countedCount -= 1
-      }
-
-      if (countedCount > 0) {
-        const average = roundToCentisecond(countedSum / countedCount)
-        if (best === null || average < best) best = average
-      }
-    }
-
-    if (start + size >= solves.length) break
-    const outgoing = solves[start]
-    const incoming = solves[start + size]
-    if (outgoing) changeWindow(outgoing, -1)
-    if (incoming) changeWindow(incoming, 1)
-  }
-
+  visitAverageWindows(solves, size, trimming, (result) => {
+    if (result.status === 'value' && (best === null || result.ms < best)) best = result.ms
+  })
   return best
-}
-
-/**
- * Best valid average across every contiguous window. If no valid window
- * exists, returns null rather than claiming a DNF as a personal best.
- */
-export function calculateBestAverage(
-  solves: readonly Solve[],
-  size: number,
-): number | null {
-  if (!Number.isInteger(size) || size < 3) {
-    throw new Error('Average size must be an integer of at least 3')
-  }
-  return calculateBestAverageFast(solves, size)
 }
 
 export function calculateBestMeanOf3(solves: readonly Solve[]): number | null {
@@ -261,7 +193,7 @@ export function calculateBestMeanOf3(solves: readonly Solve[]): number | null {
   let best: number | null = null
   const consider = () => {
     if (dnfCount > 0) return
-    const value = roundToCentisecond(sum / 3)
+    const value = roundResultMs(sum / 3)
     if (best === null || value < best) best = value
   }
 
@@ -288,16 +220,18 @@ export function calculateBestMeanOf3(solves: readonly Solve[]): number | null {
 function getAveragePair(
   solves: readonly Solve[],
   size: number,
+  trimming: AverageTrimming,
 ): StatPair {
   return {
-    best: calculateBestAverage(solves, size),
-    latest: calculateAverage(solves, size),
+    best: calculateBestAverage(solves, size, trimming),
+    latest: calculateAverage(solves, size, trimming),
   }
 }
 
 export function getSessionStats(
   solves: readonly Solve[],
   averageSizes: readonly number[] = BUILT_IN_AVERAGE_SIZES,
+  trimming: AverageTrimming = DEFAULT_AVERAGE_TRIMMING,
 ): SessionStats {
   const sizes = new Set<number>()
   for (const size of averageSizes) {
@@ -306,7 +240,7 @@ export function getSessionStats(
 
   const averages = new Map<number, StatPair>()
   for (const size of sizes) {
-    averages.set(size, getAveragePair(solves, size))
+    averages.set(size, getAveragePair(solves, size, trimming))
   }
 
   return {

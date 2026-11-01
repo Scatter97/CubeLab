@@ -1,6 +1,17 @@
 :root {
   color-scheme: light;
   --bg: #e9edf1;
+  --trend-single: #5f6b78;
+  --trend-ao5: #c62828;
+  --trend-ao12: #235cb3;
+  --trend-ao25: #7740a0;
+  --trend-ao50: #a02d73;
+  --trend-ao100: #916000;
+  --trend-ao200: #00776e;
+  --trend-ao500: #22764d;
+  --trend-ao1000: #5550ac;
+  --trend-custom: #53606c;
+  --trend-pb: #916000;
   --surface: #ffffff;
   --surface-soft: #f7f9fb;
   --surface-muted: #f1f4f7;
@@ -42,6 +53,13 @@
   --shadow-menu: 0 16px 40px rgb(0 0 0 / 35%);
   --backdrop: rgba(25, 35, 45, 0.35);
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none' stroke='%235f6762' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5'/%3E%3C/svg%3E");
+  --cube-face-u: #ffffff;
+  --cube-face-d: #ffff00;
+  --cube-face-f: #00ff00;
+  --cube-face-b: #0000ff;
+  --cube-face-r: #ff0000;
+  --cube-face-l: #ff8000;
+  --cube-net-line: rgba(20, 29, 38, 0.38);
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial,
     sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'SFMono-Regular',
@@ -61,6 +79,17 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
   --bg: #0d1218;
+  --trend-single: #a9b5c2;
+  --trend-ao5: #ff9a9a;
+  --trend-ao12: #86b7ff;
+  --trend-ao25: #cda2ff;
+  --trend-ao50: #f29bcb;
+  --trend-ao100: #f3ba63;
+  --trend-ao200: #62d2c4;
+  --trend-ao500: #82d4a5;
+  --trend-ao1000: #b0a9ff;
+  --trend-custom: #c3ceda;
+  --trend-pb: #f3ba63;
   --surface: #151b23;
   --surface-soft: #1a222c;
   --surface-muted: #202a35;
@@ -102,6 +131,13 @@
   --shadow-menu: 0 16px 40px rgb(0 0 0 / 65%);
   --backdrop: rgba(0, 0, 0, 0.65);
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none' stroke='%23a9b5c2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5'/%3E%3C/svg%3E");
+  --cube-face-u: #ffffff;
+  --cube-face-d: #ffff00;
+  --cube-face-f: #00ff00;
+  --cube-face-b: #0000ff;
+  --cube-face-r: #ff0000;
+  --cube-face-l: #ff8000;
+  --cube-net-line: rgba(4, 8, 12, 0.62);
 }
 
 * {
@@ -3452,4 +3488,564 @@ kbd {
   .compact-select {
     width: 100%;
   }
+}
+
+.scramble-tool-menu-wrap {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.scramble-tool-caret {
+  color: var(--text-faint);
+  font-size: 0.65rem;
+}
+
+.scramble-tool-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 168px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: var(--shadow-menu);
+}
+
+/* The tool panel sits against the bottom of the timer stage, so its Function
+   menu opens upward into the panel instead of off-screen. */
+.scramble-tool-menu.is-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.scramble-tool-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 8px;
+  font-family: var(--font-ui);
+  font-size: 0.68rem;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.scramble-tool-item:hover,
+.scramble-tool-item:focus-visible {
+  color: var(--accent);
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.scramble-tool-item.is-selected {
+  font-weight: 650;
+  color: var(--accent-strong);
+}
+
+.scramble-tool-check {
+  width: 1em;
+  color: var(--accent);
+  text-align: center;
+}
+
+/* Draw Scramble panel: default anchor is the bottom-right of the timer stage;
+   dragging or resizing replaces it with a persisted, clamped layout. */
+
+.timer-stage {
+  --draw-panel-width: 172px;
+  --draw-panel-gap: 12px;
+}
+
+.scramble-draw-panel {
+  position: absolute;
+  right: var(--draw-panel-gap);
+  bottom: var(--draw-panel-gap);
+  z-index: 3;
+  display: flex;
+  transition: opacity 180ms ease;
+  flex-direction: column;
+  width: var(--draw-panel-width);
+  height: 200px;
+  padding: 6px;
+  overflow: visible;
+  /* The whole panel owns pointer input so a press on the diagram can never
+     fall through and arm the timer underneath. */
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-toast);
+}
+
+.scramble-draw-header {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 3px 6px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+  user-select: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tool-panel.is-drag,
+.tool-panel.is-drag .scramble-draw-header {
+  cursor: grabbing;
+}
+
+.tool-panel.is-resize {
+  opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scramble-draw-panel {
+    transition: none;
+  }
+}
+
+.scramble-draw-mode {
+  padding: 1px 4px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 3px;
+}
+
+.scramble-draw-stage {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 60px;
+  padding: 2px;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+}
+
+.scramble-net {
+  display: block;
+  align-self: center;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: visible;
+}
+
+.scramble-draw-3d {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--frozen-w, 100%);
+  height: var(--frozen-h, 100%);
+  /* Do not constrain the frozen rendering surface with percentage maxima;
+     the parent stage contains the *displayed* (transformed) result. */
+  overflow: visible;
+}
+
+.scramble-draw-3d-host {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.scramble-draw-3d-host twisty-player {
+  /* cubing.js' shadow `:host` rule needs a grid display; `block` collapses
+     the contained visualization wrapper to zero height. */
+  display: grid;
+  width: 100%;
+  height: 100%;
+}
+
+.scramble-draw-status {
+  margin: 0;
+  padding: 10px 4px;
+  font-size: 0.58rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.scramble-draw-3d .scramble-draw-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  padding: 4px;
+  place-items: center;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+/* Footer tool selector. */
+.scramble-draw-footer {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+  margin-top: 2px;
+  padding: 6px 2px 1px;
+  border-top: 1px solid var(--line);
+}
+
+.scramble-draw-footer-label {
+  flex: 0 0 auto;
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.scramble-draw-select {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 5px;
+  font-family: var(--font-ui);
+  font-size: 0.56rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.scramble-draw-select:hover,
+.scramble-draw-select[aria-expanded='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.scramble-draw-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.scramble-draw-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Bottom-right resize handle. It only starts a resize; the drag handle is the
+   panel header. */
+.scramble-draw-ghost {
+  position: absolute;
+  z-index: 10;
+  display: none;
+  pointer-events: none;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.scramble-draw-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+  border-top-left-radius: 10px;
+  opacity: 0.7;
+  background: linear-gradient(
+    315deg,
+    transparent 0 58%,
+    var(--line-strong) 58% 64%,
+    transparent 64% 72%,
+    var(--line-strong) 72% 78%,
+    transparent 78% 100%
+  );
+}
+
+.scramble-draw-resize:hover,
+.tool-panel.is-resize .scramble-draw-resize {
+  opacity: 1;
+}
+
+@media (max-width: 680px) {
+  .timer-stage {
+    --draw-panel-width: 128px;
+    --draw-panel-gap: 8px;
+  }
+
+}
+
+
+/* Time Trend shares the tool panel's available space; the expanded chart owns
+   a separate responsive plotting surface in the native modal top layer. */
+.time-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.time-trend-header,
+.time-trend-modal-header,
+.time-trend-navigation,
+.time-trend-range {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.time-trend-caption {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+}
+
+.time-trend-button,
+.time-trend-chip {
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  font: inherit;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.time-trend-button:hover:not(:disabled),
+.time-trend-chip:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.time-trend-button:disabled {
+  color: var(--text-faint);
+  border-color: var(--line-soft);
+}
+
+.time-trend-chip[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface-muted);
+  border-color: var(--text-muted);
+}
+
+.time-trend-chip[aria-pressed='false'] i { opacity: 0.35; }
+
+.time-trend-chart {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+}
+
+.time-trend-chart svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+.time-trend-axis-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.time-trend-grid { stroke: var(--line); stroke-dasharray: 2 4; }
+.time-trend-axis { stroke: var(--line-strong); }
+.time-trend-crosshair { stroke: var(--text-faint); stroke-dasharray: 3 3; }
+
+.time-trend-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  margin: 0;
+  padding: 6px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.time-trend-legend,
+.time-trend-series,
+.time-trend-navigation-buttons,
+.time-trend-details,
+.time-trend-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.time-trend-legend {
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+}
+
+.time-trend-legend span,
+.time-trend-chip,
+.time-trend-custom,
+.time-trend-axis-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-trend-legend i,
+.time-trend-chip i {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  flex: 0 0 auto;
+}
+
+.time-trend-legend .is-pb { width: 4px; height: 4px; border-radius: 50%; }
+
+.time-trend-dialog {
+  width: min(1100px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-dialog);
+}
+
+.time-trend-dialog::backdrop { background: var(--backdrop); }
+
+.time-trend-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px;
+  font-size: 0.78rem;
+}
+
+.time-trend-modal-header h2 { margin: 0; font-size: 1.15rem; }
+.time-trend-modal-header p { margin: 5px 0 0; color: var(--text-muted); font-size: 0.75rem; }
+.time-trend-modal-header { align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.time-trend-series { gap: 6px; }
+.time-trend-expanded .time-trend-chart { flex: 0 0 auto; height: clamp(180px, 42dvh, 440px); }
+.time-trend-custom,
+.time-trend-axis-select { color: var(--text-muted); font-size: 0.72rem; }
+.time-trend-custom input,
+.time-trend-axis-select select {
+  min-height: 28px;
+  min-width: 0;
+  padding: 3px 6px;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font: inherit;
+}
+.time-trend-custom input { width: 70px; }
+.time-trend-navigation { flex-wrap: wrap; }
+.time-trend-navigation-buttons { gap: 5px; }
+.time-trend-range { flex-wrap: wrap; color: var(--text-muted); font-size: 0.72rem; }
+.time-trend-range input { flex: 1 1 140px; min-width: 0; accent-color: var(--accent); }
+.time-trend-details {
+  min-height: 48px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+.time-trend-details strong { color: var(--text); }
+.time-trend-scramble { flex-basis: 100%; font-family: var(--font-mono); }
+.time-trend-stats { gap: 10px 24px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--text-muted); font-size: 0.72rem; }
+.time-trend-stats strong { color: var(--text); margin-left: 6px; font-family: var(--font-mono); }
+
+@media (max-width: 540px) {
+  .time-trend-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .time-trend-expanded { padding: 12px; gap: 10px; }
+  .time-trend-modal-header p { max-width: 200px; }
+  .time-trend-navigation-buttons { flex-wrap: wrap; }
+}
+
+.time-trend-header { flex-wrap: wrap; }
+.tool-panel[data-tool='timeTrend'] .scramble-draw-stage { align-items: stretch; }
+
+
+.time-trend-header-actions { display: inline-flex; gap: 4px; margin-left: auto; }
+.time-trend-chart svg { cursor: grab; touch-action: none; }
+.time-trend-chart.is-panning svg { cursor: grabbing; }
+.time-trend-gesture-help { margin: 0; color: var(--text-muted); font-size: 0.7rem; line-height: 1.5; }
+
+.time-trend-pb-hit { cursor: pointer; }
+.time-trend-pb-hit:focus-visible { outline: none; }
+.time-trend-pb-hit:focus-visible circle { stroke: var(--trend-pb); stroke-width: 1.5px; }
+.time-trend-pb-hit[aria-disabled='true'] { cursor: default; }
+.time-trend-pb-dialog { width: min(620px, calc(100vw - 24px)); }
+.time-trend-pb-content { padding: 20px; }
+.time-trend-pb-result { display: flex; flex-direction: column; gap: 6px; margin: 18px 0; }
+.time-trend-pb-result strong { font: 600 2.5rem var(--font-mono); color: var(--text); }
+.time-trend-pb-result span { font-size: 0.74rem; color: var(--text-muted); }
+.time-trend-pb-result p { margin: 6px 0 0; color: var(--accent-strong); font-size: 0.82rem; }
+.time-trend-pb-summary,
+.time-trend-pb-averages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; margin: 0 0 16px; }
+.time-trend-pb-summary div,
+.time-trend-pb-averages div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.78rem; }
+.time-trend-pb-content dt { color: var(--text-muted); }
+.time-trend-pb-content dd { margin: 0; color: var(--text); font-family: var(--font-mono); }
+.time-trend-pb-content h3 { margin: 16px 0 6px; color: var(--text); font-size: 0.85rem; }
+.time-trend-pb-note { font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
+.time-trend-pb-solve p { font-size: 0.78rem; line-height: 1.6; color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .time-trend-pb-content { padding: 14px; }
+  .time-trend-pb-summary { grid-template-columns: 1fr; }
+  .time-trend-pb-averages { gap: 0 14px; }
 }

@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AppHeader } from './components/AppHeader'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { DriveBackupDialog } from './components/DriveBackupDialog'
 import { DataDialog } from './components/DataDialog'
 import { ScramblePanel } from './components/ScramblePanel'
+import { ToolPanel } from './components/ToolPanel'
+import { useDrawScrambleMode } from './hooks/useDrawScrambleMode'
 import { SessionPanel } from './components/SessionPanel'
 import { SessionSettingsDialog } from './components/SessionSettingsDialog'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -15,7 +17,9 @@ import { useScramble } from './hooks/useScramble'
 import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
 import { useTheme } from './hooks/useTheme'
+import { useToolPanelOpen } from './hooks/useToolPanelOpen'
 import { useTimer } from './hooks/useTimer'
+import { usePostPaintValue } from './hooks/usePostPaintValue'
 import { useToast } from './hooks/useToast'
 import { MergeSessionsDialog } from './components/MergeSessionsDialog'
 import { SessionSetupDialog } from './components/SessionSetupDialog'
@@ -40,25 +44,16 @@ import { getSessionStats } from './lib/stats'
 import { createDriveTransport } from './lib/driveTransport'
 import { loadDriveBackupState, saveDriveBackupState } from './lib/driveStorage'
 import { BUILT_IN_STAT_DEFINITIONS } from './lib/statDefinitions'
+import { DEFAULT_TOOL, type CurrentTool } from './lib/tools'
 import type {
   AlertChannel,
   Penalty,
   PuzzleEvent,
   SessionPreferences,
   Session,
-  TimerUpdateMode,
+  SessionsData,
 } from './types'
 import type { TimerInput, TimerState } from './timer/machine'
-
-function roundTimerElapsed(
-  elapsedMs: number | null,
-  mode: TimerUpdateMode,
-): number | null {
-  if (elapsedMs === null) return null
-  if (mode === 'tenths') return Math.floor(elapsedMs / 100) * 100
-  if (mode === 'seconds') return Math.floor(elapsedMs / 1000) * 1000
-  return elapsedMs
-}
 
 function isTextEntryTarget(target: EventTarget | null): boolean {
   return (
@@ -128,6 +123,10 @@ export default function App() {
     replaceSessions,
   } = useSessions()
   const solves = activeSession.solves
+  // Only presentation may lag. Storage, the final readout and sync receive
+  // current data; switching sessions must never show another session's solves.
+  const deferredSession = usePostPaintValue(activeSession)
+  const insightSolves = deferredSession.id === activeSession.id ? deferredSession.solves : solves
   const activeEvent = activeSession.event ?? '333'
   // The selector lists every session. A session's event is its own property,
   // not a filter for session visibility.
@@ -137,6 +136,8 @@ export default function App() {
     settingsStorageOk,
     updateSettings,
     replaceSettings,
+    setTimerActive: setSettingsTimerActive,
+    adoptedFieldsRef: adoptedSettingsFieldsRef,
   } = useSettings()
   const resolvedTheme = useTheme(settings.theme)
   const {
@@ -156,6 +157,9 @@ export default function App() {
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [currentTool, setCurrentTool] = useState<CurrentTool>(DEFAULT_TOOL)
+  const [toolPanelOpen, setToolPanelOpen] = useToolPanelOpen()
+  const [drawScrambleMode, setDrawScrambleMode] = useDrawScrambleMode()
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
   const [mergeSessionsOpen, setMergeSessionsOpen] = useState(false)
   const [createSessionOpen, setCreateSessionOpen] = useState(false)
@@ -298,14 +302,24 @@ export default function App() {
     onSolve: handleSolve,
   })
 
+  useLayoutEffect(() => {
+    setSettingsTimerActive(timer.state.status !== 'idle')
+  }, [timer.state.status, setSettingsTimerActive])
+
+  const syncSessionsData = useMemo(
+    () => ({ activeSessionId, sessions }),
+    [activeSessionId, sessions],
+  )
+
   const sync = useSync({
     transport: driveTransport,
-    sessions: { activeSessionId, sessions },
+    sessions: syncSessionsData,
     settings,
     storageOk: storageOk && settingsStorageOk,
     timerActive: timer.state.status !== 'idle',
     onReplaceSessions: replaceSessions,
     onReplaceSettings: replaceSettings,
+    adoptedSettingsFieldsRef,
     onNotify: (message) => showToast({ message }),
     onDuplicateSessionDetected: (names, summary) => {
       showToast({
@@ -374,11 +388,6 @@ export default function App() {
     triggerAlert,
   ])
 
-  const displayElapsed = roundTimerElapsed(
-    timer.runningElapsedMs,
-    effectiveSettings.timerUpdateMode,
-  )
-
   const timerActive = timer.state.status !== 'idle'
   const modalOpen =
     settingsOpen ||
@@ -395,8 +404,9 @@ export default function App() {
   const timerPressBase = timer.press
   const timerPress = useCallback(
     (input: TimerInput) => {
+      const at = performance.now()
       if (settings.alertChannel.includes('sound')) primeAlertAudio()
-      timerPressBase(input)
+      timerPressBase(input, at)
     },
     [settings.alertChannel, timerPressBase],
   )
@@ -419,9 +429,10 @@ export default function App() {
     }
     return sizes
   }, [settings.customAverages, settings.statVisibility])
+  const averageTrimming = useMemo(() => ({ better: settings.averageTrimBetter, worse: settings.averageTrimWorse }), [settings.averageTrimBetter, settings.averageTrimWorse])
   const stats = useMemo(
-    () => getSessionStats(solves, visibleAverageSizes),
-    [solves, visibleAverageSizes],
+    () => getSessionStats(insightSolves, visibleAverageSizes, averageTrimming),
+    [insightSolves, visibleAverageSizes, averageTrimming],
   )
   const latestAo5 = stats.averages.get(5)?.latest ?? null
   const latestAo12 = stats.averages.get(12)?.latest ?? null
@@ -462,22 +473,24 @@ export default function App() {
     [activeSession.id, setInspection, timer.state.status],
   )
 
+  const { recordDeletion, restoreDeletion } = sync
+  const handleNotify = useCallback((message: string) => showToast({ message }), [showToast])
   const handleDelete = useCallback(
     (id: string) => {
       const removed = deleteSolve(id)
       if (!removed) return
-      sync.recordDeletion('solve', id, removed.sessionId)
+      recordDeletion('solve', id, removed.sessionId)
 
       showToast({
         message: 'Solve deleted',
         actionLabel: 'Undo',
         onAction: () => {
-          sync.restoreDeletion('solve', removed.solve.id)
+          restoreDeletion('solve', removed.solve.id)
           restoreSolve(removed.solve, removed.index, removed.sessionId)
         },
       })
     },
-    [deleteSolve, restoreSolve, showToast, sync],
+    [deleteSolve, restoreSolve, showToast, recordDeletion, restoreDeletion],
   )
 
   const requestClear = useCallback(() => {
@@ -625,12 +638,26 @@ export default function App() {
   const confirmImport = useCallback(() => {
     if (!pendingImport) return
 
+    if (pendingImport.importMode === 'add') {
+      const imported = pendingImport.sessions.sessions
+      const merged: SessionsData = {
+        activeSessionId: activeSessionId ?? imported[0]?.id ?? '',
+        sessions: [...sessions, ...imported],
+      }
+      replaceSessions(merged)
+      // keep existing settings; do not overwrite
+      sync.resetBase(merged)
+      setPendingImport(null)
+      showToast({ message: 'Backup imported' })
+      return
+    }
+
     replaceSessions(pendingImport.sessions)
     replaceSettings(pendingImport.settings)
     sync.resetBase(pendingImport.sessions)
     setPendingImport(null)
     showToast({ message: 'Backup imported' })
-  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync])
+  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync, activeSessionId, sessions])
 
   const handleMergeSessions = useCallback(
     (sourceId: string, targetId: string) => {
@@ -656,9 +683,30 @@ export default function App() {
 
   const confirmContent = useMemo(() => {
     if (pendingImport) {
-      const currentSolveCount = countSolves(sessions)
       const importedSolveCount = countSolves(pendingImport.sessions.sessions)
       const importedSessionCount = pendingImport.sessions.sessions.length
+      const isAdd = pendingImport.importMode === 'add'
+
+      if (isAdd) {
+        return {
+          eyebrow: 'Import backup',
+          title: 'Add imported sessions?',
+          description: (
+            <>
+              Add <strong>{importedSessionCount}</strong>{' '}
+              {importedSessionCount === 1 ? 'new session' : 'new sessions'} with{' '}
+              <strong>{formatSolveCount(importedSolveCount)}</strong> to your
+              existing local data. Existing sessions and solves remain untouched.
+              Settings are not changed.
+            </>
+          ),
+          confirmLabel: 'Import sessions',
+          cancelLabel: 'Cancel import',
+          onConfirm: confirmImport,
+        }
+      }
+
+      const currentSolveCount = countSolves(sessions)
 
       return {
         eyebrow: 'Import backup',
@@ -868,12 +916,15 @@ export default function App() {
             scrambleAction={effectiveSettings.scrambleAction}
             alignment={effectiveSettings.scrambleAlignment}
             limitHeight={effectiveSettings.scrambleLimitHeight}
+            activeTool={currentTool}
+            toolPanelOpen={toolPanelOpen}
+            onToggleToolPanel={() => setToolPanelOpen(!toolPanelOpen)}
           />
 
           <TimerStage
             state={timer.state}
             eventLabel={getEventDefinition(activeEvent)?.label ?? activeEvent}
-            elapsedMs={displayElapsed}
+            timerUpdateMode={effectiveSettings.timerUpdateMode}
             inspectionElapsedMs={timer.inspectionElapsedMs}
             holdProgress={timer.holdProgress}
             latestSolve={solves[0] ?? null}
@@ -891,6 +942,20 @@ export default function App() {
             onPress={timerPress}
             onRelease={timer.release}
             onCancel={handleCancel}
+            overlay={
+              toolPanelOpen ? (
+                <ToolPanel
+                  scramble={scramble}
+                  event={activeEvent}
+                  mode={drawScrambleMode}
+                  activeTool={currentTool}
+                  onSelectTool={setCurrentTool}
+                  solves={insightSolves}
+                  timerActive={timerActive || insightSolves !== solves}
+                  trimming={averageTrimming}
+                />
+              ) : null
+            }
           />
 
           <div className="session-caption">
@@ -948,15 +1013,16 @@ export default function App() {
             visibleStats={settings.statVisibility}
             customAverages={settings.customAverages}
             precision={settings.statPrecision}
+            trimming={averageTrimming}
           />
 
           <SolveHistory
             key={activeSession.id}
-            solves={solves}
+            solves={insightSolves}
             onSetPenalty={handleSetPenalty}
             onDelete={handleDelete}
             onSetComment={handleSetComment}
-            onNotify={(message) => showToast({ message })}
+            onNotify={handleNotify}
           />
         </aside>
       </main>
@@ -979,6 +1045,8 @@ export default function App() {
         storageOk={storageHealthy}
         sessionCount={sessions.length}
         solveCount={countSolves(sessions)}
+        drawScrambleMode={drawScrambleMode}
+        onDrawScrambleModeChange={setDrawScrambleMode}
         onChange={updateSettings}
         onOpenBackup={handleOpenBackup}
         onOpenDriveBackup={handleOpenDriveBackup}

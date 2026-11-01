@@ -1,31 +1,73 @@
 # CubeLab — Project Progress
 
-**Last verified:** 2026-10-29 (Stage 6 polish; full `npm run check`)
-**Milestone 1:** Complete — 100% of the defined milestone scope
-**Phase 1 stabilization:** Complete — QA, accessibility, and performance pass
-**Phase 2A:** Complete — local named sessions plus JSON backup/restore
-**Phase 2A.1:** Complete — csTimer-inspired Settings dialog
-**Phase 2A.2:** Complete — alerts, appearance, statistics, controls, and schema v4
-**Phase 2A.3:** Complete — inspection direction/warnings, expanded statistics, per-session settings, solve menu, comments, schema v5, and a schema-v6 refinement with optional any-key stop.
-**Phase 2B:** Complete — optional manual Google Drive backup and restore
-**Phase 2C:** Complete with documented limitations — local-first Google Drive synchronization with unique immutable device snapshots, field-level session/settings merging, automatic startup/exit/reconnect/combined scheduling, ID-based merging, tombstones, recovery, redirects, empty-default adoption, duplicate-name detection, manual session merges, and conflict review across solve fields, session metadata, settings, and redirects. Stage 1 additionally adds a conditional Drive v2 ETag/`If-Match` update for the legacy mutable file, local review history with exact-match Undo, mandatory legacy-recovery review, hardened exit sync, and a non-destructive repair action. Stage 2 adds bounded snapshot retention, per-device ownership display, selective deletion, and manual cleanup. Stage 3 validated concurrent immutable publishing, all-snapshot convergence, the legacy ETag conditional write, and retention cleanup against a real Google Drive test account; the OAuth app remains in Testing under another owner account, so non-test sign-in is still unverified.
-**2026-10-25 sync hardening patch:** Complete — fixed legacy migration scope, empty-default adoption, duplicate-name validation, in-flight local-edit protection, owner/event compatibility, directional sync counts, and the two React lint warnings. The first audit follow-up added manual solve-field conflict resolution, deletion/offline-edit recovery, clearer pending-count semantics, and redirect determinism tests. The v2 follow-up fixed repeated recovered-session arrivals and stale conflict approvals. The v3 follow-up adds device-owned Drive snapshots, sessions schema v4 field metadata, field-level session/settings review, settings provenance, timer-deferred sync, bounded retries, deletion hardening, and multi-device stress tests. The v4 follow-up adds complete Drive pagination, same-device write locking/revalidation, final-collection duplicate review, and recovered-solve count fixes. See [Sync hardening](#sync-hardening-patch--2026-10-25), [Audit follow-up v2](#audit-follow-up-v2--2026-10-25), [Hardening v3](#hardening-v3--device-owned-snapshots-and-field-level-review--2026-10-25), [Audit follow-up v4](#audit-follow-up-v4--pagination-same-device-writes-duplicate-review--2026-10-25), and [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
-**Phase 3/4:** Phase 3 is complete — SessionSetupDialog and SessionSettingsDialog support per-session event, inspection, scramble, and timer preferences; effective session settings apply during solve/timing; AppHeader and the timer stage display the active event; session-specific setup preserves the active-session event. Supported events are 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7. Stage 4 added 5×5, 6×6, and 7×7 with per-event desktop/mobile E2E and a shared WCA rule audit. Stage 5 completed Phase 4: history windowing, Chromium/Firefox/WebKit coverage, and the accessibility/keyboard audit. Stage 6 adds an audited light/dark/system theme with WCAG AA contrast tests, theme persistence at settings schema v7, and a pre-paint theme bootstrap.
-**Repository state:** Phase 2B/2C synchronization, Phase 3 multi-event support (all seven events), the 2026-10-25 through 2026-10-28 hardening/remediation passes, Phase 4 platform work, and Stage 6 polish are implemented, verified with deterministic tests plus the Stage 3 real-provider harness, and documented. Stage 4 added 5×5, 6×6, and 7×7, per-event E2E coverage, event validation in storage/backup/sync, and WCA rule verification. The 2026-10-27 remediation removed the 100-entry conflict cap loss, surfaced remote-snapshot disagreements for manual review, and replaced per-device file overwrites with unique immutable snapshots. Stage 0 aligned the documentation; Stage 1 added a legacy-file conditional write, review audit/undo, legacy-tombstone recovery review, exit-sync hardening, and repair. Stage 2 added a configurable snapshot retention policy, per-device ownership metadata and management UI, selective deletion, and manual cleanup. Stage 3 ran the real-provider multi-device gate against a Google Drive test account on 2026-10-28. Stage 5 completed history virtualization, cross-browser coverage, and the accessibility audit. Stage 6 added light/dark/system appearance, dark accent variants, contrast tests, and an early theme bootstrap. The OAuth publishing/branding item is the remaining Stage 3 gap: the project is owned by another account and the app is still in Testing, so non-test sign-in was not validated. Convergence remains eventual and there is no cross-file transaction.
-**2026-10-26 audit remediation:** Complete and verified — all high, medium, and low findings from the retired 2026-10-26 audit are fixed. Durable Undo now uses synchronized `restoredAt` tombstone revocations; device identity is stable and cached; remote envelopes/imports reject malformed or mixed-event data; OAuth requests only `drive.appdata`; session inspection overrides can be cleared; custom-average typing is draft-based; disconnecting Drive disables automatic sync; and inspection warnings remain visual on every channel. Regression and Playwright coverage was added. Verification on Node v22.23.2: typecheck, lint, **283/283 unit tests** in 21 files, production build (95 modules; PWA 22 entries, 2284.38 KiB), **29/29 Playwright tests**, and `git diff --check` all passed. This is the 2026-10-26 record; the current verified state is 360/360 unit tests after the 2026-10-29 Stage 6 polish. `npm run check` passed as one command at Stage 0, after Stages 1–3, and again after Stage 6. The completed per-finding tracker and original audit report were retired during the 2026-10-28 documentation cleanup; this paragraph and the sync-hardening sections below retain the outcome. See [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md).
+**Documentation updated:** 2026-11-01. **Implementation last verified:** 2026-10-31.
+**Current checkpoint:** Core product, Phases 2A–4, Stage 6 theme polish and Phase 5
+audit remediation are implemented. Approved follow-ups include csTimer import,
+2D/PG3D tools, Time Trend and trackpad navigation, historical PB dialogs,
+configurable trimming and the first large-session stop-response patch.
+Settings are schema v8; sessions are schema v4. The broader remaining-event,
+training and portability proposals are not approved by this checkpoint.
 
-**Roadmap:** See [`ROADMAP.md`](ROADMAP.md) for planned phases and acceptance gates.
+## Current implementation and verification
 
-**Active documentation:** [`README.md`](README.md) for product behavior,
-[`ROADMAP.md`](ROADMAP.md) for phase gates, [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md)
-for known sync limits, [`Oct_28_AM_Plan.md`](Oct_28_AM_Plan.md) for the staged
-plan, [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md) for the current
-handoff, and [`AGENTS.md`](AGENTS.md) for engineering rules. Completed audit
-trackers and superseded design briefs are intentionally not retained.
+1. Timer-safe sync, exact approvals, restore normalization, cross-tab
+   reconciliation, active-session metadata and cleanup retries are implemented.
+2. csTimer imports use preview/confirmation; scramble tools are derived from
+   actual scrambles, pointer-isolated and persist their final position/size.
+3. Time Trend supports compact/expanded views, independent axes, pinch/pan,
+   date/range views, DNF gaps, extrema preservation and accessible PB details.
+4. Trimming is global and shared by cards, charts, custom averages, PB windows,
+   backups and synchronization. Defaults are 5% / Auto; stored raw solves stay
+   unchanged. Legacy settings migrate to v8.
+5. Stopping captures time before focus/audio work. The live readout animates
+   locally; expensive presentation refreshes after a rendering opportunity.
+   Saving, final readout and sync continue using current, non-deferred data.
+   Disabled sync skips unused UI hashing; enabled safety checks remain exact.
+
+Latest `VITE_DRIVE_MOCK=true npm run check`: **passed as one command, exit 0**.
+Typecheck/lint/build passed; **503 unit/component tests in 38 files** and
+**216 browser tests passed / 9 existing skips / 225 total** across Chromium,
+Firefox and WebKit. The 7,000-solve keyboard/pointer regression passed in all
+engines. Offline coverage passed in the supported Chromium project. The normal
+non-mock production build was restored. Historical results below remain dated
+records and do not replace this baseline.
+
+With 7,000 synthetic solves and Time Trend open, Firefox median stopped-DOM
+response improved **382 → 75 ms** in development and **75 → 22 ms** in production
+(eight measured stops per condition, warm-up discarded, sync/audio off). These
+are not physical-display, Zen or enabled-sync timing guarantees. Full details
+and remaining costs appear in the timer-stop section at the end of this file.
+Live Drive was not rerun; its last recorded provider harness passed 7/7 on
+2026-10-28. No new external OAuth-state verification is implied.
+
+## Current next steps
+
+1. Fix the observed 320-pixel compact-panel/readout overlap while retaining
+   pointer isolation and persisted drag/resize behavior; inspect desktop,
+   mobile and landscape and refresh affected screenshots.
+2. Profile Zen and production at 7,000/10,000 solves with sync on/off, both stop
+   inputs and expanded/custom charts. Distinguish dispatch, captured duration,
+   first rendering, chart completion, storage and long tasks.
+3. Optimize remaining enabled-sync hashing and chart/statistics work only from
+   measurements; preserve exact guards and complete invalidation after edits.
+4. Design incremental durable persistence separately before replacing whole-
+   collection writes. Include migration, recovery, failure and cross-tab tests.
+5. Arrange owner-dependent OAuth, explicitly authorized live Drive and physical
+   device/assistive-technology validation. Recheck dated dependency advisories
+   before choosing a compatible build-tool change.
+
+[NEXT_SESSION_HANDOFF.md](NEXT_SESSION_HANDOFF.md) provides execution steps and
+acceptance checks. [ROADMAP.md](ROADMAP.md) distinguishes delivered slices from
+proposed phases. [PATCH_LIMITATIONS.md](PATCH_LIMITATIONS.md) records current
+limits. [README.md](README.md) documents use, storage and commands; [AGENTS.md](AGENTS.md)
+contains invariants. The October 28 plan is historical; the October 30 checklist
+has been consolidated into a closure record. This documentation-only checkpoint
+preserves the previously verified source and tests and includes their accumulated
+changes in a local commit; inspect Git rather than assuming a clean tree or push.
 
 ## Scope delivered
 
-CubeLab Milestone 1 is a flat, csTimer-inspired, offline-first 3×3 speedcubing
+CubeLab is a flat, csTimer-inspired, offline-first 3×3 speedcubing
 timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
 It ships audited light and dark palettes plus a system-following theme.
 Phase 2A adds named local sessions and validated JSON backup/restore without
@@ -121,7 +163,7 @@ calculations.
   snapshots. Hook orchestration and network I/O stay in `useSync.ts` and
   `useDriveBackup.ts`.
 - Sessions schema `v4` stores optional per-field metadata without rewriting raw
-  solve values. Settings are schema `v7`; v7 adds the `theme` preference after
+  solve values. Settings are schema `v8`; v8 adds average trimming after v7 added the `theme` preference and
   the v6 any-key-stop record. Settings field metadata lives in the sync runtime
   rather than the settings record.
 - Shared native modal lifecycle and Tab/Shift+Tab focus containment in
@@ -740,7 +782,7 @@ application code.
   Alerts, Display, Appearance, Statistics, Scramble, Controls, Data, and About
   sections. It uses the shared native modal, a fixed footer, and an
   independently scrolling body on short screens.
-- The v7 settings schema stores presentation and interaction preferences as
+- The v8 settings schema stores presentation, interaction and average-trimming preferences as
   typed fields with documented defaults. Unknown or corrupt values fall back
   field-by-field, while v1–v6 records upgrade automatically. Sessions use schema
   v4 with optional per-session preferences, inspection overrides, solve comments,
@@ -835,9 +877,10 @@ application code.
 - Built-in averages cover ao5, ao12, ao25, ao100, ao200, ao500, ao1000,
   ao5000, and ao10000. Up to five custom trimmed averages are allowed from ao3
   to ao10000; built-in sizes are excluded from the custom list.
-- Every trimmed average removes exactly one best and one worst effective result.
-- One DNF in a trimmed average is treated as the worst result and removed; two or
-  more DNFs make the average a DNF.
+- Trim counts follow the global better/worse policy (default 5% / Auto,
+  percentages rounded up). Even medians retain two middle results. DNFs occupy
+  worst-side trim slots first; only remaining DNFs make the result DNF. Default
+  ao5/ao12 drop one at each end, while ao1000 drops 50 at each end.
 - Best values scan every valid window and never report a DNF as a personal best.
   Large averages use a Fenwick-tree sliding-window pass rather than sorting each
   window.
@@ -991,8 +1034,9 @@ offline Playwright test and must not be undone casually.
   Older snapshots without `appProperties.deviceId` group by sanitized file-name
   prefix, so an unusually renamed file can appear as a separate device group. A
   partial delete failure is reported and leaves the file in place.
-- Active-session selection is not field-merged. A device keeps its local active
-  session when it still exists; concurrent selection changes are not reviewed.
+- Active-session selection has field metadata and merging, with manual-review
+  disagreements and timer-active deferral. Cross-tab changes reconcile when idle;
+  this does not provide distributed consensus.
 - Settings provenance depends on `cubelab:sync:v1`. Clearing sync metadata falls
   back to the conservative first-sync policy rather than recovering historical
   field timestamps.
@@ -1052,14 +1096,14 @@ offline Playwright test and must not be undone casually.
 - The production bundle intentionally includes a large `cubing.js` chunk; no
   attempt was made to reimplement or trim its random-state solver.
 
-None of these limitations block the Milestone 1, Phase 2A, or Phase 2A.3
+None of these limitations block the core product, Phase 2A, or Phase 2A.3
 acceptance criteria.
 
 ## Milestone status
 
-### Milestone 1 — Complete
+### Core product — Complete
 
-All requested Milestone 1 functionality is implemented and verified:
+All requested core product functionality is implemented and verified:
 
 - [x] Flat csTimer-inspired responsive UI
 - [x] Central monotonic timer
@@ -1077,7 +1121,6 @@ All requested Milestone 1 functionality is implemented and verified:
 - [x] Offline-first PWA
 - [x] Documentation and agent handoff
 
-**Completion estimate: 100% of Milestone 1 scope.**
 
 ### Phase 2A — Complete
 
@@ -1237,12 +1280,38 @@ physical browsers or machines. A Google Drive v2 ETag/`If-Match` conditional
 update protects the legacy mutable fixed-name file; immutable snapshots are
 create-only and there is no transaction across the snapshot set. Local state
 remains replaceable and convergence is eventual. Redirect consensus, applied
-redirect rollback, and active-session field merging remain unimplemented. The
+redirect rollback remain unimplemented. Active-session field metadata and merging were added by the October 30 audit remediation. The
 OAuth app is still in Testing under another owner account, so non-test sign-in
 is unverified. Snapshot cleanup is best effort; a repeat delete of an
 already-removed file hit one transient `ECONNRESET` that did not reproduce. The
 remaining gaps are listed in [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md); do
 not describe Phase 2C as data-loss-proof.
+
+## Phase 5 — Audit remediation — historical implementation record (closed 2026-10-30)
+
+Implementation progress on the 2026-10-29 audit findings plus roadmap items 6
+and 8:
+- Stage 1 (P1): in-flight sync timer rechecks after remote read, before upload,
+  after write-lock acquisition, and before applying state; deferred application
+  until idle; cross-tab session-collection replacement deferred until idle.
+- Stage 3 (P2 #5/#6): approval matching now requires the exact reviewed
+  value/timestamp pair or an already-applied version stamped at approval time
+  (with Undo preservation via priorUpdatedAt); singleton restore now normalizes
+  the first snapshot through mergeSessionsData so tombstones/redirects apply.
+- Stage 4 (P2 #7): effectiveTimeMs now truncates individual results to
+  centiseconds (and rounds >=10 min results to the second per WCA 9f2).
+- Item 6: field-level active-session selection merging with metadata tracking,
+  sync-runtime persistence, envelope transport, and conflict surfacing.
+- Item 8: snapshot cleanup now retries failed deletes with backoff; already-gone
+  files are not counted as performed deletes.
+
+Remaining: two-page browser test, perf profiling, P3 browser-error assertions.
+Completed this pass: cross-tab settings reconciliation, fractional-centisecond
+stats tests, P3 housekeeping (Node engines, README).
+
+Verification on Node v22.23.2: typecheck passed, lint passed, 360/360 unit
+tests passed (24 files), production build passed (PWA 22 entries). E2E not
+re-run for this partial change.
 
 ## Stage 2 — Snapshot lifecycle management — 2026-10-28
 
@@ -1544,78 +1613,344 @@ screenshots are updated.
 
 ## Handoff
 
-### Safe next work
+The current execution plan is [NEXT_SESSION_HANDOFF.md](NEXT_SESSION_HANDOFF.md).
+Its first steps are narrow-layout repair and targeted Zen/enabled-sync profiles.
+Future cloud protocols, more events and a larger import cap need separate scope.
+Do not use the historical stage plans below as the current approval boundary.
 
-- Phase 2B and Phase 2C are implemented. Do not add telemetry, non-Google cloud
-  providers, or a different sync protocol without an explicit brief.
-- Stage 3 real-provider validation is complete for concurrency, convergence,
-  conditional write, and retention. The remaining Stage 3 item is owned by the
-  Google Cloud project owner: publish the OAuth app out of Testing (and complete
-  any Google verification), then validate sign-in with a non-test account. The
-  legacy file has a provider conditional write, but there is no cross-file
-  transaction. Next, address redirect consensus and field-level active-session
-  merging. Preserve the known-solve snapshot on new session tombstones and extend
-  the Drive transport, metadata store, and failure-path tests together.
-- If more timer preferences are requested, extend the Settings dialog and the
-  versioned settings schema together, with migration and E2E coverage. Do not
-  duplicate the inspection control back into the header.
-- **Approval note (2026-10-29):** Stages 0–6 are complete. Stage 5 closed Phase 4
-  and Stage 6 delivered the audited theme polish. The next work is owner-blocked
-  OAuth publishing/non-test sign-in, physical iOS/Android review, or a new
-  explicitly approved scope. Do not raise the 10 MB import cap without a
-  deliberate, tested design.
-- The theme work is complete. Preserve the CSS token palette, keep every new
-  color in both palettes, and extend `src/lib/theme.test.ts` plus the dark-theme
-  axe scan when adding surfaces. Keep the pre-paint bootstrap in `index.html` in
-  sync with the storage key and theme values.
-- Phase 3 is complete: all seven events have `cubing.js` random-state scrambles,
-  event-compatible storage/backup/sync validation, desktop/mobile production E2E,
-  and shared WCA inspection/penalty rules. Do not add further WCA events without
-  an explicit scope change.
-- Phase 4 is complete: history windowing, cross-browser coverage, the
-  accessibility/keyboard audit, and PWA/bundle review are verified. Physical
-  device touch review remains unavailable in this environment.
+## Git checkpoint
 
-### Before changing anything
+The local checkpoint includes the accumulated audit remediation, import/tools,
+analytics and trimming work, timer-stop response patch, tests, documentation and
+referenced UI screenshots. The documentation reconciliation on November 1 changes
+no application source or tests after the October 31 full check. No generated
+build, browser output or credentials belong in the commit. Inspect `git log -1`
+and `git status --short` for the actual commit and current working-tree state;
+a local commit does not imply a remote push.
 
-1. Read `README.md` and `AGENTS.md`.
-2. Preserve the pure timer machine and WCA statistics semantics.
-3. Preserve the session and backup invariants: at least one session, unique
-   names, locked controls during timing, typed clear/delete confirmations, and
-   validated replace-only import.
-4. Keep Settings as the single home for global inspection, statistics, and data
-   controls; per-session inspection/clear/delete stay in the session gear. Do not
-   reintroduce a header inspection toggle or an inline History clear/delete
-   control.
-5. Preserve the floating solve menu, persisted comments, and Space reservation
-   for the timer.
-6. Re-run `npm run check` after logic or build changes.
-7. Re-run the offline E2E test after any Vite, PWA, dependency, or asset change.
-8. Update this file with fresh evidence whenever status changes.
+## Phase 5 — Audit remediation (complete) — 2026-10-30
 
-## Git status
+Completed all checklist items in `Oct_30_PM_plan.md`:
 
-Milestone 1 through Phase 4, the 2026-10-25 hardening follow-ups, the
-2026-10-27 immutable-snapshot remediation, and the 2026-10-28–2026-10-29 Stage
-0–6 work are implemented and verified. Stage 0 aligned the documentation and
-committed the remediation; Stage 1 added the legacy-file conditional write,
-review audit/undo, legacy-tombstone review, exit-sync hardening, and repair.
-Stage 2 added bounded snapshot retention, ownership display, selective deletion,
-and manual cleanup. Stage 3 validated the real Google Drive provider and closed
-all but OAuth publishing. Stage 4 completed Phase 3 with 5×5, 6×6, and 7×7,
-per-event desktop/mobile E2E, and the shared WCA rule audit. Stage 5 completed
-Phase 4 with history windowing, cross-browser coverage, and the
-accessibility/keyboard audit. Stage 6 added the audited light/dark/system theme,
-settings schema v7, and contrast/pre-paint coverage.
-The documentation set was consolidated at the same time: completed audit
-trackers, the original audit report, and the superseded Phase 2B design brief
-were removed. The work includes unique immutable Drive snapshots, sessions
-schema v4 field metadata, field-level session/settings merging, broad conflict
-review with an uncapped paginated queue, timer-safe scheduling, recovery
-hardening, and sync stress coverage. The roadmap is tracked separately in
-`ROADMAP.md`. Inspect the real repository state with:
+- Focused regression tests: approval timestamps, singleton restore, centisecond
+  statistics, cross-tab settings, and timer-active guards.
+- Two-page Playwright test (`e2e/cross-tab-timing.spec.ts`) verifies no
+  mid-timing redirect and idle reconciliation.
+- Performance evidence: `syncStateFingerprint` ≈ 21.9 ms, `addSolve` ≈ 1.0 ms,
+  `reconcileExternalSessions` ≈ 4.3 ms for a 10,000-solve session; fingerprint
+  is memoized on `sessions`/`settings`.
+- P3 items: `deepmerge` advisory documented as a build-time deferral; remote
+  byte limit uses encoded bytes; browser page-error assertions strengthened in
+  `e2e/timer.spec.ts`.
+- Cross-tab settings now merge per field with metadata preservation and defer
+  adoption while the timer is active.
 
-```bash
-git status --short
-git log --oneline -2
-```
+Verification (Node v22.23.2):
+- `npm run typecheck`: passed.
+- `npm run lint`: passed.
+- `npm test`: passed (400+ unit/component tests across 25+ files).
+- `npm run build`: passed (PWA production build).
+- `npm run test:e2e`: passed (Chromium/Firefox/WebKit projects).
+
+## Approved csTimer import and scramble diagram follow-up — complete 2026-10-30
+
+- csTimer JSON import: detects csTimer exports in the existing import flow,
+  maps all 7 CubeLab events, previews via the standard confirmation dialog.
+- Draw Scramble: the scramble panel's **Current tool** button (wrench icon)
+  toggles a compact bottom-right panel inside the timer area. The panel can be
+  dragged by its header handle and resized from its bottom-right handle; its
+  stage-relative position and size persist in `cubelab:toolPanelLayout:v1`
+  (written only when a gesture ends, clamped to the timer stage on restore and
+  viewport changes, not synchronized). The panel follows the live scramble and
+  event and offers a pure N×N 2D net (standard U / L F R B / D layout, WCA
+  colours, wide-move support for 2×2–7×7) or the `cubing.js` PG3D render. Both
+  views use the standard cube colour scheme from `src/lib/cubeColors.ts`
+  (`U #FFFFFF`, `D #FFFF00`, `F #00FF00`, `B #0000FF`, `R #FF0000`,
+  `L #FF8000`); the 3D view forces `visualization="PG3D"` because the Cube3D
+  renderer hard-codes its palette. The panel is pointer-isolated from the timer.
+  The 2D/3D choice lives only in **Settings → Scramble**.
+- The footer **Function** dropdown selects the tool without closing the panel;
+  only functional tools are listed (no placeholders).
+- The 3D host keeps cubing.js's `display: grid` contract. An earlier
+  `display: block` override collapsed the shadow-DOM visualization wrapper and
+  its canvas to zero height; the panel now renders the cube at full size.
+- Graceful degradation: empty, malformed, or unsupported scrambles show a
+  message instead of a diagram, and a failed 3D import shows an alert.
+
+Verification (Node v22.23.2, 2026-10-30):
+- `npm run typecheck`: passed.
+- `npm run lint`: passed.
+- `npm test`: passed — 409 tests in 28 files, including `cubeNet`,
+  `ScrambleNet`, `ToolPanel`, and `ScramblePanel` coverage.
+- `npm run build`: passed (PWA production build).
+- `npm run test:e2e`: passed — 155 passed, 7 skipped across
+  Chromium/Firefox/WebKit, including `e2e/draw-scramble.spec.ts`. A
+  Chromium-only CDP assertion verifies the 3D canvas has non-zero width/height.
+- Manual visual checks: desktop light/dark, 390 px, 320 px, and mobile landscape.
+  The panel stayed inside the timer stage and did not overlap the timer digits
+  in 2D or 3D.
+
+
+## Time Trend follow-up — 2026-10-31
+
+Scope: repair the compact chart, smaller PB markers, nonnegative time scale,
+button styling, and expanded view requested on 2026-10-31. The surrounding
+Phase 6 work and pre-existing uncommitted changes are preserved.
+
+- The chart uses the panel's measured size, and the expanded view gets its own
+  responsive plotting surface instead of reusing compact dimensions. Both views
+  clip series and hover indicators to the plot rectangle.
+- All selected series share a full-range, nonnegative time scale. Slow outliers
+  and lifetime PBs remain visible; disabling a series removes it from the scale.
+  PBs use 1.6 px compact / 2.5 px expanded markers. Dense paths retain bucket
+  extrema and split at DNFs; solve results use the existing precision/penalty
+  rules. Memoized chart components avoid redraws from timer-frame updates.
+- Buttons, series chips, grid, labels, and legend use light/dark palette tokens;
+  the palette test now checks every trend color against the chart surface.
+- The native expanded dialog contains focus, closes with Escape, restores focus
+  to Expand, and isolates keyboard events from the timer. Expansion is disabled
+  during timing. Zoom, earlier/later navigation, range slider, Fit all, date-axis
+  positions, custom averages, solve details, and range summaries work in the
+  expanded view. Summary statistics retain best ao5/ao12 and improvement.
+- Diagnosed the previously logged WebKit `Unexpected token '<'`: cubing.js first
+  tried `/assets/search-worker-entry.js`, which received the SPA HTML fallback.
+  Browser scramble initialization now prioritizes the library's bundler-aware
+  worker entry. Dedicated worker chunks and disabled module preloading remain.
+- New unit/component coverage exercises PBs, DNF gaps, precision, dense-line
+  extrema, nonnegative axes, range navigation, custom series, empty states, and
+  timing locks. New production E2E uses a 7,061-solve fixture and covers desktop,
+  320 px, resize, date axis, hover, focus restoration, modal Space isolation,
+  expansion while armed, and an axe scan in all three browser engines.
+
+Fresh verification (Node v22.23.2, 2026-10-31):
+
+- `VITE_DRIVE_MOCK=true npm run check` passed as one command (exit 0):
+  typecheck, lint, **454/454 unit tests across 34 files**, production build,
+  and **189 passed / 9 skipped / 198 total** production browser tests across
+  Chromium, Firefox, and WebKit. The offline service-worker test passed.
+- All six new Time Trend browser tests passed, including the modal axe scan,
+  dense-session fixture, timing lock, and 320 px/resize checks. No page errors
+  were reported by the new dense-session checks in any engine.
+- An earlier full-suite attempt was stopped after Drive tests revealed that the
+  existing preview server was serving a build without `VITE_DRIVE_MOCK=true`.
+  The final run rebuilt with the expected test configuration and passed; no
+  assertions or skips were weakened. A normal non-mock production build was
+  restored afterward.
+- Desktop light/dark, compact, and 320 px expanded screenshots were visually
+  reviewed. Updated previews: `docs/cubelab-time-trend.png`,
+  `docs/cubelab-time-trend-compact.png`, `docs/cubelab-time-trend-light.png`, and
+  `docs/cubelab-time-trend-mobile.png`.
+- `git diff --check` passed. Work remains uncommitted alongside the pre-existing
+  changes. Real Google Drive and physical mobile-device validation were not run.
+
+
+## Time Trend trackpad navigation — 2026-10-31
+
+User-requested follow-up: independent vertical and horizontal zoom from the
+mouse/trackpad in both the compact and expanded charts.
+
+- Up/down wheel/trackpad deltas zoom the time axis; left/right deltas zoom the
+  solve axis. Shift + wheel supports horizontal zoom with a conventional mouse.
+  Pinch zoom affects both axes, with ctrl+wheel handling and a separate Safari
+  gesture-event path. Non-passive listeners cancel page scrolling/browser zoom
+  only over the enabled chart. Zoom stays anchored to the pointer.
+- Pointer-captured dragging pans both axes and cannot arm the timer or move the
+  tool panel. Zoom/pan is clamped to the full session/time range, with at least
+  two solves and a bounded vertical magnification. Time bounds stay nonnegative.
+- Horizontal navigation retains the vertical scale. Fit all resets both axes;
+  a compact Fit action appears after zooming. The view carries across compact /
+  expanded transitions. The Zoom axes selector supplies button access to
+  horizontal, vertical, or both-axis zoom. An in-dialog gesture hint documents
+  the controls. Subsecond time ticks remain distinct above one minute.
+- Pure tests verify anchored zoom, inverse zoom, bounds, and pan clamping.
+  Component tests cover independent wheel axes, cancellation, both pinch paths,
+  compact reset, and timer locks. Production tests exercise wheel events, pinch
+  event handling, pointer dragging, independent scales, page-scroll isolation,
+  button axis selection, reset, and compact/expanded continuity in all engines.
+
+Fresh verification (Node v22.23.2, 2026-10-31):
+
+- `VITE_DRIVE_MOCK=true npm run check` passed as one command, exit 0:
+  typecheck, lint, **459/459 unit tests in 34 files**, production build, and
+  **195 passed / 9 skipped / 204 total** production browser tests across
+  Chromium, Firefox, and WebKit. The offline service-worker test passed.
+- All **12/12 Time Trend browser tests** passed, including the new gesture
+  flows and existing responsive/modal/axe checks. No skips were added.
+- Desktop dark/light and 320 px previews were reviewed and refreshed in `docs/`.
+  `git diff --check` passed. The normal non-mock production build was restored
+  after the suite. Changes remain uncommitted alongside the existing work.
+- Physical trackpad hardware was not available; automated browser wheel/pointer
+  and synthetic pinch inputs exercise the corresponding handlers. Real Google
+  Drive validation was not run.
+
+
+## Clickable Time Trend PB statistics — 2026-10-31
+
+User-requested follow-up: clicking a PB marker opens its statistics.
+
+- PB markers retain their small visible circles and have 28 px invisible hit
+  targets. Pointer selection uses the nearest PB when targets overlap. Visible
+  marker buttons support Enter in both views and Space inside the expanded
+  modal; Space in the compact view remains reserved for timing.
+- The read-only native stats dialog works from compact and expanded charts,
+  contains focus/keyboard input, and restores focus to the exact marker on
+  close. It shows the recorded effective PB, previous PB, improvement in time
+  and percent, raw time, penalty, date/event, scramble, notes, mo3, standard
+  chart averages, and the active custom average.
+- Rolling results end at the selected PB, independently of zoom and later
+  solves. All calculations reuse existing WCA precision/penalty/DNF helpers;
+  missing windows show —, while DNF results remain DNF. The first valid solve
+  explains that it is the starting PB. Selection follows the stable solve ID;
+  switching to data without that PB closes stale details.
+- Chart dragging has a 4 px threshold and suppresses marker activation after a
+  pan, including a drag starting on a marker. Zoom/pan behavior is preserved.
+  PB stats are blocked while timing and do not write or mutate stored solves.
+  Disabled markers pass keys to the timer, preserving Stop with any key when
+  Enter is pressed on a focused marker.
+- Focused tests cover historical windows versus later PBs, improvement and +2,
+  first-PB/missing data, DNF averages, compact mouse and Enter activation,
+  persistence after hover, session replacement, and the timer lock. Browser
+  coverage exercises both chart sizes, nested dialog focus/escape/Space,
+  drag-versus-click, date/zoomed views, hidden markers, 320 px layout, and axe.
+
+Fresh verification (Node v22.23.2, 2026-10-31):
+
+- `VITE_DRIVE_MOCK=true npm run check` passed as one command, exit 0:
+  typecheck, lint, **465/465 unit tests in 34 files**, production build, and
+  **204 passed / 9 skipped / 213 total** production browser tests across
+  Chromium, Firefox, and WebKit. The offline service-worker test passed.
+- All **21/21 Time Trend browser tests** passed, including the updated focused-PB
+  any-key-stop check, historical result assertions, nested modal/focus handling,
+  new dialog axe scan, and 320 px overflow checks. No skips were added.
+- Desktop dark/light and 320 px PB stats previews were visually reviewed and
+  saved to `docs/cubelab-pb-stats.png`, `docs/cubelab-pb-stats-light.png`, and
+  `docs/cubelab-pb-stats-mobile.png`.
+- `git diff --check` passed. The normal non-mock production build was restored
+  after testing. Changes remain uncommitted alongside the pre-existing work.
+  Real Drive and physical mobile/assistive-device testing were not performed.
+
+
+## Configurable average trimming — 2026-10-31
+
+User-approved scope: csTimer-style better/worse trimming preferences, defaulting
+to 5% / Auto, applied everywhere averages are computed.
+
+- Settings → Statistics has independent better/worse selectors with 0/1-result,
+  1%, 5%, 10%, 20%, and median choices; Auto matches the better side. Percentages
+  round up, and an even median retains the two middle results. An ao1000 preview
+  states the removed/counting results and DNF threshold. The UI explains that
+  averages and average PBs recalculate; raw solves and single PBs do not change.
+- Settings schema v8 migrates v1–v7 records and older backups to 5% / Auto,
+  recovering invalid fields independently. The optional arguments on the pure
+  statistics APIs use the same default. mo3 and effective-time/penalty precision
+  are unchanged. DNFs fill the worst-side trim first; any remaining DNF makes
+  an average DNF. 50 DNFs are allowed in a default ao1000; the 51st makes it DNF.
+- A shared count/sum Fenwick kernel computes best and rolling averages in
+  O(n log n), including large percentage trims. Trend generation now uses that
+  kernel instead of sorting every individual window. Latest/best cards, quick
+  averages, built-in/custom chart lines, and PB detail windows share one policy.
+- Both preferences participate in cross-tab reconciliation, backup/import,
+  synchronization metadata, independent field merges, and manual conflict review.
+  No solve/session data schema or raw timing data is changed.
+- Tests cover percentage rounding, all preset combinations, zero/asymmetric and
+  median trims, DNF boundaries, direct-versus-fast parity across every side
+  combination, 10,000-solve windows, old settings/backups, corruption recovery,
+  separate-side merge conflicts and multi-device convergence. Production browser
+  flows compare main stats, custom averages, chart lines, PB details, immutable
+  solves, migration/reload persistence, backup restoration, 320 px layout and axe.
+
+Fresh verification (Node v22.23.2, 2026-10-31):
+
+- Final `VITE_DRIVE_MOCK=true npm run check` passed as one command, exit 0:
+  typecheck, lint, **493/493 unit tests in 35 files**, production build, and
+  **213 passed / 9 skipped / 222 total** production browser tests across
+  Chromium, Firefox, and WebKit. The offline service-worker test passed.
+- All **9/9 trimming browser checks** passed, covering policy propagation,
+  historical PB results, custom/latest/best values, chart gaps, immutable solves,
+  migration/reload, readable Drive conflict choices/application, median and
+  independent sides, 320 px layout, and axe. The existing backup flow now
+  explicitly verifies trimming export and confirmed restore in all engines.
+- The Drive fixture creates a real local preference edit before introducing a
+  conflicting cloud edit. An untouched default is correctly adopted without
+  conflict; both edited sides trigger manual review. No assertion or skip was
+  weakened.
+- Production Chromium profile with a seeded **10,000-solve** history: compact
+  Time Trend open **321 ms**, enabling ao1000 through the next paint **144 ms**.
+  These are UI action latencies including Playwright overhead on this host,
+  measured while checks ran; they are not pure-function or frame-rate claims.
+- Desktop dark/light and 320 px settings layouts were visually inspected;
+  `docs/cubelab-average-trimming.png`, `docs/cubelab-average-trimming-light.png`,
+  and `docs/cubelab-average-trimming-mobile.png` record the new controls.
+- `git diff --check` passed. The normal non-mock production build was restored
+  after testing. Changes remain uncommitted alongside the existing work.
+  Real Drive and physical mobile-device validation were not run.
+
+
+## Timer stop response follow-up — 2026-10-31
+
+User-approved first performance patch following the read-only 7,000-solve
+investigation. Timing accuracy, immediate local saving, and sync consistency
+remain required; no persistence/schema migration is included.
+
+- Running display animation now lives in `useRunningElapsed` inside TimerStage.
+  It no longer re-renders the root app every running frame. `useTimer` retains
+  the authoritative ref, pure machine, monotonic input timestamps, inspection
+  ticks/warnings and arming transitions. Display precision never affects raw
+  time. Press timestamps are captured before audio priming and pointer focus.
+- `usePostPaintValue` refreshes expensive solve presentation in a transition
+  scheduled by a task after an animation-frame rendering opportunity. Statistics,
+  history and Time Trend can catch up after the final readout. Replaced/queued
+  tasks are cancelled; session-ID guards prevent presenting a different session's
+  solves. Chart actions remain locked until the presentation catches up.
+- The latest readout, useSessions persistence, sync inputs/ref guards, tombstone
+  detection and sync scheduling all continue using current, non-deferred data.
+  No debounce or delayed persistence was added. Enabled sync retains exact
+  fingerprints, in-flight rechecks, pending detection and upload guards.
+- Disabled sync no longer computes the unused full-history UI fingerprint.
+  Re-enabling recomputes against current data. Memoized history/statistics and
+  stable history callbacks avoid redundant presentation work. Closed backup and
+  confirmation dialog contents no longer render; native shells stay mounted for
+  close/focus restoration.
+- New deterministic tests cover local display animation without owner renders,
+  all display precisions/new runs, exact stop timestamps despite later focus/
+  audio work, +2/DNF inspection, stale scheduled presentation cancellation,
+  disabled/re-enabled hashing and exact enabled pending detection after reverts.
+  A new 7,000-solve browser regression verifies keyboard/pointer down (before
+  release), repeat suppression, one record, exact displayed/saved results,
+  unchanged historical data, reload recovery and session switching.
+
+Fresh verification (Node v22.23.2, 2026-10-31):
+
+- `VITE_DRIVE_MOCK=true npm run check` passed as one command, exit 0:
+  typecheck, lint, **503/503 unit/component tests in 38 files**, production build,
+  and **216 passed / 9 existing skipped / 225 total** browser tests across
+  Chromium, Firefox and WebKit (4.9 min). No assertions/skips were weakened.
+- All three new dense-session browser checks passed, along with existing
+  in-flight upload/edit, timer-active sync, cross-tab reconciliation, conflict,
+  backup/restore, inspection and offline service-worker coverage.
+- A normal non-mock production build was restored successfully afterward.
+- Quiet, isolated Firefox 157 measurements: eight stops per condition after a
+  discarded warm-up, four Space/four pointer, 7,000 realistic solves with field
+  metadata (about 3.49 million saved characters), sync/alerts off. Median
+  capture-listener-to-observable-stopped-DOM response:
+  - Development, chart closed: **223 → 74 ms** (new range 59–83 ms).
+  - Development, Time Trend open: **382 → 75 ms** (new range 55–80 ms).
+  - Production, chart closed: **66 → 25 ms** (new range 22–29 ms).
+  - Production, Time Trend open: **75 → 22 ms** (new range 16–26 ms).
+  These are response measurements, not physical-display latency guarantees.
+  Chart completion can still take longer, particularly in the development build.
+- Chromium Event Timing corroborated an earlier next-paint response with the
+  development chart open: available stop-event durations had a median
+  **356 → 56 ms** (six original/four new entries, rounded by the browser).
+  CPU sampling was off for this comparison. Final Firefox recorded-time versus
+  browser input-interval differences were within ±1 ms for Space and +1–7 ms
+  for pointer in the development cases; hardware contact latency was not measured.
+- Desktop 1440×900 and 320×740 stopped-state previews were inspected. Mobile
+  content width stayed at 320 px. The compact chart can overlap part of the
+  readout at that narrow width; this patch does not change chart positioning.
+  No screenshot refresh in docs is needed for these behavior-only changes.
+- `git diff --check` passed. Changes remain uncommitted alongside the pre-existing
+  work. Measurements used isolated synthetic-data contexts, not the user's
+  real browser storage. Zen itself, live Google Drive and physical mobile
+  hardware were not exercised. Enabled sync's full fingerprint and whole-session
+  synchronous storage costs remain possible targets for later measured work.

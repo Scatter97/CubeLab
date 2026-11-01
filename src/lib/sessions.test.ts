@@ -14,6 +14,7 @@ import {
   removeSolve,
   renameSession,
   restoreSolve,
+  reconcileExternalSessions,
   setActiveSession,
   setSessionEvent,
   setSessionInspection,
@@ -486,5 +487,110 @@ describe('session synchronization metadata', () => {
         'phone',
       ),
     ).toBe(current)
+  })
+})
+
+describe('deferred external session reconciliation', () => {
+  it('adopts the external active session and keeps a solve recorded while timing', () => {
+    const baseline = data({
+      sessions: [
+        session({ solves: [solve({ id: 'old', createdAt: 1_000 })] }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    const local = data({
+      sessions: [
+        session({
+          solves: [
+            solve({ id: 'recorded-while-timing', createdAt: 3_000 }),
+            solve({ id: 'old', createdAt: 1_000 }),
+          ],
+        }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    const external = data({
+      activeSessionId: 'session-2',
+      sessions: [
+        session({ solves: [solve({ id: 'old', createdAt: 1_000 })] }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+
+    const reconciled = reconcileExternalSessions({ external, local, baseline })
+
+    expect(reconciled.activeSessionId).toBe('session-2')
+    expect(reconciled.sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'recorded-while-timing',
+      'old',
+    ])
+    expect(reconciled.sessions[1]?.solves).toEqual([])
+  })
+
+  it('does not resurrect a solve deleted by the external collection', () => {
+    const baseline = data({
+      sessions: [session({ solves: [solve({ id: 'deleted-elsewhere' })] })],
+    })
+    const local = baseline
+    const external = data({
+      sessions: [session({ solves: [] })],
+    })
+
+    const reconciled = reconcileExternalSessions({ external, local, baseline })
+
+    expect(reconciled.sessions[0]?.solves).toEqual([])
+  })
+
+  it('preserves a timing solve if its session was removed externally', () => {
+    const baseline = data({
+      sessions: [
+        session({ id: 'session-1', name: 'Morning' }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    const local = data({
+      sessions: [
+        session({
+          id: 'session-1',
+          name: 'Morning',
+          solves: [solve({ id: 'recorded-while-timing' })],
+        }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    const external = data({
+      activeSessionId: 'session-2',
+      sessions: [session({ id: 'session-2', name: 'Evening' })],
+    })
+
+    const reconciled = reconcileExternalSessions({ external, local, baseline })
+    const recovered = reconciled.sessions.find(
+      (item) => item.id === 'recovered:session-1',
+    )
+
+    expect(reconciled.activeSessionId).toBe('session-2')
+    expect(recovered?.name).toBe('Morning (recovered)')
+    expect(recovered?.solves.map((item) => item.id)).toEqual([
+      'recorded-while-timing',
+    ])
+  })
+
+  it('returns the external collection unchanged when nothing was recorded', () => {
+    const baseline = data()
+    const external = data({
+      activeSessionId: 'session-2',
+      sessions: [
+        session(),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+
+    const reconciled = reconcileExternalSessions({
+      external,
+      local: baseline,
+      baseline,
+    })
+
+    expect(reconciled).toBe(external)
   })
 })

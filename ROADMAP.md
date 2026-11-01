@@ -1,6 +1,9 @@
 # CubeLab Roadmap
 
-**Status:** Active planning document · **Last updated:** 2026-10-29 · **Current release line:** Phase 4 complete (history windowing, Chromium/Firefox/WebKit coverage, accessibility/keyboard audit, PWA/bundle review); Stage 6 polish complete (audited light/dark/system theme); Phase 3 events complete (3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7); Phase 2C local-first sync complete with unique immutable snapshots, field-level merging, bounded snapshot retention, and documented provider-CAS limitations
+**Status:** Current checkpoint reconciled 2026-11-01; implementation verified
+2026-10-31. Phases 2A–5 and Stage 6 polish delivered, with approved import/tools,
+Time Trend/PB, trimming and timer-response follow-ups. Broader phases remain
+proposals unless explicitly approved.
 This roadmap is the forward-looking companion to `PROJECT_PROGRESS.md`. It
 describes the intended sequence, scope, and acceptance gates for future work.
 `PROJECT_PROGRESS.md` remains the source of truth for completed work and current
@@ -8,7 +11,7 @@ verification evidence.
 
 ## Current baseline
 
-- Milestone 1 is complete: 3×3 timer, WCA random-state scrambles, inspection,
+- The core product is complete: 3×3 timer, WCA random-state scrambles, inspection,
   statistics, local history, PWA, and responsive/accessibility work.
 - Phase 2A is complete: named local sessions, validated JSON backup/restore,
   migration, and local persistence.
@@ -61,6 +64,36 @@ verification evidence.
   paginated), and surfaced remote-snapshot disagreements for review. Google Drive
   still lacks a verified atomic compare-and-swap. See `PATCH_LIMITATIONS.md` for
   what remains open.
+
+## Current delivery and recommended next steps
+
+Delivered follow-ups include csTimer import, the persisted 2D/PG3D panel,
+Time Trend with independent trackpad axes/pinch/pan and historical PB dialogs,
+settings-v8 trimming shared everywhere, and prioritized timer-stop feedback.
+Latest checks: **503 tests / 38 files; 216 browser passes / 9 existing skips**,
+with typecheck, lint, build and supported offline checks passing October 31.
+Normal production output was restored after mock-Drive tests.
+
+1. **Narrow layout:** repair the 320-pixel compact-panel overlap; preserve digit
+   visibility, controls, pointer isolation and persisted gestures. Inspect
+   desktop, mobile/landscape and both timing states, then refresh screenshots.
+2. **Targeted profiling:** test Zen and production at 7,000 and 10,000 solves,
+   sync enabled/disabled, both inputs and expanded/custom chart combinations.
+   Record dispatch, captured time, first rendering, chart completion and saving.
+3. **Measured optimization:** evaluate enabled-sync fingerprint scheduling and
+   incremental chart/statistics updates. Preserve exact approvals, current refs,
+   timer guards, redundant-upload detection and complete cache invalidation.
+4. **Persistence design:** assess incremental durable storage only with a
+   migration/recovery/failure/cross-tab plan; no debounce of the latest solve.
+5. **External gates:** arrange owner-dependent OAuth, authorized live-provider
+   tests, physical device/trackpad and assistive-technology validation; recheck
+   the dated dependency advisory before any compatible toolchain update.
+
+These are next-step proposals, not a claim they are implemented. Detailed entry
+steps and acceptance checks live in [NEXT_SESSION_HANDOFF.md](NEXT_SESSION_HANDOFF.md).
+The broader training/new-event/provider/import-cap ideas below require their
+own approved scope. The October 31 sync-off 7,000-solve performance evidence
+must not be relabeled as a 10,000-solve or enabled-sync stop benchmark.
 
 ## Product principles
 
@@ -415,6 +448,330 @@ statistics, or synchronization semantics.
 - [x] `npm run check` passes and the active documentation and screenshots are
       updated.
 - [x] The 10 MB import cap is unchanged; no larger-cap design was approved.
+
+
+## Phase 5 — Audit remediation (timer-safe synchronization and correctness)
+
+**Status:** Audit remediation implemented and closed 2026-10-30; regression
+coverage included in the October 31 full check. Delivered timer-safe in-flight
+sync, idle reconciliation, exact approvals, restore normalization, recorded
+precision, active-session field metadata, cleanup retries and the two-page test.
+The findings below describe the original audit and its remediation scope, not
+an open defect list. The dependency issue was explicitly deferred with a dated
+reason; external/provider limits remain in `PATCH_LIMITATIONS.md`.
+
+**Goal:** Close the timer-safe synchronization gaps and correctness defects
+identified by the audit so cloud sync, cross-tab reconciliation, conflict
+approvals, restore normalization, and WCA statistical precision are safe during
+timing and exact to the documented contract.
+
+**Baseline (audit, 2026-10-29):** TypeScript, Oxlint, 360 unit tests across 24
+files, production build, and 149/153 Playwright tests passed; 4 low-severity
+dependency advisories; Node 24.22.1 required by locked jsdom/Vitest deps. All
+110 archived source files were byte-identical after inspection. No fixes were
+applied by the audit.
+
+### P1 — state replacement during timing
+
+1. **In-flight sync can upload and replace state after timing begins.**
+   - References: `src/hooks/useSync.ts` (timer check before first network
+     operation; guards compare only session/settings fingerprints).
+   - Problem: arming, inspecting, or running changes the timer without changing
+     the fingerprint, so a download started while idle can finish after a solve
+     starts, issue an upload, and call both replacement callbacks while the
+     timer is active. Waiting on the shared write lock reintroduces the race.
+   - Impact: remote state may switch the active session/event or inspection
+     configuration mid-solve; `App.tsx` records against the current
+     session/event and scramble reference, so completion can attach to the
+     wrong context; inspection may be cancelled by a changed setting.
+   - Fix direction: recheck timer activity immediately before initiating
+     writes and before applying state, including the redundant-upload branch;
+     defer application until idle and rerun the merge against current local
+     state; revalidate enabled/connection state after asynchronous boundaries;
+     test timing transitions during list, download, lock wait, and upload
+     completion.
+
+2. **Cross-tab storage changes bypass the timer lock entirely.**
+   - References: `src/hooks/useSync.ts` storage listener; `src/App.tsx`.
+   - Problem: the storage listener immediately loads and replaces the entire
+     session collection with no timer-active check, is installed even when
+     automatic sync is disabled, and runs in the leader tab despite its
+     "Followers" comment. A second tab selecting a different session writes
+     the shared active-session ID and changes the first tab's active session
+     during a solve.
+   - Impact: ordinary local multi-tab use can violate the session controls'
+     lock and redirect a solve into a different session/event, independent of
+     Google Drive connectivity.
+   - Fix direction: defer external collection reconciliation until idle; retain
+     the timing session/event/scramble as explicit solve-start context;
+     reconcile any locally completed solve with the external collection rather
+     than replacing either blindly; consider making active-session selection
+     tab-local; add a real two-page browser test.
+
+### P2 — correctness and performance
+
+3. **Settings changes from another tab are silently overwritten.**
+   - References: `src/hooks/useSettings.ts`; `src/hooks/useSync.ts`.
+   - Problem: settings load once on mount and every later edit saves the whole
+     in-memory settings object; the cross-tab listener handles sessions and sync
+     metadata but never `cubelab:settings:v1`.
+   - Impact: a tab receiving a settings storage event and then changing an
+     unrelated preference resets the other tab's work; potential disagreement
+     between current values and field timestamps mirrored through sync storage.
+   - Fix direction: reconcile external settings values and their metadata
+     together; distinguish imported changes from local edits to avoid inventing
+     new timestamps; preserve independent field edits; defer timer-affecting
+     changes until idle.
+
+4. **Full-history hashing and deletion scans run on every timer frame.**
+   - References: `src/App.tsx`; `src/hooks/useTimer.ts`; `src/hooks/useSync.ts`;
+     `src/lib/syncFingerprint.ts`.
+   - Problem: `useTimer` updates React state each animation frame; each `App`
+     render constructs a fresh `{ activeSessionId, sessions }` wrapper for
+     `useSync`, invalidating its fingerprint memo and session-change effect even
+     though the collection did not change. The fingerprint recursively
+     copies/sorts and serializes the entire history; the deletion effect walks all
+     solve IDs. Fingerprinting runs even with sync disabled. Measured ~18.9 ms
+     per fingerprint on a synthetic 10,000-solve history (function benchmark, not
+     a browser frame measurement).
+   - Impact: large histories can cause timer display/input latency despite
+     history virtualization.
+   - Fix direction: memoize the session-data wrapper by actual collection/
+     selection changes; stabilize sync callbacks; isolate high-frequency timer
+     presentation updates; add a production timing profile with 10,000 solves
+     with sync disabled/enabled.
+
+5. **Conflict approvals do not require the reviewed field timestamps.**
+   - References: `src/lib/solveMerge.ts`; `src/lib/sessionMetadata.ts`;
+     `src/lib/settingsMerge.ts`.
+   - Problem: approval matching checks the pair of values and requires only that
+     current timestamps be `<=` the resolution timestamp; it does not compare
+     them with the stored `localUpdatedAt`/`remoteUpdatedAt` from review.
+   - Impact: an approval can override a changed field version without renewed
+     review when a field changes away and back while approval is pending.
+   - Fix direction: match reviewed value/timestamp pairs in either orientation,
+     with a narrow exception for the already-applied winning version stamped at
+     the approval time; avoid accepting every timestamp before approval; add
+     tests for changes between review and approval, including a value changed
+     away and back.
+
+6. **Restoring exactly one remote snapshot skips tombstones and redirects.**
+   - References: `src/lib/remoteBackups.ts`; `src/hooks/useDriveBackup.ts`;
+     `src/App.tsx`.
+   - Problem: the restore helper initializes from the first snapshot's sessions
+     and only invokes `mergeSessionsData` for subsequent snapshots; with one
+     snapshot, collected tombstones and redirects are never applied.
+   - Impact: restore can resurrect data that its envelope deletes, or leave
+     redirected sessions separate; the restore path then returns a new backup
+     without that envelope, and confirmation resets sync bookkeeping.
+   - Fix direction: normalize even the first/single snapshot through the same
+     merge/recovery pipeline; test singleton solve and session tombstones,
+     redirect application, and recovery.
+
+7. **Averages use hidden milliseconds rather than recorded centiseconds.**
+   - References: `src/hooks/useSessions.ts`; `src/lib/stats.ts`; `src/lib/format.ts`.
+   - Problem: recorded raw times retain whole milliseconds; singles display by
+     truncating to centiseconds, while averages sum hidden milliseconds and round
+     only at the end. Comment claiming times are stored to the hundredth and the
+     README centisecond calculation claim are inaccurate. WCA regulation 9f1
+     requires individual timed results under ten minutes to be truncated to
+     hundredths and averages/means to be rounded to hundredths.
+   - Impact: five `10009 ms` solves each display `10.00` but their ao5 is
+     `10.01`; recorded centisecond results should average to `10.00`.
+   - Fix direction: preserve raw timing precision if desired, but derive recorded
+     result precision before statistical aggregation and share that conversion
+     across latest/best/fast-window calculations; add an explicit policy for
+     results at or above ten minutes under regulation 9f2; add
+     fractional-centisecond tests for mean, trimmed average, and personal best.
+
+### P3 — security, runtime, and build observations
+
+8. **Dependency advisory (low).** `npm audit` reports four low-severity entries in
+   one chain: `vite-plugin-pwa → workbox-build → @rollup/plugin-node-resolve →
+   deepmerge` (GHSA-gcqx-w48m-w2h4, prototype poisoning in `deepmerge`). These
+   are build-tool dependencies; no exploitable route from a CubeLab backup was
+   established. Do not blindly apply the audit's proposed downgrade to
+   `vite-plugin-pwa@0.2.1`; evaluate a compatible upstream fix or override and
+   revalidate PWA behavior.
+
+9. **Runtime requirement undocumented.** README says Node 20+, but locked Vitest
+   and jsdom dependencies require newer versions (jsdom tree includes
+   `^22.22.2 || ^24.15.0 || >=26.0.0`); `package.json` has no `engines`
+   declaration. Pin/document a supported runtime (Node 24.22.1 worked). The
+   first installation under Node 18 omitted the native lint binding.
+
+10. **Remote file resource limits.** Remote files are downloaded to text before
+    checking length, and the remote limit uses JavaScript character length rather
+    than encoded bytes (`src/lib/remoteBackups.ts`). Robustness opportunity for
+    malformed/very large cloud files; no hostile input exploit demonstrated.
+
+11. **Unresolved browser diagnostic.** Two `BROWSER_PAGEERROR: Unexpected token
+    '<'` messages appeared in the otherwise-passing browser log; the listener
+    does not fail on them (`e2e/timer.spec.ts`). Strengthen error assertions
+    before claiming a clean browser console.
+
+12. **Coverage gaps.** No two-page browser test; singleton restore normalization
+    untested; exact reviewed timestamp changes untested; fractional-centisecond
+    averages untested; sustained timing with large persisted histories untested.
+    Real Google Drive validation was not run (no token); mock flows validate
+    application behavior, not live OAuth consent, provider permissions, or
+    real-account concurrency. Firefox and WebKit skip touch hold-to-time and
+    offline service-worker tests.
+
+### Recommended order (from audit)
+
+1. Fix both state-replacement paths during timing and pin the solve-start
+   context (findings 1, 2).
+2. Reconcile cross-tab settings and stabilize the data passed into sync
+   (findings 3, 4).
+3. Tighten approval matching and normalize singleton restores (findings 5, 6).
+4. Correct statistical precision, then address runtime documentation and the
+   build dependency advisory (finding 7, observations 8, 9).
+
+### Architecture note
+
+`src/hooks/useSync.ts` combines scheduling, leader election, storage mirroring,
+network orchestration, conflict decisions, audit history, and publication in
+over 1,600 lines; `DriveBackupDialog.tsx` is another large orchestration
+surface. Extracting an explicit sync-operation lifecycle would make cancellation
+and timer guards easier to enforce and test. This is a refactor recommendation,
+not a separate defect.
+
+### Acceptance gate — remediation delivered; ongoing limits recorded
+
+- [x] No sync upload or state replacement occurs while the timer is armed,
+      running, or inspecting, including across list/download/lock-wait/upload
+      completion and storage events; deferred work resumes once when idle.
+- [x] Cross-tab reconciliation defers during timing and preserves in-flight
+      solves; active-session selection is reconciled without redirecting a solve.
+- [x] Cross-tab settings edits are merged by field with metadata preserved.
+- [x] History-dependent sync calculations are not repeated on running animation
+      frames. Disabled sync skips the unused UI fingerprint. Deletion tracking
+      remains active for future synchronization correctness. The later stop
+      patch measured 7,000 solves with sync off; enabled-sync/10,000-solve stop
+      profiling remains in the current next-step plan.
+- [x] Conflict approvals apply only to the exact reviewed values and field
+      timestamps, with the documented narrow exception for an already-applied
+      winning version stamped at approval time; a value changed away and back
+      raises a new conflict.
+- [x] Single-snapshot restore applies tombstones and redirects.
+- [x] Statistics use recorded (truncated/rounded) individual results for
+      aggregation; fractional-centisecond and personal-best tests pass; policy
+      for results at or above ten minutes is documented and tested.
+- [x] Two-page browser test covers cross-tab timing and reconciliation.
+- [x] `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and
+      `npm run test:e2e` pass; documentation and screenshots refreshed if
+      visible design changes.
+
+
+
+## Phase 6 — Remaining WCA events
+
+**Approval status:** Proposed 2026-10-29. Requires explicit approval per
+`AGENTS.md` before implementation; each event batch should be its own approved
+stage, mirroring Phase 3.
+
+**Goal:** Extend the event set beyond the seven shipped in Phase 3, reusing the
+`cubing.js` scramble pipeline and the shared WCA inspection/penalty/statistics
+rules.
+
+**Scope (two sub-phases):**
+
+6a. **Easy puzzles** (registry + validation + E2E only; no new timer logic):
+Pyraminx, Skewb, Square-1, Clock, Megaminx. Scrambles via
+`randomScrambleForEvent(...)` with their WCA event IDs.
+
+6b. **Blindfolded and special formats** (new mechanics required):
+- 3×3 BLD, 4×4 BLD, 5×5 BLD — memo timer + execution timer, separate result
+  format.
+- 3×3 Multi-Blind (MBLD) — multiple cubes, special result format.
+- 3×3 Fewest Moves (FMC) — move count instead of time, different scramble type.
+
+**Acceptance gate (proposed):** event registry single source in
+`src/lib/events.ts`; `PuzzleEvent` in sync; storage/backup/sync validation;
+per-event E2E at desktop and 390 px mobile; WCA rule audit; no hand-rolled
+scrambles; mixed-event and unknown-event rejection.
+
+## Phase 7 — Statistics and analytics
+
+**Delivered approved slice:** Time Trend, historical PB details and global
+trimming are shipped. Other analytics scope below remains proposed.
+
+**Goal:** Surface progression and deeper statistics on top of the existing local
+data, without new storage schema beyond optional derived caches.
+
+**Scope:**
+- Per-session solve-time line chart with rolling averages and personal-best
+  markers (hand-rolled SVG to avoid bundle/worker impact).
+- Solve-time histogram and standard deviation.
+- Session comparison view (side-by-side stats for two sessions).
+- CSV export in addition to the existing JSON backup.
+- Additional built-in stats: std-dev, best/worst window, solves-per-day.
+- Local-only trend notices (e.g. faster than 30-day average).
+
+**Acceptance gate (proposed):** no telemetry; derived views do not mutate raw
+times; charts render for 10,000-solve sessions without frame drops; axe/keyboard
+coverage for new surfaces.
+
+## Phase 8 — Training modes
+
+**Goal:** Practice-oriented tools built on the existing timer and scramble
+pipeline.
+
+**Scope:**
+- Algorithm trainer (PLL/OLL/COLL recognition + execution timing) with scramble
+  sets and weak-case drilling.
+- Inspection trainer (forced countdown practice).
+- F2L/cross practice scrambles.
+- Custom scramble filters (case-specific, no rotations, max N moves).
+- Session goals with progress tracking.
+
+**Acceptance gate (proposed):** reuses timer machine; no new persistence beyond
+local settings; deterministic scramble generation via `cubing.js`.
+
+## Phase 9 — Customization and accessibility
+
+**Goal:** Broader appearance and input options without weakening timer correctness.
+
+**Scope:**
+- Additional themes/accent colors with the same WCAG AA audit gate.
+- Layout options: compact timer, scramble-only mode, large timer for streaming.
+- Configurable keybindings beyond Space.
+- High-contrast and reduced-motion presets; screen-reader announcements for
+  solve results.
+
+## Phase 10 — Competition simulation
+
+**Goal:** WCA-style round structure on top of existing semantics.
+
+**Scope:**
+- Time limits, cutoffs, and attempt counts per session.
+- Round simulation: generate a round's scrambles, track attempts, compute
+  ranking.
+- Result export in WCA format.
+
+## Phase 11 — Data portability and interop
+
+**Delivered approved slice:** csTimer JSON/text import through validated preview
+and confirmation is shipped. Other interoperability scope remains proposed.
+
+**Goal:** Move data in and out of CubeLab beyond the native JSON backup.
+
+**Scope:**
+- **csTimer JSON backup import (headline):** parse csTimer's export format,
+  map its sessions/solves/times/penalties/scrambles into CubeLab's schema,
+  validate event compatibility and mixed-event rules, preview counts, and require
+  explicit confirmation before replacing local data. Invalid files must not
+  mutate local data. Preserve comments where csTimer provides them; otherwise
+  leave blank. Document field mapping and limitations.
+- Import from other timers (Twisty Timer, etc.) via CSV/JSON converters.
+- Shareable result card (local image generation, no social backend).
+- Print-friendly session report.
+
+**Acceptance gate (proposed):** import validation mirrors the native backup gate;
+no partial mutation; round-trip and golden-file tests for csTimer exports;
+documentation of unsupported fields.
+
 
 ## Cross-cutting backlog
 

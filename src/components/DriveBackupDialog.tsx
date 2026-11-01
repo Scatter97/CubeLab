@@ -4,6 +4,7 @@ import { useDriveBackup } from '../hooks/useDriveBackup'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import type { UseSyncResult } from '../hooks/useSync'
+import { AVERAGE_TRIM_OPTIONS } from '../lib/averageTrimming'
 import { CloseIcon } from './Icons'
 import type { SessionsData, Settings } from '../types'
 import { loadDriveBackupState } from '../lib/driveStorage'
@@ -47,6 +48,8 @@ const FIELD_LABELS: Record<string, string> = {
   statVisibility: 'statistics visibility',
   customAverages: 'custom averages',
   statPrecision: 'statistics precision',
+  averageTrimBetter: 'average trimming (better side)',
+  averageTrimWorse: 'average trimming (worse side)',
   redirect: 'merge destination',
   legacyRecovery: 'legacy recovery',
 }
@@ -67,6 +70,11 @@ function recoverySolveIds(value: unknown): string[] {
 }
 
 function formatConflictValue(field: string, value: unknown): string {
+  if (field === 'averageTrimBetter' || field === 'averageTrimWorse') {
+    if (value === 'auto') return 'Auto (match better side)'
+    const option = AVERAGE_TRIM_OPTIONS.find((entry) => entry.value === value)
+    if (option) return option.label
+  }
   if (field === 'legacyRecovery') {
     if (value === 'keep-deleted') return 'keep deleted'
     const ids = recoverySolveIds(value)

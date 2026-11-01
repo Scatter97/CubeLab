@@ -1,224 +1,176 @@
 # Next Session Handoff
 
-**Updated:** 2026-10-29 (Stage 6 complete; Stages 0–6 closed)
-**Objective:** Maintain the completed Milestone 1 through Phase 4 implementation
-and the Stage 6 polish. Stage 5 completed Phase 4 platform work (history
-windowing, Chromium/Firefox/WebKit coverage, accessibility/keyboard audit, and
-PWA/bundle review). Stage 6 delivered the audited light/dark/system theme,
-settings schema v7, contrast tests, dark-theme axe scans, and a pre-paint theme
-bootstrap. No further stage is approved; the remaining items are owner-blocked
-OAuth publishing/non-test sign-in, unavailable physical iOS/Android review, and
-the deliberately unchanged 10 MB import cap.
-**Branch:** `master`
-**Working tree:** clean after the focused Stage 6 commit
-**Node:** `~/.nvm/versions/node/v22.23.2/bin/node` (system Node 18 cannot run Vite 8)
+**Updated:** 2026-11-01. **Implementation last verified:** 2026-10-31.
+**Branch:** master. **Runtime:** Node 22 or newer (validated with v22.23.2).
 
-## Status
+## Current checkpoint
 
-Stages 0–6 are complete. Stage 1 added the legacy-file conditional write,
-review audit/undo, legacy-tombstone review, exit-sync hardening, and repair.
-Stage 2 added snapshot retention, per-device ownership management, selective
-deletion, and manual cleanup. Stage 3 validated concurrent immutable publishing,
-all-snapshot convergence, same-device writers, the live Drive v2 ETag/`If-Match`
-path, retention, and selective deletion against a real Google Drive test account.
+The accumulated implementation includes Phase 5 audit remediation, csTimer
+import, the draggable/resizable 2D/3D scramble panel, Time Trend, independent
+trackpad axes and pinch/pan, clickable historical PB statistics, configurable
+average trimming, and the first large-session stop-response patch. These are
+implemented and verified. Broader future feature phases are not approved by
+this documentation update. Sessions remain schema v4; settings are schema v8.
 
-Stage 4 on 2026-10-28 completed Phase 3:
+The November 1 documentation/commit pass changes documentation only. The
+October 31 verification below still applies to the unchanged application code.
+The checkpoint commit includes the accumulated implementation, tests, referenced
+screenshots and documentation. Confirm its identity with `git log -1 --oneline`
+and its working-tree state with `git status --short`; no remote push is part
+of this handoff.
 
-- Added `555`, `666`, and `777` to the event registry and `PuzzleEvent` union.
-- Storage, backup, session metadata, and sync now validate all seven event IDs.
-  Legacy `cubelab:solves:v1` migration still accepts only 3×3 records.
-- Scrambles for all seven events come from `cubing.js`
-  `randomScrambleForEvent(...)`. Big-cube depth notation such as `3Rw2` is
-  accepted by the plausibility check.
-- The header, timer stage, scramble badge, and duplicate-session suffix display
-  the human-readable event label from `src/lib/events.ts`.
-- Fourteen production E2E tests cover all seven events at desktop and 390 px
-  mobile widths: switch event, fresh scramble, three solves, `+2`, DNF, stats,
-  persistence, and overflow.
-- The backup E2E now exports and restores a 3×3 + 5×5 session collection.
-- WCA audit: the 15-second inspection window, `+2` from 15–17 seconds, DNF after
-  17 seconds, and effective-time statistics are shared by every event. The timer
-  machine remains event-independent. Competition time limits and cutoffs are
-  deliberately not implemented.
-- Documentation and the ROADMAP Phase 3 gate are updated.
+## Completed steps
 
-Stage 5 on 2026-10-29 completed Phase 4:
+1. Closed the audit regressions: timer-safe in-flight sync, cross-tab deferral,
+   exact conflict approvals, singleton restore normalization, recorded-result
+   precision, active-session selection metadata and cleanup retry handling.
+2. Added csTimer import through the existing preview/confirmation flow. Unknown
+   puzzle sessions are skipped with a warning; supported solves retain their
+   original times, dates, penalties, scrambles and notes.
+3. Added a persisted, pointer-isolated tool panel with scramble-derived standard
+   colors in 2D and cubing.js PG3D. Position/size save only after gestures end.
+4. Added compact/expanded Time Trend, DNF gaps, nonnegative scales, extrema-aware
+   dense paths, responsive sizing, date axes, range summaries and accessibility.
+5. Added independent horizontal/vertical wheel and trackpad zoom, pinch zoom,
+   pointer pan and Fit reset. Small PB markers have larger invisible hit areas;
+   PB dialogs show historical rolling windows ending at the selected solve.
+6. Added independent better/worse average trimming in Settings. Defaults are
+   5% / Auto, percentages round up and even medians retain two middle results.
+   Policies propagate through cards, charts, PB details, backups and sync.
+7. Improved stopping with large histories: capture press time before audio and
+   focus, animate the live readout locally, refresh expensive presentation after
+   a rendering opportunity, and skip unused UI fingerprinting when sync is off.
 
-- History windowing above 200 solves with spacers, anchor restoration, and a
-  **Show all solves** escape hatch.
-- Seeded 2,000-solve performance profile recorded in `PROJECT_PROGRESS.md`.
-- Playwright projects for Chromium, Firefox, and WebKit; offline and touch
-  hold-to-time tests remain honestly skipped outside Chromium.
-- Keyboard/screen-reader audit and axe scans for the main view and Settings.
-- `cubing.js` loaded through a dynamic import while preserving worker isolation
-  and the offline reload test.
+## Verified baseline
 
-Stage 6 on 2026-10-29 completed the polish gate:
-
-- Added `light`/`dark`/`system` theme preference in **Settings → Appearance**,
-  defaulting to light. Settings schema is now `v7`.
-- Added complete tokenized dark palettes and dark variants for green, blue,
-  violet, and amber; removed hard-coded colors outside the token blocks.
-- `src/lib/theme.test.ts` audits WCAG AA contrast for every text/surface and
-  accent pair in both themes; the dark main view and Settings dialog pass axe in
-  all three browsers.
-- The `index.html` bootstrap applies the stored theme before the bundle loads,
-  and `useTheme` tracks OS changes while `system` is selected.
-- Verified that **Use global default** clears a per-session inspection override.
+`VITE_DRIVE_MOCK=true npm run check` passed as one command on October 31:
 
 | Check | Result |
 | --- | --- |
-| `npm run check` | **Passed as one command**, exit 0 |
-| `npm run typecheck` | Passed |
-| `npm run lint` | Passed with no warnings |
-| `npm test` | **360/360 passed**, 24 files |
-| `npm run build` | Passed; 99 modules; PWA 22 entries, 2,322.06 KiB |
-| `npm run test:e2e` | **149/153 passed**, 4 skipped; Chromium, Firefox, and WebKit |
-| `git diff --check` | Passed |
+| TypeScript and Oxlint | Passed |
+| Unit/component tests | 503 passed in 38 files |
+| Production build | Passed |
+| Browser tests | 216 passed, 9 existing skips, 225 total |
+| Browser engines | Chromium, Firefox, WebKit |
+| New 7,000-solve stop regression | Passed in all three engines |
+| Offline service-worker flow | Passed in the supported Chromium project |
+| Final normal production build | Restored successfully after mock tests |
+| Whitespace check | Passed |
 
-Stage 3's real-provider gate is closed; only OAuth publishing/non-test sign-in
-remains, and that requires the Google Cloud project owner. There is still no
-transaction across the immutable snapshot set, and convergence remains eventual.
+The dense-session regression checks both stop inputs before release, repeat
+suppression, exactly one saved solve, display/raw-result agreement, unchanged
+old solves, reload recovery and session switching. Existing tests cover
+in-flight upload edits, timer-active guards, tombstones, approvals, backups,
+settings reconciliation, trimming and accessibility. Skips were not increased.
+Live Drive was not rerun; the historical real-provider harness passed 7/7 on
+October 28. Zen, physical trackpads/mobile hardware and production OAuth
+non-test sign-in were not validated by the latest patch.
 
-## Stage status
+## Performance evidence and remaining costs
 
-- **Stage 0 — complete.** Documentation matched the code and `npm run check`
-  passed as one command.
-- **Stage 1 — complete; real-provider gate closed by Stage 3.** Conditional legacy
-  write, audit/Undo, exit-sync hardening, legacy-tombstone recovery review,
-  redirect disagreement review, and repair.
-- **Stage 2 — complete.** Snapshot retention policy, per-device ownership and
-  management UI, selective deletion, and manual cleanup.
-- **Stage 3 — complete except OAuth publishing.** Real-provider concurrency,
-  convergence, live ETag/`If-Match`, retention, and selective deletion passed
-  7/7 with complete cleanup. The app remains in Testing under another owner.
-- **Stage 4 — complete 2026-10-28.** Phase 3 completion: all seven events,
-  per-event E2E, WCA rule audit, multi-event storage/backup coverage, and docs.
-- **Stage 5 — complete 2026-10-29.** Phase 4 platform work: history
-  virtualization, Chromium/Firefox/WebKit coverage, accessibility/keyboard audit,
-  and PWA/bundle review.
-- **Stage 6 — complete 2026-10-29.** Audited light/dark/system theme, settings
-  schema v7, contrast tests, dark-theme axe scans, pre-paint bootstrap, and
-  screenshots. The inspection reset was verified against the docs.
+Eight measured Firefox 157 stops per condition followed a discarded warm-up,
+with 7,000 synthetic metadata-bearing solves (about 3.49 million saved
+characters), sync/audio off and an isolated browser context. Median
+input-listener-to-observable-stopped-DOM response:
 
-## Current event and WCA behavior to preserve
+| Condition | Before | After |
+| --- | ---: | ---: |
+| Development, chart closed | 223 ms | 74 ms |
+| Development, Time Trend open | 382 ms | 75 ms |
+| Production, chart closed | 66 ms | 25 ms |
+| Production, Time Trend open | 75 ms | 22 ms |
 
-- Supported events and `cubing.js` scramble IDs are defined only in
-  `src/lib/events.ts`: `333`, `222`, `444`, `333oh`, `555`, `666`, `777`.
-  Do not duplicate the list in components or validation.
-- `PuzzleEvent` in `src/types.ts` must stay in sync with that registry. Storage
-  and backup validation use the shared `isPuzzleEventValue` guard.
-- Do not hand-roll scrambles or add random-move fallbacks. Preserve the prefetch
-  queue, loading skeleton, failure message, retry action, and timer gating.
-- A session event is locked once the session has solves. Changing an empty
-  session's event may also rename a default-style session to the event label.
-- All seven events share the 15-second inspection, `+2`, DNF, mo3, and trimmed
-  average rules. Do not branch the timer machine or statistics on event without
-  a documented WCA rule and focused tests.
-- Event labels are presentation only. Raw times, penalties, and statistics must
-  not depend on the event.
-- Mixed-event sessions are rejected before import confirmation or mutation.
-  Unknown event IDs must not be silently rewritten to 3×3.
-- `docs/cubelab-desktop.png`, `docs/cubelab-mobile.png`, and
-  `docs/cubelab-settings.png` show the default 3×3 light palette.
-  `docs/cubelab-dark.png` and `docs/cubelab-dark-settings.png` show the dark
-  palette; keep both sets current when the visible design changes.
+These are not physical-display or actual Zen measurements. Chart completion
+can take longer, especially in development mode. Chromium Event Timing also
+showed earlier next-paint response with the development chart open (available
+entries: median 356 ms before, 56 ms after). Do not infer enabled-sync or
+10,000-solve stop performance from these sync-off 7,000-solve measurements.
 
-## Current theme behavior to preserve
+Enabled sync still calculates complete fingerprints. Local saving still
+serializes and synchronously writes the full collection. Historical statistics
+and chart data still rebuild after changes; the first patch prioritizes stop
+feedback rather than replacing those algorithms or the storage model.
 
-- `ThemePreference` is `light`, `dark`, or `system`; the stored default is
-  `light`. Settings schema `v7` owns the field, and it merges like every other
-  global preference.
-- `src/index.css` is the only palette source. Keep light tokens on `:root`, dark
-  tokens on `:root[data-theme='dark']`, and dark accent overrides under
-  `:root[data-theme='dark'] .app-shell[data-accent='…']`. Do not add literal
-  colors in component rules.
-- Every new text/surface or accent pair must be added to `TEXT_PAIRS` or
-  `ACCENT_PAIRS` in `src/lib/theme.test.ts` and pass WCAG AA (4.5:1; 3:1 for
-  focus outlines).
-- `src/hooks/useTheme.ts` resolves `system` with `prefers-color-scheme`, updates
-  `data-theme`, `colorScheme`, and the `theme-color` meta. The `index.html`
-  bootstrap duplicates the storage key and theme colors intentionally so dark
-  users never see a light flash; update both together.
-- The PWA manifest uses fixed light-theme colors (`#ffffff` theme,
-  `#e9edf1` background) because install splash colors cannot follow a runtime
-  preference.
+## Recommended next steps
 
-## Current sync behavior to preserve
+### 1. Correct the narrow-screen tool-panel overlap
 
-- Each write creates `cubelab-backup-<device-id>-<uuid>.json` and never overwrites
-  a file. `uploadDeviceBackup` has no `existingFileId` parameter.
-- Same-origin writes share the Web Lock. Per-device transports do not re-list or
-  recheck; the optimistic recheck remains only for the legacy fixed-name
-  transport.
-- The legacy mutable file is listed through Drive v3, read through Drive v2
-  metadata, and replaced with a v2 media `PUT` carrying `If-Match`. A pre-write
-  ETag mismatch, HTTP 412, or a missing ETag must fail closed.
-- Conflicts are deduplicated by `kind:id:field`, never truncated to 100, and
-  rendered 5 at a time with **Show all**. Remote-only disagreements are marked
-  `remoteOnly` and use **Use newest cloud** / **Use other cloud**.
-- Approvals match the reviewed pair in either local/remote orientation. Redirect
-  approvals match by unordered destination pair.
-- `isOwnSnapshot` identifies this device by envelope `deviceId`, falling back to
-  the legacy fixed filename.
-- Review history lives only in `cubelab:sync:v1`, newest first, capped at 50
-  display entries. It is never uploaded, synchronized, or included in backups.
-- **Repair sync state** clears only `lastSyncedFingerprint`,
-  `lastRemoteRevision`, status, and error; it preserves sessions, tombstones,
-  redirects, pending conflicts, audit history, and settings metadata.
-- Automatic cleanup runs only after a successful upload, keeps the newest
-  snapshot of every device group, and never deletes the just-published snapshot
-  or the legacy mutable file. It prunes when either the per-device count or age
-  threshold is exceeded.
-- Manual cleanup re-lists first and passes `ownOnly: true`; it must never remove a
-  foreign snapshot that this browser may not have merged yet.
-- New snapshots write `appProperties.deviceId`. Older snapshots group by the
-  sanitized name prefix after stripping the UUID or fallback write token.
-- Selective snapshot deletion removes only the cloud file. It does not change
-  local sessions, settings, tombstones, or conflict state.
+At 320 pixels, the compact chart can cover part of the timer digits. Reserve
+space or reposition/collapse the panel without blocking the readout, scramble,
+stop surface or essential controls. Preserve drag/resize persistence and pointer
+interception. Verify desktop, 320/390 pixels and landscape with the panel open,
+closed, moved and resized, both during timing and after stop. Update screenshots
+only after the layout change is implemented and visually reviewed.
 
-## Pitfalls
+### 2. Profile the remaining performance cases before changing sync
 
-- Do not add a color outside the token blocks in `src/index.css`; the contrast
-  audit only sees declared tokens. Re-run the theme unit test and the dark axe
-  scan after any palette or component color change.
-- Keep `index.html`'s theme bootstrap synchronized with `cubelab:settings:v1`,
-  `ThemePreference`, and `useTheme`'s `theme-color` values.
-- Do not undo durable Undo by deleting tombstones; `restoredAt` is the protocol.
-- Keep malformed remote envelopes rejecting as a whole, not filtering entries.
-- Keep mixed-event imports rejected before confirmation or mutation.
-- Keep `drive.appdata` as the only OAuth scope.
-- Disconnecting Drive must leave automatic synchronization disabled.
-- Ambiguous legacy-tombstone recovery must always raise a review, even when
-  manual review is off; a new candidate set needs a fresh review.
-- Undo only applies while the stored conflict still has the exact recorded
-  resolution and `updatedAt`; applied redirect merges and a legacy recovery that
-  already restored solves are not reversible. **Keep deleted** can still be
-  changed to **Recover solves**.
-- E2E expects countdown warning labels at **7 seconds remaining** and **3 seconds
-  remaining**.
-- The per-event tests intentionally wait for the scramble text to change before
-  timing. Switching events clears the scramble slots after paint, so asserting
-  only the badge can race the previous event's scramble.
-- Do not claim atomic remote writes or data-loss-proof synchronization. Provider
-  CAS covers only the legacy mutable file. Snapshot cleanup was validated against
-  real Drive on 2026-10-28, but it remains a best-effort sequence of independent
-  deletes, not a transaction. A repeated delete of an already-removed file hit one
-  transient `ECONNRESET` that did not reproduce.
-- Do not claim non-test sign-in or production OAuth publishing. The app remains in
-  Testing under another owner account; the owner must publish it and complete any
-  Google verification before that can be verified.
-- The real-provider harness needs an explicit short-lived access token. Never
-  commit or print the token, and keep the harness out of `npm run check`/CI. Use
-  `CUBELAB_DRIVE_ALLOW_EXISTING=true` only to leave pre-existing app snapshots
-  untouched; cleanup removes only files the run created.
-- Do not run automatic cleanup before publication, and do not remove the newest
-  snapshot of any device group or the legacy mutable file. A cleanup failure must
-  be reported without turning a completed sync into a failure.
-- Do not delete foreign snapshots from manual cleanup. Only automatic cleanup
-  after a successful all-snapshot merge may prune another device's superseded
-  group.
-- Exit sync is best effort even with the deduplicated `visibilitychange` /
-  `pagehide` / `freeze` triggers.
-- Hidden older cloud approvals remain possible when a device already holds a newer
-  approval for one side of a multi-remote disagreement.
+Reproduce on the user's Zen development site (`http://localhost:5173/`) and the
+production preview (`http://127.0.0.1:4173`). Use isolated 7,000- and 10,000-solve
+fixtures, both inputs, charts open/closed, expanded/custom averages and sync
+on/off. Measure input dispatch, captured timestamp, first result rendering,
+chart completion, storage cost and long tasks separately. Retain median/range
+and sample counts; do not turn host timing numbers into brittle E2E thresholds.
+
+### 3. Optimize only the measured remaining work
+
+For enabled-sync hashing, evaluate revisions/caching or background work while
+preserving exact pending status, redundant-upload detection and in-flight guards.
+For statistics/charts, append incremental results where valid and fully
+invalidate on edits, deletion, import, session changes and trimming changes.
+Any incremental storage proposal needs crash recovery, failure handling,
+migration/rollback and cross-tab tests before adoption. Do not debounce saves
+or weaken durability merely to improve a benchmark.
+
+### 4. Complete external and owner-dependent validation
+
+Arrange a live Drive rerun only with an explicitly supplied short-lived test
+credential. Test physical mobile/trackpad and assistive technology when available.
+The Google Cloud owner must handle OAuth publishing/non-test access; the latest
+patch does not prove the current external console state. Recheck the dated
+build-dependency advisory before selecting a compatible fix, then verify offline
+behavior. New event batches, social/non-Google cloud features, a new sync
+protocol or a larger import cap require their own approved scope.
+
+## Correctness rules to preserve
+
+- Keep timer transitions/inspection penalties in `src/timer/machine.ts`,
+  monotonic `performance.now()` input times and authoritative refs. Display
+  rounding/animation must never determine recorded duration or duplicate a solve.
+- Only presentation is delayed. The final readout, persistence, sync refs,
+  tombstone detection and sync scheduling receive current session data.
+- Preserve enabled-sync fingerprints, exact approvals, timer-active guards,
+  deferred idle reconciliation, same-origin write locks and exit-sync behavior.
+  Disabled-sync deletion tracking still records future synchronization metadata.
+- Immutable snapshots are create-only. Provider CAS protects only the legacy
+  mutable file; no cross-file transaction or data-loss-proof guarantee exists.
+- Share trimming/precision helpers everywhere. A default ao1000 drops 50 results
+  at each end, so 50 DNFs can be removed; 51 make it DNF. mo3 is untrimmed.
+- Keep settings v1–v7 migration to v8 defaults, separate-side merging, raw solve
+  immutability, ID-based session guards and historical PB windows.
+- Preserve the seven-event registry, cubing.js worker isolation, tokenized
+  light/dark palettes, modal focus restoration and Space reservation.
+
+## Reproduction and delivery commands
+
+Use Node 22+; the installed validation runtime is
+`/home/joshua/.nvm/versions/node/v22.23.2/bin/node`.
+
+```bash
+npm run dev
+VITE_DRIVE_MOCK=true npm run check
+npm run build
+git diff --check
+git status --short
+```
+
+The normal build after mock checks restores non-mock production output. If
+running browser tests alone against an already-running preview, explicitly
+build with `VITE_DRIVE_MOCK=true` first: Playwright reuses that server and skips
+its own server/build command. Never commit dist, dependencies, browser reports,
+local credentials or scratch measurements. Run focused regressions followed by
+the full check after a behavior change; documentation-only changes need link,
+reference and whitespace verification rather than an unnecessary full rebuild.
+
+For live-provider validation, follow README instructions for
+`npm run validate:drive`; never print or commit the token. Record what was
+actually exercised and distinguish historical provider evidence from new tests.

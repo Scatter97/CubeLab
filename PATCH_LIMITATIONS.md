@@ -1,12 +1,40 @@
-# CubeLab synchronization hardening — limitations
+# CubeLab — current limitations and historical sync evidence
 
-**Last updated:** 2026-10-28
+**Documentation updated:** 2026-11-01. Latest implementation check: 2026-10-31.
 
 This patch substantially hardens Phase 2C, but it is deliberately **not** a claim
 that every distributed-systems problem is solved. Google Drive is still an
 eventually consistent remote store, not a transaction coordinator. Phase 3 event
 coverage is complete for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7; other WCA
 events remain outside the current scope.
+
+## Current limits and concrete follow-up
+
+| Area | Current boundary | Next action |
+| --- | --- | --- |
+| Narrow layout | At 320 pixels the compact chart can overlap timer digits | Reserve/reposition space; verify timing, controls, gestures and screenshots |
+| Stop performance | First patch measured 7,000 solves, sync/audio off, isolated Firefox/Chromium | Profile actual Zen and 10,000 solves with sync on/off |
+| Enabled sync | Full fingerprints and safety guards remain | Optimize only with exact pending/in-flight tests |
+| Local persistence | Entire collection is serialized/written synchronously | Design incremental durability, migration, recovery and cross-tab behavior first |
+| Chart/statistics | First result gets priority; refresh can still take longer | Profile completion and incremental invalidation after edits/imports |
+| Provider protocol | Immutable snapshots converge eventually; no cross-file transaction | Preserve current guards; any protocol redesign needs separate scope |
+| External validation | Latest patch used mock Drive; physical devices were unavailable | Arrange explicitly authorized provider tests and real hardware |
+| OAuth | Non-test publishing/sign-in not verified by the latest work | Google Cloud owner action and subsequent verification |
+| Imports/events | 10 MB import cap and seven-event set remain | Separate tested design/approval for expansion |
+
+Latest full check passed: 503 unit/component tests in 38 files; 216 browser
+passes, 9 existing skips; typecheck, lint, build and supported offline checks.
+Normal production output was restored. The historical provider harness passed
+7/7 on October 28; do not represent it as validation of every subsequent patch.
+The “still unresolved” protocol details below remain applicable except where
+an explicitly dated later remediation says otherwise.
+
+The stop patch delays presentation only: storage, the final readout, sync refs,
+tombstone detection and scheduling use current data. Disabled-sync deletion
+tracking is deliberately retained. Input-event comparisons are not physical
+contact measurements; Zen extensions/privacy settings and device latency were
+not characterized. See [NEXT_SESSION_HANDOFF.md](NEXT_SESSION_HANDOFF.md) for
+step-by-step entry points and acceptance checks.
 
 ## 2026-10-26 audit remediation
 
@@ -360,8 +388,10 @@ events remain outside the current scope.
   deduplicated before requesting a sync, but browsers may still terminate async
   OAuth and network work while closing. Local storage remains the durability
   boundary.
-- **Active-session selection is not field-merged.** The active session is kept
-  when it still exists locally; concurrent selection changes are not reviewed.
+- **Active-session selection now has field metadata and merging.** The October
+  30 remediation transports selection timestamps/editor IDs and surfaces
+  disagreements under manual review. Timer-active guards still defer adoption
+  so an in-flight solve is not redirected. This does not establish consensus.
 - **In-flight identity checks assume immutable React state.** An accidental
   in-place mutation of sessions or settings could bypass the fingerprint guard.
 - **Settings provenance depends on sync metadata.** If `cubelab:sync:v1` is
@@ -373,7 +403,7 @@ events remain outside the current scope.
 ## Verification
 
 Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and
-`npm run test:e2e` with Node 20 or newer. Use an isolated mock cloud for
+`npm run test:e2e` with Node 22 or newer. Use an isolated mock cloud for
 concurrency scenarios. To reproduce the real-provider run, set a short-lived
 `CUBELAB_DRIVE_ACCESS_TOKEN` with the `drive.appdata` scope and run
 `npm run validate:drive`; set `CUBELAB_DRIVE_ALLOW_EXISTING=true` only when the
@@ -422,3 +452,32 @@ passed, **337/337 unit tests** in 22 files, production build (96 modules; PWA 22
 entries, 2,311.30 KiB), **30/30 Playwright tests**, exit 0. The real-provider
 harness is opt-in, needs an explicit short-lived token, and is not part of
 `npm run check`.
+
+## 2026-10-30 Phase 5 audit remediation
+
+- **Dependency advisory (GHSA-gcqx-w48m-w2h4):** `vite-plugin-pwa@2.0.0` pulls
+  `workbox-build → @rollup/plugin-node-resolve → deepmerge@4.3.1`, where
+  `mergeObject()` is vulnerable to prototype poisoning of returned objects. The
+  advisory is build-time only (no runtime app path uses `deepmerge`), and the
+  only upstream fix is `npm audit fix --force`, which downgrades
+  `vite-plugin-pwa` to `0.2.1` and breaks the production service-worker/offline
+  pipeline. That inspection did not identify a compatible patched release. This is a dated
+  observation, not a current upstream-version assertion; recheck before changing
+  dependencies. Decision at the time:
+  defer the downgrade, keep the PWA/offline build intact, and re-evaluate when a
+  compatible patched release is available. Owner: build tooling maintainer.
+- **Cross-tab settings reconciliation:** fields are merged per field, and local
+  pending edits win over a stale external snapshot for the same field until the
+  other tab's value agrees. Adopted external fields keep the other tab's field
+  timestamps rather than receiving a new local stamp. External settings
+  adoption is deferred while the timer is armed, running, or inspecting and is
+  applied once when idle. Metadata preservation depends on the shared
+  `cubelab:sync:v1` record; if another tab has not yet published metadata for
+  an adopted field, the field may merge by value without an external timestamp.
+- **Performance evidence:** `syncStateFingerprint` costs about 21.9 ms for a
+  10,000-solve session in the unit environment; `addSolve` costs about 1.0 ms
+  and `reconcileExternalSessions` about 4.3 ms. The fingerprint is memoized on
+  `sessions`/`settings` and is not recomputed on animation frames; history
+  windowing bounds rendered history rows. The later October 31 stop profile is
+  the relevant UI evidence; these older unit timings do not prove end-to-end
+  stop latency or the cost of enabled synchronization.
