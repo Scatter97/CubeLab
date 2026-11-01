@@ -68,7 +68,9 @@ offline coverage passed. Approved follow-ups delivered csTimer import, 2D/PG3D
 tools, Time Trend gestures/PB details, settings-v8 trimming, the first timer
 stop-response patch, and Phase 6a (Pyraminx, Skewb, Square-1, Clock, and
 Megaminx). Phase 6b (blindfolded, Multi-Blind, and Fewest Moves) remains
-proposed and is not approved.
+proposed and is not approved. Phase 4 itself is complete; post-Phase 4
+follow-ups remain open. The committed narrow-layout right-gutter mitigation is
+not by itself completion of that follow-up.
 
 Read `NEXT_SESSION_HANDOFF.md` for the current detailed execution plan: fix the
 320-pixel panel/readout overlap, profile Zen/enabled sync at 7,000/10,000 solves,

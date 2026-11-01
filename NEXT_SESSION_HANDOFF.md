@@ -97,14 +97,12 @@ feedback rather than replacing those algorithms or the storage model.
 
 ## Recommended next steps
 
-### 1. Correct the narrow-screen tool-panel overlap
+### 1. Finish the narrow-screen tool-panel overlap review
 
-At 320 pixels, the compact chart can cover part of the timer digits. Reserve
-space or reposition/collapse the panel without blocking the readout, scramble,
-stop surface or essential controls. Preserve drag/resize persistence and pointer
-interception. Verify desktop, 320/390 pixels and landscape with the panel open,
-closed, moved and resized, both during timing and after stop. Update screenshots
-only after the layout change is implemented and visually reviewed.
+A right gutter is reserved while the default panel is open, but moved/resized
+panels and wide layouts still need visual verification. Do not mark this
+follow-up complete until desktop, 320/390 px, mobile landscape and timing states
+have been inspected with the panel open, moved, resized and persisted.
 
 ### 2. Profile the remaining performance cases before changing sync
 

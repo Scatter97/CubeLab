@@ -13,7 +13,7 @@ Multi-Blind, and Fewest Moves) remains outside the current scope.
 
 | Area | Current boundary | Next action |
 | --- | --- | --- |
-| Narrow layout | At 320 pixels the compact chart can overlap timer digits | Reserve/reposition space; verify timing, controls, gestures and screenshots |
+| Narrow layout | Right gutter reserved only while the default panel is open; moved/resized panels and all timing/chart cases still need verification | Continue verification/adjustment; do not claim completed |
 | Stop performance | First patch measured 7,000 solves, sync/audio off, isolated Firefox/Chromium | Profile actual Zen and 10,000 solves with sync on/off |
 | Enabled sync | Full fingerprints and safety guards remain | Optimize only with exact pending/in-flight tests |
 | Local persistence | Entire collection is serialized/written synchronously | Design incremental durability, migration, recovery and cross-tab behavior first |

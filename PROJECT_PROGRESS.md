@@ -2027,3 +2027,8 @@ coverage for all 12 events at desktop and 390 px mobile widths, the non-cube 3D
 renders and 2D fallback, and the offline service-worker flow. The normal
 non-mock production build was restored afterward, and `git diff --check` was
 clean. No assertion or skip was weakened.
+
+Post-Phase 4 status: Phase 4 itself remains complete. The committed
+320-pixel right-gutter mitigation is an interim step only; it does not finish
+the narrow-layout, profiling, performance, persistence-design or external
+validation follow-ups listed above.
