@@ -21,9 +21,9 @@ evidence in `PROJECT_PROGRESS.md`.
 This repository contains **CubeLab** plus the authorized **Phase 2A**
 local-data work:
 
-- speedcubing timer with per-session 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and
-  7×7 events
-- WCA random-state scrambles via `cubing.js`
+- speedcubing timer with per-session 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7,
+  Pyraminx, Skewb, Square-1, Clock, and Megaminx events
+- official WCA scrambles via `cubing.js` for every supported event
 - optional 15-second inspection with count-down/count-up display, independent
   8-second/12-second warnings, and `+2` / DNF
 - single, mo3, ao5, ao12, ao25, ao100, ao200, ao500, ao1000, ao5000, and
@@ -45,8 +45,11 @@ local-data work:
 
 Phase 2A, the Phase 2A.1 Settings design update, Phase 2A.2 settings groups,
 Phase 2A.3 timer/history/session refinements, Phase 2B optional manual Google
-Drive backup, Phase 2C local-first Google Drive synchronization, and Phase 3
-(More WCA events: 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7) are complete.
+Drive backup, Phase 2C local-first Google Drive synchronization, Phase 3
+(3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7), and Phase 6a (Pyraminx, Skewb,
+Square-1, Clock, and Megaminx) are complete. Phase 6b (blindfolded,
+Multi-Blind, and Fewest Moves) remains proposed and is not authorized by this
+checkpoint.
 Configurable csTimer-style average trimming is explicitly approved on
 2026-10-31 and applies to all built-in/custom averages, graphs, PB details,
 backups, and field-level settings synchronization. Default 5% / Auto migration
@@ -59,12 +62,13 @@ to social features as drive-by additions without an explicit user instruction.
 
 ## Current checkpoint and next work — 2026-11-01
 
-Implementation last verified October 31: **503 unit/component tests in 38 files;
-216 browser tests passed, 9 existing skips**, typecheck/lint/build and supported
+Implementation last verified November 1: **518 unit/component tests in 39 files;
+252 browser tests passed, 9 existing skips**, typecheck/lint/build and supported
 offline coverage passed. Approved follow-ups delivered csTimer import, 2D/PG3D
-tools, Time Trend gestures/PB details, settings-v8 trimming and the first timer
-stop-response patch. Do not confuse the historical “Phase 6-1” import label with
-approval of the proposed remaining-WCA-events phase.
+tools, Time Trend gestures/PB details, settings-v8 trimming, the first timer
+stop-response patch, and Phase 6a (Pyraminx, Skewb, Square-1, Clock, and
+Megaminx). Phase 6b (blindfolded, Multi-Blind, and Fewest Moves) remains
+proposed and is not approved.
 
 Read `NEXT_SESSION_HANDOFF.md` for the current detailed execution plan: fix the
 320-pixel panel/readout overlap, profile Zen/enabled sync at 7,000/10,000 solves,
@@ -82,6 +86,28 @@ Disabled-sync deletion tracking is still needed for later sync and must remain.
 The latest patch did not rerun live Drive or physical-device validation. The
 October 28 live-provider record is historical, not fresh evidence for later work.
 Use Node **22+** (package engine); system Node 18 cannot run this toolchain.
+
+## Local OpenCode skills
+
+Project-specific workflows are discoverable under `.opencode/skills/`:
+
+- `cubelab-architecture`: ownership and cross-layer change planning.
+- `cubelab-sync-safety`: sync, storage migration, backup/import/restore and cross-tab data safety.
+- `cubelab-timer-testing`: timing, input isolation, exact-once recording and stop regressions.
+- `cubelab-chart-performance`: trends, rolling statistics, PB windows and large-history profiling.
+
+Load the matching skill when the task reaches that area; combine skills for changes
+that cross boundaries. Skill paths and commands are relative to the repository
+root. Existing frontend skills remain responsible for generic React performance,
+visual design and interface review; existing Playwright guidance handles generic
+browser-test mechanics.
+
+Never delete or overwrite user solve history as part of development, debugging,
+profiling or validation. Use synthetic fixtures in isolated test storage/browser
+contexts and memory/mock Drive transports. Do not run real-data reset, import,
+restore or remote-delete actions to test a patch. Preserve established behavior
+and unrelated working-tree changes. Do not install additional dependencies
+without explicit user approval. These shared rules also apply when no skill is loaded.
 
 ## Commands
 
@@ -149,6 +175,15 @@ the production build because it tests the service worker and offline reload.
   for the session event (no canned or random sticker state), and the 3D mode
   must keep `twisty-player`. The 2D/3D choice lives only in Settings; do not add
   an in-panel mode toggle.
+- **The event registry drives scrambles and visualization.**
+  `src/lib/events.ts` is the single source for event IDs, labels,
+  `cubing.js` scramble IDs, twisty-player puzzle IDs, cube sizes, and scramble
+  notation families. `scrambleEventId` must be the official `cubing.js` WCA
+  event ID (`333`, `222`, `444`, `333oh`, `555`, `666`, `777`, `pyram`, `skewb`,
+  `sq1`, `clock`, `minx`). `cubeSize` is non-null only for N×N cube events;
+  non-cube puzzles must show an honest 2D-unavailable state rather than drawing
+  an unrelated cube, and their 3D view must use the registry `puzzleId`. Apply
+  the standard cube colour palette only to N×N events.
 - **Draw Scramble panel interception.** The entire panel accepts pointer input
   (`pointer-events: auto`) so a press on the diagram, header, or resize handle
   can never fall through and arm the timer. Dragging starts only on the header
@@ -171,9 +206,11 @@ the production build because it tests the service worker and offline reload.
   stored preference defaults to `light`; `system` follows
   `prefers-color-scheme`.
 - **Do not hand-roll scrambles.** Use `cubing.js` `randomScrambleForEvent(...)`
-  with the session event ID (`333`, `222`, `444`, `333oh`, `555`, `666`, `777`).
-  Unit tests verify real random-state generation and plausible WCA notation for
-  every event, including big-cube depth moves such as `3Rw2`.
+  with the registry `scrambleEventId` (`333`, `222`, `444`, `333oh`, `555`,
+  `666`, `777`, `pyram`, `skewb`, `sq1`, `clock`, `minx`). Unit tests verify
+  real random-state generation and plausible WCA notation for every event,
+  including big-cube depth moves such as `3Rw2`, Pyraminx tips, Square-1 tuples
+  and slashes, Clock pins/dials, and Megaminx `R++`/`D--` notation.
 - **WCA solve rules are event-independent.** The 15-second inspection window,
   `+2` from 15–17 seconds, DNF after 17 seconds, and effective-time statistics
   are shared by all supported events. Do not branch timer or statistics logic on
@@ -352,8 +389,10 @@ For a behavior change:
   token and run `npm run validate:drive`. Keep network calls out of `npm test`,
   `npm run check`, and CI, and never commit or print the token.
 - Event changes need per-event production E2E coverage for 3×3, 2×2, 4×4,
-  3×3 OH, 5×5, 6×6, and 7×7, including switching events, recording solves, and
-  verifying scrambles and statistics.
+  3×3 OH, 5×5, 6×6, 7×7, Pyraminx, Skewb, Square-1, Clock, and Megaminx,
+  including switching events, recording solves, and verifying scrambles and
+  statistics. Non-cube events also need 3D rendering and honest 2D-fallback
+  coverage.
 - Add or update a Playwright test for user-visible flows, including settings
   open/close and focus restoration, inspection direction/warnings and
   persistence, per-session inspection overrides, session

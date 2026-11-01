@@ -73,6 +73,94 @@ describe('mergeSessionsData', () => {
     expect(result.addedSolves).toBe(3)
   })
 
+  it('merges new puzzle events and preserves the session event', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'pyram-session',
+          event: 'pyram',
+          solves: [solve({ id: 'pyram-local', event: 'pyram' })],
+        }),
+      ],
+      activeSessionId: 'pyram-session',
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({
+          id: 'pyram-session',
+          event: 'pyram',
+          solves: [
+            solve({
+              id: 'pyram-local',
+              event: 'pyram',
+              createdAt: 1_700_000_000_500,
+            }),
+            solve({
+              id: 'pyram-remote',
+              event: 'pyram',
+              createdAt: 1_700_000_001_000,
+            }),
+          ],
+        }),
+      ],
+      activeSessionId: 'pyram-session',
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+
+    expect(totalSolves(result.merged)).toBe(2)
+    expect(result.merged.sessions[0]?.event).toBe('pyram')
+    expect(result.merged.sessions[0]?.solves.map((item) => item.event)).toEqual([
+      'pyram',
+      'pyram',
+    ])
+  })
+
+  it('stops instead of merging a session whose solves mix new puzzle events', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          id: 'side-session',
+          event: 'sq1',
+          solves: [solve({ id: 'sq1-local', event: 'sq1' })],
+        }),
+      ],
+      activeSessionId: 'side-session',
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({
+          id: 'side-session',
+          event: 'sq1',
+          solves: [
+            solve({
+              id: 'clock-remote',
+              event: 'clock',
+              createdAt: 1_700_000_001_000,
+            }),
+          ],
+        }),
+      ],
+      activeSessionId: 'side-session',
+    })
+
+    expect(() =>
+      mergeSessionsData({
+        local,
+        remote,
+        tombstones: [],
+        deviceId: 'device-local',
+        manualConflictReview: false,
+      }),
+    ).toThrow(/does not match its session event|mix puzzle events/i)
+  })
+
   it('does not duplicate on repeated synchronization', () => {
     const local = sessionsData({
       sessions: [session({ id: 'session-1', solves: [

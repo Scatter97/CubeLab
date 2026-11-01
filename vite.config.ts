@@ -17,10 +17,10 @@ export default defineConfig({
         'apple-touch-icon.png',
       ],
       manifest: {
-        name: 'CubeLab — 3×3 Speedcubing Timer',
+        name: 'CubeLab — Speedcubing Timer',
         short_name: 'CubeLab',
         description:
-          'A focused, offline-first speedcubing timer with WCA random-state scrambles, inspection, and local solve history.',
+          'A focused, offline-first speedcubing timer with official WCA scrambles for 12 events, inspection, and local solve history.',
         theme_color: '#ffffff',
         background_color: '#e9edf1',
         display: 'standalone',

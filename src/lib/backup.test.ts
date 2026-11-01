@@ -64,7 +64,20 @@ describe('backup format', () => {
   })
 
   it('preserves every supported solve puzzle event in backups', () => {
-    const events = ['333', '222', '444', '333oh', '555', '666', '777'] as const
+    const events = [
+      '333',
+      '222',
+      '444',
+      '333oh',
+      '555',
+      '666',
+      '777',
+      'pyram',
+      'skewb',
+      'sq1',
+      'clock',
+      'minx',
+    ] as const
     const mixedSessions: SessionsData = {
       activeSessionId: `session-${events[events.length - 1]}`,
       sessions: events.map((event, index) => ({
@@ -214,6 +227,32 @@ describe('import trust boundaries', () => {
     if (result.ok) return
     expect(result.error).toContain('Session "Morning"')
     expect(result.error).toContain('222')
+    expect(result.error).toContain('did not change your local data')
+  })
+
+  it('rejects a session mixing a new puzzle event with its session event', () => {
+    const backup = createBackup(sessions(), DEFAULT_SETTINGS)
+    const mixed = {
+      ...backup,
+      sessions: {
+        ...backup.sessions,
+        sessions: backup.sessions.sessions.map((session, index) =>
+          index === 0
+            ? {
+                ...session,
+                event: 'pyram',
+                solves: [solve({ id: 'mixed-pyram', event: 'skewb' })],
+              }
+            : session,
+        ),
+      },
+    }
+
+    const result = parseBackup(JSON.stringify(mixed))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('pyram')
+    expect(result.error).toContain('skewb')
     expect(result.error).toContain('did not change your local data')
   })
 

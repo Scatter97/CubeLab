@@ -1,12 +1,13 @@
 # CubeLab — current limitations and historical sync evidence
 
-**Documentation updated:** 2026-11-01. Latest implementation check: 2026-10-31.
+**Documentation updated:** 2026-11-01. Latest implementation check: 2026-11-01.
 
 This patch substantially hardens Phase 2C, but it is deliberately **not** a claim
 that every distributed-systems problem is solved. Google Drive is still an
-eventually consistent remote store, not a transaction coordinator. Phase 3 event
-coverage is complete for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7; other WCA
-events remain outside the current scope.
+eventually consistent remote store, not a transaction coordinator. Phase 3 and
+Phase 6a event coverage is complete for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7,
+Pyraminx, Skewb, Square-1, Clock, and Megaminx. Phase 6b (blindfolded,
+Multi-Blind, and Fewest Moves) remains outside the current scope.
 
 ## Current limits and concrete follow-up
 
@@ -20,12 +21,13 @@ events remain outside the current scope.
 | Provider protocol | Immutable snapshots converge eventually; no cross-file transaction | Preserve current guards; any protocol redesign needs separate scope |
 | External validation | Latest patch used mock Drive; physical devices were unavailable | Arrange explicitly authorized provider tests and real hardware |
 | OAuth | Non-test publishing/sign-in not verified by the latest work | Google Cloud owner action and subsequent verification |
-| Imports/events | 10 MB import cap and seven-event set remain | Separate tested design/approval for expansion |
+| Imports/events | 10 MB import cap remains; 12 events are supported | Phase 6b (BLD, Multi-Blind, Fewest Moves) needs separate approval |
 
-Latest full check passed: 503 unit/component tests in 38 files; 216 browser
-passes, 9 existing skips; typecheck, lint, build and supported offline checks.
-Normal production output was restored. The historical provider harness passed
-7/7 on October 28; do not represent it as validation of every subsequent patch.
+Latest full check passed on November 1 with Phase 6a: 518 unit/component tests
+in 39 files; 252 browser passes, 9 existing skips; typecheck, lint, build and
+supported offline checks. Normal production output was restored. The historical
+provider harness passed 7/7 on October 28; do not represent it as validation of
+every subsequent patch.
 The “still unresolved” protocol details below remain applicable except where
 an explicitly dated later remediation says otherwise.
 

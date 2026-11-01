@@ -37,6 +37,11 @@ verification evidence.
   7×7 session events with `cubing.js` random-state scrambles, event-compatible
   storage/sync/backup validation, per-event desktop and mobile production E2E
   coverage, and documented shared WCA inspection and penalty rules.
+- Phase 6a (remaining easy WCA puzzles) is complete: Pyraminx, Skewb,
+  Square-1, Clock, and Megaminx use their official `cubing.js` scramble IDs,
+  the shared event registry, event-compatible storage/backup/import/sync
+  validation, per-event desktop/mobile E2E, correct 3D puzzles, and an honest
+  2D-unavailable state for non-cube puzzles.
 - Phase 4 (Performance, accessibility, and platform) is complete: history
   windowing, Chromium/Firefox/WebKit coverage, the accessibility/keyboard audit,
   and PWA/bundle review are verified. Physical iOS/Android review remains
@@ -70,9 +75,9 @@ verification evidence.
 Delivered follow-ups include csTimer import, the persisted 2D/PG3D panel,
 Time Trend with independent trackpad axes/pinch/pan and historical PB dialogs,
 settings-v8 trimming shared everywhere, and prioritized timer-stop feedback.
-Latest checks: **503 tests / 38 files; 216 browser passes / 9 existing skips**,
-with typecheck, lint, build and supported offline checks passing October 31.
-Normal production output was restored after mock-Drive tests.
+Latest checks: **518 tests / 39 files; 252 browser passes / 9 existing skips**,
+with typecheck, lint, build and supported offline checks passing November 1
+with Phase 6a. Normal production output was restored after mock-Drive tests.
 
 1. **Narrow layout:** repair the 320-pixel compact-panel overlap; preserve digit
    visibility, controls, pointer isolation and persisted gestures. Inspect
@@ -667,9 +672,9 @@ not a separate defect.
 
 ## Phase 6 — Remaining WCA events
 
-**Approval status:** Proposed 2026-10-29. Requires explicit approval per
-`AGENTS.md` before implementation; each event batch should be its own approved
-stage, mirroring Phase 3.
+**Approval status:** Phase 6a delivered 2026-11-01. Phase 6b remains proposed
+and requires explicit approval per `AGENTS.md`; each remaining batch should be
+its own approved stage, mirroring Phase 3.
 
 **Goal:** Extend the event set beyond the seven shipped in Phase 3, reusing the
 `cubing.js` scramble pipeline and the shared WCA inspection/penalty/statistics
@@ -677,20 +682,28 @@ rules.
 
 **Scope (two sub-phases):**
 
-6a. **Easy puzzles** (registry + validation + E2E only; no new timer logic):
-Pyraminx, Skewb, Square-1, Clock, Megaminx. Scrambles via
-`randomScrambleForEvent(...)` with their WCA event IDs.
+6a. **Easy puzzles — delivered** (registry + validation + E2E only; no new
+timer logic): Pyraminx, Skewb, Square-1, Clock, and Megaminx. Scrambles use
+`randomScrambleForEvent(...)` with the official WCA event IDs `pyram`, `skewb`,
+`sq1`, `clock`, and `minx`. The registry also supplies the 3D `puzzleId`;
+non-cube puzzles show an honest 2D-unavailable message instead of drawing an
+unrelated cube.
 
-6b. **Blindfolded and special formats** (new mechanics required):
+6b. **Blindfolded and special formats — proposed** (new mechanics required):
 - 3×3 BLD, 4×4 BLD, 5×5 BLD — memo timer + execution timer, separate result
   format.
 - 3×3 Multi-Blind (MBLD) — multiple cubes, special result format.
 - 3×3 Fewest Moves (FMC) — move count instead of time, different scramble type.
 
-**Acceptance gate (proposed):** event registry single source in
-`src/lib/events.ts`; `PuzzleEvent` in sync; storage/backup/sync validation;
-per-event E2E at desktop and 390 px mobile; WCA rule audit; no hand-rolled
-scrambles; mixed-event and unknown-event rejection.
+**Acceptance gate for 6a — met:** event registry single source in
+`src/lib/events.ts`; `PuzzleEvent` in sync; storage/backup/csTimer-import/sync
+validation; per-event E2E at desktop and 390 px mobile; WCA rule audit; no
+hand-rolled scrambles; mixed-event and unknown-event rejection; correct 3D
+puzzle rendering and honest 2D fallback coverage.
+
+**Acceptance gate for 6b — proposed:** the same validation and E2E gates plus
+documented result-format, timing, and scoring rules for blindfolded, Multi-Blind,
+and Fewest Moves.
 
 ## Phase 7 — Statistics and analytics
 

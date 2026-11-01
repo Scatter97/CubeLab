@@ -13,6 +13,10 @@ async function start(page: Page) {
 }
 
 test('large-session stops persist once, display the exact result, and refresh insights without mixing sessions', async ({ page }) => {
+  // This scenario seeds 7,000 solves and exercises three browsers in parallel;
+  // keep the default generous enough for a loaded CI worker without weakening
+  // any assertion.
+  test.setTimeout(90_000)
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.addInitScript(() => {

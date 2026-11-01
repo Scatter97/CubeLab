@@ -245,7 +245,20 @@ describe('session persistence', () => {
 
   it('round-trips every supported puzzle event in modern sessions', () => {
     const storage = new MemoryStorage()
-    const events = ['333', '222', '444', '333oh', '555', '666', '777'] as const
+    const events = [
+      '333',
+      '222',
+      '444',
+      '333oh',
+      '555',
+      '666',
+      '777',
+      'pyram',
+      'skewb',
+      'sq1',
+      'clock',
+      'minx',
+    ] as const
     const original = sessionsData({
       activeSessionId: 'session-333oh',
       sessions: events.map((event) =>
@@ -260,6 +273,29 @@ describe('session persistence', () => {
 
     expect(saveSessions(original, storage)).toBe(true)
     expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('rejects solves with unknown puzzle events while keeping valid records', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 4,
+        activeSessionId: 'session-1',
+        sessions: [
+          session({
+            solves: [
+              solve({ id: 'valid-pyram', event: 'pyram' }),
+              { ...solve({ id: 'unknown-event' }), event: '333bf' as unknown as Solve['event'] },
+            ],
+          }),
+        ],
+      }),
+    )
+
+    expect(loadSessions(storage).sessions[0]?.solves.map((item) => item.id)).toEqual([
+      'valid-pyram',
+    ])
   })
 
   it('migrates a valid legacy single session', () => {

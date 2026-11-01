@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { CUBELAB_EVENTS, type CubeLabEvent } from '../src/lib/events'
+import { isPlausibleScramble } from '../src/lib/scramble'
 
 const TIMER = '[data-testid="timer-surface"]'
 
@@ -153,6 +154,10 @@ async function runEventScenario(page: Page, event: CubeLabEvent) {
   const scrambles: string[] = []
   for (let index = 0; index < 3; index += 1) {
     const scramble = await page.locator('.scramble-text').innerText()
+    expect(
+      isPlausibleScramble(scramble, event.id),
+      `${event.id}: ${scramble}`,
+    ).toBe(true)
     scrambles.push(scramble)
     await recordSolve(page, 90)
     if (index < 2) {

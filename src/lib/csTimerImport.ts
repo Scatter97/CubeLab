@@ -22,6 +22,20 @@ const CSTIMER_SCR_TYPE_MAP: Record<string, PuzzleEvent> = {
   '666wca': '666',
   '777': '777',
   '777wca': '777',
+  // csTimer's official WCA scramble type IDs for the remaining events.
+  'pyrso': 'pyram',
+  'pyram': 'pyram',
+  'pyraminx': 'pyram',
+  'skbso': 'skewb',
+  'skewb': 'skewb',
+  'sqrs': 'sq1',
+  'sq1': 'sq1',
+  'square1': 'sq1',
+  'clkwca': 'clock',
+  'clock': 'clock',
+  'mgmp': 'minx',
+  'minx': 'minx',
+  'megaminx': 'minx',
 }
 
 export interface CsTimerSessionPreview {

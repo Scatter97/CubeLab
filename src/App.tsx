@@ -1032,7 +1032,7 @@ export default function App() {
         <span className="footer-middle">
           Local-first. Solves stay in this browser.
         </span>
-        <span className="footer-meta">{activeEvent.toUpperCase()} · CubeLab</span>
+        <span className="footer-meta">{getEventDefinition(activeEvent)?.label ?? activeEvent} · CubeLab</span>
       </footer>
 
       <div className="sr-only" aria-live="polite" aria-atomic="true">

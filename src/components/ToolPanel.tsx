@@ -8,6 +8,7 @@ import {
 import { createPortal } from 'react-dom'
 import { applyCubeFaceColors, type PuzzleGeometryColors } from '../lib/cubeColors'
 import { cubeNetForScramble } from '../lib/cubeNet'
+import { getEventDefinition } from '../lib/events'
 import {
   TOOL_PANEL_MIN_HEIGHT,
   TOOL_PANEL_MIN_WIDTH,
@@ -25,15 +26,15 @@ import { DEFAULT_AVERAGE_TRIMMING } from '../lib/averageTrimming'
 import type { AverageTrimming } from '../types'
 import { TimeTrend } from './TimeTrend'
 
-const CUBE_SIZE_BY_EVENT: Record<PuzzleEvent, number> = {
-  '333': 3, '222': 2, '444': 4, '333oh': 3, '555': 5, '666': 6, '777': 7,
-}
-const PUZZLE_BY_EVENT: Record<PuzzleEvent, string> = {
-  '333': '3x3x3', '222': '2x2x2', '444': '4x4x4', '333oh': '3x3x3',
-  '555': '5x5x5', '666': '6x6x6', '777': '7x7x7',
-}
-
-function TwistyCube({ scramble, puzzle }: { scramble: string; puzzle: string }) {
+function TwistyCube({
+  scramble,
+  puzzle,
+  useStandardCubeColors,
+}: {
+  scramble: string
+  puzzle: string
+  useStandardCubeColors: boolean
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const playerRef = useRef<HTMLElement | null>(null)
   const scrambleRef = useRef(scramble)
@@ -54,7 +55,7 @@ function TwistyCube({ scramble, puzzle }: { scramble: string; puzzle: string }) 
         const { puzzles } = await import('cubing/puzzles')
         const loader = puzzles[puzzle]
         const geometry = await loader?.pg?.()
-        if (geometry) {
+        if (geometry && useStandardCubeColors) {
           applyCubeFaceColors(geometry as unknown as PuzzleGeometryColors)
           const typed = geometry as unknown as PuzzleGeometryColors & {
             get3d?: (...args: unknown[]) => unknown
@@ -105,7 +106,7 @@ function TwistyCube({ scramble, puzzle }: { scramble: string; puzzle: string }) 
       host.innerHTML = ''
       playerRef.current = null
     }
-  }, [puzzle])
+  }, [puzzle, useStandardCubeColors])
 
   useEffect(() => {
     const player = playerRef.current
@@ -117,7 +118,7 @@ function TwistyCube({ scramble, puzzle }: { scramble: string; puzzle: string }) 
       <div className="scramble-draw-3d-host" ref={hostRef} />
       {status !== 'ready' ? (
         <p className="scramble-draw-status" role={status === 'error' ? 'alert' : 'status'}>
-          {status === 'error' ? '3D diagram unavailable' : 'Loading 3D cube…'}
+          {status === 'error' ? '3D diagram unavailable' : 'Loading 3D diagram…'}
         </p>
       ) : null}
     </div>
@@ -342,9 +343,11 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
     return () => window.removeEventListener('blur', handler)
   }, [cancelInteraction])
 
-  const size = CUBE_SIZE_BY_EVENT[event] ?? 3
-  const puzzle = PUZZLE_BY_EVENT[event] ?? '3x3x3'
-  const net = (() => (scramble ? cubeNetForScramble(scramble, size) : null))()
+  const definition = getEventDefinition(event)
+  const size = definition?.cubeSize ?? null
+  const puzzle = definition?.puzzleId ?? '3x3x3'
+  const label = definition?.label ?? event
+  const net = (() => (scramble && size ? cubeNetForScramble(scramble, size) : null))()
 
   return (
     <>
@@ -358,8 +361,30 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
       <div className="scramble-draw-stage" style={{ position: 'relative' }}>
         {activeTool === 'drawScramble' ? (
           !scramble ? <p className="scramble-draw-status">Preparing scramble…</p>
-          : mode === 'net' ? (net ? <ScrambleNet net={net} /> : <p className="scramble-draw-status" role="alert">This scramble cannot be drawn.</p>)
-          : <TwistyCube scramble={scramble} puzzle={puzzle} />
+          : mode === 'net' ? (
+            size === null ? (
+              <p
+                className="scramble-draw-status"
+                role="status"
+                data-testid="draw-scramble-unavailable"
+              >
+                2D net is not available for {label}. Switch Draw Scramble to
+                3D in Settings to see this puzzle.
+              </p>
+            ) : net ? (
+              <ScrambleNet net={net} />
+            ) : (
+              <p className="scramble-draw-status" role="alert">
+                This scramble cannot be drawn.
+              </p>
+            )
+          ) : (
+            <TwistyCube
+              scramble={scramble}
+              puzzle={puzzle}
+              useStandardCubeColors={size !== null}
+            />
+          )
         ) : activeTool === 'timeTrend' ? (
           <TimeTrend solves={solves} compact disabled={timerActive} trimming={trimming} />
         ) : null}

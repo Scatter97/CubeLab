@@ -1,12 +1,14 @@
 # CubeLab — Project Progress
 
-**Documentation updated:** 2026-11-01. **Implementation last verified:** 2026-10-31.
-**Current checkpoint:** Core product, Phases 2A–4, Stage 6 theme polish and Phase 5
-audit remediation are implemented. Approved follow-ups include csTimer import,
-2D/PG3D tools, Time Trend and trackpad navigation, historical PB dialogs,
-configurable trimming and the first large-session stop-response patch.
-Settings are schema v8; sessions are schema v4. The broader remaining-event,
-training and portability proposals are not approved by this checkpoint.
+**Documentation updated:** 2026-11-01. **Implementation last verified:** 2026-11-01.
+**Current checkpoint:** Core product, Phases 2A–4, Stage 6 theme polish, Phase 5
+audit remediation, and Phase 6a (Pyraminx, Skewb, Square-1, Clock, and Megaminx)
+are implemented. Approved follow-ups include csTimer import, 2D/PG3D tools,
+Time Trend and trackpad navigation, historical PB dialogs, configurable
+trimming and the first large-session stop-response patch.
+Settings are schema v8; sessions are schema v4. Phase 6b (blindfolded,
+Multi-Blind, and Fewest Moves) and the broader training and portability
+proposals are not approved by this checkpoint.
 
 ## Current implementation and verification
 
@@ -23,14 +25,20 @@ training and portability proposals are not approved by this checkpoint.
    locally; expensive presentation refreshes after a rendering opportunity.
    Saving, final readout and sync continue using current, non-deferred data.
    Disabled sync skips unused UI hashing; enabled safety checks remain exact.
+6. Phase 6a extends the shared event registry to Pyraminx, Skewb, Square-1,
+   Clock, and Megaminx with official `cubing.js` scramble IDs, event-aware
+   scramble validation, csTimer `scrType` mapping, correct 3D puzzles, and an
+   honest 2D-unavailable state for non-cube puzzles. Storage, backup, csTimer
+   import, and sync validate the new events; existing records stay compatible.
 
-Latest `VITE_DRIVE_MOCK=true npm run check`: **passed as one command, exit 0**.
-Typecheck/lint/build passed; **503 unit/component tests in 38 files** and
-**216 browser tests passed / 9 existing skips / 225 total** across Chromium,
-Firefox and WebKit. The 7,000-solve keyboard/pointer regression passed in all
-engines. Offline coverage passed in the supported Chromium project. The normal
-non-mock production build was restored. Historical results below remain dated
-records and do not replace this baseline.
+Latest `VITE_DRIVE_MOCK=true npm run check`: **passed as one command, exit 0**
+on November 1. Typecheck/lint/build passed; **518 unit/component tests in
+39 files** and **252 browser tests passed / 9 existing skips / 261 total**
+across Chromium, Firefox and WebKit, including per-event coverage for all 12
+events at desktop and 390 px mobile widths. The 7,000-solve keyboard/pointer
+regression passed in all engines. Offline coverage passed in the supported
+Chromium project. The normal non-mock production build was restored. Historical
+results below remain dated records and do not replace this baseline.
 
 With 7,000 synthetic solves and Time Trend open, Firefox median stopped-DOM
 response improved **382 → 75 ms** in development and **75 → 22 ms** in production
@@ -61,15 +69,16 @@ acceptance checks. [ROADMAP.md](ROADMAP.md) distinguishes delivered slices from
 proposed phases. [PATCH_LIMITATIONS.md](PATCH_LIMITATIONS.md) records current
 limits. [README.md](README.md) documents use, storage and commands; [AGENTS.md](AGENTS.md)
 contains invariants. The October 28 plan is historical; the October 30 checklist
-has been consolidated into a closure record. This documentation-only checkpoint
-preserves the previously verified source and tests and includes their accumulated
-changes in a local commit; inspect Git rather than assuming a clean tree or push.
+has been consolidated into a closure record. The Phase 6a commit records its own
+implementation and verification; inspect Git rather than assuming a clean tree
+or push.
 
 ## Scope delivered
 
-CubeLab is a flat, csTimer-inspired, offline-first 3×3 speedcubing
-timer built with React, TypeScript, Vite, `cubing.js`, and custom responsive CSS.
-It ships audited light and dark palettes plus a system-following theme.
+CubeLab is a flat, csTimer-inspired, offline-first speedcubing timer for twelve
+WCA events built with React, TypeScript, Vite, `cubing.js`, and custom
+responsive CSS. It ships audited light and dark palettes plus a system-following
+theme.
 Phase 2A adds named local sessions and validated JSON backup/restore without
 changing the timer or statistics rules. Phase 2A.1 adds a centralized Settings
 dialog without adding a new persisted preference or changing timing behavior.
@@ -91,9 +100,10 @@ calculations.
 - Global <kbd>Space</kbd> control with OS key-repeat suppression and page-scroll
   prevention. Focused buttons and switches remain keyboard-operable with Enter.
 - Pointer controls on the timer surface for mouse, pen, and touch input.
-- Official WCA random-state scrambles for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6,
-  and 7×7 generated by `cubing.js`, with a prefetched next scramble and explicit
-  loading, failure, and retry states.
+- Official WCA scrambles for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7, Pyraminx,
+  Skewb, Square-1, Clock, and Megaminx generated by `cubing.js`, with a
+  prefetched next scramble and explicit loading, failure, and retry states.
+  Non-cube puzzles use their official `cubing.js` event IDs.
 - Optional WCA inspection with 15-second / 17-second boundaries and automatic
   `+2` or DNF penalty at solve start. The display can count down or count up,
   with independent optional **8 seconds** and **12 seconds** warnings that follow
@@ -985,12 +995,13 @@ offline Playwright test and must not be undone casually.
 
 ## Known limitations
 
-- Sessions support 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, and 7×7 and generate
-  scrambles through `cubing.js`. The 15-second inspection, `+2`, DNF, and
-  effective-time rules are shared by every event; competition-specific time
-  limits and cutoffs are deliberately not implemented because they are set per
-  competition. Dedicated desktop/mobile production E2E coverage exists for all
-  seven events.
+- Sessions support 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7, Pyraminx, Skewb,
+  Square-1, Clock, and Megaminx and generate scrambles through `cubing.js`.
+  The 15-second inspection, `+2`, DNF, and effective-time rules are shared by
+  every event; competition-specific time limits and cutoffs are deliberately not
+  implemented because they are set per competition. Dedicated desktop/mobile
+  production E2E coverage exists for all 12 events, including the 3D puzzle and
+  honest 2D fallback for non-cube puzzles.
 - The theme preference is local and synchronized like other display settings.
   The light palette remains the default for existing users and first launch;
   the PWA manifest uses fixed light-theme colors because installed shortcuts
@@ -1954,3 +1965,65 @@ Fresh verification (Node v22.23.2, 2026-10-31):
   real browser storage. Zen itself, live Google Drive and physical mobile
   hardware were not exercised. Enabled sync's full fingerprint and whole-session
   synchronous storage costs remain possible targets for later measured work.
+
+## Phase 6a — remaining easy WCA puzzles — complete 2026-11-01
+
+Registry-driven extension of the event set with official `cubing.js` scrambles.
+No timer, statistics, trimming, persistence, or synchronization rules changed;
+the new events reuse the shared WCA inspection, `+2`/DNF, and effective-time,
+trimming, and PB logic. Phase 6b (blindfolded, Multi-Blind, Fewest Moves)
+remains proposed and unapproved.
+
+Delivered:
+
+- **Registry.** `src/lib/events.ts` now carries, per event, the official
+  `cubing.js` `scrambleEventId` (`333`, `222`, `444`, `333oh`, `555`, `666`,
+  `777`, `pyram`, `skewb`, `sq1`, `clock`, `minx`), the `twisty-player`
+  `puzzleId` (`3x3x3`, `2x2x2`, `4x4x4`, `5x5x5`, `6x6x6`, `7x7x7`, `pyraminx`,
+  `skewb`, `square1`, `clock`, `megaminx`), the N×N `cubeSize` for the 2D net,
+  and a per-event `scrambleFormat`. `PuzzleEvent` gained `pyram`, `skewb`,
+  `sq1`, `clock`, and `minx`. No schema version changed; registry-driven
+  validation accepts the new events while old records keep loading.
+- **Scrambles.** `generateScramble` uses the registry event ID; generated
+  scrambles are whitespace-normalized to one line so the displayed scramble
+  always matches the persisted one (Megaminx output is normally wrapped).
+  `isPlausibleScramble` validates each notation family separately (N×N faces
+  and wide moves, Pyraminx tips, Skewb, Square-1 tuples/slashes, Clock pins and
+  dials, Megaminx `R++`/`D--`/`U'`), and an all-events unit test generates a
+  real random-state scramble for every event.
+- **Data safety.** Storage, backup, csTimer import, and sync validation accept
+  the five new events; solves with unknown events are dropped while valid
+  records survive, backups mixing events in one session are rejected before
+  confirmation or mutation, and sync stops rather than merging a session whose
+  solves mix puzzle events. Existing records, legacy data, and old preserved
+  sessions remain compatible.
+- **csTimer import.** Official `scrType` IDs `pyrso`, `skbso`, `sqrs`,
+  `clkwca`, and `mgmp` map to the new events with common aliases, so imported
+  sessions keep their puzzle event instead of being skipped.
+- **Visualization.** The registry supplies each puzzle's 3D `puzzleId`, so
+  Pyraminx, Skewb, Square-1, Clock, and Megaminx render their correct twisty
+  puzzle in 3D mode. Standard cube colours are applied only to N×N events.
+  In 2D mode non-cube puzzles show an honest "2D net is not available" state
+  instead of an unrelated cube; the panel stays visible and interactive.
+- **Copy.** Settings text, interface labels, footer, page title/description,
+  and PWA manifest say "12 events"; app store text no longer claims 3×3 only.
+
+New tests: `src/lib/events.test.ts` (registry IDs, labels, cube-only 2D nets,
+validator), all-event generation/plausibility in `src/lib/scramble.test.ts`,
+new-event round-trips and unknown-event rejection in `src/lib/storage.test.ts`,
+backup acceptance and mixed-session rejection in `src/lib/backup.test.ts`,
+csTimer mapping in `src/lib/csTimerImport.test.ts`, new-event merge plus
+mixed-event stop in `src/lib/sync.test.ts`, the 2D fallback in
+`src/components/ToolPanel.test.tsx`, per-event desktop/mobile E2E for all 12
+events in `e2e/timer.spec.ts` (including notation checks against
+`isPlausibleScramble`), and 3D/2D-fallback coverage for the five new puzzles in
+`e2e/draw-scramble.spec.ts`.
+
+Verification (Node v22.23.2, 2026-11-01): `VITE_DRIVE_MOCK=true npm run check`
+passed as one command, exit 0 — typecheck, lint, **518/518 unit/component tests
+in 39 files**, production build, and **252 passed / 9 existing skipped / 261
+total** browser tests across Chromium, Firefox, and WebKit, including per-event
+coverage for all 12 events at desktop and 390 px mobile widths, the non-cube 3D
+renders and 2D fallback, and the offline service-worker flow. The normal
+non-mock production build was restored afterward, and `git diff --check` was
+clean. No assertion or skip was weakened.

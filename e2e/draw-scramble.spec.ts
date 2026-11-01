@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { CUBELAB_EVENTS } from '../src/lib/events'
 
 async function waitForReady(page: import('@playwright/test').Page) {
   await page.goto('/')
@@ -27,6 +28,24 @@ async function useMode(
   await settings.getByTestId('scramble-draw-mode').selectOption(mode)
   await settings.getByRole('button', { name: 'Close settings' }).click()
   await expect(settings).toHaveCount(0)
+}
+
+async function useEvent(
+  page: import('@playwright/test').Page,
+  event: (typeof CUBELAB_EVENTS)[number],
+) {
+  await page.getByTestId('session-settings').click()
+  const dialog = page.getByRole('dialog', { name: 'Session settings' })
+  await expect(dialog).toBeVisible()
+  await dialog.locator('select').selectOption(event.id)
+  await dialog.getByTestId('session-settings-done').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.scramble-badge')).toContainText(
+    `${event.label} · scramble`,
+  )
+  await expect(page.locator('.queue-label')).toContainText('Queue ready', {
+    timeout: 30_000,
+  })
 }
 
 test('3D Draw Scramble fills its canvas', async ({ page, browserName }) => {
@@ -496,6 +515,39 @@ test('the 3D view uses the colour-corrected PG3D renderer', async ({
   const { model } = await cdp.send('DOM.getBoxModel', { nodeId: canvasId! })
   expect(model.width).toBeGreaterThan(0)
   expect(model.height).toBeGreaterThan(0)
+})
+
+test('2D Draw Scramble shows an honest unavailable state for non-cube puzzles', async ({
+  page,
+}) => {
+  await openToolPanel(page)
+  const panel = page.getByTestId('tool-panel')
+
+  for (const event of CUBELAB_EVENTS.filter((item) => item.cubeSize === null)) {
+    await useEvent(page, event)
+    await expect(panel).toHaveAttribute('data-mode', 'net')
+    await expect(
+      page.getByTestId('draw-scramble-unavailable'),
+    ).toContainText(`2D net is not available for ${event.label}`)
+    await expect(page.getByTestId('scramble-net')).toHaveCount(0)
+    await expect(panel).toBeVisible()
+  }
+})
+
+test('3D Draw Scramble renders every supported non-cube puzzle', async ({
+  page,
+}) => {
+  await openToolPanel(page)
+  await useMode(page, '3d')
+  const panel = page.getByTestId('tool-panel')
+
+  for (const event of CUBELAB_EVENTS.filter((item) => item.cubeSize === null)) {
+    await useEvent(page, event)
+    const player = panel.locator('twisty-player')
+    await expect(player).toHaveCount(1, { timeout: 30_000 })
+    await expect(player).toHaveAttribute('puzzle', event.puzzleId)
+    await expect(panel.locator('.scramble-draw-status')).toHaveCount(0)
+  }
 })
 
 test('panel visibility persists across reload', async ({ page }) => {

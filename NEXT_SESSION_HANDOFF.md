@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-**Updated:** 2026-11-01. **Implementation last verified:** 2026-10-31.
+**Updated:** 2026-11-01. **Implementation last verified:** 2026-11-01.
 **Branch:** master. **Runtime:** Node 22 or newer (validated with v22.23.2).
 
 ## Current checkpoint
@@ -8,16 +8,17 @@
 The accumulated implementation includes Phase 5 audit remediation, csTimer
 import, the draggable/resizable 2D/3D scramble panel, Time Trend, independent
 trackpad axes and pinch/pan, clickable historical PB statistics, configurable
-average trimming, and the first large-session stop-response patch. These are
-implemented and verified. Broader future feature phases are not approved by
-this documentation update. Sessions remain schema v4; settings are schema v8.
+average trimming, the first large-session stop-response patch, and Phase 6a
+(Pyraminx, Skewb, Square-1, Clock, and Megaminx). These are implemented and
+verified. Phase 6b (blindfolded, Multi-Blind, and Fewest Moves) and broader
+future feature phases are not approved by this checkpoint. Sessions remain
+schema v4; settings are schema v8.
 
-The November 1 documentation/commit pass changes documentation only. The
-October 31 verification below still applies to the unchanged application code.
-The checkpoint commit includes the accumulated implementation, tests, referenced
-screenshots and documentation. Confirm its identity with `git log -1 --oneline`
-and its working-tree state with `git status --short`; no remote push is part
-of this handoff.
+The November 1 Phase 6a commit includes the new event registry, official
+`cubing.js` scrambles, storage/backup/import/sync validation, correct 3D
+puzzles, the honest 2D fallback, tests and documentation. Confirm its identity
+with `git log -1 --oneline` and its working-tree state with
+`git status --short`; no remote push is part of this handoff.
 
 ## Completed steps
 
@@ -43,16 +44,19 @@ of this handoff.
 
 ## Verified baseline
 
-`VITE_DRIVE_MOCK=true npm run check` passed as one command on October 31:
+`VITE_DRIVE_MOCK=true npm run check` passed as one command on November 1 with
+Phase 6a:
 
 | Check | Result |
 | --- | --- |
 | TypeScript and Oxlint | Passed |
-| Unit/component tests | 503 passed in 38 files |
+| Unit/component tests | 518 passed in 39 files |
 | Production build | Passed |
-| Browser tests | 216 passed, 9 existing skips, 225 total |
+| Browser tests | 252 passed, 9 existing skips, 261 total |
 | Browser engines | Chromium, Firefox, WebKit |
-| New 7,000-solve stop regression | Passed in all three engines |
+| Per-event coverage | All 12 events at desktop and 390 px mobile |
+| New-puzzle visualization | 3D puzzles render; 2D shows an honest unavailable state |
+| 7,000-solve stop regression | Passed in all three engines |
 | Offline service-worker flow | Passed in the supported Chromium project |
 | Final normal production build | Restored successfully after mock tests |
 | Whitespace check | Passed |
@@ -128,7 +132,8 @@ credential. Test physical mobile/trackpad and assistive technology when availabl
 The Google Cloud owner must handle OAuth publishing/non-test access; the latest
 patch does not prove the current external console state. Recheck the dated
 build-dependency advisory before selecting a compatible fix, then verify offline
-behavior. New event batches, social/non-Google cloud features, a new sync
+behavior. Phase 6b (blindfolded, Multi-Blind, and Fewest Moves), new event
+batches, social/non-Google cloud features, a new sync
 protocol or a larger import cap require their own approved scope.
 
 ## Correctness rules to preserve
@@ -147,8 +152,9 @@ protocol or a larger import cap require their own approved scope.
   at each end, so 50 DNFs can be removed; 51 make it DNF. mo3 is untrimmed.
 - Keep settings v1–v7 migration to v8 defaults, separate-side merging, raw solve
   immutability, ID-based session guards and historical PB windows.
-- Preserve the seven-event registry, cubing.js worker isolation, tokenized
-  light/dark palettes, modal focus restoration and Space reservation.
+- Preserve the 12-event registry, official cubing.js scramble IDs, the
+  N×N-only 2D net with honest non-cube fallback, cubing.js worker isolation,
+  tokenized light/dark palettes, modal focus restoration and Space reservation.
 
 ## Reproduction and delivery commands
 

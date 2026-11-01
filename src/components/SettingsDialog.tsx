@@ -627,7 +627,7 @@ function SettingsContent({
                 }
               >
                 <option value="net">2D net</option>
-                <option value="3d">3D cube</option>
+                <option value="3d">3D puzzle</option>
               </select>
             </label>
           </section>
@@ -720,7 +720,7 @@ function SettingsContent({
             <dl className="settings-about">
               <div>
                 <dt>Timer</dt>
-                <dd>3×3–7×7 · WCA random-state</dd>
+                <dd>12 WCA events · official scrambles</dd>
               </div>
               <div>
                 <dt>Data</dt>

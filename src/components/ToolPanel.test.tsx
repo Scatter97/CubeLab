@@ -120,6 +120,31 @@ describe('ToolPanel', () => {
     expect(screen.getByTestId('scramble-net').querySelectorAll('[data-sticker]')).toHaveLength(24)
   })
 
+  it('shows an honest 2D unavailable state for non-cube puzzles', () => {
+    const cases = [
+      ['pyram', 'Pyraminx'],
+      ['skewb', 'Skewb'],
+      ['sq1', 'Square-1'],
+      ['clock', 'Clock'],
+      ['minx', 'Megaminx'],
+    ] as const
+
+    for (const [event, label] of cases) {
+      const { unmount } = render(
+        <ToolPanel {...baseProps} event={event} scramble="U R L B" />,
+      )
+      expect(screen.queryByTestId('scramble-net')).toBeNull()
+      expect(screen.getByTestId('draw-scramble-unavailable')).toHaveTextContent(
+        `2D net is not available for ${label}`,
+      )
+      expect(screen.getByTestId('tool-panel')).toHaveAttribute(
+        'data-tool',
+        'drawScramble',
+      )
+      unmount()
+    }
+  })
+
   it('drags from the header handle and persists the layout when released', () => {
     const { container } = render(<ToolPanel {...baseProps} />)
     const stage = container

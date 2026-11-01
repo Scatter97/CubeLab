@@ -84,6 +84,39 @@ describe('parseCsTimerBackup', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('maps the remaining WCA puzzle scramble types', () => {
+    const cases = [
+      ['pyrso', 'pyram'],
+      ['skbso', 'skewb'],
+      ['sqrs', 'sq1'],
+      ['clkwca', 'clock'],
+      ['mgmp', 'minx'],
+    ] as const
+
+    for (const [scrType, event] of cases) {
+      const raw = JSON.stringify({
+        session1: [[[0, 1000], 'scramble', '', 1700000000]],
+        properties: {
+          sessionData: JSON.stringify({
+            '1': {
+              name: scrType,
+              opt: { scrType },
+              date: [1700000000, 1700000000],
+            },
+          }),
+        },
+      })
+      const r = parseCsTimerBackup(raw, settings)
+      expect(r.ok, scrType).toBe(true)
+      if (r.ok) {
+        expect(r.backup.sessions.sessions[0]!.event, scrType).toBe(event)
+        expect(r.backup.sessions.sessions[0]!.solves[0]!.event, scrType).toBe(
+          event,
+        )
+      }
+    }
+  })
+
   it('skips unknown puzzle sessions, marks them unsupported', () => {
     const raw = JSON.stringify({
       session1: [[[0, 1000], 'R U', '', 1700000000]],

@@ -1,5 +1,17 @@
 /** The puzzles CubeLab can currently record solves for. */
-export type PuzzleEvent = '333' | '222' | '444' | '333oh' | '555' | '666' | '777'
+export type PuzzleEvent =
+  | '333'
+  | '222'
+  | '444'
+  | '333oh'
+  | '555'
+  | '666'
+  | '777'
+  | 'pyram'
+  | 'skewb'
+  | 'sq1'
+  | 'clock'
+  | 'minx'
 
 /** A WCA penalty. Penalties are mutually exclusive. */
 export type Penalty = 'none' | '+2' | 'dnf'
