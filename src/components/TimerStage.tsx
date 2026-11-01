@@ -281,6 +281,7 @@ export function TimerStage({
     toneClass,
     disabled ? 'is-disabled' : '',
     showReset ? 'has-reset' : '',
+    overlay ? 'has-overlay' : '',
   ]
     .filter(Boolean)
     .join(' ')

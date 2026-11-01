@@ -1107,6 +1107,14 @@ kbd {
   padding: 12px 0;
 }
 
+/* Keep the bottom-right DRAW SCRAMBLE panel from overlaying timer digits when it is
+   open with its default placement. Moved/resized panels remain clamped by the
+   user gesture, so this only reserves the default panel's right gutter. */
+.timer-stage.has-overlay .readout-zone {
+  padding-right: calc(var(--draw-panel-width, 172px) + var(--draw-panel-gap, 12px) + 8px);
+  padding-left: calc(var(--draw-panel-gap, 12px));
+}
+
 .timer-display {
   display: flex;
   align-items: baseline;
