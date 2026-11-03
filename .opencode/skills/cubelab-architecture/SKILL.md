@@ -5,7 +5,7 @@ description: Navigate CubeLab ownership and plan changes spanning React UI, hook
 
 # CubeLab architecture
 
-Paths below are relative to the repository root. Read `AGENTS.md` for shared rules and `NEXT_SESSION_HANDOFF.md` for current scope; this skill is a code map, not authorization for roadmap features.
+Paths below are relative to the repository root. Read `AGENTS.md` for shared rules and `STATUS.md` for current scope; this skill is a code map, not authorization for roadmap features.
 
 ## Locate ownership
 
@@ -17,6 +17,7 @@ Paths below are relative to the repository root. Read `AGENTS.md` for shared rul
 | Import/export and confirmation | `src/lib/backup.ts`, `src/lib/csTimerImport.ts`, `src/components/DataDialog.tsx`, confirmation handlers in `src/App.tsx` | `src/lib/backup.test.ts`, `src/lib/csTimerImport.test.ts`, `e2e/timer.spec.ts` |
 | Drive and cross-tab reconciliation | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts`, `src/lib/driveTransport.ts` | `src/hooks/useSync.test.ts`, `src/hooks/useDriveBackup.test.ts`, `src/lib/sync.stress.test.ts` |
 | Statistics and trends | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts`, `src/components/TimeTrend.tsx` | `src/lib/stats.test.ts`, `src/lib/timeTrend.test.ts`, `e2e/average-trimming.spec.ts` |
+| Analytics dashboard, filters and reporting | `src/lib/analytics.ts`, `src/lib/analyticsSettings.ts`, `src/components/AnalyticsPage.tsx`, `src/components/AnalyticsCharts.tsx` | `src/lib/analytics.test.ts`, `src/lib/analyticsSettings.test.ts`, `src/components/AnalyticsPage.test.tsx`, `e2e/analytics.spec.ts` |
 | Events and scramble tools | `src/lib/events.ts`, `src/lib/scramble.ts`, `src/hooks/useScramble.ts`, `src/components/ToolPanel.tsx`, `src/lib/cubeNet.ts`, `src/lib/cubeColors.ts` | `src/lib/events.test.ts`, `src/lib/scramble.test.ts`, `src/components/ToolPanel.test.tsx`, `e2e/draw-scramble.spec.ts` |
 | Panel layout and tool selection | `src/lib/tools.ts`, `src/lib/toolPanelLayout.ts`, `src/hooks/useToolPanelLayout.ts`, `src/hooks/useToolPanelOpen.ts` | `src/lib/toolPanelLayout.test.ts`, `src/components/ScramblePanel.test.tsx`, `src/components/ToolPanel.test.tsx` |
 | Theme/bootstrap and production workers | `src/index.css`, `index.html`, `src/hooks/useTheme.ts`, `src/lib/theme.ts`, `vite.config.ts` | `src/lib/theme.test.ts`, `e2e/accessibility.spec.ts`, offline scenario in `e2e/timer.spec.ts` |

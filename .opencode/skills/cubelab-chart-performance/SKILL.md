@@ -5,7 +5,7 @@ description: Profile or optimize CubeLab Time Trend, rolling statistics, PB deta
 
 # CubeLab chart performance
 
-Read the presentation/durability and statistics rules in `AGENTS.md`, then the measured limits in `NEXT_SESSION_HANDOFF.md`. All paths and commands use the repository root.
+Read the presentation/durability and statistics rules in `AGENTS.md`, then the measured limits in `STATUS.md`. All paths and commands use the repository root.
 
 ## Follow the existing data path
 
@@ -19,13 +19,13 @@ Read the presentation/durability and statistics rules in `AGENTS.md`, then the m
 1. Reproduce with synthetic 7,000- and 10,000-solve histories. Compare chart closed/open, enabled/custom large averages, sync off/on, keyboard/pointer, development/production. Use isolated mock Drive for enabled-sync measurements. Separate input capture, first stopped-result render, chart completion, serialization/write cost and long tasks. Record samples and median/range; do not infer enabled-sync results from sync-off measurements.
 2. Identify the expensive function from the profile. Reuse the rolling kernel instead of sorting every window. Compute requested sizes only. If adding caching/incremental results, prove invalidation after append, penalty/time edits, deletion/undo, import/restore, session switch and either trimming-side change. Array length alone cannot identify unchanged data.
 3. Compare optimized windows with the direct `calculateAverage` path, as in `src/lib/stats.test.ts`. Include duplicates, zeroes, +2, DNFs, asymmetric/percentage/median trimming and the ten-minute precision boundary. Keep missing windows distinct from DNF results; do not recalculate PB details using future solves or the visible zoom range.
-4. Exercise compact/expanded charts, 320px layout, resize, independent wheel axes, pinch, pan/reset, PB activation/focus, date axis and timing-disabled gestures. Read the known narrow-layout limitation in `PATCH_LIMITATIONS.md`; existing tests are not proof that overlap is fixed.
+4. Exercise compact/expanded charts, 320px layout, resize, independent wheel axes, pinch, pan/reset, PB activation/focus, date axis and timing-disabled gestures. Read the known narrow-layout limitation in `KNOWN_LIMITATIONS.md`; existing tests are not proof that overlap is fixed.
 
 ## Verify the affected behavior
 
 ```bash
-npm test -- src/lib/stats.test.ts src/lib/statDefinitions.test.ts src/lib/averageTrimming.test.ts src/lib/format.test.ts src/lib/timeTrend.test.ts src/components/TimeTrend.test.tsx src/lib/historyWindow.test.ts src/hooks/usePostPaintValue.test.ts
-npm run test:e2e -- e2e/time-trend.spec.ts e2e/average-trimming.spec.ts e2e/timer-response.spec.ts
+npm test -- src/lib/stats.test.ts src/lib/statDefinitions.test.ts src/lib/averageTrimming.test.ts src/lib/format.test.ts src/lib/timeTrend.test.ts src/components/TimeTrend.test.tsx src/lib/historyWindow.test.ts src/hooks/usePostPaintValue.test.ts src/lib/analytics.test.ts src/lib/analyticsSettings.test.ts src/components/AnalyticsPage.test.tsx
+npm run test:e2e -- e2e/time-trend.spec.ts e2e/average-trimming.spec.ts e2e/analytics.spec.ts e2e/timer-response.spec.ts
 ```
 
-For history changes also run the large-history scenarios in `e2e/timer.spec.ts`. Follow production/mock-preview handling in `NEXT_SESSION_HANDOFF.md` and finish behavior changes with `AGENTS.md` checks. If optimization touches persistence, sync refs/fingerprints or scheduling, use `cubelab-sync-safety` and its in-flight tests too. Report speed evidence separately from correctness; do not delay saves to improve the chart benchmark.
+For history changes also run the large-history scenarios in `e2e/timer.spec.ts`. Follow production/mock-preview handling in `STATUS.md` and finish behavior changes with `AGENTS.md` checks. If optimization touches persistence, sync refs/fingerprints or scheduling, use `cubelab-sync-safety` and its in-flight tests too. Report speed evidence separately from correctness; do not delay saves to improve the chart benchmark.
