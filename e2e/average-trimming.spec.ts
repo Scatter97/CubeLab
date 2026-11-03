@@ -18,7 +18,6 @@ async function seedHistory(page: Page) {
     } }))
   })
   await page.goto('/')
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', { timeout: 30000 })
 }
 
 async function openSettings(page: Page) {
@@ -43,7 +42,17 @@ async function storedSolves(page: Page) {
 
 test('trimming migrates, recalculates stats/chart/PB details, and persists without changing solves', async ({ page }) => {
   await seedHistory(page)
+  // The resizable Statistics panel initially shows only the first few enabled
+  // rows; expand it so all average/trim assertions are visible during the test.
+  const _divider = page.getByTestId('stats-solves-divider')
+  if (await _divider.count()) {
+    await _divider.focus()
+    for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowDown')
+    await page.waitForTimeout(250)
+  }
   const original = await storedSolves(page)
+  const __testids = await page.locator('[data-testid^="best-"]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('data-testid')))
+  console.log('DEBUG testids', JSON.stringify(__testids))
   await expect(page.getByTestId('best-ao1000')).toHaveText('10.00')
   await expect(page.getByTestId('best-mo3')).toHaveText('9.67')
   let settings = await openSettings(page)
@@ -68,6 +77,12 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   await settings.getByTestId('average-trim-better').selectOption('1')
   await expect(settings.getByTestId('average-trim-example')).toContainText('1 fastest and 1 worst; 998 solves count')
   await settings.getByTestId('settings-done').click()
+  const _divider2 = page.getByTestId('stats-solves-divider')
+  if (await _divider2.count()) {
+    await _divider2.focus()
+    for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowDown')
+    await page.waitForTimeout(250)
+  }
   await expect(page.getByTestId('best-ao1000')).toHaveText('—')
   await expect(page.getByTestId('best-ao1000').locator('..').locator('.stat-latest')).toContainText('DNF')
   await expect(page.getByTestId('best-ao50').locator('..').locator('.stat-latest')).toContainText('DNF')
@@ -84,11 +99,10 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   await trend.getByRole('button', { name: 'Close Time Trend' }).click()
   expect(await storedSolves(page)).toEqual(original)
   await page.reload()
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', { timeout: 30000 })
   settings = await openSettings(page)
   await expect(settings.getByTestId('average-trim-better')).toHaveValue('1')
   await expect(settings.getByTestId('average-trim-worse')).toHaveValue('auto')
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(8)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(9)
   expect(await storedSolves(page)).toEqual(original)
 })
 
@@ -145,6 +159,12 @@ test('Drive trimming conflicts show readable choices and apply the selected rule
   await conflicts.getByRole('button', { name: 'Use cloud', exact: true }).click()
   await expect(drive.getByTestId('sync-status')).toContainText('synced', { timeout: 15000 })
   await drive.getByTestId('drive-done').click()
+  const _divider2 = page.getByTestId('stats-solves-divider')
+  if (await _divider2.count()) {
+    await _divider2.focus()
+    for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowDown')
+    await page.waitForTimeout(250)
+  }
   await expect(page.getByTestId('best-ao1000')).toHaveText('—')
   const after = await openSettings(page)
   await expect(after.getByTestId('average-trim-better')).toHaveValue('1')

@@ -3,6 +3,8 @@ import { getEventDefinition } from '../lib/events'
 
 import type { PuzzleEvent } from '../types'
 
+export type AppView = 'timer' | 'analytics'
+
 interface AppHeaderProps {
   sessionName: string
   event?: PuzzleEvent
@@ -10,6 +12,8 @@ interface AppHeaderProps {
   onOpenSettings: () => void
   settingsLocked: boolean
   storageOk: boolean
+  view: AppView
+  onNavigate: (view: AppView) => void
 }
 
 export function AppHeader({
@@ -19,6 +23,8 @@ export function AppHeader({
   onOpenSettings,
   settingsLocked,
   storageOk,
+  view,
+  onNavigate,
 }: AppHeaderProps) {
   const inspectionLabel = inspectionEnabled ? 'on' : 'off'
 
@@ -32,9 +38,35 @@ export function AppHeader({
           <span className="brand-name">
             Cube<span>Lab</span>
           </span>
-          <span className="brand-subtitle">Speedcubing timer</span>
+
         </span>
       </div>
+
+      <nav className="app-nav" aria-label="Main views">
+        <button
+          type="button"
+          className="app-nav-button"
+          aria-current={view === 'timer' ? 'page' : undefined}
+          onClick={() => onNavigate('timer')}
+        >
+          Timer
+        </button>
+        <button
+          type="button"
+          className="app-nav-button"
+          aria-current={view === 'analytics' ? 'page' : undefined}
+          disabled={settingsLocked}
+          title={
+            settingsLocked
+              ? 'Finish or reset the current timer before opening Analytics'
+              : 'Open solve analytics'
+          }
+          onClick={() => onNavigate('analytics')}
+          data-testid="analytics-nav"
+        >
+          Analytics
+        </button>
+      </nav>
 
       <div className="header-context" aria-hidden="true">
         <span className="context-divider" />

@@ -728,7 +728,7 @@ describe('settings persistence', () => {
     saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' }, storage)
     expect(loadSettings(storage)).toMatchObject({ theme: 'dark' })
     expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY) ?? '{}')).toMatchObject({
-      version: 8,
+      version: 9,
     })
   })
 
@@ -769,7 +769,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 9, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 10, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })
@@ -783,7 +783,7 @@ describe('trimming settings schema v8', () => {
     const settings = loadSettings(storage)
     expect(settings).toMatchObject({ inspectionEnabled: true, theme: 'dark', averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
     expect(saveSettings(settings, storage)).toBe(true)
-    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 8, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 9, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
   })
   it('round-trips independent side choices and recovers bad fields independently', () => {
     const storage = new MemoryStorage()

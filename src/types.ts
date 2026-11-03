@@ -24,8 +24,10 @@ export interface FieldUpdate {
 /**
  * A single completed solve.
  *
- * `rawMs` is the timer reading before penalties, stored at centisecond
- * precision. `createdAt` is wall-clock time and is only used for display.
+ * `rawMs` is the reading before penalties, in milliseconds; timer recordings
+ * are floored to whole milliseconds. Statistics apply their own recorded-result
+ * precision. `createdAt` is wall-clock metadata for display and legacy sync
+ * fallbacks; it never determines elapsed solve duration.
  */
 export interface Solve {
   id: string
@@ -36,8 +38,8 @@ export interface Solve {
   comment: string
   createdAt: number
   /**
-   * Wall-clock edit timestamp. Used only for conflict comparison during sync;
-   * it never controls whether a solve is included in a merge.
+   * Wall-clock edit timestamp used for sync conflict comparison and legacy
+   * recovery fallbacks. It never determines elapsed solve duration.
    */
   updatedAt?: number
   /**
@@ -104,6 +106,33 @@ export interface CustomAverageSetting {
  * User preferences. Settings are local first and are intentionally small in
  * scope: they control presentation, timer interaction, and training-average trimming.
  */
+export type AnalyticsSectionId =
+  | 'overview'
+  | 'progression'
+  | 'averages'
+  | 'personalBests'
+  | 'distribution'
+  | 'consistency'
+  | 'subX'
+  | 'sessions'
+  | 'activity'
+  | 'advanced'
+  | 'explorer'
+
+export interface AnalyticsSectionSetting {
+  id: AnalyticsSectionId
+  visible: boolean
+  /** Wider chart/card spans both dashboard columns on desktop. */
+  wide: boolean
+}
+
+export interface AnalyticsSettings {
+  /** Persisted dashboard order, visibility and width. */
+  sections: AnalyticsSectionSetting[]
+  /** Sub-X target in milliseconds, configured per puzzle event. */
+  subXTargetsMs: Partial<Record<PuzzleEvent, number>>
+}
+
 export interface Settings {
   inspectionEnabled: boolean
   inspectionCountDirection: InspectionCountDirection
@@ -112,6 +141,7 @@ export interface Settings {
   stopWithAnyKey: boolean
   showTimerDecimalSmall: boolean
   uiZoomPercent: number
+  statsPanelHeightPercent: number
   scrambleAlignment: ScrambleAlignment
   scrambleLimitHeight: boolean
   scrambleAction: ScrambleAction
@@ -127,6 +157,8 @@ export interface Settings {
   statPrecision: StatPrecision
   averageTrimBetter: AverageTrimRule
   averageTrimWorse: AverageTrimRule | 'auto'
+  /** Analytics page layout and per-puzzle Sub-X targets. */
+  analytics: AnalyticsSettings
 }
 
 /**

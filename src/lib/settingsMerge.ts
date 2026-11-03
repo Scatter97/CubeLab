@@ -14,6 +14,7 @@ export const SETTINGS_FIELD_KEYS: readonly SettingsFieldKey[] = [
   'stopWithAnyKey',
   'showTimerDecimalSmall',
   'uiZoomPercent',
+  'statsPanelHeightPercent',
   'scrambleAlignment',
   'scrambleLimitHeight',
   'scrambleAction',
@@ -29,6 +30,7 @@ export const SETTINGS_FIELD_KEYS: readonly SettingsFieldKey[] = [
   'statPrecision',
   'averageTrimBetter',
   'averageTrimWorse',
+  'analytics',
 ]
 
 function valueEquals(left: unknown, right: unknown): boolean {

@@ -4,6 +4,7 @@ import {
   parseSessionsData,
   parseSettingsData,
 } from './storage'
+import { cloneAnalyticsSettings } from './analyticsSettings'
 import type { SyncEnvelope } from './sync'
 import { parseRemoteSyncEnvelope } from './sync'
 
@@ -80,6 +81,7 @@ export function createBackup(
       ...settings,
       statVisibility: { ...settings.statVisibility },
       customAverages: settings.customAverages.map((average) => ({ ...average })),
+      analytics: cloneAnalyticsSettings(settings.analytics),
     },
     ...(sync ? { sync } : {}),
   }
@@ -95,8 +97,9 @@ export function backupFileName(date = new Date()): string {
 
 /**
  * Parses and validates a user-selected backup. Invalid solves and sessions are
- * skipped individually; the backup is rejected only when no usable session or
- * settings remain.
+ * skipped individually. Invalid markers/versions, mixed-event sessions and
+ * malformed sync envelopes also reject the whole backup. File-size caps are
+ * enforced by the local-file and remote-download callers, not this parser.
  */
 export function parseBackup(raw: string): BackupParseResult {
   let parsed: unknown

@@ -21,6 +21,10 @@ import type {
   TimerUpdateMode,
 } from '../types'
 import { DEFAULT_AVERAGE_TRIMMING, isAverageTrimRule } from './averageTrimming'
+import {
+  createDefaultAnalyticsSettings,
+  parseAnalyticsSettings,
+} from './analyticsSettings'
 import { createId } from './id'
 import { isPuzzleEventValue } from './events'
 import {
@@ -40,7 +44,7 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 4
-export const SETTINGS_STORAGE_VERSION = 8
+export const SETTINGS_STORAGE_VERSION = 9
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -50,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   stopWithAnyKey: false,
   showTimerDecimalSmall: false,
   uiZoomPercent: 100,
+  statsPanelHeightPercent: 36,
   scrambleAlignment: 'center',
   scrambleLimitHeight: false,
   scrambleAction: 'copy',
@@ -77,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   statPrecision: 'centiseconds',
   averageTrimBetter: DEFAULT_AVERAGE_TRIMMING.better,
   averageTrimWorse: DEFAULT_AVERAGE_TRIMMING.worse,
+  analytics: createDefaultAnalyticsSettings(),
 }
 
 function cloneDefaultSettings(): Settings {
@@ -86,6 +92,7 @@ function cloneDefaultSettings(): Settings {
     customAverages: DEFAULT_SETTINGS.customAverages.map((average) => ({
       ...average,
     })),
+    analytics: createDefaultAnalyticsSettings(),
   }
 }
 
@@ -458,6 +465,13 @@ export function parseSettingsData(value: unknown): Settings | null {
       value.uiZoomPercent <= 150
         ? value.uiZoomPercent
         : DEFAULT_SETTINGS.uiZoomPercent,
+    statsPanelHeightPercent:
+      typeof value.statsPanelHeightPercent === 'number' &&
+      Number.isFinite(value.statsPanelHeightPercent) &&
+      value.statsPanelHeightPercent >= 20 &&
+      value.statsPanelHeightPercent <= 80
+        ? value.statsPanelHeightPercent
+        : DEFAULT_SETTINGS.statsPanelHeightPercent,
     scrambleAlignment: isValidScrambleAlignment(value.scrambleAlignment)
       ? value.scrambleAlignment
       : DEFAULT_SETTINGS.scrambleAlignment,
@@ -504,6 +518,7 @@ export function parseSettingsData(value: unknown): Settings | null {
     statPrecision: isValidStatPrecision(value.statPrecision)
       ? value.statPrecision
       : DEFAULT_SETTINGS.statPrecision,
+    analytics: parseAnalyticsSettings(value.analytics),
   }
 }
 

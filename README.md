@@ -9,18 +9,22 @@ scrambles from `cubing.js` for 12 events — 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6�
 with count-down or count-up display and
 independent 8/12-second warnings, WCA-aware statistics from single through
 ao10000 plus custom averages, named local sessions with per-session settings,
-JSON backup/restore, optional Google Drive synchronization, an optional Draw
-Scramble diagram, and a floating solve action menu in a responsive layout built
-around the clock. The interface offers audited light and dark palettes plus a
+JSON backup/restore, optional Google Drive synchronization, a dedicated analytics
+dashboard, an optional Draw Scramble diagram, and a floating solve action menu
+in a responsive layout built around the clock. The interface offers audited light and dark palettes plus a
 system-following theme. See
 [`ROADMAP.md`](ROADMAP.md) for the planned phases and their acceptance gates.
 
 ![CubeLab desktop interface](docs/cubelab-desktop.png)
 
+The header switches between the timer and the read-only Analytics dashboard.
+Timer state and session data are shared; opening Analytics never changes stored
+solves.
+
 ## Features
 
 - **Monotonic timing** with a configurable hold-to-arm gesture (300 ms by
-  default) and frame-accurate display.
+  default) and a display refreshed with browser animation frames.
 - **Large-session stop feedback** captures the input time before audio/focus work.
   The live readout updates independently, and statistics, history and charts
   refresh after the final result gets a rendering opportunity. Saving and
@@ -60,11 +64,23 @@ system-following theme. See
   Horizontal navigation keeps the vertical scale fixed. Expanding is
   disabled during timing; the dialog contains keyboard focus and closes with
   Escape, returning focus to **Expand**.
-- **Keyboard and pointer controls** that work reliably from anywhere on the page,
-  including an optional **Stop with any key** setting while timing.
+- **Analytics dashboard** opened from the header **Analytics** tab. Global event,
+  session, date-range, latest-count, and penalty filters drive overview cards,
+  time and average progression, historical PBs, a clickable distribution,
+  consistency and Sub-X analysis, session comparison, practice activity,
+  advanced percentiles/rankings, and a virtualized solve explorer. Charts support
+  hover, keyboard inspection, zoom, pan, and reset; solve points open a read-only
+  detail dialog. Dashboard sections can be hidden, widened, and reordered, and
+  those preferences merge with the other global settings. Analytics is lazy
+  loaded, calculation results are memoized, large lines are downsampled, and no
+  analytics calculation runs while the timer is active.
+- **Global keyboard controls** outside text-entry fields and modal dialogs,
+  plus pointer controls on the timer surface. An optional **Stop with any key**
+  setting stops a running solve with a non-modifier key. Timer keys are disabled
+  while the Analytics page is open.
 - **Optional WCA inspection** with automatic `+2` and DNF penalties, a
   count-down or count-up display, and independent optional warnings when the
-  displayed inspection time reaches **8 seconds** or **12 seconds**.
+  **8 or 12 seconds have elapsed** (7 or 3 seconds remaining in count-down mode).
 - **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance,
   Statistics, Scramble, Controls, Data, and About sections. It covers inspection
   direction and warnings, timer updates, Space-hold time, an optional any-key
@@ -73,8 +89,9 @@ system-following theme. See
   display precision, display scaling, scramble presentation (including the
   Draw Scramble 2D/3D visualization), local-data status, and backup/restore
   access. Changes save automatically.
-  Enabled inspection warnings always show their text; sound and haptic follow
-  the selected feedback channel. DNF feedback is slightly louder than solve
+  Enabled inspection warnings always pulse visually and announce a direction-aware
+  label through the live region; there is no warning-text overlay. Sound and
+  haptic follow the selected feedback channel. DNF feedback is slightly louder than solve
   feedback at the same volume setting.
 - **Named local sessions** with create, switch, rename, and a per-session
   settings gear for inspection override, clear, and confirmed delete. Each
@@ -104,14 +121,19 @@ system-following theme. See
   7×7, Pyraminx, Skewb, Square-1, Clock, and Megaminx) with penalties,
   scrambles, comments, and original solve dates.
   Sessions using non-CubeLab puzzles are skipped with a warning rather than
-  converted to 3×3.
+  converted to 3×3. Invalid durations, dates or malformed rows in supported sessions
+  reject the file with a session/solve error before preview or confirmation.
+  Missing solve dates retain the existing session-date/current-time fallback;
+  valid imports add sessions and leave existing settings/history unchanged.
 - **Optional Google Drive synchronization** using device-owned snapshots,
   field-level merging for solves, session metadata, preferences, and global
   settings, plus manual conflict review. It defers while the timer is active and
   never runs before you explicitly connect a Google account.
 - **Local-first persistence** with versioned, validated browser storage and
   automatic migration from the original single-session key.
-- **Installable PWA** with full offline operation after the first visit.
+- **Installable PWA** with local timing and scramble generation available offline
+  after the production service worker and assets finish caching. Drive operations
+  require a network connection; offline coverage is Chromium-only in this harness.
 - **Responsive, accessible UI** for desktop, tablet, and mobile, including 28 px
   touch targets, visible focus states, modal focus containment, and WCAG AA
   secondary-text contrast.
@@ -122,12 +144,13 @@ The layout follows the familiar speedcubing-timer structure: a session switcher,
 session statistics, and solve history in the left rail; the scramble above the
 timer; and the clock as the dominant element. When Draw Scramble is active, its
 compact diagram panel is anchored inside the bottom-right of the timer area and
-the readout reserves space for it, so the timer digits and essential controls
-stay clear. The flat light and dark themes
+the readout reserves a right gutter for its default placement. Moved/resized
+panels and the full narrow-screen timing matrix still need visual verification;
+the gutter is a mitigation, not a guarantee that every panel placement stays clear. The flat light and dark themes
 use neutral panels, an accent-tinted timer surface, and a solid accent available
 in green, blue, violet, or amber. The theme follows **Light**, **Dark**, or
-**System** in **Settings → Appearance**; both palettes and every accent are
-checked against WCAG AA contrast pairs, and the stored choice is applied before
+**System** in **Settings → Appearance**; the predefined text/surface and accent pairs in both palettes are
+checked against WCAG AA contrast thresholds, and the stored choice is applied before
 the first paint. There are no decorative gradients, glows, or background
 effects. On narrow screens the timer comes first, with the session controls,
 statistics, and history stacked below it.
@@ -137,10 +160,21 @@ dialog groups timer, alerts, display, appearance, statistics, scramble, controls
 data, and about preferences in one place, with progressive migration from older
 settings records. At 320 px the Settings dialog keeps the inspection label and
 its switch touch target visible, and its body scrolls independently so the Done
-button stays reachable. The desktop history rail scrolls internally rather than
-stretching the page. Histories above 200 solves are windowed so only the rows
+button stays reachable.
+
+On desktop, drag the divider between Statistics and Solves to resize the
+statistics area. Arrow keys resize a focused divider; Shift makes the step
+larger, Home/End select the limits, and Enter or a double-click restores the
+default split. The split is saved locally with the display preferences. Only
+complete enabled statistics are shown, with remaining height shared between
+rows; narrow screens show every enabled statistic in the stacked layout.
+
+![Resizable Statistics panel](docs/cubelab-statistics-panel.png)
+
+The desktop history rail scrolls internally rather than stretching the page.
+Histories above 200 solves are windowed so only the rows
 near the visible area render; spacers preserve scroll height and
-\`aria-setsize\`/\`aria-posinset\` expose the full count. A **Show all solves**
+`aria-setsize`/`aria-posinset` expose the full count. A **Show all solves**
 control restores every row for find-in-page and full keyboard traversal. Solve
 rows open a compact menu anchored
 near the row; the menu stays inside the viewport on narrow screens.
@@ -152,6 +186,20 @@ near the row; the menu stays inside the viewport on narrow screens.
 The same palette and accent apply throughout the Settings dialog:
 
 ![CubeLab dark Settings dialog](docs/cubelab-dark-settings.png)
+
+### Analytics
+
+The Analytics tab analyzes the current solve history without modifying it. Event,
+session, date range, latest-solve count, and penalty filters apply to every
+section. The dashboard shares WCA effective-time, +2/DNF, precision, and
+trimming rules with the timer statistics.
+
+![CubeLab Analytics dashboard](docs/cubelab-analytics.png)
+
+Charts remain interactive at large histories: dense lines use ordered bucket
+downsampling, the solve explorer virtualizes its rows, and both the page and its
+chart code are loaded separately from the timer. Section visibility, width,
+order, and per-event Sub-X targets are stored in synchronized settings.
 
 ### Time Trend
 
@@ -183,6 +231,12 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Resize the tool panel | Drag the bottom-right resize handle |
 | Select the tool shown in the panel | Use the **Function** dropdown in the panel footer; the panel stays open |
 | Inspect a PB | Click its marker in either chart, or focus it and press **Enter**; close the stats dialog with **Close** or **Escape** |
+| Open Analytics | Use the header **Analytics** tab; it is unavailable while the timer is active |
+| Filter Analytics | Use the event, session, date-range, latest-count, and penalty controls above the dashboard |
+| Inspect an Analytics point | Point at a chart for values, or focus it and use the arrow keys; press **Enter** to open the solve details |
+| Zoom or pan an Analytics chart | Scroll over the plot to zoom; drag to pan; use **Reset** to restore the full range |
+| Drill down from the distribution | Click a histogram bar to filter the Solve explorer; **Clear interval filter** removes it |
+| Customize Analytics | Use **Customize** to show/hide, widen, or reorder sections; **Reset layout** restores the defaults |
 | Zoom and pan Time Trend | Scroll ↕ for vertical zoom, ↔ (or Shift + wheel) for horizontal zoom; pinch for both; drag to pan; **Fit all** resets |
 | Explore solve-time trends | Select **Function → Time Trend**, then **Expand** for series, zoom, range navigation, and solve details |
 | Choose the Draw Scramble 2D net or 3D puzzle | Open **Settings → Scramble → Draw Scramble visualization** |
@@ -229,9 +283,10 @@ Clearing requires typing **CLEAR THIS SESSION**; deleting requires typing
 **DELETE THIS SESSION**. Deleting always leaves at least one session. The
 original single-session data from earlier CubeLab versions is migrated
 automatically into **Session 1** the first time the new version loads; only
-3×3 records from that legacy key are migrated. Open browser tabs are not
-synchronized with each other, so use one tab when changing sessions or importing
-a backup. Duplicate session names are rejected while you type, with the field,
+3×3 records from that legacy key are migrated. Same-origin tabs reconcile
+session and settings storage changes. External adoption is deferred during timing,
+and solves recorded during that deferral are merged back by ID once idle. This is
+not transactional multi-tab editing; use one tab for destructive changes or imports. Duplicate session names are rejected while you type, with the field,
 icon, and message highlighted in red.
 
 ### Backup and restore
@@ -244,7 +299,8 @@ never uploads it.
 Import validates the application marker, format version, sessions, solves, and
 settings before changing anything. Valid data replaces the local sessions and
 settings only after a confirmation dialog explains the current and incoming
-counts. Cancelling the confirmation leaves local data untouched. Imports are
+counts. csTimer imports instead add new sessions and leave existing sessions and
+settings intact, after preview and confirmation. Cancelling the confirmation leaves local data untouched. Imports are
 limited to 10 MB; invalid files produce an inline error and are not applied.
 Imports also reject sessions whose solves belong to a different puzzle event
 instead of storing data that would later block synchronization.
@@ -265,10 +321,11 @@ device. Every run lists every page of app-data files, validates, and merges
 legacy fixed-name `cubelab-backup.json` from earlier releases. Because writes
 never overwrite an existing snapshot, simultaneous uploads from different devices
 (or from two browser profiles sharing one device identity) cannot destroy each
-other's unique data; every snapshot stays discoverable and converges on the next
-run. Old snapshots are pruned by a retention policy: after a successful merge and
-publication, CubeLab keeps the newest snapshots for each device (10 by default)
-and removes older files beyond the age limit (30 days by default). The newest
+other's snapshot. Later runs fold in all snapshots returned by a complete
+listing; provider listings can lag, so one follow-up run does not guarantee
+convergence. Old snapshots are pruned by a retention policy: after a successful merge and
+publication, CubeLab selects superseded files beyond the per-device count
+(default 10) **or** age threshold (default 30 days); either threshold is sufficient. The newest
 snapshot of every device is always kept, and the legacy mutable file is never
 removed by cleanup. **Remote snapshots** in the Drive dialog lists each device's
 files with size and modification time, supports selective deletion, and offers
@@ -308,6 +365,12 @@ approvals are matched without ordering so they are not requested again. Those
 cloud-only choices are labelled **Use newest cloud** / **Use other cloud**. The
 stored conflict queue is not capped, and the dialog pages the list five at a
 time with a **Show all** action.
+
+Active-session choices also use this review flow. A reviewed choice survives
+later merges of the same versions; a selection edited after review requires a
+fresh decision. Equal-time selection ties use a stable editor-ID/value order,
+and the metadata follows the selected value. Cloud adoption preserves that
+provenance instead of recording a new local selection edit.
 
 Every manual decision is also recorded in a local-only **review history** in the
 Drive dialog, newest first and capped at 50 entries. **Undo** reverses the stored
@@ -356,7 +419,7 @@ remote writes are not transactional and convergence is eventual, not
 synchronous. Automatic cleanup bounds snapshot growth after a successful sync;
 manual cleanup in **Remote snapshots** is limited to this device's superseded
 files. Cleanup is best effort and reports partial failures. See
-[`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md) for the remaining sync limitations.
+[`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) for the remaining sync limitations.
 
 If synchronization looks stuck or you suspect a partially applied merge, open
 **Settings → Data → Google Drive backup → Advanced settings → Repair sync
@@ -398,11 +461,12 @@ project that owns the client; they are not controlled by the CubeLab build.
 When inspection is enabled, the first press starts the 15-second inspection.
 The solve starts from a second hold:
 
-- **0–15 s:** no penalty
-- **15–17 s:** `+2`
+- **Through exactly 15 s:** no penalty
+- **Over 15 s through exactly 17 s:** `+2`
 - **Over 17 s:** `DNF`
 
-Inspection can display a countdown from 15 to 0, or count up from 0 to 17. The
+Inspection can count down from 15 or count up from 0. After 15 seconds the
+readout changes to `+2`; after 17 seconds it changes to `DNF`. The
 optional **8 seconds** and **12 seconds** warnings are independent and follow the
 displayed direction: count-up warns at 8 seconds and 12 seconds elapsed;
 count-down warns at 7 seconds and 3 seconds remaining, matching the same
@@ -422,7 +486,11 @@ behavior.
 
 ## Statistics
 
-All times are stored as raw milliseconds and penalties are applied afterward.
+Raw solve values are stored in milliseconds before penalties; timer recordings
+are floored to whole milliseconds. Statistics truncate effective singles below
+ten minutes to hundredths, round singles at or above ten minutes to whole seconds,
+and round aggregate results to the corresponding precision. Display precision
+does not rewrite raw times.
 
 - **Single:** the effective solve time; `+2` adds two seconds and DNF is invalid
   for records.
@@ -454,6 +522,25 @@ and average PBs can therefore change after this update. The two side preferences
 are included in JSON backups and merge independently through Drive sync.
 
 ![Average trimming settings](docs/cubelab-average-trimming.png)
+
+## Analytics
+
+The Analytics page is read-only and reuses the same effective-time, recorded
+precision, trimming, and DNF rules described above. It adds rolling averages,
+PB history, distribution bins with IQR outliers, rolling sample standard
+deviation, Sub-X streaks, side-by-side session comparison, daily activity,
+percentiles, moving median, rankings, and clearly labeled normal-approximation
+target estimates. A DNF stays in solve counts and DNF percentages but is
+excluded from valid-time statistics and distribution bins.
+
+Global filters apply consistently. Session comparison deliberately compares all
+sessions matching the event/date/penalty filters when fewer than two sessions are
+selected, so the section is not reduced to one column. The solve-time count limit
+applies to the analyzed history; comparison uses each included session's full
+matching history to keep sample sizes explicit.
+
+Sub-X targets are configurable per puzzle event and stored in the synchronized
+settings record. The estimate is a statistical approximation, not a guarantee.
 
 ## Getting started
 
@@ -524,35 +611,22 @@ Draw Scramble activation/deactivation, draggable/resizable panel persistence,
 render surface, Google Drive mock
 synchronization, conflict review, duplicate-name
 review/merge, and delete-all remote backup wording. Axe scans cover the main
-view, Settings, and the dark theme.
+view, Settings, and the dark theme. The nine existing browser skips are offline,
+touch hold-to-time and two CDP canvas/PG3D probes in Firefox/WebKit, plus cross-tab
+timing in WebKit. Non-cube player tests verify puzzle IDs and initialization
+status; they do not establish rendered-pixel correctness for every puzzle.
 
-## Current checkpoint and next development steps
+## Project documentation
 
-Documentation reconciled **2026-11-01**; latest application verification is
-**2026-11-01** with Phase 6a delivered: typecheck/lint/build passed,
-**518 unit/component tests in 39 files**, and **252 browser tests passed with
-9 existing skips** across Chromium, Firefox and WebKit. The normal production
-build was restored after mock-Drive checks. Live Drive and physical-device
-validation were not rerun for this patch.
+- [Current status, latest verification and immediate work](STATUS.md)
+- [Known limitations and validation gaps](KNOWN_LIMITATIONS.md)
+- [Retained roadmap and scope](ROADMAP.md)
+- [Contributor and coding-agent instructions](AGENTS.md)
+- [Archived plans and dated evidence](docs/archive/README.md)
 
-The current release includes csTimer import, 2D/PG3D tools, Time Trend and
-trackpad navigation, historical PB details, settings-v8 trimming and faster
-large-session stopping. With 7,000 synthetic solves and Time Trend open,
-Firefox median stop response improved from about 382 to 75 ms in development
-and 75 to 22 ms in production. These are stopped-DOM response measurements,
-not physical-display or actual Zen guarantees; chart completion may take longer.
-
-Next work is the compact-chart overlap at 320 pixels, actual Zen/enabled-sync
-and 10,000-solve profiling, then measured chart/hash improvements and a separately
-tested incremental-storage design. Timing and sync correctness take precedence
-over benchmark gains. OAuth publishing requires the project owner; new events,
-cloud protocols and a larger import cap remain separate scope.
-
-- [Current steps and detailed next steps](NEXT_SESSION_HANDOFF.md)
-- [Implementation progress and dated verification](PROJECT_PROGRESS.md)
-- [Roadmap and approval boundaries](ROADMAP.md)
-- [Known limits and validation gaps](PATCH_LIMITATIONS.md)
-- [Contributor invariants](AGENTS.md)
+The current status document records the latest test results once. Historical
+records preserve older measurements and decisions; they do not establish the
+current implementation or authorize new features.
 
 ## Architecture
 
@@ -575,7 +649,7 @@ src/
   lib/snapshotRetention.ts  Ownership grouping and snapshot cleanup selection
   lib/driveTransport.ts  Google Drive/mock transport and paginated file listing
   lib/driveCoordination.ts  Same-origin write lock; legacy snapshot revalidation
-  lib/scramble.ts        cubing.js random-state integration
+  lib/scramble.ts        cubing.js official-event scramble integration
   lib/cubeNet.ts         Pure N×N scramble parser and facelet simulation
   lib/cubeColors.ts      Standard cube face colours and PG3D palette application
   lib/toolPanelLayout.ts Tool panel geometry, clamping, and persisted layout parsing
@@ -590,6 +664,12 @@ src/
   lib/events.ts          Supported event registry, labels, and validation
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           Recorded singles/mo3 and shared trimmed rolling statistics
+  lib/analytics.ts       Pure analytics filtering, rolling series, PB, distribution,
+                         consistency, Sub-X, comparison, activity, and percentiles
+  lib/analyticsSettings.ts Analytics section layout and per-event Sub-X targets
+  components/AnalyticsPage.tsx  Lazy analytics dashboard, filters, drill-down,
+                                customization, and virtualized solve explorer
+  components/AnalyticsCharts.tsx Interactive SVG line, histogram, and heatmap views
   lib/averageTrimming.ts Trim presets, validation, counts, and labels
   lib/storage.ts         Versioned localStorage validation and migration
   lib/alerts.ts          Web Audio, vibration, DNF gain, and inspection warnings
@@ -607,6 +687,7 @@ src/
   lib/theme.test.ts      WCAG AA contrast audit for both palettes and accents
   index.css              Tokenized light/dark palettes and responsive layout
 e2e/timer.spec.ts        Production browser and offline tests
+e2e/analytics.spec.ts    Analytics filtering, drill-down, large history, responsive layout
 ```
 
 The timer is a pure state machine driven by timestamped events. The React layer
@@ -631,6 +712,8 @@ Storage keys are versioned:
 - `cubelab:drawScrambleMode:v1` — the local Draw Scramble visualization
   preference (`net` or `3d`). It is presentation-only and is not part of the
   synchronized settings record.
+- `cubelab:toolPanelOpen:v1` — local tool-panel visibility, stored separately
+  from synchronized settings and not included in JSON backups.
 - `cubelab:toolPanelLayout:v1` — the local Draw Scramble tool panel's
   stage-relative pixel position and size (`{ x, y, width, height }`). It is
   written only when a drag or resize gesture ends, is clamped to the timer
@@ -649,12 +732,14 @@ Sessions are stored at schema version 4; version 1–3 records load with default
 for newer fields. Missing field metadata falls back to `updatedAt` only at merge
 time and is not written back as fabricated history.
 
-Settings are stored at schema version 8. Version 1–7 records are upgraded in
+Settings are stored at schema version 9. Version 1–8 records are upgraded in
 place with field-level defaults for newer settings; invalid individual values
 fall back without discarding the rest of the record. Version 7 adds the
 `theme` preference (`light`, `dark`, or `system`), defaulting to `light`.
 Version 8 adds `averageTrimBetter` and `averageTrimWorse`, defaulting to `p5`
-and `auto` for older records/backups as well as new installations.
+and `auto` for older records/backups as well as new installations. Version 9
+adds the `analytics` dashboard layout and per-event Sub-X targets, defaulting to
+every section visible and the built-in targets for older records and backups.
 Global settings field timestamps are stored in `cubelab:sync:v1` rather than in
 the settings record, so the settings schema remains backward compatible.
 
@@ -713,8 +798,8 @@ ETag/`If-Match` conditional update, and no cross-file transaction exists. Local
 state remains replaceable and convergence is eventual. Snapshot growth is bounded
 by the configurable retention policy; **Remote snapshots** shows ownership and
 supports selective deletion, and **Delete remote backups** still removes every
-CubeLab file. See [`PATCH_LIMITATIONS.md`](PATCH_LIMITATIONS.md).
+CubeLab file. See [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md).
 
 For implementation status and handoff details, see
-[`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md). Contributors and future agents
+[`STATUS.md`](STATUS.md). Contributors and future agents
 should also read [`AGENTS.md`](AGENTS.md).

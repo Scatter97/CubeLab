@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { AppHeader } from './components/AppHeader'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import { AppHeader, type AppView } from './components/AppHeader'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { DriveBackupDialog } from './components/DriveBackupDialog'
 import { DataDialog } from './components/DataDialog'
@@ -54,6 +63,8 @@ import type {
   SessionsData,
 } from './types'
 import type { TimerInput, TimerState } from './timer/machine'
+
+const AnalyticsPage = lazy(() => import('./components/AnalyticsPage'))
 
 function isTextEntryTarget(target: EventTarget | null): boolean {
   return (
@@ -142,7 +153,6 @@ export default function App() {
   const resolvedTheme = useTheme(settings.theme)
   const {
     scramble,
-    nextScramble,
     isLoading: scrambleLoading,
     error: scrambleError,
     advance: advanceScramble,
@@ -158,12 +168,46 @@ export default function App() {
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [currentTool, setCurrentTool] = useState<CurrentTool>(DEFAULT_TOOL)
+  const [view, setView] = useState<AppView>('timer')
   const [toolPanelOpen, setToolPanelOpen] = useToolPanelOpen()
   const [drawScrambleMode, setDrawScrambleMode] = useDrawScrambleMode()
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
   const [mergeSessionsOpen, setMergeSessionsOpen] = useState(false)
   const [createSessionOpen, setCreateSessionOpen] = useState(false)
   const createSessionOpenPrev = useRef(false)
+
+  const [isDesktopLayout, setIsDesktopLayout] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(min-width: 901px)').matches,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const media = window.matchMedia('(min-width: 901px)')
+    const update = () => setIsDesktopLayout(media.matches)
+    update()
+    if (media.addEventListener) media.addEventListener('change', update)
+    else media.addListener(update)
+    return () => {
+      if (media.removeEventListener) media.removeEventListener('change', update)
+      else media.removeListener(update)
+    }
+  }, [])
+
+  const sidebarSplitRef = useRef<HTMLDivElement>(null)
+  const [statsPanelHeight, setStatsPanelHeight] = useState<number | null>(null)
+  const [sidebarHeight, setSidebarHeight] = useState(0)
+  const sidebarDragRef = useRef<{
+    pointerId: number
+    startY: number
+    startHeight: number
+    containerHeight: number
+    scale: number
+  } | null>(null)
+  const [sidebarDragging, setSidebarDragging] = useState(false)
+
+  const minStatsHeight = 96
+  const minSolvesHeight = 120
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [timerAlert, setTimerAlert] = useState<TimerAlert | null>(null)
@@ -441,6 +485,14 @@ export default function App() {
     if (timer.state.status !== 'idle') return
     setSettingsOpen(true)
   }, [timer.state.status])
+
+  const handleNavigate = useCallback(
+    (next: AppView) => {
+      if (next === 'analytics' && timer.state.status !== 'idle') return
+      setView(next)
+    },
+    [timer.state.status],
+  )
 
   const handleRegenerate = useCallback(() => {
     if (timer.state.status !== 'idle' || scrambleLoading) return
@@ -801,6 +853,7 @@ export default function App() {
     const isActive = timer.state.status !== 'idle'
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (view !== 'timer') return
       if (modalOpen) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
 
@@ -817,7 +870,8 @@ export default function App() {
         timer.state.status === 'running' &&
         !event.repeat &&
         !isModifierKey(event.key) &&
-        !isTextEntryTarget(event.target)
+        !isTextEntryTarget(event.target) &&
+        !(event.target instanceof Element && event.target.closest('[data-sidebar-divider]'))
       ) {
         // The optional any-key stop is intentionally limited to a running
         // timer. Tab is allowed through so keyboard focus can still move.
@@ -832,6 +886,7 @@ export default function App() {
       // button is focused. Keyboard users can activate those buttons with
       // Enter, so timer input never becomes dependent on current focus.
       if (isTextEntryTarget(event.target)) return
+      if (event.target instanceof Element && event.target.closest('[data-sidebar-divider]')) return
       event.preventDefault()
       if (event.repeat) return
       if (timer.state.status === 'idle' && !canStart) return
@@ -840,6 +895,7 @@ export default function App() {
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
+      if (view !== 'timer') return
       if (modalOpen || event.code !== 'Space') return
       if (isTextEntryTarget(event.target)) return
       event.preventDefault()
@@ -860,6 +916,7 @@ export default function App() {
     timerPress,
     timerRelease,
     timer.state.status,
+    view,
   ])
 
   useEffect(() => {
@@ -870,6 +927,123 @@ export default function App() {
     }
     createSessionOpenPrev.current = createSessionOpen
   }, [createSessionOpen, timer.state.status])
+
+  // Sidebar split initialization and drag helpers.
+  const clampStatsHeight = useCallback((value: number, containerHeight: number) => {
+    const max = Math.max(minStatsHeight, containerHeight - minSolvesHeight)
+    return Math.min(Math.max(value, minStatsHeight), max)
+  }, [])
+
+  const resetStatsSplit = useCallback(() => {
+    const container = sidebarSplitRef.current
+    if (container) {
+      const target = Math.round(container.clientHeight * 0.36)
+      setStatsPanelHeight(clampStatsHeight(target, container.clientHeight))
+    }
+    updateSettings({ statsPanelHeightPercent: 36 })
+  }, [clampStatsHeight, updateSettings])
+
+  const beginSidebarDrag = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return
+      const container = sidebarSplitRef.current
+      if (!container) return
+      event.preventDefault()
+      const containerRect = container.getBoundingClientRect()
+      const startHeight =
+        statsPanelHeight ?? Math.round(container.clientHeight * 0.36)
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        /* noop */
+      }
+      sidebarDragRef.current = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startHeight,
+        containerHeight: container.clientHeight,
+        scale: containerRect.height / container.offsetHeight || 1,
+      }
+      setSidebarDragging(true)
+      document.body.style.userSelect = 'none'
+    },
+    [statsPanelHeight],
+  )
+
+  const moveSidebarDrag = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const state = sidebarDragRef.current
+      if (!state || state.pointerId !== event.pointerId) return
+      event.preventDefault()
+      const delta = (event.clientY - state.startY) / state.scale
+      const next = clampStatsHeight(state.startHeight + delta, state.containerHeight)
+      setStatsPanelHeight(next)
+    },
+    [clampStatsHeight],
+  )
+
+  const endSidebarDrag = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const state = sidebarDragRef.current
+      if (!state || state.pointerId !== event.pointerId) return
+      sidebarDragRef.current = null
+      setSidebarDragging(false)
+      document.body.style.userSelect = ''
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        /* noop */
+      }
+      const container = sidebarSplitRef.current
+      if (container && statsPanelHeight !== null && container.clientHeight > 0) {
+        const percent = Math.round((statsPanelHeight / container.clientHeight) * 100)
+        const clampedPercent = Math.min(80, Math.max(20, percent))
+        updateSettings({ statsPanelHeightPercent: clampedPercent })
+      }
+    },
+    [statsPanelHeight, updateSettings],
+  )
+
+  const cancelSidebarDrag = useCallback(() => {
+    sidebarDragRef.current = null
+    setSidebarDragging(false)
+    document.body.style.userSelect = ''
+  }, [])
+
+  // Initialize/restore sidebar split height from settings.
+  useEffect(() => {
+    const container = sidebarSplitRef.current
+    if (!container || statsPanelHeight !== null) return
+    const height = container.clientHeight
+    if (height <= 0) return
+    setSidebarHeight(height)
+    const percent = settings.statsPanelHeightPercent ?? 36
+    setStatsPanelHeight(clampStatsHeight(Math.round(height * (percent / 100)), height))
+  }, [settings.statsPanelHeightPercent, statsPanelHeight, clampStatsHeight, isDesktopLayout])
+
+  // Keep the split usable when the window or sidebar container changes size.
+  useEffect(() => {
+    const container = sidebarSplitRef.current
+    if (!container) return
+    const update = () => {
+      setSidebarHeight(container.clientHeight)
+      if (sidebarDragRef.current) return
+      setStatsPanelHeight((previous) => {
+        if (previous === null) return previous
+        const height = container.clientHeight
+        if (height <= 0) return previous
+        const percent = settings.statsPanelHeightPercent ?? 36
+        return clampStatsHeight(Math.round(height * (percent / 100)), height)
+      })
+    }
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [settings.statsPanelHeightPercent, clampStatsHeight, isDesktopLayout])
 
   const storageHealthy = storageOk && settingsStorageOk
   const appShellClassName = [
@@ -898,15 +1072,17 @@ export default function App() {
         onOpenSettings={handleOpenSettings}
         settingsLocked={timerActive}
         storageOk={storageHealthy}
+        view={view}
+        onNavigate={handleNavigate}
       />
 
+      {view === 'timer' ? (
       <main className="workspace">
         <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
         <div className="primary-column">
           <ScramblePanel
             event={activeEvent}
             scramble={scramble}
-            nextScramble={nextScramble}
             isLoading={scrambleLoading}
             error={scrambleError}
             canRegenerate={!timerActive && !scrambleLoading && scramble !== null}
@@ -984,15 +1160,6 @@ export default function App() {
                 ) : null}
               </span>
             ) : null}
-            <span className="caption-shortcuts">
-              <kbd>Space</kbd> hold to arm · release to start
-              {activeInspectionEnabled ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <kbd>Esc</kbd> reset
-                </>
-              ) : null}
-            </span>
           </div>
         </div>
 
@@ -1008,32 +1175,130 @@ export default function App() {
             onOpenSessionSettings={handleOpenSessionSettings}
           />
 
-          <StatsPanel
-            stats={stats}
-            visibleStats={settings.statVisibility}
-            customAverages={settings.customAverages}
-            precision={settings.statPrecision}
-            trimming={averageTrimming}
-          />
+          {isDesktopLayout ? (
+            <div className="sidebar-split" ref={sidebarSplitRef}>
+              <StatsPanel
+                stats={stats}
+                visibleStats={settings.statVisibility}
+                customAverages={settings.customAverages}
+                precision={settings.statPrecision}
+                style={{ height: statsPanelHeight ?? undefined }}
+              />
 
-          <SolveHistory
-            key={activeSession.id}
-            solves={insightSolves}
-            onSetPenalty={handleSetPenalty}
-            onDelete={handleDelete}
-            onSetComment={handleSetComment}
-            onNotify={handleNotify}
-          />
+              <div
+                className={`sidebar-divider${sidebarDragging ? ' is-dragging' : ''}`}
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Resize Statistics and Solves panels"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={
+                  statsPanelHeight && statsPanelHeight > 0
+                    ? Math.round((statsPanelHeight / (sidebarHeight || statsPanelHeight)) * 100)
+                    : undefined
+                }
+                tabIndex={0}
+                data-sidebar-divider="true"
+                data-divider="stats-solves"
+                data-resize-handle="true"
+                data-testid="stats-solves-divider"
+                data-testid-alt="sidebar-resize-handle"
+                onPointerDown={beginSidebarDrag}
+                onPointerMove={moveSidebarDrag}
+                onPointerUp={endSidebarDrag}
+                onPointerCancel={cancelSidebarDrag}
+                onDoubleClick={resetStatsSplit}
+                onKeyDown={(event) => {
+                  const container = sidebarSplitRef.current
+                  if (!container) return
+                  const step = event.shiftKey ? 48 : 16
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+                    event.preventDefault()
+                    const next = clampStatsHeight(
+                      (statsPanelHeight ?? 0) + step,
+                      container.clientHeight,
+                    )
+                    setStatsPanelHeight(next)
+                    const percent = Math.round((next / container.clientHeight) * 100)
+                    updateSettings({
+                      statsPanelHeightPercent: Math.min(80, Math.max(20, percent)),
+                    })
+                  } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+                    event.preventDefault()
+                    const next = clampStatsHeight(
+                      (statsPanelHeight ?? 0) - step,
+                      container.clientHeight,
+                    )
+                    setStatsPanelHeight(next)
+                    const percent = Math.round((next / container.clientHeight) * 100)
+                    updateSettings({
+                      statsPanelHeightPercent: Math.min(80, Math.max(20, percent)),
+                    })
+                  } else if (event.key === 'Home') {
+                    event.preventDefault()
+                    setStatsPanelHeight(minStatsHeight)
+                    updateSettings({ statsPanelHeightPercent: 20 })
+                  } else if (event.key === 'End') {
+                    event.preventDefault()
+                    const max = container.clientHeight - minSolvesHeight
+                    setStatsPanelHeight(Math.max(minStatsHeight, max))
+                    updateSettings({ statsPanelHeightPercent: 80 })
+                  } else if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    resetStatsSplit()
+                  }
+                }}
+              >
+                <span className="sidebar-divider-grip" aria-hidden="true" />
+              </div>
+
+              <SolveHistory
+                key={activeSession.id}
+                solves={insightSolves}
+                onSetPenalty={handleSetPenalty}
+                onDelete={handleDelete}
+                onSetComment={handleSetComment}
+                onNotify={handleNotify}
+              />
+            </div>
+          ) : (
+            <>
+              <StatsPanel
+                stats={stats}
+                visibleStats={settings.statVisibility}
+                customAverages={settings.customAverages}
+                precision={settings.statPrecision}
+                showAllRows
+              />
+              <SolveHistory
+                key={activeSession.id}
+                solves={insightSolves}
+                onSetPenalty={handleSetPenalty}
+                onDelete={handleDelete}
+                onSetComment={handleSetComment}
+                onNotify={handleNotify}
+              />
+            </>
+          )}
         </aside>
       </main>
-
-      <footer className="app-footer">
-        <span>CubeLab · Local sessions</span>
-        <span className="footer-middle">
-          Local-first. Solves stay in this browser.
-        </span>
-        <span className="footer-meta">{getEventDefinition(activeEvent)?.label ?? activeEvent} · CubeLab</span>
-      </footer>
+      ) : (
+        <Suspense
+          fallback={
+            <main className="analytics-page analytics-loading" role="status">
+              Loading analytics…
+            </main>
+          }
+        >
+          <AnalyticsPage
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            initialEvent={activeEvent}
+            settings={settings}
+            onChange={updateSettings}
+          />
+        </Suspense>
+      )}
 
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {announcement}
