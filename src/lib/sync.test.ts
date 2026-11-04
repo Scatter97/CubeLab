@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Session, SessionsData, Solve } from '../types'
 import {
+  createSyncEnvelope,
+  createTombstone,
+  parseRemoteSyncEnvelope,
   findDuplicateSessionNames,
   mergeSessionsData,
   mergeTombstones,
   resolveRedirectConflicts,
 } from './sync'
 import { DEFAULT_SESSION_NAME } from './sessions'
+import { reassignSessionsEvent } from './customEvents'
 import { mergeSolveFields } from './solveMerge'
 import { isActiveTombstone, type SyncConflict, type Tombstone } from './syncStorage'
 
@@ -1720,5 +1724,635 @@ describe('durable undo (tombstone restoration)', () => {
     ])
     expect(result[0]?.restoredAt).toBe(deletedAt)
     expect(isActiveTombstone(result[0]!)).toBe(true)
+  })
+})
+
+describe('active-session selection approvals and provenance', () => {
+  const localStamp = { updatedAt: 100, editorId: 'local-device' }
+  const remoteStamp = { updatedAt: 200, editorId: 'remote-device' }
+  const collection = [
+    session({ id: 'a', name: 'Morning', solves: [solve({ id: 'morning' })] }),
+    session({ id: 'b', name: 'Evening', solves: [solve({ id: 'evening' })] }),
+    session({ id: 'c', name: 'Other' }),
+  ]
+  const input = {
+    local: sessionsData({ activeSessionId: 'a', sessions: collection }),
+    remote: sessionsData({ activeSessionId: 'b', sessions: collection }),
+    tombstones: [],
+    deviceId: 'device-test',
+    manualConflictReview: true,
+    localActiveSessionUpdate: localStamp,
+    remoteActiveSessionUpdate: remoteStamp,
+  }
+  const review: SyncConflict = {
+    id: 'active-session', kind: 'session', field: 'activeSessionId',
+    localValue: 'a', remoteValue: 'b', localUpdatedAt: 100, remoteUpdatedAt: 200,
+    resolution: 'local', updatedAt: 1000,
+  }
+  const swapped = (value: typeof input) => ({
+    ...value, local: value.remote, remote: value.local,
+    localActiveSessionUpdate: value.remoteActiveSessionUpdate,
+    remoteActiveSessionUpdate: value.localActiveSessionUpdate,
+  })
+
+  it.each(['local', 'remote'] as const)('applies the reviewed %s choice in either orientation and on later merges', (resolution) => {
+    const approval = { ...review, resolution }
+    const expectedId = resolution === 'local' ? 'a' : 'b'
+    const expectedStamp = { updatedAt: 1000, editorId: resolution === 'local' ? 'local-device' : 'remote-device' }
+    for (const fixture of [input, swapped(input)]) {
+      const result = mergeSessionsData({ ...fixture, resolvedConflicts: [approval] })
+      expect(result.merged.activeSessionId).toBe(expectedId)
+      expect(result.activeSessionFieldUpdate).toEqual(expectedStamp)
+      expect(result.conflicts.filter((c) => c.field === 'activeSessionId')).toEqual([])
+      expect(result.merged.sessions.flatMap((s) => s.solves).map((s) => s.id).sort()).toEqual(['evening', 'morning'])
+      const repeated = mergeSessionsData({ ...fixture, local: result.merged,
+        localActiveSessionUpdate: result.activeSessionFieldUpdate, resolvedConflicts: [approval] })
+      expect(repeated.merged.activeSessionId).toBe(expectedId)
+      expect(repeated.activeSessionFieldUpdate).toEqual(expectedStamp)
+      expect(repeated.conflicts.filter((c) => c.field === 'activeSessionId')).toEqual([])
+    }
+  })
+
+  it('does not reuse approval after a value changes away and back with a different timestamp', () => {
+    const result = mergeSessionsData({ ...input, localActiveSessionUpdate: { ...localStamp, updatedAt: 101 }, resolvedConflicts: [review] })
+    expect(result.conflicts).toContainEqual(expect.objectContaining({ field: 'activeSessionId', resolution: 'manual-pending', localUpdatedAt: 101 }))
+    expect(result.activeSessionFieldUpdate).toEqual(remoteStamp)
+  })
+
+  it('does not approve the same timestamps when they now belong to different reviewed values', () => {
+    const result = mergeSessionsData({ ...input, localActiveSessionUpdate: { ...localStamp, updatedAt: 200 },
+      remoteActiveSessionUpdate: { ...remoteStamp, updatedAt: 100 }, resolvedConflicts: [review] })
+    expect(result.conflicts).toContainEqual(expect.objectContaining({ field: 'activeSessionId', resolution: 'manual-pending' }))
+  })
+
+  it('raises new review for a later selection not in the approved pair', () => {
+    const result = mergeSessionsData({ ...input, remote: { ...input.remote, activeSessionId: 'c' },
+      remoteActiveSessionUpdate: { ...remoteStamp, updatedAt: 1001 }, resolvedConflicts: [review] })
+    expect(result.conflicts).toContainEqual(expect.objectContaining({ field: 'activeSessionId', remoteValue: 'c', resolution: 'manual-pending' }))
+  })
+
+  it('supports undo against the approval timestamp without treating a later edit as reviewed', () => {
+    const first = mergeSessionsData({ ...input, resolvedConflicts: [review] })
+    const undo: SyncConflict = { ...review, resolution: 'remote', updatedAt: 1100, priorUpdatedAt: 1000 }
+    const result = mergeSessionsData({ ...input, local: first.merged, localActiveSessionUpdate: first.activeSessionFieldUpdate, resolvedConflicts: [undo] })
+    expect(result.merged.activeSessionId).toBe('b')
+    expect(result.activeSessionFieldUpdate).toEqual({ updatedAt: 1100, editorId: 'remote-device' })
+    expect(result.conflicts.filter((c) => c.field === 'activeSessionId')).toEqual([])
+  })
+
+  it.each([false, true])('returns the selected editor provenance for equal timestamps (reversed: %s)', (reverse) => {
+    const fixture = { ...input, manualConflictReview: false,
+      localActiveSessionUpdate: { updatedAt: 500, editorId: 'beta' },
+      remoteActiveSessionUpdate: { updatedAt: 500, editorId: 'alpha' } }
+    const result = mergeSessionsData(reverse ? swapped(fixture) : fixture)
+    expect(result.merged.activeSessionId).toBe('b')
+    expect(result.activeSessionFieldUpdate).toEqual({ updatedAt: 500, editorId: 'alpha' })
+  })
+
+  it('breaks equal-time/equal-editor selection ties by value in both orientations', () => {
+    const fixture = { ...input, manualConflictReview: false,
+      localActiveSessionUpdate: { updatedAt: 500, editorId: 'same-device' },
+      remoteActiveSessionUpdate: { updatedAt: 500, editorId: 'same-device' } }
+    expect(mergeSessionsData(fixture).merged.activeSessionId).toBe('a')
+    expect(mergeSessionsData(swapped(fixture)).merged.activeSessionId).toBe('a')
+  })
+
+  it('keeps deterministic metadata when both sides already select the same session', () => {
+    const fixture = { ...input, remote: { ...input.remote, activeSessionId: 'a' },
+      localActiveSessionUpdate: { updatedAt: 500, editorId: 'beta' },
+      remoteActiveSessionUpdate: { updatedAt: 500, editorId: 'alpha' } }
+    for (const value of [fixture, swapped(fixture)]) {
+      const result = mergeSessionsData(value)
+      expect(result.activeSessionFieldUpdate).toEqual({ updatedAt: 500, editorId: 'alpha' })
+      expect(result.conflicts.filter((c) => c.field === 'activeSessionId')).toEqual([])
+    }
+  })
+
+  it('preserves local-first legacy selection without fabricating metadata', () => {
+    const result = mergeSessionsData({ ...input, localActiveSessionUpdate: undefined, remoteActiveSessionUpdate: undefined })
+    expect(result.merged.activeSessionId).toBe('a')
+    expect(result.activeSessionFieldUpdate).toBeUndefined()
+  })
+
+  it('does not attach a deleted selection timestamp to the fallback session', () => {
+    const result = mergeSessionsData({ ...input, remote: { ...input.remote, activeSessionId: 'missing' }, localActiveSessionUpdate: undefined })
+    expect(result.merged.activeSessionId).toBe('a')
+    expect(result.activeSessionFieldUpdate).toBeUndefined()
+    expect(result.conflicts.filter((c) => c.field === 'activeSessionId')).toEqual([])
+  })
+
+  it('keeps remote selection metadata when adopting a fresh local placeholder', () => {
+    const result = mergeSessionsData({ ...input, local: sessionsData({ sessions: [session({ id: 'fresh', isAutoCreatedDefault: true })] }) })
+    expect(result.adoptedLocalDefault).toBe(true)
+    expect(result.merged.activeSessionId).toBe('b')
+    expect(result.activeSessionFieldUpdate).toEqual(remoteStamp)
+  })
+})
+
+
+describe('active-session sync envelope metadata', () => {
+  it('round-trips explicit selection provenance without fabricating legacy metadata', () => {
+    const stamp = { updatedAt: 200, editorId: 'remote-device' }
+    const envelope = createSyncEnvelope('remote-device', 1, [], [], [], {}, stamp)
+    expect(parseRemoteSyncEnvelope(JSON.parse(JSON.stringify(envelope)))?.activeSessionFieldUpdate).toEqual(stamp)
+    expect(parseRemoteSyncEnvelope(createSyncEnvelope('legacy-device', 1, [], []))?.activeSessionFieldUpdate).toBeUndefined()
+  })
+
+  it.each([{ updatedAt: -1, editorId: 'device' }, { updatedAt: 100, editorId: '' }])('rejects invalid selection provenance: %j', (stamp) => {
+    expect(parseRemoteSyncEnvelope({ ...createSyncEnvelope('remote', 1, [], []), activeSessionFieldUpdate: stamp })).toBeNull()
+  })
+})
+
+describe('custom event synchronization', () => {
+  const customDefinition = (
+    overrides: Partial<import('../types').CustomEventDefinition> = {},
+  ): import('../types').CustomEventDefinition => ({
+    id: 'custom:fto',
+    name: 'FTO',
+    placeholder: '',
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_000,
+    ...overrides,
+  })
+
+  it('unions definitions by stable ID and keeps custom solves separate', () => {
+    const local = sessionsData({
+      customEvents: [customDefinition({ name: 'Local FTO', updatedAt: 200 })],
+      sessions: [
+        session({
+          id: 'custom-session',
+          event: 'custom:fto',
+          solves: [
+            solve({
+              id: 'custom-solve',
+              event: 'custom:fto',
+              importSource: {
+                provider: 'cstimer',
+                scrType: 'fto',
+                sessionNumber: 1,
+                solveIndex: 0,
+              },
+            }),
+          ],
+        }),
+      ],
+      activeSessionId: 'custom-session',
+    })
+    const remote = sessionsData({
+      customEvents: [customDefinition({ id: 'custom:other', name: 'Other' })],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(result.merged.customEvents?.map((item) => item.id)).toEqual([
+      'custom:fto',
+      'custom:other',
+    ])
+    expect(result.merged.sessions[0]!.event).toBe('custom:fto')
+    expect(result.merged.sessions[0]!.solves[0]!.event).toBe('custom:fto')
+    expect(result.merged.sessions[0]!.solves[0]!.importSource?.scrType).toBe('fto')
+    expect(result.merged.sessions[0]!.solves[0]!.rawMs).toBe(12_340)
+  })
+
+  it('raises a reviewable custom event field conflict', () => {
+    const local = sessionsData({
+      customEvents: [
+        customDefinition({
+          name: 'Local name',
+          updatedAt: 200,
+          fieldUpdates: { name: { updatedAt: 200, editorId: 'laptop' } },
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      customEvents: [
+        customDefinition({
+          name: 'Cloud name',
+          updatedAt: 100,
+          fieldUpdates: { name: { updatedAt: 100, editorId: 'phone' } },
+        }),
+      ],
+    })
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: true,
+    })
+    expect(result.merged.customEvents?.[0]?.name).toBe('Local name')
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({
+        kind: 'event',
+        id: 'custom:fto',
+        field: 'name',
+        resolution: 'manual-pending',
+      }),
+    ])
+  })
+
+  it('drops an unused tombstoned definition but retains a referenced one', () => {
+    const tombstone: Tombstone = {
+      kind: 'event',
+      id: 'custom:fto',
+      deletedAt: 300,
+      deletedByDeviceId: 'device-local',
+    }
+    const unused = mergeSessionsData({
+      local: sessionsData({ customEvents: [customDefinition()] }),
+      remote: null,
+      tombstones: [tombstone],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(unused.merged.customEvents).toBeUndefined()
+
+    const referenced = mergeSessionsData({
+      local: sessionsData({
+        customEvents: [customDefinition()],
+        sessions: [
+          session({
+            event: 'custom:fto',
+            solves: [solve({ event: 'custom:fto' })],
+          }),
+        ],
+      }),
+      remote: null,
+      tombstones: [tombstone],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(referenced.merged.customEvents).toHaveLength(1)
+  })
+
+  it('propagates an explicit solve reclassification without losing data', () => {
+    const local = sessionsData({
+      customEvents: [customDefinition()],
+      sessions: [
+        session({
+          id: 'session-1',
+          event: 'custom:fto',
+          updatedAt: 300,
+          fieldUpdates: { event: { updatedAt: 300, editorId: 'laptop' } },
+          solves: [
+            solve({
+              id: 'solve-1',
+              event: 'custom:fto',
+              updatedAt: 300,
+              fieldUpdates: { event: { updatedAt: 300, editorId: 'laptop' } },
+            }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({
+          id: 'session-1',
+          event: '333',
+          updatedAt: 500,
+          solves: [solve({ id: 'solve-1', event: '333', updatedAt: 500 })],
+        }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(result.merged.sessions[0]!.event).toBe('custom:fto')
+    expect(result.merged.sessions[0]!.solves[0]!.event).toBe('custom:fto')
+    expect(result.merged.sessions[0]!.solves[0]!.rawMs).toBe(12_340)
+    expect(result.merged.sessions[0]!.solves[0]!.scramble).toBe("R U R' U'")
+  })
+
+  it('still stops legacy event conflicts without explicit provenance', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          event: 'custom:fto',
+          solves: [solve({ event: 'custom:fto' })],
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [session({ event: '333', solves: [solve({ event: '333' })] })],
+    })
+    expect(() =>
+      mergeSessionsData({
+        local,
+        remote,
+        tombstones: [],
+        deviceId: 'device-local',
+        manualConflictReview: false,
+      }),
+    ).toThrow(/Conflicting events/)
+  })
+
+  it('preserves empty scrambles and present unknown event IDs during merge', () => {
+    const unknownSession = session({
+      event: '333bf',
+      solves: [
+        solve({
+          id: 'unknown-solve',
+          event: '333bf',
+          scramble: '',
+          comment: 'imported empty scramble',
+        }),
+      ],
+    })
+    const local = sessionsData({ sessions: [unknownSession] })
+    const remote = sessionsData({ sessions: [unknownSession] })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+
+    expect(result.merged.sessions[0]!.event).toBe('333bf')
+    expect(result.merged.sessions[0]!.solves[0]).toMatchObject({
+      event: '333bf',
+      scramble: '',
+      comment: 'imported empty scramble',
+    })
+  })
+
+  it('does not resurrect a full reset from a later cloud snapshot', () => {
+    const custom = customDefinition()
+    const sessionA = session({
+      id: 'session-a',
+      name: 'Morning',
+      event: '333',
+      inspectionEnabled: true,
+      preferences: { timerUpdateMode: 'tenths' },
+      solves: [solve({ id: 'reset-a' })],
+    })
+    const sessionB = session({
+      id: 'session-b',
+      name: 'FTO',
+      event: custom.id,
+      preferences: { holdDurationMs: 500 },
+      solves: [solve({ id: 'reset-b', event: custom.id, scramble: '' })],
+    })
+    const resetLocal = sessionsData({
+      customEvents: [custom],
+      sessions: [
+        { ...sessionA, solves: [], updatedAt: 500 },
+        { ...sessionB, solves: [], updatedAt: 500 },
+      ],
+    })
+    const staleRemote = sessionsData({
+      customEvents: [custom],
+      sessions: [sessionA, sessionB],
+    })
+    const tombstones = [
+      createTombstone('solve', 'reset-a', 'session-a', 'device-local'),
+      createTombstone('solve', 'reset-b', 'session-b', 'device-local'),
+    ]
+
+    const result = mergeSessionsData({
+      local: resetLocal,
+      remote: staleRemote,
+      tombstones,
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+
+    expect(result.merged.sessions.map((item) => item.solves)).toEqual([[], []])
+    expect(result.merged.sessions.map((item) => item.name)).toEqual([
+      'Morning',
+      'FTO',
+    ])
+    expect(result.merged.sessions[0]).toMatchObject({
+      event: '333',
+      inspectionEnabled: true,
+      preferences: { timerUpdateMode: 'tenths' },
+    })
+    expect(result.merged.sessions[1]).toMatchObject({
+      event: custom.id,
+      preferences: { holdDurationMs: 500 },
+    })
+    expect(result.merged.customEvents).toEqual([custom])
+    expect(result.removedSolves).toBe(2)
+  })
+})
+
+describe('session ordering merge', () => {
+  it('uses the newest ordering record and appends concurrently added sessions', () => {
+    const local = sessionsData({
+      sessions: [
+        session({ id: 'a', name: 'A', createdAt: 1 }),
+        session({ id: 'b', name: 'B', createdAt: 2 }),
+      ],
+      sessionOrder: { ids: ['a', 'b'], updatedAt: 10, editorId: 'laptop' },
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({ id: 'a', name: 'A', createdAt: 1 }),
+        session({ id: 'b', name: 'B', createdAt: 2 }),
+        session({ id: 'c', name: 'C', createdAt: 3 }),
+      ],
+      sessionOrder: { ids: ['b', 'a'], updatedAt: 20, editorId: 'phone' },
+    })
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(result.merged.sessions.map((entry) => entry.id)).toEqual([
+      'b',
+      'a',
+      'c',
+    ])
+    expect(result.merged.sessionOrder).toEqual({
+      ids: ['b', 'a', 'c'],
+      updatedAt: 20,
+      editorId: 'phone',
+    })
+  })
+
+  it('converges equal-time reorders in either merge orientation', () => {
+    const make = (ids: string[], editorId: string): SessionsData =>
+      sessionsData({
+        sessions: [
+          session({ id: 'a', name: 'A', createdAt: 1 }),
+          session({ id: 'b', name: 'B', createdAt: 2 }),
+          session({ id: 'c', name: 'C', createdAt: 3 }),
+        ],
+        sessionOrder: { ids, updatedAt: 50, editorId },
+      })
+    const left = mergeSessionsData({
+      local: make(['a', 'b', 'c'], 'laptop'),
+      remote: make(['c', 'b', 'a'], 'phone'),
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    }).merged
+    const right = mergeSessionsData({
+      local: make(['c', 'b', 'a'], 'phone'),
+      remote: make(['a', 'b', 'c'], 'laptop'),
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    }).merged
+    expect(left.sessionOrder).toEqual(right.sessionOrder)
+    expect(left.sessions.map((entry) => entry.id)).toEqual(
+      right.sessions.map((entry) => entry.id),
+    )
+    expect(left.sessions).toHaveLength(3)
+  })
+
+  it('drops deleted session IDs while preserving all remaining sessions', () => {
+    const local = sessionsData({
+      sessions: [
+        session({ id: 'a', name: 'A', createdAt: 1 }),
+        session({ id: 'b', name: 'B', createdAt: 2 }),
+      ],
+      sessionOrder: { ids: ['b', 'a'], updatedAt: 10, editorId: 'laptop' },
+    })
+    const result = mergeSessionsData({
+      local,
+      remote: null,
+      tombstones: [createTombstone('session', 'b', undefined, 'device')],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(result.merged.sessions.map((entry) => entry.id)).toEqual(['a'])
+    expect(result.merged.sessionOrder?.ids).toEqual(['a'])
+  })
+})
+
+describe('delete-all session tombstones', () => {
+  it('prevents known sessions and solves from reappearing from an older snapshot', () => {
+    const oldSolve = solve({ id: 'old-solve' })
+    const remoteOld = sessionsData({
+      sessions: [
+        session({ id: 'old-session', name: 'Old', solves: [oldSolve] }),
+      ],
+      activeSessionId: 'old-session',
+    })
+    const local = sessionsData({
+      sessions: [session({ id: 'fresh', name: DEFAULT_SESSION_NAME, createdAt: 9 })],
+      activeSessionId: 'fresh',
+    })
+    const tombstones = [
+      createTombstone('session', 'old-session', undefined, 'device', undefined, [
+        oldSolve.id,
+      ]),
+      createTombstone('solve', oldSolve.id, 'old-session', 'device'),
+    ]
+    const result = mergeSessionsData({
+      local,
+      remote: remoteOld,
+      tombstones,
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(result.merged.sessions.map((entry) => entry.id)).toEqual(['fresh'])
+    expect(totalSolves(result.merged)).toBe(0)
+    expect(result.removedSolves).toBe(1)
+  })
+
+  it('still recovers an unknown offline solve instead of silently losing it', () => {
+    const known = solve({ id: 'known' })
+    const offline = solve({ id: 'offline', createdAt: 1_700_000_010_000 })
+    const remoteOld = sessionsData({
+      sessions: [
+        session({
+          id: 'old-session',
+          name: 'Old',
+          solves: [known, offline],
+        }),
+      ],
+      activeSessionId: 'old-session',
+    })
+    const local = sessionsData({
+      sessions: [session({ id: 'fresh', name: DEFAULT_SESSION_NAME, createdAt: 9 })],
+      activeSessionId: 'fresh',
+    })
+    const result = mergeSessionsData({
+      local,
+      remote: remoteOld,
+      tombstones: [
+        createTombstone('session', 'old-session', undefined, 'device', undefined, [
+          known.id,
+        ]),
+        createTombstone('solve', known.id, 'old-session', 'device'),
+      ],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(
+      result.merged.sessions.some((entry) =>
+        entry.solves.some((candidate) => candidate.id === 'offline'),
+      ),
+    ).toBe(true)
+    expect(
+      result.merged.sessions.some((entry) =>
+        entry.solves.some((candidate) => candidate.id === 'known'),
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('session event correction synchronization', () => {
+  it('merges a deliberate reassignment with its solves and field metadata', () => {
+    const base = sessionsData({
+      sessions: [
+        session({
+          id: 'shared',
+          event: '333',
+          solves: [solve({ id: 'solve-a' }), solve({ id: 'solve-b' })],
+        }),
+      ],
+    })
+    const corrected = reassignSessionsEvent(base, ['shared'], '222', 500, 'laptop')!
+    const result = mergeSessionsData({
+      local: corrected,
+      remote: base,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    const merged = result.merged.sessions[0]!
+    expect(merged.event).toBe('222')
+    expect(merged.solves.map((entry) => entry.event)).toEqual(['222', '222'])
+    expect(merged.solves.map((entry) => entry.id).sort()).toEqual([
+      'solve-a',
+      'solve-b',
+    ])
+    expect(merged.fieldUpdates?.event).toMatchObject({
+      updatedAt: 500,
+      editorId: 'laptop',
+    })
+    expect(merged.solves[0]?.fieldUpdates?.event).toMatchObject({
+      updatedAt: 500,
+      editorId: 'laptop',
+    })
+
+    const reversed = mergeSessionsData({
+      local: base,
+      remote: corrected,
+      tombstones: [],
+      deviceId: 'device-remote',
+      manualConflictReview: false,
+    })
+    expect(reversed.merged.sessions[0]?.event).toBe('222')
+    expect(
+      reversed.merged.sessions[0]?.solves.map((entry) => entry.event),
+    ).toEqual(['222', '222'])
   })
 })

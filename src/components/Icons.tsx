@@ -96,6 +96,24 @@ export function ResetIcon(props: IconProps) {
   )
 }
 
+export function ZoomInIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4M11 8.5v5M8.5 11h5" />
+    </Icon>
+  )
+}
+
+export function ZoomOutIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4M8.5 11h5" />
+    </Icon>
+  )
+}
+
 export function CubeIcon(props: IconProps) {
   return (
     <Icon {...props}>
@@ -144,6 +162,22 @@ export function ChevronRightIcon(props: IconProps) {
   return (
     <Icon {...props}>
       <path d="m9 18 6-6-6-6" />
+    </Icon>
+  )
+}
+
+export function ArrowUpIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 19V5M6.5 10.5 12 5l5.5 5.5" />
+    </Icon>
+  )
+}
+
+export function ArrowDownIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 5v14M6.5 13.5 12 19l5.5-5.5" />
     </Icon>
   )
 }

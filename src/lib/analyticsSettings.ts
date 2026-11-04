@@ -16,7 +16,6 @@ export const ANALYTICS_SECTION_IDS: readonly AnalyticsSectionId[] = [
   'sessions',
   'activity',
   'advanced',
-  'explorer',
 ]
 
 export const ANALYTICS_SECTION_LABELS: Record<AnalyticsSectionId, string> = {
@@ -30,8 +29,14 @@ export const ANALYTICS_SECTION_LABELS: Record<AnalyticsSectionId, string> = {
   sessions: 'Session comparison',
   activity: 'Practice activity',
   advanced: 'Advanced analytics',
-  explorer: 'Solve explorer',
 }
+
+/**
+ * Sections removed from the dashboard but still present in older synchronized
+ * settings. They are ignored during normalization rather than invalidating the
+ * whole saved layout.
+ */
+export const RETIRED_ANALYTICS_SECTION_IDS: readonly string[] = ['explorer']
 
 /** Sub-X targets use whole seconds and are intentionally generous defaults. */
 export const DEFAULT_SUB_X_TARGETS_MS: Partial<Record<PuzzleEvent, number>> = {
@@ -49,11 +54,34 @@ export const DEFAULT_SUB_X_TARGETS_MS: Partial<Record<PuzzleEvent, number>> = {
   minx: 90_000,
 }
 
+/**
+ * Quick Sub-X targets in milliseconds. Only built-in events with meaningful
+ * community targets are listed; custom and unusual puzzles keep free entry.
+ */
+const SUB_X_PRESETS_MS: Partial<Record<PuzzleEvent, readonly number[]>> = {
+  '333': [10_000, 15_000, 20_000, 30_000],
+  '222': [2_000, 3_000, 5_000, 10_000],
+  '444': [30_000, 45_000, 60_000, 90_000],
+  '333oh': [15_000, 20_000, 30_000, 45_000],
+  '555': [60_000, 90_000, 120_000, 180_000],
+  '666': [120_000, 150_000, 180_000, 240_000],
+  '777': [150_000, 210_000, 300_000, 420_000],
+  pyram: [3_000, 5_000, 8_000, 12_000],
+  skewb: [3_000, 5_000, 8_000, 12_000],
+  sq1: [15_000, 20_000, 30_000, 45_000],
+  clock: [8_000, 10_000, 15_000, 20_000],
+  minx: [60_000, 90_000, 120_000, 180_000],
+}
+
+export function getSubXPresetsMs(event: PuzzleEvent): readonly number[] {
+  return SUB_X_PRESETS_MS[event] ?? []
+}
+
 export const DEFAULT_ANALYTICS_SECTIONS: readonly AnalyticsSectionSetting[] =
   ANALYTICS_SECTION_IDS.map((id) => ({
     id,
     visible: true,
-    wide: id === 'overview' || id === 'progression' || id === 'explorer',
+    wide: id === 'overview' || id === 'progression',
   }))
 
 export function createDefaultAnalyticsSettings(): AnalyticsSettings {
@@ -113,7 +141,7 @@ export function normalizeAnalyticsSections(
     sections.push({
       id,
       visible: true,
-      wide: id === 'overview' || id === 'progression' || id === 'explorer',
+      wide: id === 'overview' || id === 'progression',
     })
   }
   return sections

@@ -24,10 +24,10 @@ function fnv1a(value: string): string {
 }
 
 /**
- * A deterministic, cheap fingerprint of the synchronization-relevant local
- * state. It detects both new object references and accidental in-place
- * mutation, and is persisted after a confirmed remote write so the UI can tell
- * whether any local change is still waiting to sync.
+ * A deterministic content fingerprint of synchronization-relevant local state,
+ * persisted after a confirmed remote write. It traverses current contents when
+ * called; memoized callers still depend on immutable state references. This
+ * 32-bit FNV-1a hash is not a collision-free equality proof.
  */
 export function syncStateFingerprint(
   sessions: SessionsData,
@@ -38,6 +38,8 @@ export function syncStateFingerprint(
       stableValue({
         activeSessionId: sessions.activeSessionId,
         sessions: sessions.sessions,
+        customEvents: sessions.customEvents ?? [],
+        sessionOrder: sessions.sessionOrder ?? null,
         settings,
       }),
     ),

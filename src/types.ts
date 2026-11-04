@@ -1,5 +1,5 @@
-/** The puzzles CubeLab can currently record solves for. */
-export type PuzzleEvent =
+/** The official puzzles CubeLab ships with. */
+export type BuiltInPuzzleEvent =
   | '333'
   | '222'
   | '444'
@@ -13,12 +13,69 @@ export type PuzzleEvent =
   | 'clock'
   | 'minx'
 
+/**
+ * A puzzle event ID. Built-in events are the literal union above; custom
+ * events use a stable `custom:` ID. The `string & {}` form keeps literal
+ * autocomplete while allowing persisted custom IDs.
+ */
+export type PuzzleEvent = BuiltInPuzzleEvent | (string & {})
+
 /** A WCA penalty. Penalties are mutually exclusive. */
 export type Penalty = 'none' | '+2' | 'dnf'
 
 export interface FieldUpdate {
   updatedAt: number
   editorId: string
+}
+
+/**
+ * How a csTimer scramble type was obtained. `default` means valid session
+ * metadata omitted `opt.scrType`, so csTimer itself used `333`. `explicit`
+ * means the source supplied a string (including an unsupported or empty one).
+ * `unavailable` means the metadata was missing or malformed and no default was
+ * applied.
+ */
+export type CsTimerScrTypeSource = 'explicit' | 'default' | 'unavailable'
+
+/** Provenance retained for solves created by the additive csTimer import. */
+export interface CsTimerSolveSource {
+  provider: 'cstimer'
+  /**
+   * Original csTimer `opt.scrType`, or `333` when a valid session omitted it.
+   * Empty when no usable source identifier was available.
+   */
+  scrType: string
+  /**
+   * Optional for imports made before this provenance was recorded. Older
+   * records remain valid and are never reinterpreted as an explicit default.
+   */
+  scrTypeSource?: CsTimerScrTypeSource
+  sessionNumber: number
+  solveIndex: number
+}
+
+/**
+ * A user-created event that records solves without an official scramble
+ * generator or 3D visualization.
+ */
+export interface CustomEventDefinition {
+  /** Stable `custom:` ID. csTimer-created events derive it from the type. */
+  id: string
+  name: string
+  /** Optional text shown instead of a generated scramble. Empty means default. */
+  placeholder: string
+  createdAt: number
+  updatedAt: number
+  /** Field-level edit metadata used during synchronization. */
+  fieldUpdates?: Partial<{
+    name: FieldUpdate
+    placeholder: FieldUpdate
+  }>
+  /** Original source identifiers. Repeated imports reuse the same definition. */
+  source?: {
+    provider: 'cstimer'
+    identifiers: string[]
+  }
 }
 
 /**
@@ -51,7 +108,11 @@ export interface Solve {
     penalty: FieldUpdate
     scramble: FieldUpdate
     comment: FieldUpdate
+    /** Present when a solve was deliberately reclassified between events. */
+    event: FieldUpdate
   }>
+  /** Retained csTimer import provenance for safe reclassification. */
+  importSource?: CsTimerSolveSource
 }
 
 export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'
@@ -117,7 +178,6 @@ export type AnalyticsSectionId =
   | 'sessions'
   | 'activity'
   | 'advanced'
-  | 'explorer'
 
 export interface AnalyticsSectionSetting {
   id: AnalyticsSectionId
@@ -157,6 +217,10 @@ export interface Settings {
   statPrecision: StatPrecision
   averageTrimBetter: AverageTrimRule
   averageTrimWorse: AverageTrimRule | 'auto'
+  /** Show completed / total solves for the active session. */
+  showSessionSolveProgress: boolean
+  /** Show the sum of completed solve times for the active session. */
+  showSessionTotalTime: boolean
   /** Analytics page layout and per-puzzle Sub-X targets. */
   analytics: AnalyticsSettings
 }
@@ -197,6 +261,19 @@ export interface SessionFieldUpdates {
 }
 
 /**
+ * Persisted user-defined session ordering. IDs are session identities, never
+ * positions, so additions and deletions cannot shift unrelated sessions.
+ * `updatedAt`/`editorId` give synchronization a deterministic last-writer-wins
+ * decision; sessions missing from `ids` are appended deterministically without
+ * being dropped.
+ */
+export interface SessionOrdering {
+  ids: string[]
+  updatedAt: number
+  editorId: string
+}
+
+/**
  * A named local session. Solves are stored newest-first inside the session.
  * Timestamps are wall-clock metadata only; solve duration always comes from
  * the monotonic timer.
@@ -224,6 +301,13 @@ export interface Session {
 export interface SessionsData {
   activeSessionId: string
   sessions: Session[]
+  /**
+   * User-defined sessions. Optional so collections written before custom events
+   * remain valid without a schema migration.
+   */
+  customEvents?: CustomEventDefinition[]
+  /** User-defined display order for sessions. */
+  sessionOrder?: SessionOrdering
 }
 
 export type NewSolve = Omit<Solve, 'id' | 'event' | 'createdAt' | 'comment'>

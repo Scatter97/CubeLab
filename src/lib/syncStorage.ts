@@ -39,7 +39,7 @@ export interface SyncPreferences {
 }
 
 export interface Tombstone {
-  kind: 'solve' | 'session'
+  kind: 'solve' | 'session' | 'event'
   id: string
   sessionId?: string
   deletedAt: number
@@ -71,7 +71,7 @@ export function isActiveTombstone(tombstone: Tombstone): boolean {
 
 export interface SyncConflict {
   id: string
-  kind: 'solve' | 'session' | 'settings' | 'redirect'
+  kind: 'solve' | 'session' | 'settings' | 'redirect' | 'event'
   sessionId?: string
   field: string
   localValue: unknown
@@ -200,7 +200,7 @@ function isValidThreshold(value: unknown): value is SyncSolveThreshold {
 
 export function isTombstone(value: unknown): value is Tombstone {
   if (!isRecord(value)) return false
-  if (value.kind !== 'solve' && value.kind !== 'session') return false
+  if (value.kind !== 'solve' && value.kind !== 'session' && value.kind !== 'event') return false
   if (typeof value.id !== 'string' || value.id.length === 0) return false
   if (typeof value.deletedAt !== 'number' || !Number.isFinite(value.deletedAt)) return false
   if (value.deletedAt < 0) return false
@@ -251,7 +251,8 @@ export function isConflict(value: unknown): value is SyncConflict {
     value.kind !== 'solve' &&
     value.kind !== 'session' &&
     value.kind !== 'settings' &&
-    value.kind !== 'redirect'
+    value.kind !== 'redirect' &&
+    value.kind !== 'event'
   ) {
     return false
   }
@@ -279,7 +280,8 @@ export function isConflictAuditEntry(value: unknown): value is ConflictAuditEntr
     value.kind !== 'solve' &&
     value.kind !== 'session' &&
     value.kind !== 'settings' &&
-    value.kind !== 'redirect'
+    value.kind !== 'redirect' &&
+    value.kind !== 'event'
   ) {
     return false
   }

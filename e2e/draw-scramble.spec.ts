@@ -1,12 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { CUBELAB_EVENTS } from '../src/lib/events'
+import { chooseTestOption } from './interactions'
 
 async function waitForReady(page: import('@playwright/test').Page) {
   await page.goto('/')
   await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', {
-    timeout: 30_000,
-  })
 }
 
 async function openToolPanel(page: import('@playwright/test').Page) {
@@ -25,7 +23,7 @@ async function useMode(
   await page.getByTestId('settings-button').click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
-  await settings.getByTestId('scramble-draw-mode').selectOption(mode)
+  await chooseTestOption(page, 'scramble-draw-mode', mode)
   await settings.getByRole('button', { name: 'Close settings' }).click()
   await expect(settings).toHaveCount(0)
 }
@@ -37,15 +35,12 @@ async function useEvent(
   await page.getByTestId('session-settings').click()
   const dialog = page.getByRole('dialog', { name: 'Session settings' })
   await expect(dialog).toBeVisible()
-  await dialog.locator('select').selectOption(event.id)
+  await chooseTestOption(page, 'session-event-select', event.id)
   await dialog.getByTestId('session-settings-done').click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.scramble-badge')).toContainText(
-    `${event.label} · scramble`,
+    `${event.label}`,
   )
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', {
-    timeout: 30_000,
-  })
 }
 
 test('3D Draw Scramble fills its canvas', async ({ page, browserName }) => {
@@ -210,7 +205,7 @@ test('Draw Scramble follows the session event', async ({ page }) => {
   await page.getByTestId('session-settings').click()
   const sessionDialog = page.getByRole('dialog', { name: 'Session settings' })
   await expect(sessionDialog).toBeVisible()
-  await sessionDialog.locator('select').selectOption('222')
+  await chooseTestOption(page, 'session-event-select', '222')
   await sessionDialog.getByTestId('session-settings-done').click()
   await expect(sessionDialog).toHaveCount(0)
 
@@ -328,7 +323,7 @@ test('renderer dimensions stay frozen during 3D resize', async ({ page }) => {
 
   await page.getByTestId('settings-button').click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByTestId('scramble-draw-mode').selectOption('3d')
+  await chooseTestOption(page, 'scramble-draw-mode', '3d')
   await settings.getByRole('button', { name: 'Close settings' }).click()
   await expect(settings).toHaveCount(0)
 
@@ -462,7 +457,7 @@ test('the 2D net uses the standard six-face colours in both themes', async ({
   // The palette is identical in the dark theme.
   await page.getByTestId('settings-button').click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByTestId('theme-setting').selectOption('dark')
+  await chooseTestOption(page, 'theme-setting', 'dark')
   await settings.getByRole('button', { name: 'Close settings' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 

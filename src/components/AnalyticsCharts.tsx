@@ -16,6 +16,11 @@ import {
   type TrendAxisView,
 } from '../lib/timeTrend'
 import type { ActivityDay, HistogramBin } from '../lib/analytics'
+import {
+  ResetIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from './Icons'
 
 export interface AnalyticsSeries {
   key: string
@@ -87,7 +92,12 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
     moved: boolean
   } | null>(null)
   const width = Math.max(260, measured.width)
-  const chartHeight = Math.max(150, height)
+  // Analytics charts fill their flex row on desktop; other uses fall back to the
+  // explicit/default height until the plot has been measured.
+  const chartHeight = Math.max(
+    150,
+    Math.round(measured.height > 0 ? measured.height : height),
+  )
   const count = Math.max(
     ...series.map((entry) => entry.values.length),
     0,
@@ -201,7 +211,7 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
   }
 
   return (
-    <div className="analytics-chart" data-testid={testId}>
+    <div className="analytics-chart analytics-line-chart" data-testid={testId}>
       {(title || showControls) && (
         <div className="analytics-chart-heading">
           <div>
@@ -209,32 +219,39 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
             {description ? <p>{description}</p> : null}
           </div>
           {showControls && count > 2 && hasValues ? (
-            <div className="analytics-chart-controls">
+            <div
+              className="chart-zoom-controls"
+              role="group"
+              aria-label={`${title} view controls`}
+            >
               <button
                 type="button"
-                className="time-trend-button"
+                className="chart-zoom-button"
                 onClick={() => zoomBy(2)}
                 aria-label={`Zoom in on ${title}`}
+                title={`Zoom in on ${title}`}
               >
-                Zoom in
+                <ZoomInIcon size={14} />
               </button>
               <button
                 type="button"
-                className="time-trend-button"
+                className="chart-zoom-button"
                 onClick={() => zoomBy(0.5)}
                 disabled={view.zoom <= 1}
                 aria-label={`Zoom out of ${title}`}
+                title={`Zoom out of ${title}`}
               >
-                Zoom out
+                <ZoomOutIcon size={14} />
               </button>
               <button
                 type="button"
-                className="time-trend-button"
+                className="chart-zoom-button"
                 onClick={reset}
                 disabled={view.zoom <= 1 && view.position === 1}
                 aria-label={`Reset ${title} view`}
+                title={`Reset ${title} view`}
               >
-                Reset
+                <ResetIcon size={14} />
               </button>
             </div>
           ) : null}
@@ -447,7 +464,10 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
   const hostRef = useRef<HTMLDivElement>(null)
   const measured = useElementWidth(hostRef)
   const width = Math.max(280, measured.width)
-  const height = 240
+  const height = Math.max(
+    140,
+    Math.round(measured.height > 0 ? measured.height : 240),
+  )
   const margin = { top: 18, right: 14, bottom: 28, left: 42 }
   const plotW = Math.max(1, width - margin.left - margin.right)
   const plotH = Math.max(1, height - margin.top - margin.bottom)
@@ -536,6 +556,14 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
                   <title>
                     {`${formatValue(bin.startMs)}–${formatValue(bin.endMs)} · ${bin.count} solves · ${bin.percent.toFixed(1)}%`}
                   </title>
+                  <rect
+                    className="analytics-histogram-hit"
+                    x={x}
+                    y={margin.top}
+                    width={Math.max(1, barWidth)}
+                    height={plotH}
+                    fill="transparent"
+                  />
                   <rect
                     x={x}
                     y={margin.top + plotH - barHeight}
@@ -647,25 +675,120 @@ export const ActivityHeatmap = memo(function ActivityHeatmap({
     return result
   }, [days])
 
+  const firstDay = days[0]
+  const lastDay = days[days.length - 1]
+  const activeDays = days.filter((day) => day.count > 0).length
+  const monthLabels = useMemo(() => {
+    let previousMonth = -1
+    let previousYear = -1
+    return weeks.map((week, index) => {
+      const day = week.find((entry): entry is ActivityDay => entry !== null)
+      if (!day) return ''
+      const date = new Date(day.dateMs)
+      const month = date.getMonth()
+      const year = date.getFullYear()
+      const changed = month !== previousMonth || year !== previousYear
+      previousMonth = month
+      previousYear = year
+      if (!changed && index !== 0) return ''
+      const monthLabel = date.toLocaleDateString(undefined, { month: 'short' })
+      return index === 0 || month === 0
+        ? `${monthLabel} ${year}`
+        : monthLabel
+    })
+  }, [weeks])
+
+  const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+  if (!firstDay || !lastDay) {
+    return (
+      <p className="analytics-empty" role="status">
+        No practice activity matches the current filters.
+      </p>
+    )
+  }
+
+  const rangeDescription = `${formatDate(firstDay)} to ${formatDate(lastDay)}`
   return (
-    <div className="analytics-heatmap-scroll">
-      <div className="analytics-heatmap" role="img" aria-label="Daily solve activity for the last 52 weeks">
-        {weeks.map((week, weekIndex) => (
-          <div className="analytics-heatmap-week" key={weekIndex}>
-            {week.map((day, dayIndex) =>
-              day ? (
-                <span
-                  key={day.key}
-                  className={`analytics-heatmap-cell level-${day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count / max) * 4))}`}
-                  title={`${formatDate(day)} · ${day.count} ${day.count === 1 ? 'solve' : 'solves'}`}
-                  aria-label={`${formatDate(day)}: ${day.count} solves`}
-                />
-              ) : (
-                <span className="analytics-heatmap-cell is-empty" key={`blank-${dayIndex}`} aria-hidden="true" />
-              ),
-            )}
-          </div>
-        ))}
+    <div className="analytics-heatmap-block">
+      <p className="analytics-heatmap-caption" data-testid="activity-heatmap-range">
+        <strong>{rangeDescription}</strong>
+        <span>
+          {activeDays.toLocaleString()} active{' '}
+          {activeDays === 1 ? 'day' : 'days'} across {days.length.toLocaleString()}{' '}
+          calendar {days.length === 1 ? 'day' : 'days'}
+        </span>
+      </p>
+      <div
+        className="analytics-heatmap-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label={`Daily solve activity, ${rangeDescription}. Scroll horizontally for the full range.`}
+      >
+        <table className="analytics-heatmap">
+          <caption className="sr-only">
+            Daily solve activity from {rangeDescription}. {activeDays} active
+            days.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col" className="analytics-heatmap-corner">
+                <span className="sr-only">Weekday</span>
+              </th>
+              {weeks.map((week, weekIndex) => (
+                <th
+                  key={`month-${weekIndex}`}
+                  scope="col"
+                  className="analytics-heatmap-month"
+                >
+                  {monthLabels[weekIndex] ? (
+                    <span>{monthLabels[weekIndex]}</span>
+                  ) : (
+                    <span className="sr-only">
+                      Week of{' '}
+                      {week.find((day): day is ActivityDay => day !== null)
+                        ? formatDate(
+                            week.find(
+                              (day): day is ActivityDay => day !== null,
+                            )!,
+                          )
+                        : weekIndex}
+                    </span>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {weekdayLabels.map((weekday, dayIndex) => (
+              <tr key={weekday}>
+                <th scope="row" className="analytics-heatmap-weekday">
+                  {weekday}
+                </th>
+                {weeks.map((week, weekIndex) => {
+                  const day = week[dayIndex]
+                  return (
+                    <td key={`${weekIndex}-${dayIndex}`}>
+                      {day ? (
+                        <span
+                          className={`analytics-heatmap-cell level-${day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count / max) * 4))}`}
+                          role="img"
+                          aria-label={`${formatDate(day)}: ${day.count} solves`}
+                          title={`${formatDate(day)} · ${day.count} ${day.count === 1 ? 'solve' : 'solves'}`}
+                        />
+                      ) : (
+                        <span
+                          className="analytics-heatmap-cell is-empty"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )

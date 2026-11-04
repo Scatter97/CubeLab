@@ -1,3 +1,9 @@
+> **Historical snapshot — archived 2026-11-01.** This record may contain
+> superseded behavior, approval milestones and verification results. For current
+> work read [STATUS.md](../../STATUS.md), [AGENTS.md](../../AGENTS.md) and
+> [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md). Paths in code spans
+> and command blocks retain their original repository-root context.
+
 # CubeLab — Oct 28 AM Plan (Stages 0–6)
 
 **Created:** 2026-10-28
@@ -9,9 +15,10 @@
 
 **Documentation reconciled:** 2026-11-01. This file records the completed
 October 28–29 stages; its baseline commands, counts and implementation tasks
-are historical, not the current execution plan. The latest October 31 check
-passed 503 unit/component tests in 38 files and 216 browser tests with 9 existing
-skips, plus typecheck/lint/build and supported offline coverage.
+are historical, not the current execution plan. The October 31 check recorded
+503 unit/component tests in 38 files and 216 browser passes with 9 skips; the
+later November 1 Phase 6a record is 518 tests in 39 files and 252 browser passes
+with 9 skips. See `PROJECT_PROGRESS.md` for fresh audit evidence and open gaps.
 
 Subsequent approved work delivered the October 30 audit remediation, csTimer
 import, 2D/PG3D tools, Time Trend/PB gestures and dialogs, settings-v8 trimming
@@ -160,7 +167,7 @@ account, so non-test sign-in and published production branding are not validated
 ## Stage 4 — Phase 3 completion — Complete 2026-10-28
 
 1. **5×5, 6×6, and 7×7 — delivered.** `555`, `666`, and `777` are session
-   events with `cubing.js` random-state scrambles, event metadata in sessions
+   events with official `cubing.js` event scrambles, event metadata in sessions
    and solves, prefetched scrambles with loading/failure/retry states, and
    per-event statistics, history, and backups.
 2. **Per-event production E2E — delivered.** Desktop and mobile Playwright tests

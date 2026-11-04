@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { selectSession } from './interactions'
 import { formatTime } from '../src/lib/format'
 
 const TIMER = '[data-testid="timer-surface"]'
@@ -36,7 +37,6 @@ test('large-session stops persist once, display the exact result, and refresh in
     } }))
   })
   await page.goto('/')
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', { timeout: 30000 })
   await page.getByTestId('current-tool-button').click()
   await page.getByTestId('tool-select-button').click()
   await page.getByRole('menuitemradio', { name: 'Time Trend' }).click()
@@ -67,11 +67,11 @@ test('large-session stops persist once, display the exact result, and refresh in
   const second = (await stored(page)).sessions[0].solves[0]
   await expect(page.getByTestId('timer-display')).toHaveText(formatTime(second.rawMs))
   await page.mouse.up()
-  await page.getByTestId('session-select').selectOption('other')
+  await selectSession(page, 'other')
   await expect(page.getByTestId('timer-display')).toHaveText(formatTime(98765))
   await expect(page.getByTestId('solve-count')).toHaveText('1')
   await expect(page.getByTestId('history-row')).toHaveCount(1)
-  await page.getByTestId('session-select').selectOption('dense')
+  await selectSession(page, 'dense')
   await expect(page.getByTestId('solve-count')).toHaveText('7002')
   const completed = (await stored(page)).sessions[0].solves
   expect(completed.slice(2)).toEqual(original)

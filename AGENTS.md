@@ -19,11 +19,11 @@ custom CSS, Vitest and Playwright. Use **Node 22+** as required by `package.json
 It has no application backend or telemetry. Data stays in browser storage unless
 the user exports a file or explicitly connects Google Drive.
 
-The implemented product includes 12 events, inspection, named sessions, solve
-comments/actions, configurable trimmed statistics, Time Trend/PB details,
-the lazy Analytics dashboard, floating scramble/chart tools, native JSON backup,
-additive csTimer import, optional Drive sync, light/dark/system themes and an
-offline-capable PWA. Sessions use schema **v4**; settings use **v9**. Storage-key
+The implemented product includes 12 built-in events plus user-defined custom events,
+inspection, named sessions, solve comments/actions, configurable trimmed statistics,
+Time Trend/PB details, the lazy Analytics dashboard, floating scramble/chart tools,
+native JSON backup, additive csTimer import, optional Drive sync, light/dark/system
+themes and an offline-capable PWA. Sessions use schema **v5**; settings use **v10**. Storage-key
 suffixes remain `v1`; do not confuse key names with payload schema versions.
 
 | Area | Owner |
@@ -31,10 +31,11 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | Application wiring, global keyboard input, completion and modals | `src/App.tsx` |
 | Timer transitions and inspection penalties | `src/timer/machine.ts`, `src/hooks/useTimer.ts` |
 | Live readout and delayed insight presentation | `src/hooks/useRunningElapsed.ts`, `src/hooks/usePostPaintValue.ts` |
-| Sessions, settings and storage validation | `src/lib/sessions.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts` |
+| Sessions, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts` |
+| Custom events, csTimer event mapping and reassignment | `src/lib/events.ts`, `src/lib/customEvents.ts`, `src/components/CustomEventsDialog.tsx` |
 | Backup and csTimer parsing | `src/lib/backup.ts`, `src/lib/csTimerImport.ts` |
 | Sync orchestration and pure merges | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts` |
-| Statistics, trimming and trend data | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts` |
+| Statistics, trimming, session summaries and trend data | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts`, `src/lib/sessions.ts` |
 | Analytics dashboard, filters and reporting | `src/lib/analytics.ts`, `src/lib/analyticsSettings.ts`, `src/components/AnalyticsPage.tsx`, `src/components/AnalyticsCharts.tsx` |
 | Events, official scrambles and visualizations | `src/lib/events.ts`, `src/lib/scramble.ts`, `src/components/ToolPanel.tsx` |
 | Theme tokens/bootstrap and PWA/worker build | `src/index.css`, `index.html`, `vite.config.ts` |
@@ -117,21 +118,34 @@ npm run typecheck        # TypeScript
 npm run lint             # Oxlint
 npm test -- <test-file>  # focused Vitest coverage; npm test runs all
 npm run build            # production build and PWA
-npm run test:e2e         # production Playwright suite
+npm run test:e2e -- <spec-file> --project=chromium --workers=1
 ```
 
-For behavior changes, add a meaningful regression at the owning layer, exercise
-user-visible flows in Playwright, then run `VITE_DRIVE_MOCK=true npm run check`
-(typecheck, lint, unit/component tests, production build and browser tests).
-Run `npm run build` afterward to restore normal production output. Do not weaken
-failing coverage; fix the behavior or correct a demonstrably wrong expectation.
+Use a tiered workflow so routine work does not saturate the CPU:
 
-Playwright uses Chromium, Firefox and WebKit on `127.0.0.1:4173`. Its server
-command builds with mock Drive; a reused preview skips that command, so build
-with `VITE_DRIVE_MOCK=true` first when reusing a server. Keep existing skips
-visible. Inspect desktop/mobile UI when affected and refresh `docs/` screenshots
-when the design changes materially. Report measured latency separately from
-correctness and physical-device evidence.
+| Change | Required verification |
+| --- | --- |
+| Documentation, copy, or minor CSS/visual-only UI | Inspect the affected view manually. Run a focused Vitest/Playwright case only when the change can affect behavior. |
+| Logic, storage, statistics, import, sync, or another non-visual behavior | `npm run typecheck`, `npm run lint`, and the affected Vitest files. Add the owning regression before editing. |
+| Major cross-layer feature or refactor | Focused Vitest plus the Playwright specs covering the affected flow, normally Chromium and `--workers=1`. Add other engines only when the change is engine-sensitive. |
+| Significant release or explicitly requested full browser pass | `VITE_DRIVE_MOCK=true npm run check` once, after the focused checks pass. |
+
+Do not run the entire Playwright suite after every change. Reserve the full
+suite for significant releases, broad refactors, or an explicit request. During
+normal development, target one spec and one browser with `--workers=1`; never
+run multiple browsers or test suites concurrently. Do not rerun a passing test
+unless relevant code or configuration changed.
+
+Never omit the focused tests required for destructive paths: saves, solve/session
+deletion and Undo, native import/replacement, csTimer import, backup restore,
+storage migration, or Google Drive merge/conflict/restore behavior. Run the
+affected unit and browser cases even when a full suite is otherwise unnecessary.
+
+After a focused browser run, `npm run build` restores normal production output if
+the run used mock Drive. Playwright uses Chromium, Firefox and WebKit on
+`127.0.0.1:4173`. Its server command builds with mock Drive; a reused preview
+skips that command, so build with `VITE_DRIVE_MOCK=true` first when reusing a
+server. Keep existing skips visible.
 
 Documentation-only edits need link/path/command checks, skill validation when
 changed, and `git diff --check`; a full application rebuild is unnecessary.
@@ -139,6 +153,9 @@ changed, and `git diff --check`; a full application rebuild is unnecessary.
 verification: use it only with explicit live-test authorization and a supplied
 short-lived `drive.appdata` credential. Never print/commit credentials or add
 that harness to ordinary checks/CI.
+
+Always report exactly which commands/tests ran, which were intentionally skipped,
+and why.
 
 ## Documentation and delivery
 

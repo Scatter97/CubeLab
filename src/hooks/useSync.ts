@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import type { SessionsData, Settings } from '../types'
+import type { Session, SessionsData, Settings } from '../types'
 import { countSolves, reconcileExternalSessions } from '../lib/sessions'
 import { loadSessions } from '../lib/storage'
 import { createBackup } from '../lib/backup'
@@ -104,8 +104,17 @@ export interface UseSyncResult {
   preferences: SyncPreferences
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
-  recordDeletion: (kind: 'solve' | 'session', id: string, sessionId?: string) => void
-  restoreDeletion: (kind: 'solve' | 'session', id: string) => void
+  recordDeletion: (kind: 'solve' | 'session' | 'event', id: string, sessionId?: string) => void
+  /** Records many solve deletions in one durable sync-storage write. */
+  recordDeletions: (
+    entries: readonly { id: string; sessionId?: string }[],
+  ) => boolean
+  /**
+   * Records durable tombstones for every supplied session and solve in one
+   * write. Used by the destructive "delete all sessions" action.
+   */
+  recordAllSessionDeletions: (sessions: readonly Session[]) => boolean
+  restoreDeletion: (kind: 'solve' | 'session' | 'event', id: string) => void
   resetBase: (data: SessionsData) => void
 }
 
@@ -210,6 +219,11 @@ export function useSync({
   const previousSettingsRef = useRef<Settings | null>(null)
   const replacementSettingsFingerprintRef = useRef<string | null>(null)
   const previousActiveSessionIdRef = useRef<string | null>(null)
+  /**
+   * A full solve reset must not let the immediately following publication prune
+   * historical snapshots. Existing retention settings resume after that publish.
+   */
+  const preserveSnapshotsForResetRef = useRef(false)
 
   // Keep the latest props available before the browser yields. A sync request
   // can finish while a local edit is being committed; the in-flight guards
@@ -346,12 +360,40 @@ export function useSync({
           }
         }
       }
+      const previousEventIds = new Set(
+        (previous.customEvents ?? []).map((definition) => definition.id),
+      )
+      const currentEventIds = new Set(
+        (sessions.customEvents ?? []).map((definition) => definition.id),
+      )
+      for (const id of previousEventIds) {
+        if (currentEventIds.has(id)) continue
+        const already = syncRef.current.runtime.tombstones.some(
+          (tombstone) =>
+            tombstone.kind === 'event' &&
+            tombstone.id === id &&
+            isActiveTombstone(tombstone),
+        )
+        if (already) continue
+        persist({
+          ...syncRef.current,
+          runtime: {
+            ...syncRef.current.runtime,
+            tombstones: [
+              ...syncRef.current.runtime.tombstones.filter(
+                (tombstone) => !(tombstone.kind === 'event' && tombstone.id === id),
+              ),
+              createTombstone('event', id, undefined, syncRef.current.runtime.deviceId),
+            ],
+          },
+        })
+      }
     }
     knownSessionsRef.current = sessions
   }, [sessions, persist])
 
   const recordDeletion = useCallback(
-    (kind: 'solve' | 'session', id: string, sessionId?: string) => {
+    (kind: 'solve' | 'session' | 'event', id: string, sessionId?: string) => {
       const existing = syncRef.current.runtime.tombstones.find(
         (tombstone) => tombstone.kind === kind && tombstone.id === id,
       )
@@ -384,6 +426,84 @@ export function useSync({
     [persist],
   )
 
+  const recordDeletions = useCallback(
+    (entries: readonly { id: string; sessionId?: string }[]): boolean => {
+      if (entries.length === 0) return true
+      const byId = new Map<string, { id: string; sessionId?: string }>()
+      for (const entry of entries) byId.set(entry.id, entry)
+      const ids = new Set(byId.keys())
+      const deviceId = syncRef.current.runtime.deviceId
+      const tombstones = syncRef.current.runtime.tombstones.filter(
+        (tombstone) => !(tombstone.kind === 'solve' && ids.has(tombstone.id)),
+      )
+      for (const entry of byId.values()) {
+        tombstones.push(
+          createTombstone('solve', entry.id, entry.sessionId, deviceId),
+        )
+      }
+      const next = {
+        ...syncRef.current,
+        runtime: {
+          ...syncRef.current.runtime,
+          tombstones,
+        },
+      }
+      setSync(next)
+      syncRef.current = next
+      if (!storageOk) return false
+      const saved = saveSyncStorage(next)
+      if (saved) preserveSnapshotsForResetRef.current = true
+      return saved
+    },
+    [storageOk],
+  )
+
+  const recordAllSessionDeletions = useCallback(
+    (sessions: readonly Session[]): boolean => {
+      if (sessions.length === 0) return true
+      const deviceId = syncRef.current.runtime.deviceId
+      const sessionIds = new Set(sessions.map((session) => session.id))
+      const solveIds = new Set(
+        sessions.flatMap((session) => session.solves.map((solve) => solve.id)),
+      )
+      const tombstones = syncRef.current.runtime.tombstones.filter(
+        (tombstone) =>
+          !(tombstone.kind === 'session' && sessionIds.has(tombstone.id)) &&
+          !(tombstone.kind === 'solve' && solveIds.has(tombstone.id)),
+      )
+      for (const session of sessions) {
+        tombstones.push(
+          createTombstone(
+            'session',
+            session.id,
+            undefined,
+            deviceId,
+            undefined,
+            session.solves.map((solve) => solve.id),
+          ),
+        )
+        for (const solve of session.solves) {
+          tombstones.push(createTombstone('solve', solve.id, session.id, deviceId))
+        }
+      }
+      const next = {
+        ...syncRef.current,
+        runtime: {
+          ...syncRef.current.runtime,
+          tombstones,
+          lastSyncedFingerprint: null,
+        },
+      }
+      setSync(next)
+      syncRef.current = next
+      if (!storageOk) return false
+      const saved = saveSyncStorage(next)
+      if (saved) preserveSnapshotsForResetRef.current = true
+      return saved
+    },
+    [storageOk],
+  )
+
   /**
    * Undo is durable: the tombstone is retained with a newer `restoredAt`
    * revocation timestamp. Every device merges that record, so an already
@@ -391,7 +511,7 @@ export function useSync({
    * deletion gets a newer `deletedAt` and wins deterministically.
    */
   const restoreDeletion = useCallback(
-    (kind: 'solve' | 'session', id: string) => {
+    (kind: 'solve' | 'session' | 'event', id: string) => {
       const now = Date.now()
       let changed = false
       const tombstones = syncRef.current.runtime.tombstones.map((tombstone) => {
@@ -903,9 +1023,7 @@ export function useSync({
             adoptedLocalDefault = adoptedLocalDefault || result.adoptedLocalDefault
             recoveredSolves += result.recoveredSolves
             conflicts.push(...result.conflicts)
-            if (result.activeSessionFieldUpdate) {
-              mergedActiveSessionUpdate = result.activeSessionFieldUpdate
-            }
+            mergedActiveSessionUpdate = result.activeSessionFieldUpdate
           }
           // Duplicate names must be judged against the final collection. A later
           // snapshot without its own collision must not erase an earlier warning.
@@ -1270,6 +1388,8 @@ export function useSync({
           settingsRef.current = mergedSettings
           replacementSettingsFingerprintRef.current =
             settingsStateFingerprint(mergedSettings)
+          // This selection carries merged provenance, not a fresh local edit.
+          previousActiveSessionIdRef.current = mergedSessions.activeSessionId
           onReplaceSessions(mergedSessions)
           onReplaceSettings(mergedSettings)
 
@@ -1325,6 +1445,14 @@ export function useSync({
           let cleanupDeleted = 0
           let cleanupFailure: string | null = null
           if (
+            publishedSnapshot &&
+            perDeviceTransport &&
+            preserveSnapshotsForResetRef.current
+          ) {
+            // Reset preserves every existing snapshot; routine retention resumes
+            // on the next ordinary synchronization.
+            preserveSnapshotsForResetRef.current = false
+          } else if (
             publishedSnapshot &&
             perDeviceTransport &&
             syncRef.current.preferences.snapshotCleanupEnabled
@@ -1799,6 +1927,8 @@ export function useSync({
       }
     },
     recordDeletion,
+    recordDeletions,
+    recordAllSessionDeletions,
     restoreDeletion,
     resetBase,
     approveSessionMerge,

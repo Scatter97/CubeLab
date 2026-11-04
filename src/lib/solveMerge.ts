@@ -7,6 +7,7 @@ export function recordTime(item: { updatedAt?: number; createdAt?: number }): nu
 
 export function solvesEqual(left: Solve, right: Solve): boolean {
   return (
+    left.event === right.event &&
     left.rawMs === right.rawMs &&
     left.penalty === right.penalty &&
     left.scramble === right.scramble &&
@@ -15,9 +16,11 @@ export function solvesEqual(left: Solve, right: Solve): boolean {
   )
 }
 
+type SolveMergeField = 'event' | 'rawMs' | 'penalty' | 'scramble' | 'comment'
+
 function getFieldUpdate(
   solve: Solve,
-  field: 'rawMs' | 'penalty' | 'scramble' | 'comment',
+  field: SolveMergeField,
 ): FieldUpdate {
   const existing = solve.fieldUpdates?.[field]
   if (existing && Number.isFinite(existing.updatedAt) && typeof existing.editorId === 'string') {
@@ -30,10 +33,14 @@ function getFieldUpdate(
   return { updatedAt: fallbackTime, editorId: 'legacy' }
 }
 
+function fieldValue(solve: Solve, field: SolveMergeField): string | number {
+  return solve[field]
+}
+
 function pickFieldWinner(
   local: Solve,
   remote: Solve,
-  field: 'rawMs' | 'penalty' | 'scramble' | 'comment',
+  field: SolveMergeField,
 ): 'local' | 'remote' {
   const localUpdate = getFieldUpdate(local, field)
   const remoteUpdate = getFieldUpdate(remote, field)
@@ -44,20 +51,14 @@ function pickFieldWinner(
     return localUpdate.editorId < remoteUpdate.editorId ? 'local' : 'remote'
   }
   // Equal modification metadata: remain deterministic in either merge order.
-  const localValue =
-    field === 'rawMs' ? local.rawMs :
-    field === 'penalty' ? local.penalty :
-    field === 'scramble' ? local.scramble : local.comment
-  const remoteValue =
-    field === 'rawMs' ? remote.rawMs :
-    field === 'penalty' ? remote.penalty :
-    field === 'scramble' ? remote.scramble : remote.comment
-  return String(localValue) <= String(remoteValue) ? 'local' : 'remote'
+  return String(fieldValue(local, field)) <= String(fieldValue(remote, field))
+    ? 'local'
+    : 'remote'
 }
 
 function findResolvedConflict(
   local: Solve,
-  field: 'rawMs' | 'penalty' | 'scramble' | 'comment',
+  field: SolveMergeField,
   localValue: unknown,
   remoteValue: unknown,
   localUpdatedAt: number,
@@ -117,6 +118,102 @@ function resolvedWinner(
   return conflict.resolution === 'local' ? 'remote' : 'local'
 }
 
+export interface ResolvedSolveEvent {
+  event: Solve['event']
+  update?: FieldUpdate
+  resolvedAt: number
+}
+
+/**
+ * Puzzle event is normally immutable, so legacy disagreement still stops sync.
+ * A deliberate reclassification carries explicit per-field metadata; that
+ * provenance lets the newer event win and lets two devices converge without
+ * guessing from time or scramble text.
+ */
+export function resolveSolveEvent(
+  local: Solve,
+  remote: Solve,
+  manualConflictReview: boolean,
+  conflicts: SyncConflict[],
+  resolvedConflicts: readonly SyncConflict[] = [],
+): ResolvedSolveEvent {
+  if (local.event === remote.event) {
+    const localExplicit = local.fieldUpdates?.event
+    const remoteExplicit = remote.fieldUpdates?.event
+    return {
+      event: local.event,
+      update:
+        localExplicit && remoteExplicit
+          ? localExplicit.updatedAt > remoteExplicit.updatedAt ||
+            (localExplicit.updatedAt === remoteExplicit.updatedAt &&
+              localExplicit.editorId <= remoteExplicit.editorId)
+            ? localExplicit
+            : remoteExplicit
+          : localExplicit ?? remoteExplicit,
+      resolvedAt: 0,
+    }
+  }
+
+  const localExplicit = local.fieldUpdates?.event
+  const remoteExplicit = remote.fieldUpdates?.event
+  if (!localExplicit && !remoteExplicit) {
+    throw new Error(`Conflicting events for solve ${local.id}. Synchronization was stopped to protect data.`)
+  }
+  if (localExplicit && !remoteExplicit) {
+    return { event: local.event, update: localExplicit, resolvedAt: 0 }
+  }
+  if (remoteExplicit && !localExplicit) {
+    return { event: remote.event, update: remoteExplicit, resolvedAt: 0 }
+  }
+
+  const localUpdate = localExplicit!
+  const remoteUpdate = remoteExplicit!
+  const resolved = findResolvedConflict(
+    local,
+    'event',
+    local.event,
+    remote.event,
+    localUpdate.updatedAt,
+    remoteUpdate.updatedAt,
+    resolvedConflicts,
+  )
+  const winner = resolved
+    ? resolvedWinner(resolved, local.event, remote.event)
+    : pickFieldWinner(local, remote, 'event')
+
+  if (!resolved) {
+    conflicts.push({
+      id: local.id,
+      kind: 'solve',
+      sessionId: undefined,
+      field: 'event',
+      localValue: local.event,
+      remoteValue: remote.event,
+      localUpdatedAt: localUpdate.updatedAt,
+      remoteUpdatedAt: remoteUpdate.updatedAt,
+      resolution: manualConflictReview ? 'manual-pending' : winner,
+      updatedAt: Math.max(localUpdate.updatedAt, remoteUpdate.updatedAt, Date.now()),
+    })
+  }
+
+  return {
+    event: winner === 'local' ? local.event : remote.event,
+    update: resolved
+      ? {
+          updatedAt: Math.max(
+            resolved.updatedAt,
+            localUpdate.updatedAt,
+            remoteUpdate.updatedAt,
+          ),
+          editorId: winner === 'local' ? localUpdate.editorId : remoteUpdate.editorId,
+        }
+      : winner === 'local'
+        ? localUpdate
+        : remoteUpdate,
+    resolvedAt: resolved?.updatedAt ?? 0,
+  }
+}
+
 export function mergeSolveFields(
   local: Solve,
   remote: Solve,
@@ -124,12 +221,6 @@ export function mergeSolveFields(
   conflicts: SyncConflict[],
   resolvedConflicts: readonly SyncConflict[] = [],
 ): Solve {
-  const fields: Array<'rawMs' | 'penalty' | 'scramble' | 'comment'> = [
-    'rawMs',
-    'penalty',
-    'scramble',
-    'comment',
-  ]
   const values = {
     rawMs: local.rawMs,
     penalty: local.penalty as 'none' | '+2' | 'dnf',
@@ -139,15 +230,27 @@ export function mergeSolveFields(
   const fieldUpdates: NonNullable<Solve['fieldUpdates']> = { ...(local.fieldUpdates ?? {}) }
   let latestResolvedUpdate = 0
 
+  const resolvedEvent = resolveSolveEvent(
+    local,
+    remote,
+    manualConflictReview,
+    conflicts,
+    resolvedConflicts,
+  )
+  if (resolvedEvent.update) fieldUpdates.event = resolvedEvent.update
+  else delete fieldUpdates.event
+  latestResolvedUpdate = Math.max(latestResolvedUpdate, resolvedEvent.resolvedAt)
+
+  const fields: Array<'rawMs' | 'penalty' | 'scramble' | 'comment'> = [
+    'rawMs',
+    'penalty',
+    'scramble',
+    'comment',
+  ]
+
   for (const field of fields) {
-    const localValue =
-      field === 'rawMs' ? local.rawMs :
-      field === 'penalty' ? local.penalty :
-      field === 'scramble' ? local.scramble : local.comment
-    const remoteValue =
-      field === 'rawMs' ? remote.rawMs :
-      field === 'penalty' ? remote.penalty :
-      field === 'scramble' ? remote.scramble : remote.comment
+    const localValue = local[field]
+    const remoteValue = remote[field]
     if (localValue === remoteValue) {
       // Two identical values can still carry different modification metadata.
       // Never invent provenance for equal legacy values: persisting a merge-time
@@ -219,12 +322,10 @@ export function mergeSolveFields(
     })
   }
 
-  if (local.event !== remote.event) {
-    throw new Error(`Conflicting events for solve ${local.id}. Synchronization was stopped to protect data.`)
-  }
+  const importSource = local.importSource ?? remote.importSource
   return {
     id: local.id,
-    event: local.event,
+    event: resolvedEvent.event,
     rawMs: values.rawMs,
     penalty: values.penalty,
     scramble: values.scramble,
@@ -232,6 +333,7 @@ export function mergeSolveFields(
     createdAt: Math.min(local.createdAt, remote.createdAt),
     updatedAt: Math.max(recordTime(local), recordTime(remote), latestResolvedUpdate),
     ...(Object.keys(fieldUpdates).length > 0 ? { fieldUpdates } : {}),
+    ...(importSource ? { importSource } : {}),
   }
 }
 

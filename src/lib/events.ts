@@ -1,4 +1,8 @@
-import type { PuzzleEvent } from '../types'
+import type {
+  BuiltInPuzzleEvent,
+  CustomEventDefinition,
+  PuzzleEvent,
+} from '../types'
 
 /**
  * Scramble notation families. CubeLab validates each family separately because
@@ -13,7 +17,7 @@ export type ScrambleFormat =
   | 'megaminx'
 
 export interface CubeLabEvent {
-  id: PuzzleEvent
+  id: BuiltInPuzzleEvent
   label: string
   /** The official `cubing.js` WCA event ID used for scramble generation. */
   scrambleEventId: string
@@ -26,6 +30,13 @@ export interface CubeLabEvent {
    */
   cubeSize: number | null
   scrambleFormat: ScrambleFormat
+}
+
+export interface EventOption {
+  id: PuzzleEvent
+  label: string
+  isCustom: boolean
+  placeholder?: string
 }
 
 export const CUBELAB_EVENTS: CubeLabEvent[] = [
@@ -43,13 +54,132 @@ export const CUBELAB_EVENTS: CubeLabEvent[] = [
   { id: 'minx', label: 'Megaminx', scrambleEventId: 'minx', puzzleId: 'megaminx', cubeSize: null, scrambleFormat: 'megaminx' },
 ]
 
+export const DEFAULT_CUSTOM_EVENT_PLACEHOLDER = 'No scramble for this event'
+
+const CUSTOM_EVENT_ID_PATTERN = /^custom:[A-Za-z0-9][A-Za-z0-9:_-]{0,119}$/
+
+/**
+ * The active custom event definitions are application state, but labels are
+ * needed in deeply nested presentation code that already receives only an
+ * event ID. `useSessions` publishes the current definitions here before every
+ * committed render so those components can resolve custom names without
+ * threading a prop through every layer.
+ */
+let customEventRegistry: readonly CustomEventDefinition[] = []
+
+export function setCustomEventDefinitions(
+  definitions: readonly CustomEventDefinition[] | undefined,
+): void {
+  customEventRegistry = definitions ?? []
+}
+
+/** Test-only: clear module state between isolated render cases. */
+export function resetCustomEventDefinitionsForTests(): void {
+  customEventRegistry = []
+}
+
+export function getCustomEventDefinitions(): readonly CustomEventDefinition[] {
+  return customEventRegistry
+}
+
+export function isCustomEventId(value: unknown): value is string {
+  return typeof value === 'string' && CUSTOM_EVENT_ID_PATTERN.test(value)
+}
+
+export function isCustomEvent(value: unknown): boolean {
+  return isCustomEventId(value) &&
+    customEventRegistry.some((definition) => definition.id === value)
+}
+
+export function getCustomEventDefinition(
+  id: string | undefined,
+): CustomEventDefinition | undefined {
+  if (!id) return undefined
+  return customEventRegistry.find((definition) => definition.id === id)
+}
+
 export function getEventDefinition(id: string): CubeLabEvent | undefined {
   return CUBELAB_EVENTS.find((event) => event.id === id)
 }
 
-export function isPuzzleEventValue(value: unknown): value is PuzzleEvent {
+export function isPuzzleEventValue(value: unknown): value is BuiltInPuzzleEvent {
   return (
     typeof value === 'string' &&
     CUBELAB_EVENTS.some((event) => event.id === value)
   )
+}
+
+/**
+ * Storage accepts built-in IDs and well-formed custom IDs. It deliberately does
+ * not require the matching definition to be present: losing a definition must
+ * never turn a saved custom-event solve into a 3×3 solve.
+ */
+export function isStoredEventValue(value: unknown): value is PuzzleEvent {
+  // Preserve any present, non-empty event classification, even when this build
+  // does not recognize it. Missing fields are handled separately so legacy
+  // records can still fall back to 3×3 without relabeling present unknowns.
+  return typeof value === 'string' && value.length > 0 && value.length <= 200
+}
+
+export function getEventLabel(id: string | undefined): string {
+  if (!id) return '3×3'
+  return (
+    getEventDefinition(id)?.label ??
+    getCustomEventDefinition(id)?.name ??
+    id
+  )
+}
+
+export function getEventOption(id: string): EventOption | undefined {
+  const builtIn = getEventDefinition(id)
+  if (builtIn) {
+    return { id: builtIn.id, label: builtIn.label, isCustom: false }
+  }
+  const custom = getCustomEventDefinition(id)
+  if (custom) {
+    return {
+      id: custom.id,
+      label: custom.name,
+      isCustom: true,
+      placeholder: custom.placeholder,
+    }
+  }
+  return undefined
+}
+
+/** Built-ins first in their official order, then custom events by name. */
+export function getEventOptions(): EventOption[] {
+  return [
+    ...CUBELAB_EVENTS.map((event) => ({
+      id: event.id as PuzzleEvent,
+      label: event.label,
+      isCustom: false,
+    })),
+    ...[...customEventRegistry]
+      .sort((left, right) =>
+        left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+      )
+      .map((definition) => ({
+        id: definition.id,
+        label: definition.name,
+        isCustom: true,
+        placeholder: definition.placeholder,
+      })),
+  ]
+}
+
+/** Visible marker used in selectors so custom events are unambiguous. */
+export function formatEventOptionLabel(option: {
+  label: string
+  isCustom: boolean
+}): string {
+  return option.isCustom ? `${option.label} (custom)` : option.label
+}
+
+export function customEventPlaceholder(
+  id: string | undefined,
+): string | undefined {
+  const definition = getCustomEventDefinition(id)
+  if (!definition) return undefined
+  return definition.placeholder.trim() || DEFAULT_CUSTOM_EVENT_PLACEHOLDER
 }

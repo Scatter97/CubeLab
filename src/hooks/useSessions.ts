@@ -1,15 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { NewSolve, Penalty, PuzzleEvent, Session, SessionPreferences, SessionsData, Solve } from '../types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CustomEventDefinition, NewSolve, Penalty, PuzzleEvent, Session, SessionOrdering, SessionPreferences, SessionsData, Solve } from '../types'
 import { createId } from '../lib/id'
+import { setCustomEventDefinitions } from '../lib/events'
+import {
+  correctImportedSolveEvents,
+  createCustomEvent as createCustomEventInData,
+  deleteCustomEvent as deleteCustomEventInData,
+  reassignSessionsEvent as reassignSessionsEventInData,
+  renameCustomEvent as renameCustomEventInData,
+  setCustomEventPlaceholder as setCustomEventPlaceholderInData,
+} from '../lib/customEvents'
 import {
   addSolve as addSolveToData,
   clearActiveSolves,
+  clearAllSolves as clearAllSolvesInData,
   createSession as createSessionInData,
+  deleteAllSessions as deleteAllSessionsInData,
   deleteSession as deleteSessionFromData,
+  ensureSessionOrdering,
   getActiveSession,
+  getOrderedSessions,
+  moveSession as moveSessionInData,
   removeSolve as removeSolveFromData,
   renameSession as renameSessionInData,
-  setSessionEvent as setSessionEventInData,
   restoreSolve as restoreSolveInData,
   setActiveSession as setActiveSessionInData,
   setSessionInspection as setSessionInspectionInData,
@@ -24,6 +37,8 @@ import { getSyncDeviceId } from '../lib/syncStorage'
 
 export interface UseSessionsResult {
   sessions: Session[]
+  customEvents: CustomEventDefinition[]
+  sessionOrder?: SessionOrdering
   activeSession: Session
   activeSessionId: string
   storageOk: boolean
@@ -35,6 +50,7 @@ export interface UseSessionsResult {
   deleteSolve: (id: string) => RemovedSolve | null
   restoreSolve: (solve: Solve, index: number, sessionId: string) => void
   clearSolves: () => void
+  resetAllSolveData: () => { ok: boolean; removed: RemovedSolve[] }
   createSession: (
     name: string,
     inspectionEnabled?: boolean,
@@ -43,9 +59,17 @@ export interface UseSessionsResult {
   ) => string | null
   renameSession: (id: string, name: string) => boolean
   setSessionEvent: (id: string, event: PuzzleEvent) => boolean
+  moveSession: (id: string, direction: -1 | 1) => void
   deleteSession: (id: string) => boolean
+  deleteAllSessions: () => boolean
   selectSession: (id: string) => void
   replaceSessions: (data: SessionsData) => void
+  createCustomEvent: (name: string, placeholder?: string) => string | null
+  renameCustomEvent: (id: string, name: string) => boolean
+  setCustomEventPlaceholder: (id: string, placeholder: string) => boolean
+  deleteCustomEvent: (id: string) => { ok: true } | { ok: false; error: string }
+  reassignSessionsEvent: (sessionIds: readonly string[], event: PuzzleEvent) => boolean
+  correctImportedEvents: () => number
 }
 
 function requireActiveSession(data: SessionsData): Session {
@@ -57,7 +81,13 @@ function requireActiveSession(data: SessionsData): Session {
 }
 
 export function useSessions(): UseSessionsResult {
-  const [data, setData] = useState<SessionsData>(() => loadSessions())
+  const [data, setData] = useState<SessionsData>(() => {
+    const loaded = loadSessions()
+    // Labels are consumed by deeply nested presentation components. Publish the
+    // persisted definitions before the first render that can observe them.
+    setCustomEventDefinitions(loaded.customEvents)
+    return loaded
+  })
   const dataRef = useRef(data)
   const [storageOk, setStorageOk] = useState(true)
   const initialWrite = useRef(true)
@@ -65,16 +95,21 @@ export function useSessions(): UseSessionsResult {
   // re-parse localStorage on every timer frame.
   const [syncDeviceId] = useState(() => getSyncDeviceId())
 
+  const applyData = useCallback((next: SessionsData) => {
+    setCustomEventDefinitions(next.customEvents)
+    dataRef.current = next
+    setData(next)
+  }, [])
+
   const commit = useCallback(
     (update: (current: SessionsData) => SessionsData): boolean => {
       const current = dataRef.current
       const next = update(current)
       if (next === current) return false
-      dataRef.current = next
-      setData(next)
+      applyData(next)
       return true
     },
-    [],
+    [applyData],
   )
 
   useEffect(() => {
@@ -101,6 +136,7 @@ export function useSessions(): UseSessionsResult {
   }, [data])
 
   const activeSession = requireActiveSession(data)
+  const orderedSessions = useMemo(() => getOrderedSessions(data), [data])
 
   const addSolve = useCallback(
     (input: NewSolve, event?: PuzzleEvent): Solve => {
@@ -157,11 +193,10 @@ export function useSessions(): UseSessionsResult {
       const result = removeSolveFromData(dataRef.current, id)
       if (!result) return null
 
-      dataRef.current = result.data
-      setData(result.data)
+      applyData(result.data)
       return result.removed
     },
-    [],
+    [applyData],
   )
 
   const restoreSolve = useCallback(
@@ -178,6 +213,22 @@ export function useSessions(): UseSessionsResult {
     commit((current) => clearActiveSolves(current))
   }, [commit])
 
+  const resetAllSolveData = useCallback((): {
+    ok: boolean
+    removed: RemovedSolve[]
+  } => {
+    const result = clearAllSolvesInData(dataRef.current)
+    if (result.removed.length === 0) return { ok: true, removed: [] }
+    // Persist the cleared collection before publishing it so a failed write
+    // cannot make the UI claim that every solve was removed.
+    if (!saveSessions(result.data)) {
+      setStorageOk(false)
+      return { ok: false, removed: [] }
+    }
+    applyData(result.data)
+    return { ok: true, removed: result.removed }
+  }, [applyData])
+
   const createSession = useCallback(
     (
       name: string,
@@ -189,49 +240,72 @@ export function useSessions(): UseSessionsResult {
         inspectionEnabled,
         event,
         preferences,
+        editorId: syncDeviceId,
       })
       if (!result) return null
 
-      dataRef.current = result.data
-      setData(result.data)
+      applyData(result.data)
       return result.sessionId
     },
-    [],
+    [applyData, syncDeviceId],
   )
 
   const renameSession = useCallback((id: string, name: string): boolean => {
     const current = dataRef.current
     const next = renameSessionInData(current, id, name, undefined, syncDeviceId)
     if (!next) return false
-    if (next !== current) {
-      dataRef.current = next
-      setData(next)
-    }
+    if (next !== current) applyData(next)
     return true
-  }, [syncDeviceId])
+  }, [applyData, syncDeviceId])
 
-  const setSessionEvent = useCallback((id: string, value: PuzzleEvent): boolean => {
-    const next = setSessionEventInData(
-      dataRef.current,
-      id,
-      value,
-      undefined,
-      syncDeviceId,
-    )
-    if (!next) return false
-    dataRef.current = next
-    setData(next)
-    return true
-  }, [syncDeviceId])
+  const setSessionEvent = useCallback(
+    (id: string, value: PuzzleEvent): boolean => {
+      const next = reassignSessionsEventInData(
+        dataRef.current,
+        [id],
+        value,
+        undefined,
+        syncDeviceId,
+      )
+      if (!next) return false
+      if (next !== dataRef.current) applyData(next)
+      return true
+    },
+    [applyData, syncDeviceId],
+  )
+
+  const moveSession = useCallback(
+    (id: string, direction: -1 | 1) => {
+      commit((current) =>
+        moveSessionInData(current, id, direction, undefined, syncDeviceId),
+      )
+    },
+    [commit, syncDeviceId],
+  )
 
   const deleteSession = useCallback((id: string): boolean => {
     const next = deleteSessionFromData(dataRef.current, id)
     if (!next) return false
 
-    dataRef.current = next
-    setData(next)
+    applyData(next)
     return true
-  }, [])
+  }, [applyData])
+
+  const deleteAllSessions = useCallback((): boolean => {
+    const next = deleteAllSessionsInData(
+      dataRef.current,
+      undefined,
+      syncDeviceId,
+    )
+    // Persist before publishing: a failed write must not make the interface
+    // claim that every session was removed.
+    if (!saveSessions(next)) {
+      setStorageOk(false)
+      return false
+    }
+    applyData(next)
+    return true
+  }, [applyData, syncDeviceId])
 
   const selectSession = useCallback((id: string) => {
     commit((current) => setActiveSessionInData(current, id))
@@ -245,13 +319,89 @@ export function useSessions(): UseSessionsResult {
       : next.sessions[0]?.id
     if (!activeSessionId) return
 
-    const normalized = { ...next, activeSessionId }
-    dataRef.current = normalized
-    setData(normalized)
-  }, [])
+    const normalized = ensureSessionOrdering({ ...next, activeSessionId })
+    applyData(normalized)
+  }, [applyData])
+
+  const createCustomEvent = useCallback(
+    (name: string, placeholder?: string): string | null => {
+      const result = createCustomEventInData(dataRef.current, { name, placeholder })
+      if (!result) return null
+      applyData(result.data)
+      return result.eventId
+    },
+    [applyData],
+  )
+
+  const renameCustomEvent = useCallback((id: string, name: string): boolean => {
+    const next = renameCustomEventInData(
+      dataRef.current,
+      id,
+      name,
+      undefined,
+      syncDeviceId,
+    )
+    if (!next) return false
+    if (next !== dataRef.current) applyData(next)
+    return true
+  }, [applyData, syncDeviceId])
+
+  const setCustomEventPlaceholder = useCallback(
+    (id: string, placeholder: string): boolean => {
+      const next = setCustomEventPlaceholderInData(
+        dataRef.current,
+        id,
+        placeholder,
+        undefined,
+        syncDeviceId,
+      )
+      if (!next) return false
+      if (next !== dataRef.current) applyData(next)
+      return true
+    },
+    [applyData, syncDeviceId],
+  )
+
+  const deleteCustomEvent = useCallback(
+    (id: string): { ok: true } | { ok: false; error: string } => {
+      const result = deleteCustomEventInData(dataRef.current, id)
+      if ('error' in result) return { ok: false, error: result.error }
+      applyData(result.data)
+      return { ok: true }
+    },
+    [applyData],
+  )
+
+  const reassignSessionsEvent = useCallback(
+    (sessionIds: readonly string[], event: PuzzleEvent): boolean => {
+      const next = reassignSessionsEventInData(
+        dataRef.current,
+        sessionIds,
+        event,
+        undefined,
+        syncDeviceId,
+      )
+      if (!next) return false
+      if (next !== dataRef.current) applyData(next)
+      return true
+    },
+    [applyData, syncDeviceId],
+  )
+
+  const correctImportedEvents = useCallback((): number => {
+    const result = correctImportedSolveEvents(
+      dataRef.current,
+      undefined,
+      syncDeviceId,
+    )
+    if (result.movedCount > 0) applyData(result.data)
+    return result.movedCount
+  }, [applyData, syncDeviceId])
 
   return {
-    sessions: data.sessions,
+    sessions: orderedSessions,
+    customEvents: data.customEvents ?? [],
+    ...(data.sessionOrder ? { sessionOrder: data.sessionOrder } : {}),
     activeSession,
     activeSessionId: activeSession.id,
     storageOk,
@@ -263,11 +413,20 @@ export function useSessions(): UseSessionsResult {
     deleteSolve,
     restoreSolve,
     clearSolves,
+    resetAllSolveData,
     createSession,
     renameSession,
     setSessionEvent,
+    moveSession,
     deleteSession,
+    deleteAllSessions,
     selectSession,
     replaceSessions,
+    createCustomEvent,
+    renameCustomEvent,
+    setCustomEventPlaceholder,
+    deleteCustomEvent,
+    reassignSessionsEvent,
+    correctImportedEvents,
   }
 }

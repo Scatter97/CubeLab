@@ -318,6 +318,34 @@ export function mergeSessionMetadata(input: {
   } else if (remote.event === undefined) {
     event = local.event
     eventUpdate = getSessionFieldUpdate(local, 'event')
+  } else if (local.event === remote.event) {
+    event = local.event
+    const localExplicit = hasExplicitFieldUpdate(local, 'event')
+    const remoteExplicit = hasExplicitFieldUpdate(remote, 'event')
+    eventUpdate = localExplicit
+      ? remoteExplicit
+        ? newestUpdate(
+            getSessionFieldUpdate(local, 'event'),
+            getSessionFieldUpdate(remote, 'event'),
+          )
+        : getSessionFieldUpdate(local, 'event')
+      : remoteExplicit
+        ? getSessionFieldUpdate(remote, 'event')
+        : undefined
+  } else if (
+    hasExplicitFieldUpdate(local, 'event') &&
+    !hasExplicitFieldUpdate(remote, 'event')
+  ) {
+    // A deliberate reclassification outranks an older record that has no event
+    // provenance, even if that record's session timestamp is newer.
+    event = local.event
+    eventUpdate = getSessionFieldUpdate(local, 'event')
+  } else if (
+    hasExplicitFieldUpdate(remote, 'event') &&
+    !hasExplicitFieldUpdate(local, 'event')
+  ) {
+    event = remote.event
+    eventUpdate = getSessionFieldUpdate(remote, 'event')
   } else {
     const result = mergeField({
       local,

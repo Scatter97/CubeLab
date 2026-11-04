@@ -35,8 +35,31 @@ describe('analytics settings', () => {
     })
   })
 
-  it('parses valid targets and falls back for invalid data', () => {
+  it('ignores retired Solve explorer settings and keeps the remaining layout', () => {
+    const sections = normalizeAnalyticsSections([
+      { id: 'progression', visible: false, wide: true },
+      { id: 'explorer', visible: true, wide: true },
+      { id: 'activity', visible: true, wide: false },
+    ])
+    expect(sections.map((section) => section.id)).not.toContain('explorer')
+    expect(sections[0]).toMatchObject({ id: 'progression', visible: false })
+    expect(sections[1]).toMatchObject({ id: 'activity', visible: true })
+    expect(sections).toHaveLength(ANALYTICS_SECTION_IDS.length)
+    expect(ANALYTICS_SECTION_IDS).not.toContain('explorer')
+
     const parsed = parseAnalyticsSettings({
+      sections: [
+        { id: 'explorer', visible: true, wide: true },
+        { id: 'overview', visible: false, wide: true },
+      ],
+    })
+    expect(parsed.sections.map((section) => section.id)).not.toContain('explorer')
+    expect(parsed.sections.find((section) => section.id === 'overview')).toMatchObject({
+      visible: false,
+    })
+  })
+
+  it('parses valid targets and falls back for invalid data', () => {    const parsed = parseAnalyticsSettings({
       sections: [{ id: 'overview', visible: false, wide: true }],
       subXTargetsMs: {
         '333': 15_000,

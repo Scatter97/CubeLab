@@ -185,5 +185,20 @@ export function applySessionRedirects(data: SessionsData, redirects: ReadonlyArr
   const list = [...sessions.values()]
   if (!list.length) return data
   const active = canonical(data.activeSessionId)
-  return { activeSessionId: sessions.has(active) ? active : list[0]!.id, sessions: list }
+  const orderIds: string[] = []
+  const seenOrderIds = new Set<string>()
+  for (const id of data.sessionOrder?.ids ?? []) {
+    const mapped = canonical(id)
+    if (!sessions.has(mapped) || seenOrderIds.has(mapped)) continue
+    seenOrderIds.add(mapped)
+    orderIds.push(mapped)
+  }
+  return {
+    ...data,
+    activeSessionId: sessions.has(active) ? active : list[0]!.id,
+    sessions: list,
+    ...(data.sessionOrder
+      ? { sessionOrder: { ...data.sessionOrder, ids: orderIds } }
+      : {}),
+  }
 }

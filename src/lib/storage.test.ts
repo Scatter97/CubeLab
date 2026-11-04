@@ -275,7 +275,7 @@ describe('session persistence', () => {
     expect(loadSessions(storage)).toEqual(original)
   })
 
-  it('rejects solves with unknown puzzle events while keeping valid records', () => {
+  it('preserves solves with unknown puzzle events while keeping valid records', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SESSIONS_STORAGE_KEY,
@@ -293,9 +293,12 @@ describe('session persistence', () => {
       }),
     )
 
-    expect(loadSessions(storage).sessions[0]?.solves.map((item) => item.id)).toEqual([
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions[0]?.solves.map((item) => item.id)).toEqual([
       'valid-pyram',
+      'unknown-event',
     ])
+    expect(loaded.sessions[0]?.solves[1]?.event).toBe('333bf')
   })
 
   it('migrates a valid legacy single session', () => {
@@ -728,7 +731,7 @@ describe('settings persistence', () => {
     saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' }, storage)
     expect(loadSettings(storage)).toMatchObject({ theme: 'dark' })
     expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY) ?? '{}')).toMatchObject({
-      version: 9,
+      version: 10,
     })
   })
 
@@ -769,7 +772,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 10, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 11, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })
@@ -783,7 +786,7 @@ describe('trimming settings schema v8', () => {
     const settings = loadSettings(storage)
     expect(settings).toMatchObject({ inspectionEnabled: true, theme: 'dark', averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
     expect(saveSettings(settings, storage)).toBe(true)
-    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 9, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 10, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
   })
   it('round-trips independent side choices and recovers bad fields independently', () => {
     const storage = new MemoryStorage()
@@ -792,5 +795,234 @@ describe('trimming settings schema v8', () => {
     expect(loadSettings(storage)).toEqual(settings)
     expect(parseSettingsData({ inspectionEnabled: true, averageTrimBetter: 'auto', averageTrimWorse: '1' })).toMatchObject({ averageTrimBetter: 'p5', averageTrimWorse: '1', inspectionEnabled: true })
     expect(parseSettingsData({ inspectionEnabled: false, averageTrimBetter: 'median', averageTrimWorse: 'garbage' })).toMatchObject({ averageTrimBetter: 'median', averageTrimWorse: 'auto' })
+  })
+})
+
+describe('custom event persistence', () => {
+  it('round-trips custom definitions and custom-event solves without changing them', () => {
+    const storage = new MemoryStorage()
+    const customId = 'custom:test-event'
+    const original = sessionsData({
+      customEvents: [
+        {
+          id: customId,
+          name: 'Test puzzle',
+          placeholder: 'Type a scramble',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_002_000,
+          fieldUpdates: {
+            placeholder: { updatedAt: 1_700_000_002_000, editorId: 'laptop' },
+          },
+        },
+      ],
+      activeSessionId: 'session-1',
+      sessions: [
+        session({
+          event: customId,
+          solves: [
+            solve({
+              event: customId,
+              scramble: 'recorded scramble',
+              importSource: {
+                provider: 'cstimer',
+                scrType: 'test',
+                sessionNumber: 2,
+                solveIndex: 3,
+              },
+              fieldUpdates: {
+                event: { updatedAt: 1_700_000_003_000, editorId: 'laptop' },
+              },
+            }),
+          ],
+        }),
+      ],
+    })
+
+    expect(saveSessions(original, storage)).toBe(true)
+    expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('preserves present unknown event IDs instead of defaulting to 3×3', () => {
+    const storage = new MemoryStorage()
+    const original = sessionsData({
+      sessions: [
+        session({
+          event: 'custom:kept',
+          solves: [solve({ event: 'custom:kept' })],
+        }),
+      ],
+    })
+    expect(saveSessions(original, storage)).toBe(true)
+    expect(loadSessions(storage).sessions[0]!.event).toBe('custom:kept')
+
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 4,
+        activeSessionId: 'session-1',
+        sessions: [
+          {
+            ...session(),
+            event: 'not a valid event',
+            solves: [{ ...solve(), event: 'not a valid event' }],
+          },
+        ],
+      }),
+    )
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions[0]!.event).toBe('not a valid event')
+    expect(loaded.sessions[0]!.solves[0]!.event).toBe('not a valid event')
+  })
+
+  it('preserves empty scrambles and present unknown event IDs through save/load', () => {
+    const storage = new MemoryStorage()
+    const original = sessionsData({
+      sessions: [
+        session({
+          event: '333bf',
+          solves: [solve({ event: '333bf', scramble: '' })],
+        }),
+      ],
+    })
+
+    expect(saveSessions(original, storage)).toBe(true)
+    const loaded = loadSessions(storage)
+    expect(loaded).toEqual(original)
+    expect(loaded.sessions[0]!.event).toBe('333bf')
+    expect(loaded.sessions[0]!.solves[0]).toMatchObject({
+      event: '333bf',
+      scramble: '',
+      rawMs: 12_340,
+      penalty: 'none',
+      comment: '',
+      createdAt: 1_700_000_000_000,
+    })
+  })
+
+  it('keeps the 3×3 fallback only when a legacy event field is missing', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 4,
+        activeSessionId: 'legacy-session',
+        sessions: [
+          {
+            id: 'legacy-session',
+            name: 'Legacy',
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+            solves: [
+              {
+                id: 'legacy-solve',
+                rawMs: 12_000,
+                penalty: 'none',
+                scramble: '',
+                comment: '',
+                createdAt: 1_700_000_000_000,
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions[0]!.event).toBe('333')
+    expect(loaded.sessions[0]!.solves[0]).toMatchObject({
+      event: '333',
+      scramble: '',
+    })
+  })
+})
+
+describe('session ordering persistence', () => {
+  it('round-trips ordering metadata and sorts the loaded collection', () => {
+    const storage = new MemoryStorage()
+    const data = sessionsData({
+      activeSessionId: 'session-2',
+      sessions: [
+        session({ id: 'session-1', name: 'First' }),
+        session({ id: 'session-2', name: 'Second' }),
+        session({ id: 'session-3', name: 'Third' }),
+      ],
+      sessionOrder: {
+        ids: ['session-3', 'session-1', 'session-2'],
+        updatedAt: 500,
+        editorId: 'laptop',
+      },
+    })
+    expect(saveSessions(data, storage)).toBe(true)
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions.map((entry) => entry.id)).toEqual([
+      'session-3',
+      'session-1',
+      'session-2',
+    ])
+    expect(loaded.sessionOrder).toEqual(data.sessionOrder)
+  })
+
+  it('drops unknown and duplicate ordering IDs on load', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 5,
+        activeSessionId: 'session-1',
+        sessions: [
+          session({ id: 'session-1', name: 'First' }),
+          session({ id: 'session-2', name: 'Second' }),
+        ],
+        sessionOrder: {
+          ids: ['session-2', 'missing', 'session-2', 'session-1'],
+          updatedAt: 900,
+          editorId: 'phone',
+        },
+      }),
+    )
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions.map((entry) => entry.id)).toEqual([
+      'session-2',
+      'session-1',
+    ])
+    expect(loaded.sessionOrder?.ids).toEqual(['session-2', 'session-1'])
+  })
+
+  it('ignores malformed ordering metadata without losing sessions', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 5,
+        activeSessionId: 'session-1',
+        sessions: [session({ id: 'session-1' }), session({ id: 'session-2' })],
+        sessionOrder: { ids: 'not-an-array', updatedAt: 1, editorId: 'x' },
+      }),
+    )
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions).toHaveLength(2)
+    expect(loaded.sessionOrder).toBeUndefined()
+  })
+})
+
+describe('session summary settings migration', () => {
+  it('defaults both new summaries to off for older settings', () => {
+    const parsed = parseSettingsData({ inspectionEnabled: false })
+    expect(parsed?.showSessionSolveProgress).toBe(false)
+    expect(parsed?.showSessionTotalTime).toBe(false)
+  })
+
+  it('persists independent summary choices', () => {
+    const storage = new MemoryStorage()
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      showSessionSolveProgress: true,
+      showSessionTotalTime: false,
+    }
+    expect(saveSettings(settings, storage)).toBe(true)
+    expect(loadSettings(storage)).toMatchObject({
+      showSessionSolveProgress: true,
+      showSessionTotalTime: false,
+    })
   })
 })

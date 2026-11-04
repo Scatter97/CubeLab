@@ -12,8 +12,69 @@ import {
   nextCustomAverageSize,
 } from '../lib/statDefinitions'
 import { ChevronRightIcon, CloseIcon } from './Icons'
+import { Select } from './Select'
 import type { CustomAverageSetting, Settings } from '../types'
 import type { DrawScrambleMode } from '../hooks/useDrawScrambleMode'
+
+const INSPECTION_DIRECTION_OPTIONS = [
+  { value: 'down', label: 'Count down' },
+  { value: 'up', label: 'Count up' },
+] as const
+
+const TIMER_UPDATE_OPTIONS = [
+  { value: 'live', label: 'Live' },
+  { value: 'tenths', label: 'Every 0.1 seconds' },
+  { value: 'seconds', label: 'Whole seconds' },
+] as const
+
+const ALERT_CHANNEL_OPTIONS = [
+  { value: 'off', label: 'Off' },
+  { value: 'visual', label: 'Visual only' },
+  { value: 'sound', label: 'Sound only' },
+  { value: 'sound-visual', label: 'Sound + visual' },
+  { value: 'haptic', label: 'Haptic' },
+  { value: 'sound-haptic', label: 'Sound + haptic' },
+] as const
+
+const WARNING_DISPLAY_OPTIONS = [
+  { value: 'timer', label: 'Timer surface' },
+  { value: 'screen', label: 'Entire screen' },
+] as const
+
+const THEME_OPTIONS = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+] as const
+
+const ACCENT_OPTIONS = [
+  { value: 'green', label: 'Green' },
+  { value: 'blue', label: 'Blue' },
+  { value: 'violet', label: 'Violet' },
+  { value: 'amber', label: 'Amber' },
+] as const
+
+const PRECISION_OPTIONS = [
+  { value: 'centiseconds', label: 'Hundredths (12.34)' },
+  { value: 'tenths', label: 'Tenths (12.3)' },
+] as const
+
+const SCRAMBLE_ALIGNMENT_OPTIONS = [
+  { value: 'left', label: 'Left' },
+  { value: 'center', label: 'Center' },
+  { value: 'right', label: 'Right' },
+] as const
+
+const SCRAMBLE_ACTION_OPTIONS = [
+  { value: 'none', label: 'Nothing' },
+  { value: 'copy', label: 'Copy scramble' },
+  { value: 'next', label: 'Next scramble' },
+] as const
+
+const DRAW_SCRAMBLE_OPTIONS = [
+  { value: 'net', label: '2D net' },
+  { value: '3d', label: '3D puzzle' },
+] as const
 
 interface SettingsDialogProps {
   open: boolean
@@ -26,6 +87,14 @@ interface SettingsDialogProps {
   onChange: (next: Partial<Settings>) => void
   onOpenBackup: () => void
   onOpenDriveBackup: () => void
+  onRequestResetAllSolveData: () => void
+  /** Why the destructive reset is unavailable, if it is. */
+  resetAllDisabledReason?: string | null
+  onRequestDeleteAllSessions: () => void
+  /** Why deleting every session is unavailable, if it is. */
+  deleteAllSessionsDisabledReason?: string | null
+  /** Current Google Drive synchronization state for the Developer section. */
+  developerSyncStatus: string
   onClose: () => void
 }
 
@@ -40,6 +109,11 @@ export function SettingsDialog({
   onChange,
   onOpenBackup,
   onOpenDriveBackup,
+  onRequestResetAllSolveData,
+  resetAllDisabledReason,
+  onRequestDeleteAllSessions,
+  deleteAllSessionsDisabledReason,
+  developerSyncStatus,
   onClose,
 }: SettingsDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
@@ -70,6 +144,11 @@ export function SettingsDialog({
           onChange={onChange}
           onOpenBackup={onOpenBackup}
           onOpenDriveBackup={onOpenDriveBackup}
+          onRequestResetAllSolveData={onRequestResetAllSolveData}
+          resetAllDisabledReason={resetAllDisabledReason}
+          onRequestDeleteAllSessions={onRequestDeleteAllSessions}
+          deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
+          developerSyncStatus={developerSyncStatus}
           onClose={onClose}
         />
       ) : null}
@@ -87,6 +166,11 @@ function SettingsContent({
   onChange,
   onOpenBackup,
   onOpenDriveBackup,
+  onRequestResetAllSolveData,
+  resetAllDisabledReason,
+  onRequestDeleteAllSessions,
+  deleteAllSessionsDisabledReason,
+  developerSyncStatus,
   onClose,
 }: Omit<SettingsDialogProps, 'open'>) {
   const updateCustomAverages = (next: CustomAverageSetting[]): string | null => {
@@ -187,34 +271,31 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Inspection timer</span>
-              <select
-                data-testid="inspection-direction"
+              <Select
+                testId="inspection-direction"
                 value={settings.inspectionCountDirection}
-                onChange={(event) =>
+                options={INSPECTION_DIRECTION_OPTIONS}
+                onChange={(value) =>
                   onChange({
-                    inspectionCountDirection: event.target
-                      .value as Settings['inspectionCountDirection'],
+                    inspectionCountDirection:
+                      value as Settings['inspectionCountDirection'],
                   })
                 }
-              >
-                <option value="down">Count down</option>
-                <option value="up">Count up</option>
-              </select>
+              />
             </label>
 
             <label className="settings-field">
               <span className="settings-field-label">Timer updates</span>
-              <select
-                data-testid="timer-update-mode"
+              <Select
+                testId="timer-update-mode"
                 value={settings.timerUpdateMode}
-                onChange={(event) =>
-                  onChange({ timerUpdateMode: event.target.value as Settings['timerUpdateMode'] })
+                options={TIMER_UPDATE_OPTIONS}
+                onChange={(value) =>
+                  onChange({
+                    timerUpdateMode: value as Settings['timerUpdateMode'],
+                  })
                 }
-              >
-                <option value="live">Live</option>
-                <option value="tenths">Every 0.1 seconds</option>
-                <option value="seconds">Whole seconds</option>
-              </select>
+              />
             </label>
 
             <label className="settings-field">
@@ -269,22 +350,16 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Solve / DNF feedback</span>
-              <select
-                data-testid="alert-channel"
+              <Select
+                testId="alert-channel"
                 value={settings.alertChannel}
-                onChange={(event) =>
+                options={ALERT_CHANNEL_OPTIONS}
+                onChange={(value) =>
                   onChange({
-                    alertChannel: event.target.value as Settings['alertChannel'],
+                    alertChannel: value as Settings['alertChannel'],
                   })
                 }
-              >
-                <option value="off">Off</option>
-                <option value="visual">Visual only</option>
-                <option value="sound">Sound only</option>
-                <option value="sound-visual">Sound + visual</option>
-                <option value="haptic">Haptic</option>
-                <option value="sound-haptic">Sound + haptic</option>
-              </select>
+              />
             </label>
 
             <div className="settings-field">
@@ -309,20 +384,17 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Inspection warning display</span>
-              <select
-                data-testid="inspection-warning-display"
+              <Select
+                testId="inspection-warning-display"
                 value={settings.inspectionWarningVisualScope}
-                onChange={(event) =>
+                options={WARNING_DISPLAY_OPTIONS}
+                onChange={(value) =>
                   onChange({
-                    inspectionWarningVisualScope: event.target.value as
-                      | 'timer'
-                      | 'screen',
+                    inspectionWarningVisualScope:
+                      value as Settings['inspectionWarningVisualScope'],
                   })
                 }
-              >
-                <option value="timer">Timer surface</option>
-                <option value="screen">Entire screen</option>
-              </select>
+              />
             </label>
 
             <fieldset className="settings-fieldset">
@@ -394,15 +466,17 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Interface zoom</span>
-              <select
-                data-testid="ui-zoom"
-                value={settings.uiZoomPercent}
-                onChange={(event) => onChange({ uiZoomPercent: Number(event.target.value) })}
-              >
-                {[70, 80, 90, 100, 110, 125, 150].map((value) => (
-                  <option key={value} value={value}>{value}%</option>
-                ))}
-              </select>
+              <Select
+                testId="ui-zoom"
+                value={String(settings.uiZoomPercent)}
+                options={[70, 80, 90, 100, 110, 125, 150].map((value) => ({
+                  value: String(value),
+                  label: `${value}%`,
+                }))}
+                onChange={(value) =>
+                  onChange({ uiZoomPercent: Number(value) })
+                }
+              />
             </label>
 
             <label className="settings-field" htmlFor="decimal-small">
@@ -415,6 +489,56 @@ function SettingsContent({
               />
             </label>
 
+            <div className="settings-row settings-row-spaced">
+              <div className="settings-row-copy">
+                <label
+                  className="settings-row-label"
+                  htmlFor="session-solve-progress"
+                >
+                  Session solve progress
+                </label>
+                <span className="settings-row-description">
+                  Show completed / total solves for the active session in the
+                  timer footer, for example 7,012 / 7,061. DNFs stay in the
+                  total; +2 solves count as completed.
+                </span>
+              </div>
+              <input
+                id="session-solve-progress"
+                data-testid="session-solve-progress-setting"
+                type="checkbox"
+                checked={settings.showSessionSolveProgress}
+                onChange={(event) =>
+                  onChange({ showSessionSolveProgress: event.target.checked })
+                }
+              />
+            </div>
+
+            <div className="settings-row settings-row-spaced">
+              <div className="settings-row-copy">
+                <label
+                  className="settings-row-label"
+                  htmlFor="session-total-time"
+                >
+                  Session total time
+                </label>
+                <span className="settings-row-description">
+                  Show the sum of completed solve times for the active session
+                  in the timer footer, in hours, for example 39.49 h. DNFs are
+                  excluded and +2 penalties are included.
+                </span>
+              </div>
+              <input
+                id="session-total-time"
+                data-testid="session-total-time-setting"
+                type="checkbox"
+                checked={settings.showSessionTotalTime}
+                onChange={(event) =>
+                  onChange({ showSessionTotalTime: event.target.checked })
+                }
+              />
+            </div>
+
           </section>
 
           <section className="settings-section" aria-labelledby="settings-appearance-title">
@@ -424,37 +548,26 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Theme</span>
-              <select
-                data-testid="theme-setting"
+              <Select
+                testId="theme-setting"
                 value={settings.theme}
-                onChange={(event) =>
-                  onChange({
-                    theme: event.target.value as Settings['theme'],
-                  })
+                options={THEME_OPTIONS}
+                onChange={(value) =>
+                  onChange({ theme: value as Settings['theme'] })
                 }
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="system">System</option>
-              </select>
+              />
             </label>
 
             <label className="settings-field">
               <span className="settings-field-label">Accent color</span>
-              <select
-                data-testid="accent-color"
+              <Select
+                testId="accent-color"
                 value={settings.accentColor}
-                onChange={(event) =>
-                  onChange({
-                    accentColor: event.target.value as Settings['accentColor'],
-                  })
+                options={ACCENT_OPTIONS}
+                onChange={(value) =>
+                  onChange({ accentColor: value as Settings['accentColor'] })
                 }
-              >
-                <option value="green">Green</option>
-                <option value="blue">Blue</option>
-                <option value="violet">Violet</option>
-                <option value="amber">Amber</option>
-              </select>
+              />
             </label>
           </section>
 
@@ -467,16 +580,38 @@ function SettingsContent({
               <legend className="settings-field-label">Average trimming</legend>
               <label className="settings-field">
                 <span className="settings-field-label">Better side (fastest)</span>
-                <select data-testid="average-trim-better" value={settings.averageTrimBetter} onChange={(event) => onChange({ averageTrimBetter: event.target.value as Settings['averageTrimBetter'] })}>
-                  {AVERAGE_TRIM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+                <Select
+                  testId="average-trim-better"
+                  value={settings.averageTrimBetter}
+                  options={AVERAGE_TRIM_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                  onChange={(value) =>
+                    onChange({
+                      averageTrimBetter: value as Settings['averageTrimBetter'],
+                    })
+                  }
+                />
               </label>
               <label className="settings-field">
                 <span className="settings-field-label">Worse side (slowest)</span>
-                <select data-testid="average-trim-worse" value={settings.averageTrimWorse} onChange={(event) => onChange({ averageTrimWorse: event.target.value as Settings['averageTrimWorse'] })}>
-                  <option value="auto">Auto (match better side)</option>
-                  {AVERAGE_TRIM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+                <Select
+                  testId="average-trim-worse"
+                  value={settings.averageTrimWorse}
+                  options={[
+                    { value: 'auto', label: 'Auto (match better side)' },
+                    ...AVERAGE_TRIM_OPTIONS.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    })),
+                  ]}
+                  onChange={(value) =>
+                    onChange({
+                      averageTrimWorse: value as Settings['averageTrimWorse'],
+                    })
+                  }
+                />
               </label>
               <p className="settings-note" data-testid="average-trim-example">ao1000: drop {trimExample.better} fastest and {trimExample.worse} worst; {trimExample.counted} solves count. More than {trimExample.worse} DNFs makes it DNF.</p>
               <p className="settings-note">Percentages round up. DNFs occupy the worst-side slots first. Changes recalculate averages and average PBs everywhere. mo3 stays untrimmed; recorded solves and single PBs stay intact.</p>
@@ -552,18 +687,16 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Stat precision</span>
-              <select
-                data-testid="stat-precision"
+              <Select
+                testId="stat-precision"
                 value={settings.statPrecision}
-                onChange={(event) =>
+                options={PRECISION_OPTIONS}
+                onChange={(value) =>
                   onChange({
-                    statPrecision: event.target.value as Settings['statPrecision'],
+                    statPrecision: value as Settings['statPrecision'],
                   })
                 }
-              >
-                <option value="centiseconds">Hundredths (12.34)</option>
-                <option value="tenths">Tenths (12.3)</option>
-              </select>
+              />
             </label>
 
             <p className="settings-note">
@@ -579,17 +712,16 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Alignment</span>
-              <select
-                data-testid="scramble-alignment"
+              <Select
+                testId="scramble-alignment"
                 value={settings.scrambleAlignment}
-                onChange={(event) =>
-                  onChange({ scrambleAlignment: event.target.value as Settings['scrambleAlignment'] })
+                options={SCRAMBLE_ALIGNMENT_OPTIONS}
+                onChange={(value) =>
+                  onChange({
+                    scrambleAlignment: value as Settings['scrambleAlignment'],
+                  })
                 }
-              >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
+              />
             </label>
 
             <label className="settings-field" htmlFor="scramble-limit-height">
@@ -604,31 +736,28 @@ function SettingsContent({
 
             <label className="settings-field">
               <span className="settings-field-label">Click scramble action</span>
-              <select
-                data-testid="scramble-action"
+              <Select
+                testId="scramble-action"
                 value={settings.scrambleAction}
-                onChange={(event) =>
-                  onChange({ scrambleAction: event.target.value as Settings['scrambleAction'] })
+                options={SCRAMBLE_ACTION_OPTIONS}
+                onChange={(value) =>
+                  onChange({
+                    scrambleAction: value as Settings['scrambleAction'],
+                  })
                 }
-              >
-                <option value="none">Nothing</option>
-                <option value="copy">Copy scramble</option>
-                <option value="next">Next scramble</option>
-              </select>
+              />
             </label>
 
             <label className="settings-field">
               <span className="settings-field-label">Draw Scramble visualization</span>
-              <select
-                data-testid="scramble-draw-mode"
+              <Select
+                testId="scramble-draw-mode"
                 value={drawScrambleMode}
-                onChange={(event) =>
-                  onDrawScrambleModeChange(event.target.value as DrawScrambleMode)
+                options={DRAW_SCRAMBLE_OPTIONS}
+                onChange={(value) =>
+                  onDrawScrambleModeChange(value as DrawScrambleMode)
                 }
-              >
-                <option value="net">2D net</option>
-                <option value="3d">3D puzzle</option>
-              </select>
+              />
             </label>
           </section>
 
@@ -712,6 +841,109 @@ function SettingsContent({
               account only when you connect it.
             </p>
           </section>
+
+          <details
+            className="settings-section settings-developer"
+            data-testid="settings-developer"
+          >
+            <summary className="settings-developer-summary">
+              <span className="settings-developer-title">
+                <span className="settings-section-heading">
+                  <span className="settings-developer-heading">
+                    Developer options
+                  </span>
+                  <span className="settings-badge">Advanced</span>
+                </span>
+                <span className="settings-row-description">
+                  Destructive maintenance tools. These actions require typed
+                  confirmation and are unavailable while timing or synchronizing.
+                </span>
+              </span>
+              <ChevronRightIcon
+                className="settings-developer-chevron"
+                size={16}
+              />
+            </summary>
+            <div className="settings-developer-body">
+              <div
+                className="settings-danger-zone"
+                data-testid="settings-danger-zone"
+              >
+                <div className="settings-danger-zone-heading">
+                  <h4>Danger Zone</h4>
+                  <span className="settings-danger-badge">Destructive</span>
+                </div>
+                <p className="settings-row-description">
+                  Remove every recorded solve from every session and event,
+                  including custom events. Session names, event assignments,
+                  preferences, custom event definitions, and all application
+                  settings are kept. Statistics, PBs, averages, Analytics, and
+                  solve history are derived from the removed solves and will
+                  reset to empty. This cannot be undone without a previous
+                  backup.
+                </p>
+                <button
+                  type="button"
+                  className="button button-danger"
+                  data-testid="settings-reset-all-solves"
+                  disabled={solveCount === 0 || Boolean(resetAllDisabledReason)}
+                  title={
+                    solveCount === 0
+                      ? 'There are no solves to reset.'
+                      : resetAllDisabledReason ?? undefined
+                  }
+                  onClick={onRequestResetAllSolveData}
+                >
+                  Reset All Solve Data
+                </button>
+                {resetAllDisabledReason ? (
+                  <p className="settings-inline-error" role="alert">
+                    {resetAllDisabledReason}
+                  </p>
+                ) : null}
+                <p
+                  className="settings-note"
+                  data-testid="settings-reset-sync-status"
+                >
+                  {developerSyncStatus}
+                </p>
+              </div>
+
+              <div
+                className="settings-danger-zone settings-danger-zone-secondary"
+                data-testid="settings-delete-all-sessions-zone"
+              >
+                <div className="settings-danger-zone-heading">
+                  <h4>Delete all sessions</h4>
+                  <span className="settings-danger-badge">Destructive</span>
+                </div>
+                <p className="settings-row-description">
+                  Delete every session and every solve, then start again with
+                  exactly one empty <strong>Session 1</strong>. Custom-event
+                  definitions and all application settings are kept. Google
+                  Drive historical snapshots are not deleted, but session and
+                  solve deletion records use the durable tombstone system so
+                  synchronization cannot bring the deleted data back. This
+                  cannot be undone without a previous backup.
+                </p>
+                <button
+                  type="button"
+                  className="button button-danger"
+                  data-testid="settings-delete-all-sessions"
+                  disabled={Boolean(deleteAllSessionsDisabledReason)}
+                  title={deleteAllSessionsDisabledReason ?? undefined}
+                  onClick={onRequestDeleteAllSessions}
+                >
+                  Delete All Sessions
+                </button>
+                {deleteAllSessionsDisabledReason ? (
+                  <p className="settings-inline-error" role="alert">
+                    {deleteAllSessionsDisabledReason}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </details>
 
           <section className="settings-section" aria-labelledby="settings-about-title">
             <div className="settings-section-heading">

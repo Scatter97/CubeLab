@@ -1,3 +1,9 @@
+> **Historical snapshot — archived 2026-11-01.** This record may contain
+> superseded behavior, approval milestones and verification results. For current
+> work read [STATUS.md](../../STATUS.md), [AGENTS.md](../../AGENTS.md) and
+> [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md). Paths in code spans
+> and command blocks retain their original repository-root context.
+
 # CubeLab — current limitations and historical sync evidence
 
 **Documentation updated:** 2026-11-01. Latest implementation check: 2026-11-01.
@@ -6,8 +12,8 @@ This patch substantially hardens Phase 2C, but it is deliberately **not** a clai
 that every distributed-systems problem is solved. Google Drive is still an
 eventually consistent remote store, not a transaction coordinator. Phase 3 and
 Phase 6a event coverage is complete for 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7,
-Pyraminx, Skewb, Square-1, Clock, and Megaminx. Phase 6b (blindfolded,
-Multi-Blind, and Fewest Moves) remains outside the current scope.
+Pyraminx, Skewb, Square-1, Clock, and Megaminx. Further feature-phase proposals
+were subsequently removed at the user's request.
 
 ## Current limits and concrete follow-up
 
@@ -21,10 +27,10 @@ Multi-Blind, and Fewest Moves) remains outside the current scope.
 | Provider protocol | Immutable snapshots converge eventually; no cross-file transaction | Preserve current guards; any protocol redesign needs separate scope |
 | External validation | Latest patch used mock Drive; physical devices were unavailable | Arrange explicitly authorized provider tests and real hardware |
 | OAuth | Non-test publishing/sign-in not verified by the latest work | Google Cloud owner action and subsequent verification |
-| Imports/events | 10 MB import cap remains; 12 events are supported | Phase 6b (BLD, Multi-Blind, Fewest Moves) needs separate approval |
+| Imports/events | 10 MB import cap remains; 12 events are supported | Preserve the current supported scope |
 
-Latest full check passed on November 1 with Phase 6a: 518 unit/component tests
-in 39 files; 252 browser passes, 9 existing skips; typecheck, lint, build and
+Latest full check passed on November 1 after the audit regression fixes: 553 unit/component tests
+in 39 files; 258 browser passes, 9 existing skips; typecheck, lint, build and
 supported offline checks. Normal production output was restored. The historical
 provider harness passed 7/7 on October 28; do not represent it as validation of
 every subsequent patch.
@@ -37,6 +43,28 @@ tracking is deliberately retained. Input-event comparisons are not physical
 contact measurements; Zen extensions/privacy settings and device latency were
 not characterized. See [NEXT_SESSION_HANDOFF.md](NEXT_SESSION_HANDOFF.md) for
 step-by-step entry points and acceptance checks.
+
+## 2026-11-01 audit regression fixes
+
+- Active-session approvals now match the reviewed value/timestamp pairs in either
+  merge orientation, accept the narrow already-applied/Undo stamps, and reject
+  stale decisions after later edits. The chosen value and metadata use one stable
+  timestamp/editor-ID/value order. Invalid selected IDs fall back without borrowing
+  provenance from a missing session; metadata-free legacy selection stays local-first.
+- Sync-envelope parsing retains validated selection metadata. Applying the merged
+  cloud choice does not restamp it as a new local edit. Pure and hook tests cover
+  both choices, repeated sync, stale decisions, Undo, reversed inputs and publication;
+  production browser coverage verifies review completes and stays resolved.
+- Preview and import share csTimer validation. Malformed rows, missing/negative/
+  nonfinite durations, empty scrambles and invalid provided dates in supported
+  sessions reject the file before confirmation, naming the session/solve. Missing
+  dates retain the established fallback. Unknown-puzzle sessions are still skipped
+  with a warning. Valid zero/fractional values, penalties, comments and dates survive
+  storage/export/reload; imports remain additive and retain settings and existing history.
+- Fresh full verification: 553 unit/component tests in 39 files; 258 browser
+  passes and 9 unchanged skips (267 total); typecheck/lint/build passed.
+  Normal production output was restored. No live Drive or physical-device run was
+  performed; the provider and performance limitations below remain.
 
 ## 2026-10-26 audit remediation
 
@@ -192,8 +220,8 @@ step-by-step entry points and acceptance checks.
   (`cubelab-backup-<device-id>-<uuid>.json`) instead of overwriting a device's
   previous file. `uploadDeviceBackup` never overwrites by ID or name, so two
   writers sharing a device ID (including copied browser profiles) cannot destroy
-  each other's unique solves; every snapshot stays discoverable and is merged by
-  the next run. Web Locks still serialize same-origin writes; failures do not
+  each other's snapshot. Every file returned by the complete listing is
+  merged; Drive listings may lag, so convergence can require later runs. Web Locks still serialize same-origin writes; failures do not
   replace newer local state.
 - Discovery, merge, restore, and delete-all continue to cover every snapshot,
   legacy per-device names, and `cubelab-backup.json`; removed tombstone removal
@@ -353,10 +381,10 @@ step-by-step entry points and acceptance checks.
   Google Drive test account. This was one process, not two physical browsers or
   machines, and it does not create a cross-file transaction. The final run left
   the two app-created snapshots untouched and removed all seven harness files.
-- **OAuth publishing remains in Testing.** The Google Cloud project is owned by
-  another account and the OAuth app is still in Testing. Only listed test users
-  can authorize CubeLab; non-test sign-in and the published production branding
-  were not validated. The project owner must publish the app and complete any
+- **OAuth publishing is not freshly verified.** The last recorded provider run
+  on October 28 reported Testing under another owner account. The current console
+  state cannot be established from this repository; non-test sign-in and
+  production branding have not been freshly validated. The project owner must publish the app and complete any
   verification Google requires, then retest with a non-test account.
 - **Eventual convergence, not synchronous consistency.** Each device must run a
   later merge before it sees another device's newest snapshot. There is no
@@ -394,13 +422,16 @@ step-by-step entry points and acceptance checks.
   30 remediation transports selection timestamps/editor IDs and surfaces
   disagreements under manual review. Timer-active guards still defer adoption
   so an in-flight solve is not redirected. This does not establish consensus.
-- **In-flight identity checks assume immutable React state.** An accidental
-  in-place mutation of sessions or settings could bypass the fingerprint guard.
+- **Fingerprint callers still require immutable React state.** In-flight guards
+  recompute content fingerprints, while render-time pending detection is memoized
+  on state references. In-place mutation can leave that display stale. The
+  32-bit FNV-1a fingerprint is not a collision-free equality proof.
 - **Settings provenance depends on sync metadata.** If `cubelab:sync:v1` is
   cleared, settings fall back to the conservative first-sync/whole-field policy
   rather than recovering historical per-field timestamps.
-- **Local JSON import remains replace-only.** Drive sync does not turn file
-  import into a merge operation.
+- **Native CubeLab JSON import remains replace-only.** csTimer import adds
+  sessions after preview/confirmation and retains existing settings. Neither is
+  a general-purpose local-file merge by solve ID.
 
 ## Verification
 

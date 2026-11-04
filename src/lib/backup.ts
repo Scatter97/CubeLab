@@ -74,8 +74,37 @@ export function createBackup(
           ...(solve.fieldUpdates
             ? { fieldUpdates: { ...solve.fieldUpdates } }
             : {}),
+          ...(solve.importSource
+            ? { importSource: { ...solve.importSource } }
+            : {}),
         })),
       })),
+      ...(sessions.customEvents
+        ? {
+            customEvents: sessions.customEvents.map((definition) => ({
+              ...definition,
+              ...(definition.fieldUpdates
+                ? { fieldUpdates: { ...definition.fieldUpdates } }
+                : {}),
+              ...(definition.source
+                ? {
+                    source: {
+                      ...definition.source,
+                      identifiers: [...definition.source.identifiers],
+                    },
+                  }
+                : {}),
+            })),
+          }
+        : {}),
+      ...(sessions.sessionOrder
+        ? {
+            sessionOrder: {
+              ...sessions.sessionOrder,
+              ids: [...sessions.sessionOrder.ids],
+            },
+          }
+        : {}),
     },
     settings: {
       ...settings,

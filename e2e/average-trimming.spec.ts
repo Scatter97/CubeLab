@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { chooseTestOption } from './interactions'
 
 async function seedHistory(page: Page) {
   await page.addInitScript(() => {
@@ -56,8 +57,8 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   await expect(page.getByTestId('best-ao1000')).toHaveText('10.00')
   await expect(page.getByTestId('best-mo3')).toHaveText('9.67')
   let settings = await openSettings(page)
-  await expect(settings.getByTestId('average-trim-better')).toHaveValue('p5')
-  await expect(settings.getByTestId('average-trim-worse')).toHaveValue('auto')
+  await expect(settings.getByTestId('average-trim-better')).toContainText('5%')
+  await expect(settings.getByTestId('average-trim-worse')).toContainText('Auto')
   await expect(settings.getByTestId('average-trim-example')).toContainText('50 fastest and 50 worst; 900 solves count')
   await settings.getByTestId('settings-done').click()
 
@@ -74,7 +75,7 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   await trend.getByRole('button', { name: 'Close Time Trend' }).click()
 
   settings = await openSettings(page)
-  await settings.getByTestId('average-trim-better').selectOption('1')
+  await chooseTestOption(page, 'average-trim-better', '1')
   await expect(settings.getByTestId('average-trim-example')).toContainText('1 fastest and 1 worst; 998 solves count')
   await settings.getByTestId('settings-done').click()
   const _divider2 = page.getByTestId('stats-solves-divider')
@@ -100,9 +101,9 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   expect(await storedSolves(page)).toEqual(original)
   await page.reload()
   settings = await openSettings(page)
-  await expect(settings.getByTestId('average-trim-better')).toHaveValue('1')
-  await expect(settings.getByTestId('average-trim-worse')).toHaveValue('auto')
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(9)
+  await expect(settings.getByTestId('average-trim-better')).toContainText('1 solve')
+  await expect(settings.getByTestId('average-trim-worse')).toContainText('Auto')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(10)
   expect(await storedSolves(page)).toEqual(original)
 })
 
@@ -110,13 +111,13 @@ test('independent and median trimming controls fit 320px and remain accessible',
   await page.setViewportSize({ width: 320, height: 740 })
   await seedHistory(page)
   const settings = await openSettings(page)
-  await settings.getByTestId('average-trim-better').selectOption('p1')
-  await settings.getByTestId('average-trim-worse').selectOption('p10')
+  await chooseTestOption(page, 'average-trim-better', 'p1')
+  await chooseTestOption(page, 'average-trim-worse', 'p10')
   await expect(settings.getByTestId('average-trim-example')).toContainText('10 fastest and 100 worst; 890 solves count')
-  await settings.getByTestId('average-trim-better').selectOption('median')
-  await settings.getByTestId('average-trim-worse').selectOption('auto')
+  await chooseTestOption(page, 'average-trim-better', 'median')
+  await chooseTestOption(page, 'average-trim-worse', 'auto')
   await expect(settings.getByTestId('average-trim-example')).toContainText('499 fastest and 499 worst; 2 solves count')
-  await settings.getByTestId('average-trim-better').selectOption('0')
+  await chooseTestOption(page, 'average-trim-better', '0')
   await expect(settings.getByTestId('average-trim-example')).toContainText('0 fastest and 0 worst; 1000 solves count')
   await settings.getByTestId('average-trimming-settings').scrollIntoViewIfNeeded()
   expect(await settings.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true)
@@ -129,7 +130,7 @@ test('Drive trimming conflicts show readable choices and apply the selected rule
   await seedHistory(page)
   const settings = await openSettings(page)
   // Both devices must have edited this field; an untouched default is adopted without a conflict.
-  await settings.getByTestId('average-trim-better').selectOption('p10')
+  await chooseTestOption(page, 'average-trim-better', 'p10')
   await settings.getByTestId('settings-drive-button').click()
   const drive = page.getByRole('dialog', { name: 'Google Drive backup' })
   await drive.getByTestId('drive-connect').click()
@@ -167,6 +168,6 @@ test('Drive trimming conflicts show readable choices and apply the selected rule
   }
   await expect(page.getByTestId('best-ao1000')).toHaveText('—')
   const after = await openSettings(page)
-  await expect(after.getByTestId('average-trim-better')).toHaveValue('1')
-  await expect(after.getByTestId('average-trim-worse')).toHaveValue('auto')
+  await expect(after.getByTestId('average-trim-better')).toContainText('1 solve')
+  await expect(after.getByTestId('average-trim-worse')).toContainText('Auto')
 })

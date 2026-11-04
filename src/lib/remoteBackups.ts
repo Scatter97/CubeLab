@@ -108,7 +108,11 @@ export function mergeRemoteBackupSnapshots(
     // at-least-one-session invariant with a fresh default instead of restoring
     // the tombstoned collection.
     const fresh = createSession(
-      { activeSessionId: '', sessions: [] },
+      {
+        activeSessionId: '',
+        sessions: [],
+        ...(sessions.customEvents ? { customEvents: sessions.customEvents } : {}),
+      },
       DEFAULT_SESSION_NAME,
     )
     if (fresh) sessions = fresh.data

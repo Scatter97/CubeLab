@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom'
 import { useId } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { formatTime, formatStatValue } from '../lib/format'
-import { getEventDefinition } from '../lib/events'
+import { getEventLabel } from '../lib/events'
 import { averageTrimmingLabel } from '../lib/averageTrimming'
 import type { buildPBStats } from '../lib/timeTrend'
 
@@ -24,7 +24,7 @@ export function PBStatsDialog({ id, stats, onClose }: Props) {
       onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
       {stats && <div className="time-trend-pb-content">
         <header className="time-trend-modal-header">
-          <div><h2 id={titleId}>Personal best</h2><p id={descriptionId}>Single PB · Solve #{stats.point.index} · {getEventDefinition(stats.point.solve.event)?.label ?? stats.point.solve.event}</p></div>
+          <div><h2 id={titleId}>Personal best</h2><p id={descriptionId}>Single PB · Solve #{stats.point.index} · {getEventLabel(stats.point.solve.event)}</p></div>
           <button type="button" className="time-trend-button" onClick={onClose} aria-label="Close PB stats">Close</button>
         </header>
         <div className="time-trend-pb-result">

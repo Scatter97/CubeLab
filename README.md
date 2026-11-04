@@ -33,6 +33,11 @@ solves.
   (3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7, Pyraminx, Skewb, Square-1, Clock, or
   Megaminx), with a prefetched next scramble and explicit loading, failure, and
   retry states.
+- **Custom events** for puzzles without an official generator. Create, rename,
+  or delete a custom event from **Session settings → Manage custom events**,
+  choose an optional text placeholder shown instead of a scramble, and record
+  solves with the normal timer, inspection, sessions, statistics, Analytics, and
+  PB tracking. Custom-event solves remain separate from every built-in event.
 - **Draw Scramble tool** opened with the scramble panel's **Current tool**
   button. The button toggles a compact panel in the bottom-right of the timer
   area; the panel's footer **Function** dropdown selects the tool. The panel
@@ -68,12 +73,24 @@ solves.
   session, date-range, latest-count, and penalty filters drive overview cards,
   time and average progression, historical PBs, a clickable distribution,
   consistency and Sub-X analysis, session comparison, practice activity,
-  advanced percentiles/rankings, and a virtualized solve explorer. Charts support
-  hover, keyboard inspection, zoom, pan, and reset; solve points open a read-only
-  detail dialog. Dashboard sections can be hidden, widened, and reordered, and
-  those preferences merge with the other global settings. Analytics is lazy
-  loaded, calculation results are memoized, large lines are downsampled, and no
-  analytics calculation runs while the timer is active.
+  advanced percentiles/rankings, and a filtered solve-list dialog. Charts support
+  hover, keyboard inspection, zoom, pan, and reset; solve points and list rows
+  open a read-only detail dialog. The Statistics overview stays at the top and a
+  left analysis list (or narrow-screen dropdown) shows one analysis at a time;
+  visibility and order preferences merge with the other global settings.
+  Practice activity covers the complete filtered date range with year-aware
+  labels, and the Sub-X session breakdown shares a resizable split with its
+  chart. Analytics is lazy loaded, calculation results are memoized, large lines
+  are downsampled, and no analytics calculation runs while the timer is active.
+  A subtle display version in the bottom-right footer identifies the running
+  build.
+- **CubeLab-themed dropdowns** replace native select menus throughout the app,
+  including Settings, session and event pickers, Analytics filters, import and
+  Drive dialogs, and tool controls. They match both themes, support arrow keys,
+  Home/End, Enter, Escape, type-ahead, touch and screen readers, close on outside
+  presses, return focus to the trigger, and stay inside the viewport and modal
+  focus containment. Space operates a focused dropdown's own menu rather than
+  starting or stopping the timer.
 - **Global keyboard controls** outside text-entry fields and modal dialogs,
   plus pointer controls on the timer surface. An optional **Stop with any key**
   setting stops a running solve with a non-modifier key. Timer keys are disabled
@@ -82,20 +99,24 @@ solves.
   count-down or count-up display, and independent optional warnings when the
   **8 or 12 seconds have elapsed** (7 or 3 seconds remaining in count-down mode).
 - **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance,
-  Statistics, Scramble, Controls, Data, and About sections. It covers inspection
-  direction and warnings, timer updates, Space-hold time, an optional any-key
-  stop, visual/sound/haptic solve and DNF alerts with adjustable volume, a
-  light/dark/system theme, accent color, visible statistics, custom averages,
-  display precision, display scaling, scramble presentation (including the
-  Draw Scramble 2D/3D visualization), local-data status, and backup/restore
-  access. Changes save automatically.
+  Statistics, Scramble, Controls, Data, a collapsed Developer options section,
+  and About. It covers inspection direction and warnings, timer updates,
+  Space-hold time, an optional any-key stop, visual/sound/haptic solve and DNF
+  alerts with adjustable volume, a light/dark/system theme, accent color,
+  visible statistics, custom averages, display precision, display scaling,
+  optional current-session solve progress and total time, scramble presentation
+  (including the Draw Scramble 2D/3D visualization), local-data status, and
+  backup/restore access. Changes save automatically.
   Enabled inspection warnings always pulse visually and announce a direction-aware
   label through the live region; there is no warning-text overlay. Sound and
   haptic follow the selected feedback channel. DNF feedback is slightly louder than solve
   feedback at the same volume setting.
-- **Named local sessions** with create, switch, rename, and a per-session
-  settings gear for inspection override, clear, and confirmed delete. Each
-  session has independent solves and statistics.
+- **Named local sessions** with create, switch, rename, reorder, and a per-session
+  settings gear for event correction, inspection override, clear, and confirmed
+  delete. Each session has independent solves and statistics. The session
+  selector contains separate selection and accessible **Up**/**Down** move
+  controls, so reordering never changes the active session. Order persists
+  locally, is included in backups, and synchronizes across devices.
 - **Configurable average trimming** in **Settings → Statistics**. Choose better
   and worse sides independently, with a 5% better-side default and **Auto** on
   the worse side. Options include 0/1 solve, 1%, 5%, 10%, 20%, and median.
@@ -115,20 +136,40 @@ solves.
   Session clearing and deletion live in the session settings gear.
 - **JSON backup and restore** covering every session, solve, and setting. Imports
   are validated and replace local data only after explicit confirmation.
-- **csTimer `.txt` / `.json` import** detects the csTimer format automatically,
-  shows a read-only preview (sessions, solves, supported vs. unknown puzzles),
-  and imports all supported CubeLab events (3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6,
-  7×7, Pyraminx, Skewb, Square-1, Clock, and Megaminx) with penalties,
-  scrambles, comments, and original solve dates.
-  Sessions using non-CubeLab puzzles are skipped with a warning rather than
-  converted to 3×3. Invalid durations, dates or malformed rows in supported sessions
-  reject the file with a session/solve error before preview or confirmation.
-  Missing solve dates retain the existing session-date/current-time fallback;
-  valid imports add sessions and leave existing settings/history unchanged.
+- **Developer options** in Settings are collapsed by default. **Danger Zone**
+  provides two typed-confirmation actions: **Reset All Solve Data** removes every
+  solve while keeping session names, event assignments, preferences, custom
+  event definitions, and application settings; **Delete All Sessions** removes
+  every session and solve, then creates one empty active **Session 1** while
+  preserving settings and custom-event definitions. Both record durable
+  deletion metadata for synchronization; existing Google Drive snapshots are not
+  deleted by either action.
+- **csTimer `.txt` / `.json` import** detects the csTimer format automatically
+  and shows a concise preview table of every session name and solve count,
+  including empty sessions. Sessions are appended in csTimer `rank` order, with
+  the session number as the deterministic fallback and tie-breaker. Original
+  names are preserved, including numeric names; conflicting names are resolved
+  case-insensitively against both local and imported sessions with
+  `name(1)`, `name(2)`, and so on, while existing stored sessions keep their
+  names. Valid omitted `opt.scrType` metadata uses csTimer’s `333` default;
+  explicit supported identifiers map to built-in events, and explicit
+  unsupported identifiers become stable custom events that can be renamed later
+  in the custom-event manager. Missing or malformed metadata is not treated as
+  a 3×3 default. Imported solves retain penalties, scrambles, comments,
+  original dates, and csTimer provenance (including whether the type was
+  explicit or default). Empty sessions are imported with import time as the
+  fallback when their dates are missing or unusable. Invalid durations, dates
+  for sessions with solves, malformed solve lists, or malformed rows reject the
+  file with a session/solve error before preview or confirmation. Missing solve
+  dates retain the existing session-date/current-time fallback; valid imports
+  add sessions and custom definitions while leaving existing settings and
+  history unchanged.
 - **Optional Google Drive synchronization** using device-owned snapshots,
   field-level merging for solves, session metadata, preferences, and global
-  settings, plus manual conflict review. It defers while the timer is active and
-  never runs before you explicitly connect a Google account.
+  settings, plus manual conflict review. Custom event definitions merge by stable
+  ID, including deletions, so repeated imports or cloud merges cannot create
+  duplicate events. It defers while the timer is active and never runs before you
+  explicitly connect a Google account.
 - **Local-first persistence** with versioned, validated browser storage and
   automatic migration from the original single-session key.
 - **Installable PWA** with local timing and scramble generation available offline
@@ -157,8 +198,8 @@ statistics, and history stacked below it.
 
 The header **Settings** button opens a csTimer-inspired preferences dialog. The
 dialog groups timer, alerts, display, appearance, statistics, scramble, controls,
-data, and about preferences in one place, with progressive migration from older
-settings records. At 320 px the Settings dialog keeps the inspection label and
+data, developer, and about preferences in one place, with progressive migration
+from older settings records. At 320 px the Settings dialog keeps the inspection label and
 its switch touch target visible, and its body scrolls independently so the Done
 button stays reachable.
 
@@ -187,19 +228,63 @@ The same palette and accent apply throughout the Settings dialog:
 
 ![CubeLab dark Settings dialog](docs/cubelab-dark-settings.png)
 
+### Custom events
+
+Open **Session settings → Manage custom events** to create, rename, change the
+optional scramble placeholder, or delete a definition. Custom events are marked
+`(custom)` in every event selector, including the Analytics filter. Deleting is
+blocked while a session or solve still uses the event, so history is never
+silently moved or orphaned. The same dialog offers bulk session reassignment and
+an automatic correction path for solves that retain original csTimer metadata;
+correcting an event never changes solve times, timestamps, penalties, comments,
+or scrambles.
+
 ### Analytics
 
 The Analytics tab analyzes the current solve history without modifying it. Event,
 session, date range, latest-solve count, and penalty filters apply to every
-section. The dashboard shares WCA effective-time, +2/DNF, precision, and
-trimming rules with the timer statistics.
+analysis. The dashboard shares WCA effective-time, +2/DNF, precision, and
+trimming rules with the timer statistics. The Statistics overview stays at the
+top; below it, an analysis list selects one of the remaining analyses at a
+time. Narrow screens replace that list with an accessible **Analysis**
+dropdown.
 
 ![CubeLab Analytics dashboard](docs/cubelab-analytics.png)
 
+On desktop the dashboard fits the available viewport instead of scrolling the
+whole page. The overview and selected analysis use bounded internal scrolling;
+the selected chart flexes to the remaining height, and longer tables remain
+reachable inside the analysis panel. Narrow layouts deliberately keep page
+scrolling so controls and text stay readable, and increased interface zoom can
+scroll the analysis content without horizontal clipping.
+
 Charts remain interactive at large histories: dense lines use ordered bucket
-downsampling, the solve explorer virtualizes its rows, and both the page and its
-chart code are loaded separately from the timer. Section visibility, width,
-order, and per-event Sub-X targets are stored in synchronized settings.
+downsampling, the filtered solve-list dialog virtualizes its rows, and both the
+page and its chart code are loaded separately from the timer. Section visibility,
+order, and per-event Sub-X targets are stored in synchronized settings. Retired
+Solve explorer entries in older saved layouts are ignored without invalidating
+the rest of the customization. The retired width preference also remains in
+stored settings for backward compatibility, but the one-analysis panel uses the
+full available content width. Solve-time distribution derives its automatic
+interval from the central 98% of the current filtered data; extreme values stay
+counted in grouped edge intervals and remain drillable, while an explicitly
+chosen interval is preserved across filter changes. Sub-X accepts direct seconds
+with up to three decimals, offers event-specific presets such as Sub-15/20/30 for
+3×3, and retains the per-event target in synchronized settings. Its session
+breakdown keeps sticky column headings, every session row, and a keyboard-
+resizable chart/table split.
+
+Practice activity uses the earliest-to-latest filtered solve range instead of a
+fixed 52-week window. Empty calendar days remain visible, month labels repeat the
+year at the start and each January, and the weekly solve-volume axis includes the
+year whenever the filtered history spans multiple years. Long ranges scroll
+horizontally inside the heatmap. Chart date labels stay compact for single-year
+histories.
+
+The compact chart zoom group uses accessible icon buttons for zoom in, zoom out,
+and reset, with disabled, hover, active, and focus states in both themes. The
+existing wheel/pinch zoom, drag pan, keyboard point inspection, and touch
+behavior are unchanged.
 
 ### Time Trend
 
@@ -235,8 +320,11 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Filter Analytics | Use the event, session, date-range, latest-count, and penalty controls above the dashboard |
 | Inspect an Analytics point | Point at a chart for values, or focus it and use the arrow keys; press **Enter** to open the solve details |
 | Zoom or pan an Analytics chart | Scroll over the plot to zoom; drag to pan; use **Reset** to restore the full range |
-| Drill down from the distribution | Click a histogram bar to filter the Solve explorer; **Clear interval filter** removes it |
-| Customize Analytics | Use **Customize** to show/hide, widen, or reorder sections; **Reset layout** restores the defaults |
+| Drill down from the distribution | Click a histogram bar to open those solves in the solve-list dialog; **Clear interval filter** removes it |
+| Choose an analysis | Use the analysis list on the left, or the **Analysis** dropdown on narrow screens; the Statistics overview stays above it |
+| Customize Analytics | Use **Customize** to show/hide or reorder the overview and analyses; **Reset layout** restores the defaults |
+| Resize the Sub-X breakdown | Drag the divider between the chart and session table, or focus it and use the arrow keys; Home/End select the limits and Enter restores the default |
+| View all filtered solves | Use **View solves** in the Analytics heading; select a row to inspect its solve details |
 | Zoom and pan Time Trend | Scroll ↕ for vertical zoom, ↔ (or Shift + wheel) for horizontal zoom; pinch for both; drag to pan; **Fit all** resets |
 | Explore solve-time trends | Select **Function → Time Trend**, then **Expand** for series, zoom, range navigation, and solve details |
 | Choose the Draw Scramble 2D net or 3D puzzle | Open **Settings → Scramble → Draw Scramble visualization** |
@@ -253,8 +341,11 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Change the accent color | Open **Settings → Appearance** and choose green, blue, violet, or amber |
 | Configure average trimming | Open **Settings → Statistics → Average trimming**; changes recalculate averages and average PBs |
 | Show or hide statistic cards, add custom averages, and choose precision | Open **Settings → Statistics** |
-| Switch session | Choose a name in the session select; use arrow keys and <kbd>Enter</kbd> from the keyboard |
-| Create or rename a session | Use the buttons beside the session select |
+| Switch session | Open the session selector, then choose a name with the pointer or arrow keys and <kbd>Enter</kbd> |
+| Create or rename a session | Use the buttons beside the session selector |
+| Reorder sessions | Open the session selector and use each row's accessible **Up**/**Down** buttons; this never changes the active session |
+| Close a dropdown | Click or tap outside it, or press <kbd>Esc</kbd>; focus returns to its trigger |
+| Correct a session's event | Open the session settings gear and choose an event; sessions with solves require confirmation |
 | Clear or delete a session | Open the session settings gear beside the select |
 | Open solve actions | Click a solve row or focus it and press <kbd>Enter</kbd> |
 | Add a solve comment | Open solve actions, choose **Add comment**, then **Save comment** |
@@ -264,9 +355,21 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Activate a focused button or switch | <kbd>Enter</kbd> |
 
 <kbd>Space</kbd> is reserved for timing throughout the app and never scrolls the
-page. Buttons and switches remain keyboard-operable with <kbd>Enter</kbd>. Space
-is only left to a control when focus is inside a text-entry field, such as the
-session-name or solve-comment editor.
+page. Buttons and switches remain keyboard-operable with <kbd>Enter</kbd>.
+CubeLab's custom dropdowns use <kbd>Space</kbd> only to open and operate their
+own menu, so interacting with a menu never starts or stops the timer. Text-entry
+fields such as the session-name or solve-comment editor keep their normal Space
+behavior.
+
+### Display version
+
+A subtle version label appears in the bottom-right footer, for example
+`0.01.261104:1`. The format is `<major>.<two-digit minor>.YYMMDD:<patch>`.
+`0.01` comes from the repository's `0.1.0` package release, `261104` means
+November 4, 2026, and `1` is the first display patch for that date. Update the
+date and patch in [`src/lib/version.ts`](src/lib/version.ts) when publishing a
+new display build. The label is presentation-only and does not change session,
+settings, backup, or sync schema versions.
 
 ### Sessions
 
@@ -277,10 +380,16 @@ history, and solve count shown in the interface. Session controls are disabled
 while the timer is armed, running, or in inspection so a solve cannot move
 between sessions mid-timing.
 
-The gear beside the session select opens **Session settings**. It controls the
-session's inspection override, clearing all solves, and deleting the session.
-Clearing requires typing **CLEAR THIS SESSION**; deleting requires typing
-**DELETE THIS SESSION**. Deleting always leaves at least one session. The
+The gear beside the session selector opens **Session settings**. It controls the
+session's name, event, inspection override, clearing all solves, and deleting
+the session. Changing the event is allowed even when the session contains
+solves; CubeLab asks for explicit confirmation that names the session, old
+event, new event, and affected solve count, then moves the session and every
+solve together. Solve IDs, raw times, penalties, original scrambles, comments,
+dates, and csTimer import provenance are preserved. Event changes are never
+inferred from names, durations, or scramble text. Clearing requires typing
+**CLEAR THIS SESSION**; deleting requires typing **DELETE THIS SESSION**.
+Deleting always leaves at least one session. The
 original single-session data from earlier CubeLab versions is migrated
 automatically into **Session 1** the first time the new version loads; only
 3×3 records from that legacy key are migrated. Same-origin tabs reconcile
@@ -292,18 +401,20 @@ icon, and message highlighted in red.
 ### Backup and restore
 
 Open **Settings → Data → Backup & restore**. **Backup** exports a readable JSON
-file containing every session, every solve, the active session, and all
-settings. The file is created locally with the browser download API; CubeLab
-never uploads it.
+file containing every session, every solve, custom event definitions, the active
+session, the session order, and all settings. The file is created locally with the browser download
+API; CubeLab never uploads it.
 
-Import validates the application marker, format version, sessions, solves, and
-settings before changing anything. Valid data replaces the local sessions and
-settings only after a confirmation dialog explains the current and incoming
-counts. csTimer imports instead add new sessions and leave existing sessions and
-settings intact, after preview and confirmation. Cancelling the confirmation leaves local data untouched. Imports are
-limited to 10 MB; invalid files produce an inline error and are not applied.
-Imports also reject sessions whose solves belong to a different puzzle event
-instead of storing data that would later block synchronization.
+Import validates the application marker, format version, sessions, solves,
+custom definitions, and settings before changing anything. Valid data replaces
+the local sessions and settings only after a confirmation dialog explains the
+current and incoming counts. Backups containing only empty sessions are valid.
+csTimer imports instead add new sessions and custom event definitions while
+leaving existing sessions and settings intact, after preview and confirmation.
+Cancelling the confirmation leaves local data untouched. Imports are limited to
+10 MB; invalid files produce an inline error and are not applied. Imports also
+reject sessions whose solves belong to a different puzzle event instead of
+storing data that would later block synchronization.
 
 ### Google Drive synchronization
 
@@ -371,6 +482,14 @@ later merges of the same versions; a selection edited after review requires a
 fresh decision. Equal-time selection ties use a stable editor-ID/value order,
 and the metadata follows the selected value. Cloud adoption preserves that
 provenance instead of recording a new local selection edit.
+
+Session ordering merges as one ID-based record with its own timestamp and editor
+ID. The newest record wins; equal timestamps use a stable editor-ID then
+serialized-ID tiebreak so every device converges in either merge orientation.
+Sessions missing from the winning record, including concurrent additions and
+csTimer imports, are appended deterministically rather than dropped. Deletions
+remove their IDs from the record, and reordering never changes the active
+session or solve data.
 
 Every manual decision is also recorded in a local-only **review history** in the
 Drive dialog, newest first and capped at 50 entries. **Undo** reverses the stored
@@ -508,6 +627,23 @@ does not rewrite raw times.
   as a personal best. Large averages use a Fenwick-tree sliding-window pass so
   ao1000–ao10000 remain responsive.
 
+Optional session summaries are enabled independently in **Settings → Display**
+and appear in the slim timer footer beneath the timer, replacing the repeated
+solve-count text. **Session solve progress** shows completed / total solves, for
+example `7,012 / 7,061`, without an extra “solves” suffix; **Session total time**
+shows the completed-time sum in hours, for example `39.49 h`. When both are
+enabled they read `7,012 / 7,061 · 39.49 h`. The visible values keep accessible
+names that state the completed count, total and hour unit. This follows csTimer's
+session header semantics for completion and inclusion: completed is the number of
+non-DNF solves, total includes DNFs, and the sum adds post-penalty times for
+completed solves only. A `+2` therefore counts as completed and adds two
+seconds; a DNF is excluded from the time sum. The sum uses CubeLab's shared
+recorded-result precision (hundredths below ten minutes, whole seconds at or
+above), the same precision as every other displayed statistic. Summaries
+recalculate from stored solves after recording, penalty edits, deletion/Undo,
+imports, session switches, and event reassignment. Both options default to off
+in migrated settings.
+
 **Settings → Statistics** can hide individual cards, add or remove custom
 averages, choose **Average trimming**, and switch display precision between
 hundredths and tenths. Better-side choices are 0 solves, 1 solve, 1%, 5%, 10%,
@@ -535,9 +671,9 @@ excluded from valid-time statistics and distribution bins.
 
 Global filters apply consistently. Session comparison deliberately compares all
 sessions matching the event/date/penalty filters when fewer than two sessions are
-selected, so the section is not reduced to one column. The solve-time count limit
-applies to the analyzed history; comparison uses each included session's full
-matching history to keep sample sizes explicit.
+selected, so the analysis is not reduced to one column. The solve-time count
+limit applies to the analyzed history; comparison uses each included session's
+full matching history to keep sample sizes explicit.
 
 Sub-X targets are configurable per puzzle event and stored in the synchronized
 settings record. The estimate is a statistical approximation, not a guarantee.
@@ -570,16 +706,31 @@ precaches the application shell, fonts, scramble assets, and worker code.
 ```bash
 npm run typecheck   # strict TypeScript project build
 npm run lint        # Oxlint
-npm test            # Vitest unit and integration tests
+npm test -- <file>  # focused Vitest case; npm test runs all
 npm run build       # production build + PWA generation
-npm run test:e2e    # Playwright against the production preview
+npm run test:e2e -- <spec> --project=chromium --workers=1
 ```
 
-`VITE_DRIVE_MOCK=true npm run check` runs the complete local verification chain
-with the mock-Drive flows enabled. Run `npm run build` afterward to restore
-normal production output. If browser tests reuse an existing preview server,
-explicitly build with the mock flag first; Playwright then skips its server
-startup/build command.
+Verification is tiered to keep routine development resource-conscious:
+
+- Documentation, copy, and minor visual/CSS changes need manual inspection of
+  the affected view; add a focused test only when behavior changes.
+- Logic changes need `npm run typecheck`, `npm run lint`, and the affected Vitest
+  files, including a new regression at the owning layer.
+- Major cross-layer work needs the focused Playwright specs for the affected
+  flows, normally one browser and `--workers=1`.
+- `VITE_DRIVE_MOCK=true npm run check` (the full browser matrix) is reserved for
+  significant releases, broad refactors, or an explicit request. Run
+  `npm run build` afterward to restore normal production output.
+
+Do not run the full Playwright suite after every change, run multiple browsers or
+test suites concurrently, or rerun passing tests without a relevant code change.
+Never omit focused verification for destructive paths: saves, deletion/Undo,
+native or csTimer imports, backup restore, storage migration, and Google Drive
+merge/conflict/restore behavior. If browser tests reuse an existing preview
+server, explicitly build with `VITE_DRIVE_MOCK=true` first; Playwright then skips
+its server startup/build command. Report which checks ran and which were
+intentionally skipped.
 
 Real Google Drive validation is opt-in and never runs in `npm run check`:
 
@@ -597,9 +748,12 @@ typed clear confirmation, Settings open/close and focus restoration, inspection
 persistence and direction, count-down and count-up warnings, per-session
 inspection overrides, mobile pointer timing, 320 px Settings/session/solve-menu
 targets, long-history scrolling, legacy single-session migration, named-session
-create/switch/rename/delete with typed confirmation, timer locking of session
-controls and Settings, per-event scramble/statistics/persistence flows for all
-twelve events at desktop and mobile widths, multi-event backup export/import,
+create/switch/rename/delete with typed confirmation, session event correction
+and field preservation, accessible session reordering, delete-all-sessions
+confirmation/tombstones/storage failure and mock-Drive non-resurrection,
+optional session summaries, timer locking of session controls and Settings,
+per-event scramble/statistics/persistence flows for all twelve events at desktop
+and mobile widths, multi-event backup export/import,
 invalid-file handling, import cancellation, confirmed restore of
 sessions/comments/settings, the scramble-failure recovery state, and full
 offline scramble generation through the installed service worker. It also
@@ -610,8 +764,16 @@ Draw Scramble activation/deactivation, draggable/resizable panel persistence,
 2D/3D switching, panel placement, scramble synchronization, a non-zero 3D
 render surface, Google Drive mock
 synchronization, conflict review, duplicate-name
-review/merge, and delete-all remote backup wording. Axe scans cover the main
-view, Settings, and the dark theme. The nine existing browser skips are offline,
+review/merge, delete-all remote backup wording, the one-analysis Analytics
+navigation and narrow-screen analysis selector, single-screen desktop fit,
+all/none/partial session selection with the no-sessions state, session
+multi-select keyboard, outside-click and Escape behavior, the full multi-year
+practice heatmap and year-aware axes, Sub-X precise entry/presets, sticky session
+breakdown headings with keyboard-resizable split, filtered solve-list drill-down,
+compact chart zoom controls, the integrated session selector with reordering and
+narrow viewport containment, optional footer summaries, the display version, and
+histogram extreme-value scaling. Axe scans cover the main view, Settings, and
+the dark theme. The nine existing browser skips are offline,
 touch hold-to-time and two CDP canvas/PG3D probes in Firefox/WebKit, plus cross-tab
 timing in WebKit. Non-cube player tests verify puzzle IDs and initialization
 status; they do not establish rendered-pixel correctness for every puzzle.
@@ -640,7 +802,9 @@ src/
   hooks/useSessions.ts   Authoritative named-session state and persistence
   hooks/useSettings.ts   Persisted preferences
   hooks/useModalDialog.ts Native modal lifecycle and focus containment
-  lib/sessions.ts        Pure session, solve, comment, and name mutation logic
+  hooks/useDismissablePopover.ts Outside-click, Escape and focus restoration for dropdowns
+  lib/sessions.ts        Pure session, ordering, summary, solve and comment logic
+  components/Select.tsx  Shared themed combobox/listbox with keyboard type-ahead
   lib/backup.ts          Versioned JSON backup creation and validation
   lib/sync.ts            Solve/session/tombstone/redirect merge logic
   lib/sessionMetadata.ts Field-level session metadata merging
@@ -661,15 +825,18 @@ src/
   components/PBStatsDialog.tsx  Read-only historical PB statistics
   lib/timeTrend.ts       Trend data, viewport math, and PB result windows
   components/ScrambleNet.tsx  2D unfolded-net renderer
-  lib/events.ts          Supported event registry, labels, and validation
+  lib/events.ts          Built-in/custom event registry, labels, and validation
+  lib/customEvents.ts    Custom definitions, csTimer mapping, merging, reassignment
+  components/CustomEventsDialog.tsx  Create/rename/delete events and safe reassignment
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           Recorded singles/mo3 and shared trimmed rolling statistics
   lib/analytics.ts       Pure analytics filtering, rolling series, PB, distribution,
                          consistency, Sub-X, comparison, activity, and percentiles
   lib/analyticsSettings.ts Analytics section layout and per-event Sub-X targets
   components/AnalyticsPage.tsx  Lazy analytics dashboard, filters, drill-down,
-                                customization, and virtualized solve explorer
-  components/AnalyticsCharts.tsx Interactive SVG line, histogram, and heatmap views
+                                solve-list details, Sub-X split and customization
+  components/AnalyticsCharts.tsx Interactive SVG line, histogram, heatmap and zoom group
+  lib/version.ts         Maintained display-version string
   lib/averageTrimming.ts Trim presets, validation, counts, and labels
   lib/storage.ts         Versioned localStorage validation and migration
   lib/alerts.ts          Web Audio, vibration, DNF gain, and inspection warnings
@@ -722,17 +889,26 @@ Storage keys are versioned:
 Each session contains `id`, `name`, optional `event` and `preferences`,
 `createdAt`, `updatedAt`, `solves`, an optional `inspectionEnabled` override, and
 optional `fieldUpdates` metadata for the name, event, inspection override, and
-individual preference fields. Each solve contains `id`, `event`, `rawMs`,
-`penalty`, `scramble`, `comment`, and `createdAt`, plus optional per-field merge
-metadata. Invalid sessions, solves, duplicate IDs, and malformed metadata are
-skipped individually. Corrupt session JSON falls back to the legacy record and
-then to a fresh empty session; a valid session collection is never silently
-discarded. The active session is normalized to an existing session on load.
-Sessions are stored at schema version 4; version 1–3 records load with defaults
-for newer fields. Missing field metadata falls back to `updatedAt` only at merge
-time and is not written back as fabricated history.
+individual preference fields. The collection optionally carries `customEvents`
+definitions (stable `custom:` ID, name, placeholder, source identifiers, and field
+metadata) and a `sessionOrder` record (`ids`, `updatedAt`, `editorId`) for the
+user's display order; an older record without them remains valid. Ordering
+metadata stores session IDs rather than positions, and any session missing from
+the record is appended deterministically instead of being lost. Each solve contains `id`,
+`event`, `rawMs`, `penalty`, `scramble`, `comment`, and `createdAt`, plus optional
+per-field merge metadata (including a deliberate event reclassification) and
+optional csTimer import provenance, including the original scramble type and
+whether it was explicit, csTimer’s omitted default, or unavailable. Invalid
+sessions, solves, duplicate IDs, and malformed metadata are skipped
+individually. Corrupt session JSON falls back to the legacy record and then to a
+fresh empty session; a valid session collection is never silently discarded.
+The active session is normalized to an existing session on load. Sessions are
+stored at schema version 5; version 1–4 records load with defaults for newer
+fields, and the custom-event and import-provenance fields are additive so no
+migration is required. Missing field metadata falls back to `updatedAt` only at
+merge time and is not written back as fabricated history.
 
-Settings are stored at schema version 9. Version 1–8 records are upgraded in
+Settings are stored at schema version 10. Version 1–9 records are upgraded in
 place with field-level defaults for newer settings; invalid individual values
 fall back without discarding the rest of the record. Version 7 adds the
 `theme` preference (`light`, `dark`, or `system`), defaulting to `light`.
@@ -740,14 +916,16 @@ Version 8 adds `averageTrimBetter` and `averageTrimWorse`, defaulting to `p5`
 and `auto` for older records/backups as well as new installations. Version 9
 adds the `analytics` dashboard layout and per-event Sub-X targets, defaulting to
 every section visible and the built-in targets for older records and backups.
-Global settings field timestamps are stored in `cubelab:sync:v1` rather than in
-the settings record, so the settings schema remains backward compatible.
+Version 10 adds independent `showSessionSolveProgress` and
+`showSessionTotalTime` options, both defaulting to off. Global settings field
+timestamps are stored in `cubelab:sync:v1` rather than in the settings record,
+so the settings schema remains backward compatible.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
 exportedAt, sessions, settings, sync? }`. The parser validates the marker,
-version, sessions, solves, and settings before the confirmation step. The optional
-sync envelope carries the cloud revision, tombstones, conflict records, session
-redirects, and settings field timestamps.
+version, sessions, solves, settings, and optional session ordering before the
+confirmation step. The optional sync envelope carries the cloud revision,
+tombstones, conflict records, session redirects, and settings field timestamps.
 
 ### Production worker note
 

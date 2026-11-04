@@ -3,6 +3,7 @@ import type {
   PuzzleEvent,
   Session,
   SessionFieldUpdates,
+  SessionOrdering,
   SessionPreferenceKey,
   SessionPreferences,
   SessionsData,
@@ -10,6 +11,8 @@ import type {
 } from '../types'
 import { createId } from './id'
 import { mergeSolveFields } from './solveMerge'
+import { effectiveTimeMs } from './stats'
+import { unionCustomEvents } from './customEvents'
 import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
 
 export const MAX_SESSION_NAME_LENGTH = 40
@@ -35,6 +38,107 @@ export interface RemovedSolve {
 /** Trims and collapses whitespace so names compare predictably. */
 export function normalizeSessionName(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
+}
+
+function sessionNameKey(value: string): string {
+  return normalizeSessionName(value).toLowerCase()
+}
+
+function fitSessionName(value: string, maxLength: number): string {
+  const normalized = normalizeSessionName(value)
+  if (normalized.length <= maxLength) return normalized
+  return normalized.slice(0, maxLength).trim()
+}
+
+function numberedSessionName(
+  root: string,
+  counter: number,
+  maxLength: number,
+): string {
+  const suffix = `(${counter})`
+  const base =
+    maxLength === Number.POSITIVE_INFINITY
+      ? normalizeSessionName(root)
+      : fitSessionName(root, Math.max(0, maxLength - suffix.length))
+  return `${base || 'Session'}${suffix}`
+}
+
+function numberedRoot(value: string): { root: string; next: number } | null {
+  const match = /^(.*?)\s*\((\d{1,9})\)$/.exec(value)
+  if (!match) return null
+  const root = normalizeSessionName(match[1] ?? '')
+  if (!root) return null
+  return { root, next: Number(match[2]) + 1 }
+}
+
+/**
+ * Resolves a list of desired names to unique, case-insensitive names. The first
+ * available original name is kept; later collisions use `name(1)`, `name(2)`,
+ * and so on. Numbering also avoids original names that appear later in the
+ * list, so importing `Practice` does not steal a later `Practice(1)`.
+ */
+export function resolveUniqueSessionNames(
+  names: readonly string[],
+  existingNames: readonly string[] = [],
+  maxLength = MAX_SESSION_NAME_LENGTH,
+): string[] {
+  const prepared = names.map(
+    (name) =>
+      fitSessionName(name, maxLength) ||
+      fitSessionName('Session', maxLength) ||
+      'Session',
+  )
+  if (prepared.length === 0) return []
+
+  const used = new Set(existingNames.map(sessionNameKey))
+  const upcoming = new Map<string, number>()
+  for (const name of prepared) {
+    const key = sessionNameKey(name)
+    upcoming.set(key, (upcoming.get(key) ?? 0) + 1)
+  }
+
+  const resolved: string[] = []
+  for (const desired of prepared) {
+    const desiredKey = sessionNameKey(desired)
+    const remaining = (upcoming.get(desiredKey) ?? 0) - 1
+    if (remaining > 0) upcoming.set(desiredKey, remaining)
+    else upcoming.delete(desiredKey)
+
+    if (!used.has(desiredKey)) {
+      used.add(desiredKey)
+      resolved.push(desired)
+      continue
+    }
+
+    const numbered = numberedRoot(desired)
+    const root = numbered?.root ?? desired
+    let counter = numbered?.next ?? 1
+    let candidate = ''
+    let candidateKey = ''
+    while (true) {
+      candidate = numberedSessionName(root, counter, maxLength)
+      candidateKey = sessionNameKey(candidate)
+      if (!used.has(candidateKey) && !upcoming.has(candidateKey)) break
+      counter += 1
+    }
+    used.add(candidateKey)
+    resolved.push(candidate)
+  }
+  return resolved
+}
+
+/**
+ * Dropdown labels for an existing collection. Stored names are not changed;
+ * only duplicate labels receive the same numbered suffix used by imports.
+ */
+export function getSessionDisplayNames(
+  sessions: readonly SessionNameCandidate[],
+): string[] {
+  return resolveUniqueSessionNames(
+    sessions.map((session) => session.name),
+    [],
+    Number.POSITIVE_INFINITY,
+  )
 }
 
 /**
@@ -84,6 +188,231 @@ export function getActiveSession(data: SessionsData): Session | null {
   )
 }
 
+/**
+ * Returns sessions in their persisted user order. Known IDs keep the saved
+ * sequence; sessions created by another device or an import without ordering
+ * metadata are appended by creation time and stable ID instead of being lost.
+ */
+export function getOrderedSessions(data: SessionsData): Session[] {
+  // Legacy collections without ordering metadata retain their stored array
+  // order. Imports append there too, so csTimer rank order is preserved even
+  // before the first explicit reorder creates a sessionOrder record.
+  if (!data.sessionOrder) return [...data.sessions]
+  const byId = new Map(data.sessions.map((session) => [session.id, session]))
+  const ordered: Session[] = []
+  const seen = new Set<string>()
+  for (const id of data.sessionOrder.ids) {
+    const session = byId.get(id)
+    if (!session || seen.has(id)) continue
+    seen.add(id)
+    ordered.push(session)
+  }
+  const missing = data.sessions
+    .filter((session) => !seen.has(session.id))
+    .sort(
+      (left, right) =>
+        left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+    )
+  return [...ordered, ...missing]
+}
+
+/**
+ * Picks one ordering record deterministically and appends any session missing
+ * from it. The newest `updatedAt` wins; an editor-ID then serialized-ID tiebreak
+ * makes equal timestamps converge independently of merge orientation. Sessions
+ * are never removed by ordering metadata, so concurrent additions survive.
+ */
+export function resolveSessionOrdering(
+  local: SessionOrdering | undefined,
+  remote: SessionOrdering | undefined,
+  sessions: readonly Session[],
+): SessionOrdering | undefined {
+  if (!local && !remote) return undefined
+  let winner: SessionOrdering
+  if (!local) winner = remote!
+  else if (!remote) winner = local
+  else if (local.updatedAt !== remote.updatedAt) {
+    winner = local.updatedAt > remote.updatedAt ? local : remote
+  } else if (local.editorId !== remote.editorId) {
+    winner = local.editorId < remote.editorId ? local : remote
+  } else {
+    winner =
+      JSON.stringify(local.ids) <= JSON.stringify(remote.ids) ? local : remote
+  }
+
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const id of winner.ids) {
+    if (!byId.has(id) || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  const missing = sessions
+    .filter((session) => !seen.has(session.id))
+    .sort(
+      (left, right) =>
+        left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+    )
+  for (const session of missing) ids.push(session.id)
+  return { ...winner, ids }
+}
+
+/**
+ * Adds any sessions missing from an ordering record in their current array order
+ * without advancing its edit timestamp. Used by imports, cross-tab adoption and
+ * native restores so newly added sessions stay at the tail in source order.
+ */
+export function ensureSessionOrdering(data: SessionsData): SessionsData {
+  if (!data.sessionOrder) return data
+  const present = new Set(data.sessions.map((session) => session.id))
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const id of data.sessionOrder.ids) {
+    if (!present.has(id) || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  for (const session of data.sessions) {
+    if (seen.has(session.id)) continue
+    seen.add(session.id)
+    ids.push(session.id)
+  }
+  if (
+    ids.length === data.sessionOrder.ids.length &&
+    ids.every((id, index) => id === data.sessionOrder!.ids[index])
+  ) {
+    return data
+  }
+  return { ...data, sessionOrder: { ...data.sessionOrder, ids } }
+}
+
+/** Applies an ordering record to a session list without changing identities. */
+export function sortSessionsByOrder(
+  sessions: readonly Session[],
+  ordering: SessionOrdering | undefined,
+): Session[] {  if (!ordering) return [...sessions]
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const ordered: Session[] = []
+  const seen = new Set<string>()
+  for (const id of ordering.ids) {
+    const session = byId.get(id)
+    if (!session || seen.has(id)) continue
+    seen.add(id)
+    ordered.push(session)
+  }
+  const missing = sessions
+    .filter((session) => !seen.has(session.id))
+    .sort(
+      (left, right) =>
+        left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+    )
+  return [...ordered, ...missing]
+}
+
+function withSessionOrdering(
+  data: SessionsData,
+  ordered: readonly Session[],
+  now: number,
+  editorId: string,
+): SessionsData {  return {
+    ...data,
+    sessions: [...ordered],
+    sessionOrder: {
+      ids: ordered.map((session) => session.id),
+      updatedAt: now,
+      editorId,
+    },
+  }
+}
+
+/**
+ * Moves one session up or down in the user order. The whole ordered ID list is
+ * saved with one timestamp so two devices choose a single deterministic winner,
+ * while sessions unknown to that list are appended rather than deleted.
+ */
+export function moveSession(
+  data: SessionsData,
+  sessionId: string,
+  direction: -1 | 1,
+  now = Date.now(),
+  editorId = 'legacy',
+): SessionsData {
+  const ordered = getOrderedSessions(data)
+  const index = ordered.findIndex((session) => session.id === sessionId)
+  if (index < 0) return data
+  const target = index + direction
+  if (target < 0 || target >= ordered.length) return data
+  const next = [...ordered]
+  const [session] = next.splice(index, 1)
+  if (!session) return data
+  next.splice(target, 0, session)
+  return withSessionOrdering(data, next, now, editorId)
+}
+
+/**
+ * Appends imported sessions in their source order. Existing session order is
+ * retained; the imported sequence becomes the tail of the collection.
+ */
+export function appendSessionsInOrder(
+  data: SessionsData,
+  imported: readonly Session[],
+  now = Date.now(),
+  editorId = 'legacy',
+): SessionsData {
+  if (imported.length === 0) return data
+  const existing = getOrderedSessions(data)
+  const existingIds = new Set(existing.map((session) => session.id))
+  const additions = imported.filter((session) => !existingIds.has(session.id))
+  if (additions.length === 0) return data
+  return withSessionOrdering(
+    data,
+    [...existing, ...additions],
+    now,
+    editorId,
+  )
+}
+
+/** Removes a deleted session from ordering metadata without losing others. */
+export function removeSessionFromOrder(
+  data: SessionsData,
+  sessionId: string,
+): SessionsData {
+  if (!data.sessionOrder) return data
+  const ids = data.sessionOrder.ids.filter((id) => id !== sessionId)
+  if (ids.length === data.sessionOrder.ids.length) return data
+  return {
+    ...data,
+    sessionOrder: { ...data.sessionOrder, ids },
+  }
+}
+
+export interface SessionSummary {
+  /** Non-DNF solves. A +2 still counts as completed. */
+  completed: number
+  /** Every solve, including DNFs. */
+  total: number
+  /** Sum of completed effective times; +2 included, DNFs excluded. */
+  totalTimeMs: number
+}
+
+/**
+ * csTimer-style session summary: its header shows `(length - DNF) / length` and
+ * a total built from the valid-solve mean, so +2 solves count and their two
+ * seconds are included while DNFs are excluded from the time sum.
+ */
+export function getSessionSummary(solves: readonly Solve[]): SessionSummary {
+  let completed = 0
+  let totalTimeMs = 0
+  for (const solve of solves) {
+    const time = effectiveTimeMs(solve)
+    if (time === null) continue
+    completed += 1
+    totalTimeMs += time
+  }
+  return { completed, total: solves.length, totalTimeMs }
+}
+
 export function countSolves(sessions: readonly Session[]): number {
   return sessions.reduce((total, session) => total + session.solves.length, 0)
 }
@@ -99,6 +428,7 @@ function updateActiveSession(
   if (next === active && data.activeSessionId === active.id) return data
 
   return {
+    ...data,
     activeSessionId: active.id,
     sessions: data.sessions.map((session) =>
       session.id === active.id ? next : session,
@@ -115,6 +445,7 @@ export function createSession(
     event?: PuzzleEvent
     inspectionEnabled?: boolean
     preferences?: SessionPreferences
+    editorId?: string
   } = {},
 ): CreatedSession | null {
   const normalized = normalizeSessionName(name)
@@ -137,11 +468,21 @@ export function createSession(
     ...(options.preferences ? { preferences: options.preferences } : {}),
   }
 
+  const next: SessionsData = {
+    ...data,
+    activeSessionId: id,
+    sessions: [...data.sessions, session],
+  }
+
   return {
-    data: {
-      activeSessionId: id,
-      sessions: [...data.sessions, session],
-    },
+    data: data.sessionOrder
+      ? withSessionOrdering(
+          next,
+          [...getOrderedSessions(data), session],
+          now,
+          options.editorId ?? 'legacy',
+        )
+      : next,
     sessionId: id,
   }
 }
@@ -198,7 +539,14 @@ export function deleteSession(
         ? data.activeSessionId
         : fallback.id
 
-  return { activeSessionId, sessions }
+  return removeSessionFromOrder(
+    {
+      ...data,
+      activeSessionId,
+      sessions,
+    },
+    sessionId,
+  )
 }
 
 export function setActiveSession(
@@ -208,6 +556,34 @@ export function setActiveSession(
   if (data.activeSessionId === sessionId) return data
   if (!data.sessions.some((session) => session.id === sessionId)) return data
   return { ...data, activeSessionId: sessionId }
+}
+
+/**
+ * Developer action: replaces every session and solve with exactly one empty
+ * default session. Application settings and custom-event definitions are
+ * preserved because they live outside the replaced session collection.
+ */
+export function deleteAllSessions(
+  data: SessionsData,
+  now = Date.now(),
+  editorId = 'legacy',
+): SessionsData {
+  const id = createId()
+  const session: Session = {
+    id,
+    name: DEFAULT_SESSION_NAME,
+    isAutoCreatedDefault: true,
+    event: '333',
+    createdAt: now,
+    updatedAt: now,
+    solves: [],
+  }
+  return {
+    ...data,
+    activeSessionId: id,
+    sessions: [session],
+    sessionOrder: { ids: [id], updatedAt: now, editorId },
+  }
 }
 
 export function addSolve(
@@ -338,7 +714,23 @@ export function reconcileExternalSessions(input: {
   )
     ? input.external.activeSessionId
     : sessions[0]?.id ?? input.external.activeSessionId
-  return { activeSessionId, sessions }
+  const customEvents = unionCustomEvents(
+    input.external.customEvents ?? [],
+    input.local.customEvents ?? [],
+  )
+  const sessionOrder = resolveSessionOrdering(
+    input.local.sessionOrder,
+    input.external.sessionOrder,
+    sessions,
+  )
+  return {
+    activeSessionId,
+    sessions: sessionOrder
+      ? sortSessionsByOrder(sessions, sessionOrder)
+      : sessions,
+    ...(customEvents.length > 0 ? { customEvents } : {}),
+    ...(sessionOrder ? { sessionOrder } : {}),
+  }
 }
 
 export function setSolveComment(
@@ -542,6 +934,7 @@ export function removeSolve(
 
   return {
     data: {
+      ...data,
       activeSessionId: active.id,
       sessions: data.sessions.map((session) =>
         session.id === active.id
@@ -594,6 +987,39 @@ export function clearActiveSolves(
   )
 }
 
+export interface ClearedAllSolves {
+  data: SessionsData
+  removed: RemovedSolve[]
+}
+
+/**
+ * Removes every solve from every session while preserving session identity,
+ * names, event assignments, preferences, the active selection and custom event
+ * definitions. This is the pure reset used by Developer settings.
+ */
+export function clearAllSolves(
+  data: SessionsData,
+  now = Date.now(),
+): ClearedAllSolves {
+  const removed: RemovedSolve[] = []
+  const sessions = data.sessions.map((session) => {
+    if (session.solves.length === 0) return session
+    session.solves.forEach((solve, index) => {
+      removed.push({ solve, index, sessionId: session.id })
+    })
+    return { ...session, solves: [], updatedAt: now }
+  })
+
+  if (removed.length === 0) return { data, removed }
+  return {
+    data: {
+      ...data,
+      sessions,
+    },
+    removed,
+  }
+}
+
 export function mergeSessionsById(
   data: SessionsData,
   targetId: string,
@@ -619,16 +1045,20 @@ export function mergeSessionsById(
     return b.id.localeCompare(a.id)
   })
 
-  return {
-    activeSessionId: targetId,
-    sessions: data.sessions
-      .map((session) =>
-        session.id === targetId
-          ? { ...session, solves: mergedSolves, updatedAt: now }
-          : session,
-      )
-      .filter((session) => session.id !== sourceId),
-  }
+  return removeSessionFromOrder(
+    {
+      ...data,
+      activeSessionId: targetId,
+      sessions: data.sessions
+        .map((session) =>
+          session.id === targetId
+            ? { ...session, solves: mergedSolves, updatedAt: now }
+            : session,
+        )
+        .filter((session) => session.id !== sourceId),
+    },
+    sourceId,
+  )
 }
 
 

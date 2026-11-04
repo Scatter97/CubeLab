@@ -3,7 +3,9 @@ import {
 } from 'react-dom'
 import {
   memo,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -26,16 +28,26 @@ import {
   computeSubX,
   createAnalyticsFilters,
   filterAnalyticsSolves,
+  formatAnalyticsAxisDate,
+  analyticsSpansMultipleYears,
   type AnalyticsFilters,
   type AnalyticsSolve,
 } from '../lib/analytics'
 import {
   ANALYTICS_SECTION_LABELS,
   createDefaultAnalyticsSettings,
+  getSubXPresetsMs,
   getSubXTargetMs,
   normalizeAnalyticsSections,
 } from '../lib/analyticsSettings'
-import { CUBELAB_EVENTS, getEventDefinition } from '../lib/events'
+import { useDismissablePopover } from '../hooks/useDismissablePopover'
+import { AppVersion } from './AppVersion'
+import { Select } from './Select'
+import {
+  formatEventOptionLabel,
+  getEventLabel,
+  getEventOptions,
+} from '../lib/events'
 import {
   formatEffectiveSolveTime,
   formatStatValue,
@@ -90,13 +102,6 @@ function formatDuration(ms: number): string {
   return `${(ms / 3_600_000).toFixed(1)} h`
 }
 
-function shortDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
 function fullDate(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, {
     year: 'numeric',
@@ -121,6 +126,104 @@ function StatCard({
       <span className="analytics-stat-label">{label}</span>
       <strong>{value}</strong>
       {detail ? <span className="analytics-stat-detail">{detail}</span> : null}
+    </div>
+  )
+}
+
+function SubXTargetControl({
+  event,
+  targetMs,
+  onCommit,
+}: {
+  event: PuzzleEvent
+  targetMs: number
+  onCommit: (targetMs: number) => void
+}) {
+  const formatTarget = (milliseconds: number) =>
+    (milliseconds / 1_000).toFixed(3).replace(/\.?0+$/, '')
+  const [draft, setDraft] = useState(formatTarget(targetMs))
+  const [error, setError] = useState<string | null>(null)
+  const presets = getSubXPresetsMs(event)
+  const errorId = 'sub-x-target-error'
+
+  const commit = (value: string): boolean => {
+    const normalized = value.trim()
+    if (!/^\d+(?:\.\d{1,3})?$/.test(normalized)) {
+      setError('Enter seconds with up to three decimal places, for example 15.50.')
+      return false
+    }
+    const seconds = Number(normalized)
+    const milliseconds = Math.round(seconds * 1_000)
+    if (!Number.isFinite(seconds) || milliseconds < 1_000 || milliseconds > 3_600_000) {
+      setError('Use a target from 1 to 3600 seconds.')
+      return false
+    }
+    setDraft((milliseconds / 1_000).toFixed(3).replace(/0+$/, '').replace(/\.$/, ''))
+    setError(null)
+    onCommit(milliseconds)
+    return true
+  }
+
+  return (
+    <div className="analytics-subx-target">
+      <label htmlFor="sub-x-target-input">
+        Target for {getEventLabel(event)}
+      </label>
+      <div className="analytics-subx-controls">
+        <span className="analytics-subx-input">
+          <input
+            id="sub-x-target-input"
+            type="text"
+            inputMode="decimal"
+            value={draft}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? errorId : 'sub-x-target-help'}
+            data-testid="sub-x-target"
+            onChange={(inputEvent) => {
+              setDraft(inputEvent.target.value)
+              setError(null)
+            }}
+            onBlur={() => commit(draft)}
+            onKeyDown={(keyEvent) => {
+              if (keyEvent.key === 'Enter') {
+                keyEvent.preventDefault()
+                commit(draft)
+              }
+            }}
+          />
+          <span aria-hidden="true">seconds</span>
+        </span>
+        {presets.length > 0 ? (
+          <span className="analytics-subx-presets" aria-label="Sub-X presets">
+            {presets.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                className="time-trend-chip"
+                aria-pressed={targetMs === preset}
+                data-testid={`sub-x-preset-${preset}`}
+                onClick={() => {
+                  setDraft(String(preset / 1_000))
+                  setError(null)
+                  onCommit(preset)
+                }}
+              >
+                Sub-{preset / 1_000}
+              </button>
+            ))}
+          </span>
+        ) : null}
+      </div>
+      {error ? (
+        <p id={errorId} className="settings-error" role="alert">
+          {error}
+        </p>
+      ) : (
+        <p id="sub-x-target-help" className="analytics-note">
+          Type a precise target. Sub-{formatTime(targetMs)} means strictly faster
+          than the target.
+        </p>
+      )}
     </div>
   )
 }
@@ -191,7 +294,7 @@ function SolveDetailsDialog({ solve, onClose }: SolveDetailsDialogProps) {
             <div>
               <h2 id="analytics-solve-title">Solve details</h2>
               <p>
-                {getEventDefinition(solve.event)?.label ?? solve.event} ·{' '}
+                {getEventLabel(solve.event)} ·{' '}
                 {new Date(solve.createdAt).toLocaleString()}
               </p>
             </div>
@@ -236,6 +339,7 @@ function SolveDetailsDialog({ solve, onClose }: SolveDetailsDialogProps) {
 interface AnalyticsSolveListProps {
   solves: readonly AnalyticsSolve[]
   onSelect: (solve: AnalyticsSolve) => void
+  height?: number
 }
 
 const LIST_ROW_HEIGHT = 42
@@ -245,6 +349,7 @@ const LIST_OVERSCAN = 160
 const AnalyticsSolveList = memo(function AnalyticsSolveList({
   solves,
   onSelect,
+  height = LIST_HEIGHT,
 }: AnalyticsSolveListProps) {
   const [scrollTop, setScrollTop] = useState(0)
   const offsets = useMemo(() => {
@@ -258,13 +363,13 @@ const AnalyticsSolveList = memo(function AnalyticsSolveList({
   const window = computeHistoryWindow(
     offsets,
     scrollTop,
-    LIST_HEIGHT,
+    height,
     LIST_OVERSCAN,
   )
   return (
     <div
       className="analytics-solve-list"
-      style={{ height: LIST_HEIGHT }}
+      style={{ height }}
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       role="list"
       aria-label={`${solves.length} solves, newest first`}
@@ -308,6 +413,84 @@ const AnalyticsSolveList = memo(function AnalyticsSolveList({
   )
 })
 
+interface SolveListDialogProps {
+  open: boolean
+  solves: readonly AnalyticsSolve[]
+  activeBin: { startMs: number; endMs: number } | null
+  onClose: () => void
+  onSelect: (solve: AnalyticsSolve) => void
+}
+
+function SolveListDialog({
+  open,
+  solves,
+  activeBin,
+  onClose,
+  onSelect,
+}: SolveListDialogProps) {
+  const { dialogRef, handleKeyDown } = useModalDialog(open)
+  return createPortal(
+    <dialog
+      ref={dialogRef}
+      className="time-trend-dialog analytics-solve-dialog analytics-solve-list-dialog"
+      aria-labelledby="analytics-solve-list-title"
+      data-testid="analytics-solve-list-dialog"
+      onKeyDown={(event) => {
+        event.stopPropagation()
+        handleKeyDown(event)
+      }}
+      onKeyUp={(event) => event.stopPropagation()}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      {open ? (
+        <div className="time-trend-pb-content analytics-solve-list-content">
+          <header className="time-trend-modal-header">
+            <div>
+              <h2 id="analytics-solve-list-title">
+                {activeBin
+                  ? `Solves ${formatTime(activeBin.startMs)}–${formatTime(activeBin.endMs)}`
+                  : 'All filtered solves'}
+              </h2>
+              <p>
+                {solves.length.toLocaleString()}{' '}
+                {solves.length === 1 ? 'solve' : 'solves'}, newest first. Select
+                a row to inspect its details.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="time-trend-button"
+              onClick={onClose}
+              aria-label="Close solve list"
+            >
+              Close
+            </button>
+          </header>
+          {solves.length === 0 ? (
+            <p className="analytics-empty">No solves match the current filters.</p>
+          ) : (
+            <AnalyticsSolveList
+              solves={solves}
+              height={420}
+              onSelect={(solve) => {
+                onClose()
+                onSelect(solve)
+              }}
+            />
+          )}
+        </div>
+      ) : null}
+    </dialog>,
+    document.body,
+  )
+}
+
 interface AnalyticsPageProps {
   sessions: readonly Session[]
   activeSessionId: string
@@ -323,17 +506,51 @@ export default function AnalyticsPage({
   settings,
   onChange,
 }: AnalyticsPageProps) {
+  const analyticsSettings = settings.analytics
+  const sectionSettings = useMemo(
+    () => normalizeAnalyticsSections(analyticsSettings.sections),
+    [analyticsSettings.sections],
+  )
+  const analysisSections = useMemo(
+    () => sectionSettings.filter((section) => section.id !== 'overview'),
+    [sectionSettings],
+  )
+  const visibleAnalysisSections = useMemo(
+    () => analysisSections.filter((section) => section.visible),
+    [analysisSections],
+  )
+  const [activeAnalysis, setActiveAnalysis] = useState<AnalyticsSectionId>(
+    () => visibleAnalysisSections[0]?.id ?? 'progression',
+  )
   const [filters, setFilters] = useState<AnalyticsFilters>(() =>
     createAnalyticsFilters(initialEvent),
   )
   const [selectedSolve, setSelectedSolve] = useState<AnalyticsSolve | null>(null)
   const [selectedBin, setSelectedBin] = useState<number | null>(null)
+  const [solveListOpen, setSolveListOpen] = useState(false)
+  const [sessionsMenuOpen, setSessionsMenuOpen] = useState(false)
   const [histogramIntervalMs, setHistogramIntervalMs] = useState<number | null>(null)
   const [progressSeries, setProgressSeries] = useState<ReadonlySet<string>>(
     () => new Set(['single', 'ao5', 'ao12']),
   )
   const [progressXAxis, setProgressXAxis] = useState<'solve' | 'date'>('solve')
   const [customizeOpen, setCustomizeOpen] = useState(false)
+  const [subXChartPercent, setSubXChartPercent] = useState(58)
+  const sessionsTriggerRef = useRef<HTMLButtonElement>(null)
+  const sessionsPanelRef = useRef<HTMLDivElement>(null)
+  const sessionsRootRef = useRef<HTMLDivElement>(null)
+  const subXSplitRef = useRef<HTMLDivElement>(null)
+  const subXSplitDragRef = useRef<{ startX: number; startPercent: number } | null>(
+    null,
+  )
+
+  useDismissablePopover({
+    open: sessionsMenuOpen,
+    onClose: () => setSessionsMenuOpen(false),
+    triggerRef: sessionsTriggerRef,
+    panelRef: sessionsPanelRef,
+    rootRef: sessionsRootRef,
+  })
 
   const trimming: AverageTrimming = useMemo(
     () => ({
@@ -342,7 +559,6 @@ export default function AnalyticsPage({
     }),
     [settings.averageTrimBetter, settings.averageTrimWorse],
   )
-  const analyticsSettings = settings.analytics
   const filtered = useMemo(
     () => filterAnalyticsSolves(sessions, filters),
     [sessions, filters],
@@ -378,7 +594,29 @@ export default function AnalyticsPage({
   }, [sessions, filters, trimming, targetMs])
   const activeBin =
     selectedBin !== null ? histogram.bins[selectedBin] ?? null : null
-  const explorerSolves = useMemo(() => {
+  const selectedAnalysis =
+    visibleAnalysisSections.find((section) => section.id === activeAnalysis) ??
+    visibleAnalysisSections[0] ??
+    null
+  const sessionFilterKey =
+    filters.sessionIds === null ? 'all' : filters.sessionIds.join(',')
+  useEffect(() => {
+    // Switching sessions, events, dates, penalties, intervals or solve data
+    // must not keep a drill-down interval from the previous histogram.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setSelectedBin(null)
+  }, [
+    filters.event,
+    filters.datePreset,
+    filters.customStart,
+    filters.customEnd,
+    filters.solveLimit,
+    filters.penalty,
+    sessionFilterKey,
+    sessions,
+    histogramIntervalMs,
+  ])
+  const solveListSolves = useMemo(() => {
     if (activeBin) {
       const matches: AnalyticsSolve[] = []
       trend.solves.forEach((solve, index) => {
@@ -445,9 +683,45 @@ export default function AnalyticsPage({
     () => activity.weekly.map((week) => week.count),
     [activity.weekly],
   )
+  const multipleYears = useMemo(
+    () => analyticsSpansMultipleYears(filtered.map((solve) => solve.createdAt)),
+    [filtered],
+  )
   const xSolveLabel = (index: number) => `#${index + 1}`
   const xDateLabel = (index: number) =>
-    shortDate(trend.solves[index]?.createdAt ?? Date.now())
+    formatAnalyticsAxisDate(
+      trend.solves[index]?.createdAt ?? Date.now(),
+      multipleYears,
+    )
+
+  const clampSubXPercent = (value: number) =>
+    Math.max(38, Math.min(72, value))
+  const beginSubXSplit = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    subXSplitDragRef.current = {
+      startX: event.clientX,
+      startPercent: subXChartPercent,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  const moveSubXSplit = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = subXSplitDragRef.current
+    const container = subXSplitRef.current
+    if (!drag || !container) return
+    const width = Math.max(1, container.getBoundingClientRect().width)
+    setSubXChartPercent(
+      clampSubXPercent(
+        drag.startPercent + ((event.clientX - drag.startX) / width) * 100,
+      ),
+    )
+  }
+  const endSubXSplit = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!subXSplitDragRef.current) return
+    subXSplitDragRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
 
   const updateAnalytics = (next: Partial<Settings['analytics']>) => {
     onChange({ analytics: { ...analyticsSettings, ...next } })
@@ -476,19 +750,56 @@ export default function AnalyticsPage({
       session.event === filters.event ||
       session.solves.some((solve) => solve.event === filters.event),
   )
-  const selectedSessionLabel =
-    filters.sessionIds === null
-      ? 'All sessions'
-      : filters.sessionIds.length === 0
-        ? 'No sessions'
-        : filters.sessionIds.length === 1
-          ? sessionChoices.find((session) => session.id === filters.sessionIds?.[0])
-              ?.name ?? '1 session'
-          : `${filters.sessionIds.length} sessions`
+  const selectedSessionIds = filters.sessionIds
+  const selectedSessionCount =
+    selectedSessionIds === null
+      ? sessionChoices.length
+      : sessionChoices.filter((session) =>
+          selectedSessionIds.includes(session.id),
+        ).length
+  const allSessionsSelected =
+    selectedSessionIds === null ||
+    (sessionChoices.length > 0 &&
+      selectedSessionCount === sessionChoices.length)
+  const noSessionsSelected =
+    selectedSessionIds !== null && selectedSessionCount === 0
+  const partialSessionsSelected =
+    !allSessionsSelected && !noSessionsSelected
+  const selectedSessionLabel = allSessionsSelected
+    ? 'All sessions'
+    : noSessionsSelected
+      ? 'No sessions'
+      : selectedSessionCount === 1
+        ? sessionChoices.find((session) =>
+            selectedSessionIds?.includes(session.id),
+          )?.name ?? '1 session'
+        : `${selectedSessionCount} of ${sessionChoices.length} sessions`
+  const selectAllSessions = () =>
+    setFilters((current) => ({ ...current, sessionIds: null }))
 
-  const sectionSettings = useMemo(
-    () => normalizeAnalyticsSections(analyticsSettings.sections),
-    [analyticsSettings.sections],
+  const subXChart = (
+    <AnalyticsLineChart
+      title="Sub-X percentage over time"
+      description="Percentage of the latest 50 solves (or fewer at the beginning) under the target."
+      ariaLabel="Sub-X percentage over time"
+      series={[
+        {
+          key: 'subx',
+          label: `Sub-${formatTime(targetMs)}`,
+          color: 'var(--accent)',
+          values: subX.progress,
+        },
+      ]}
+      xLabel={xSolveLabel}
+      formatValue={(value) => `${value.toFixed(1)}%`}
+      formatTick={(value) => `${Math.round(value)}%`}
+      onSelectIndex={(index) => {
+        const solve = trend.solves[index]
+        if (solve) setSelectedSolve(solve)
+      }}
+      emptyMessage="No solves match the current filters."
+      testId="analytics-subx"
+    />
   )
 
   const sectionContent: Record<AnalyticsSectionId, ReactNode> = {
@@ -795,23 +1106,21 @@ export default function AnalyticsPage({
         <div className="analytics-chart-toolbar">
           <label>
             Interval
-            <select
-              value={histogramIntervalMs ?? 'auto'}
-              onChange={(event) =>
-                setHistogramIntervalMs(
-                  event.target.value === 'auto'
-                    ? null
-                    : Number(event.target.value),
-                )
+            <Select
+              value={histogramIntervalMs === null ? 'auto' : String(histogramIntervalMs)}
+              testId="analytics-interval"
+              options={[
+                { value: 'auto', label: 'Auto' },
+                { value: '250', label: '0.25 s' },
+                { value: '500', label: '0.5 s' },
+                { value: '1000', label: '1 s' },
+                { value: '2000', label: '2 s' },
+                { value: '5000', label: '5 s' },
+              ]}
+              onChange={(value) =>
+                setHistogramIntervalMs(value === 'auto' ? null : Number(value))
               }
-            >
-              <option value="auto">Auto</option>
-              <option value="250">0.25 s</option>
-              <option value="500">0.5 s</option>
-              <option value="1000">1 s</option>
-              <option value="2000">2 s</option>
-              <option value="5000">5 s</option>
-            </select>
+            />
           </label>
           {activeBin ? (
             <button
@@ -831,25 +1140,30 @@ export default function AnalyticsPage({
           medianMs={histogram.medianMs}
           selectedIndex={selectedBin}
           onSelectBin={(index) => {
-            setSelectedBin((current) => (current === index ? null : index))
-            window.setTimeout(() => {
-              document.getElementById('analytics-explorer')?.scrollIntoView?.({
-                behavior: 'smooth',
-                block: 'start',
-              })
-            }, 0)
+            setSelectedBin(index)
+            setSolveListOpen(true)
           }}
         />
         {activeBin ? (
           <p className="analytics-note" role="status">
             Showing <strong>{activeBin.count}</strong> solves from{' '}
             {formatTime(activeBin.startMs)} to {formatTime(activeBin.endMs)} in
-            the Solve explorer.
+            the solve list.{' '}
+            <button
+              type="button"
+              className="analytics-link"
+              onClick={() => setSolveListOpen(true)}
+            >
+              View solves
+            </button>
           </p>
         ) : (
           <p className="analytics-note">
-            Click a distribution bar to filter the Solve explorer. Outliers use
-            the 1.5 × IQR rule.
+            Click a distribution bar to inspect those solves in the solve list.
+            Outliers use the 1.5 × IQR rule.
+            {histogram.groupedExtremes
+              ? ' Values beyond the central 98% are grouped into the edge intervals, so unusually long solves stay visible and drillable without compressing the main distribution.'
+              : ''}
           </p>
         )}
         <div className="analytics-stat-grid is-compact">
@@ -954,42 +1268,20 @@ export default function AnalyticsPage({
       </div>
     ),
     subX: (
-      <div className="analytics-chart-stack">
-        <div className="analytics-chart-toolbar">
-          <label>
-            Target for{' '}
-            {getEventDefinition(activeTargetEvent)?.label ?? activeTargetEvent}
-            <input
-              key={`${activeTargetEvent}-${targetMs}`}
-              type="number"
-              min={1}
-              max={3600}
-              step={0.01}
-              defaultValue={(targetMs / 1_000).toFixed(2)}
-              aria-label={`Sub-X target in seconds for ${getEventDefinition(activeTargetEvent)?.label ?? activeTargetEvent}`}
-              onBlur={(event) => {
-                const seconds = Number(event.target.value)
-                if (!Number.isFinite(seconds) || seconds < 1 || seconds > 3_600) {
-                  event.target.value = (targetMs / 1_000).toFixed(2)
-                  return
-                }
-                updateAnalytics({
-                  subXTargetsMs: {
-                    ...analyticsSettings.subXTargetsMs,
-                    [activeTargetEvent]: Math.round(seconds * 1_000),
-                  },
-                })
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') event.currentTarget.blur()
-              }}
-            />
-            seconds
-          </label>
-          <span className="analytics-note">
-            Sub-{formatTime(targetMs)} means strictly faster than the target.
-          </span>
-        </div>
+      <div className="analytics-chart-stack analytics-subx-stack">
+        <SubXTargetControl
+          key={`${activeTargetEvent}:${targetMs}`}
+          event={activeTargetEvent}
+          targetMs={targetMs}
+          onCommit={(nextTargetMs) =>
+            updateAnalytics({
+              subXTargetsMs: {
+                ...analyticsSettings.subXTargetsMs,
+                [activeTargetEvent]: nextTargetMs,
+              },
+            })
+          }
+        />
         <div className="analytics-stat-grid is-compact">
           <StatCard
             label="Sub-X rate"
@@ -1024,52 +1316,112 @@ export default function AnalyticsPage({
           value={subX.percent}
           aria-label={`Sub-X progress ${subX.percent.toFixed(1)} percent`}
         />
-        <AnalyticsLineChart
-          title="Sub-X percentage over time"
-          description="Percentage of the latest 50 solves (or fewer at the beginning) under the target."
-          ariaLabel="Sub-X percentage over time"
-          series={[
-            {
-              key: 'subx',
-              label: `Sub-${formatTime(targetMs)}`,
-              color: 'var(--accent)',
-              values: subX.progress,
-            },
-          ]}
-          xLabel={xSolveLabel}
-          formatValue={(value) => `${value.toFixed(1)}%`}
-          formatTick={(value) => `${Math.round(value)}%`}
-          onSelectIndex={(index) => {
-            const solve = trend.solves[index]
-            if (solve) setSelectedSolve(solve)
-          }}
-          emptyMessage="No solves match the current filters."
-          testId="analytics-subx"
-        />
         {subX.bySession.length > 0 ? (
-          <div className="analytics-table-wrap">
-            <table className="analytics-table">
-              <thead>
-                <tr>
-                  <th scope="col">Session</th>
-                  <th scope="col">Solves</th>
-                  <th scope="col">Sub-X</th>
-                  <th scope="col">Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subX.bySession.map((session) => (
-                  <tr key={session.sessionId}>
-                    <th scope="row">{session.sessionName}</th>
-                    <td>{session.count.toLocaleString()}</td>
-                    <td>{session.successes.toLocaleString()}</td>
-                    <td>{formatPercent(session.percent)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div
+            className="analytics-subx-split"
+            ref={subXSplitRef}
+            data-testid="analytics-subx-split"
+          >
+            <div
+              className="analytics-subx-chart-pane"
+              style={{ flexBasis: `${subXChartPercent}%` }}
+            >
+              {subXChart}
+            </div>
+            <div
+              className="analytics-subx-divider"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize Sub-X chart and session breakdown"
+              aria-valuemin={38}
+              aria-valuemax={72}
+              aria-valuenow={Math.round(subXChartPercent)}
+              tabIndex={0}
+              data-testid="analytics-subx-divider"
+              onPointerDown={beginSubXSplit}
+              onPointerMove={moveSubXSplit}
+              onPointerUp={endSubXSplit}
+              onPointerCancel={endSubXSplit}
+              onDoubleClick={() => setSubXChartPercent(58)}
+              onKeyDown={(event) => {
+                const step = event.shiftKey ? 8 : 3
+                if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setSubXChartPercent((value) =>
+                    clampSubXPercent(value + step),
+                  )
+                } else if (
+                  event.key === 'ArrowLeft' ||
+                  event.key === 'ArrowUp'
+                ) {
+                  event.preventDefault()
+                  setSubXChartPercent((value) =>
+                    clampSubXPercent(value - step),
+                  )
+                } else if (event.key === 'Home') {
+                  event.preventDefault()
+                  setSubXChartPercent(38)
+                } else if (event.key === 'End') {
+                  event.preventDefault()
+                  setSubXChartPercent(72)
+                } else if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  setSubXChartPercent(58)
+                }
+              }}
+            >
+              <span className="analytics-subx-divider-grip" aria-hidden="true" />
+            </div>
+            <div
+              className="analytics-subx-table-pane"
+              data-testid="analytics-subx-table-pane"
+            >
+              <div className="analytics-subx-table-heading">
+                <h3>Session breakdown</h3>
+                <span>
+                  {subX.bySession.length.toLocaleString()}{' '}
+                  {subX.bySession.length === 1 ? 'session' : 'sessions'}
+                </span>
+              </div>
+              <div
+                className="analytics-subx-table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Sub-X session breakdown. Scroll to see every session."
+                data-testid="analytics-subx-table-scroll"
+              >
+                <table className="analytics-table analytics-subx-table">
+                  <caption className="sr-only">
+                    Sub-X results by session under the current target. Column
+                    headings stay visible while the table scrolls.
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Session</th>
+                      <th scope="col">Solves</th>
+                      <th scope="col">Sub-X</th>
+                      <th scope="col">Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subX.bySession.map((session) => (
+                      <tr key={session.sessionId}>
+                        <th scope="row" title={session.sessionName}>
+                          {session.sessionName}
+                        </th>
+                        <td>{session.count.toLocaleString()}</td>
+                        <td>{session.successes.toLocaleString()}</td>
+                        <td>{formatPercent(session.percent)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        ) : null}
+        ) : (
+          subXChart
+        )}
       </div>
     ),
     sessions: (
@@ -1220,7 +1572,10 @@ export default function AnalyticsPage({
             },
           ]}
           xLabel={(index) =>
-            shortDate(activity.weekly[index]?.startMs ?? Date.now())
+            formatAnalyticsAxisDate(
+              activity.weekly[index]?.startMs ?? Date.now(),
+              multipleYears,
+            )
           }
           formatValue={(value) => value.toLocaleString()}
           formatTick={(value) => Math.round(value).toLocaleString()}
@@ -1375,7 +1730,12 @@ export default function AnalyticsPage({
                         </button>
                       </th>
                       <td>{entry.solve.sessionName}</td>
-                      <td>{shortDate(entry.solve.createdAt)}</td>
+                      <td>
+                        {formatAnalyticsAxisDate(
+                          entry.solve.createdAt,
+                          multipleYears,
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1408,7 +1768,12 @@ export default function AnalyticsPage({
                         </button>
                       </th>
                       <td>{entry.solve.sessionName}</td>
-                      <td>{shortDate(entry.solve.createdAt)}</td>
+                      <td>
+                        {formatAnalyticsAxisDate(
+                          entry.solve.createdAt,
+                          multipleYears,
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1422,40 +1787,13 @@ export default function AnalyticsPage({
         </p>
       </div>
     ),
-    explorer: (
-      <div className="analytics-chart-stack" id="analytics-explorer">
-        <div className="analytics-chart-toolbar">
-          <span data-testid="analytics-explorer-count">
-            {explorerSolves.length.toLocaleString()} solves
-            {activeBin
-              ? ` · ${formatTime(activeBin.startMs)}–${formatTime(activeBin.endMs)}`
-              : ' · newest first'}
-          </span>
-          {activeBin ? (
-            <button
-              type="button"
-              className="time-trend-button"
-              onClick={() => setSelectedBin(null)}
-            >
-              Clear interval filter
-            </button>
-          ) : null}
-        </div>
-        {explorerSolves.length === 0 ? (
-          <p className="analytics-empty">No solves match the current filters.</p>
-        ) : (
-          <AnalyticsSolveList solves={explorerSolves} onSelect={setSelectedSolve} />
-        )}
-        <p className="analytics-note">
-          Click a solve to inspect its scramble, penalty, comment, session and
-          timestamp. The list is virtualized for large histories.
-        </p>
-      </div>
-    ),
   }
 
   return (
-    <main className="analytics-page" aria-labelledby="analytics-title">
+    <main
+      className={`analytics-page${customizeOpen ? ' is-customizing' : ''}`}
+      aria-labelledby="analytics-title"
+    >
       <header className="analytics-heading">
         <div>
           <p className="analytics-eyebrow">CubeLab insights</p>
@@ -1472,6 +1810,18 @@ export default function AnalyticsPage({
           <button
             type="button"
             className="time-trend-button"
+            onClick={() => {
+              setSelectedBin(null)
+              setSolveListOpen(true)
+            }}
+            disabled={overview.count === 0}
+            data-testid="analytics-view-solves"
+          >
+            View solves
+          </button>
+          <button
+            type="button"
+            className="time-trend-button"
             aria-expanded={customizeOpen}
             aria-controls="analytics-customize"
             onClick={() => setCustomizeOpen((open) => !open)}
@@ -1485,96 +1835,157 @@ export default function AnalyticsPage({
       <section className="analytics-filters" aria-label="Analytics filters">
         <label>
           Event
-          <select
+          <Select
             value={filters.event}
-            aria-label="Analytics event"
-            onChange={(event) =>
+            ariaLabel="Analytics event"
+            testId="analytics-event"
+            options={[
+              { value: 'all', label: 'All events' },
+              ...getEventOptions().map((entry) => ({
+                value: entry.id,
+                label: formatEventOptionLabel(entry),
+                text: entry.label,
+              })),
+            ]}
+            onChange={(value) =>
               setFilters((current) => ({
                 ...current,
-                event: event.target.value as PuzzleEvent | 'all',
+                event: value as PuzzleEvent | 'all',
                 sessionIds: null,
               }))
             }
-          >
-            <option value="all">All events</option>
-            {CUBELAB_EVENTS.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
+          />
         </label>
 
-        <div className="analytics-filter-field">
+        <div
+          className="analytics-filter-field analytics-multiselect"
+          ref={sessionsRootRef}
+        >
           <span>Sessions</span>
-        <details className="analytics-multiselect">
-          <summary>{selectedSessionLabel}</summary>
-          <div className="analytics-multiselect-menu">
-            <label>
-              <input
-                type="checkbox"
-                checked={filters.sessionIds === null}
-                onChange={() =>
-                  setFilters((current) => ({ ...current, sessionIds: null }))
-                }
-              />
-              All sessions
-            </label>
-            {sessionChoices.map((session) => {
-              const checked =
-                filters.sessionIds === null ||
-                filters.sessionIds.includes(session.id)
-              return (
-                <label key={session.id}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => {
-                      const base =
-                        filters.sessionIds === null
-                          ? sessions.map((entry) => entry.id)
-                          : filters.sessionIds
-                      setFilters((current) => ({
-                        ...current,
-                        sessionIds: checked
-                          ? base.filter((id) => id !== session.id)
-                          : [...base, session.id],
-                      }))
-                    }}
-                  />
-                  {session.name}
-                  <span className="analytics-multiselect-meta">
-                    {session.solves.length} solves
-                  </span>
-                </label>
-              )
-            })}
-            {sessionChoices.length === 0 ? (
-              <p className="analytics-note">No sessions match this event.</p>
-            ) : null}
-          </div>
-        </details>
+          <button
+            ref={sessionsTriggerRef}
+            type="button"
+            className="analytics-multiselect-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={sessionsMenuOpen}
+            aria-controls="analytics-session-filter-menu"
+            data-testid="analytics-sessions-trigger"
+            onClick={() => setSessionsMenuOpen((open) => !open)}
+          >
+            <span className="analytics-multiselect-value">
+              {selectedSessionLabel}
+            </span>
+            <span
+              className="analytics-multiselect-chevron"
+              aria-hidden="true"
+            />
+          </button>
+          {sessionsMenuOpen ? (
+            <div
+              ref={sessionsPanelRef}
+              className="analytics-multiselect-menu"
+              id="analytics-session-filter-menu"
+              role="group"
+              aria-label="Session filters"
+              data-timer-space-ignore="true"
+            >
+              <label className="analytics-multiselect-row">
+                <input
+                  type="checkbox"
+                  data-testid="analytics-sessions-all"
+                  checked={allSessionsSelected}
+                  aria-checked={
+                    partialSessionsSelected
+                      ? 'mixed'
+                      : allSessionsSelected
+                        ? 'true'
+                        : 'false'
+                  }
+                  ref={(input) => {
+                    if (input) input.indeterminate = partialSessionsSelected
+                  }}
+                  onChange={() =>
+                    setFilters((current) => ({
+                      ...current,
+                      sessionIds: allSessionsSelected ? [] : null,
+                    }))
+                  }
+                />
+                <span className="analytics-multiselect-name">All sessions</span>
+                <span className="analytics-multiselect-meta">
+                  {sessionChoices.length}{' '}
+                  {sessionChoices.length === 1 ? 'session' : 'sessions'}
+                </span>
+              </label>
+              {sessionChoices.map((session) => {
+                const checked =
+                  filters.sessionIds === null ||
+                  filters.sessionIds.includes(session.id)
+                return (
+                  <label
+                    key={session.id}
+                    className="analytics-multiselect-row"
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid={`analytics-session-option-${session.id}`}
+                      checked={checked}
+                      onChange={() => {
+                        const base =
+                          filters.sessionIds === null
+                            ? sessionChoices.map((entry) => entry.id)
+                            : filters.sessionIds
+                        setFilters((current) => ({
+                          ...current,
+                          sessionIds: checked
+                            ? base.filter((id) => id !== session.id)
+                            : [...base, session.id],
+                        }))
+                      }}
+                    />
+                    <span
+                      className="analytics-multiselect-name"
+                      title={session.name}
+                    >
+                      {session.name}
+                    </span>
+                    <span className="analytics-multiselect-meta">
+                      {session.solves.length} solves
+                    </span>
+                  </label>
+                )
+              })}
+              {sessionChoices.length === 0 ? (
+                <p className="analytics-note">No sessions match this event.</p>
+              ) : null}
+            </div>
+          ) : null}
+          <span className="sr-only" role="status" aria-live="polite">
+            {selectedSessionLabel}
+          </span>
         </div>
 
         <label>
           Date range
-          <select
+          <Select
             value={filters.datePreset}
-            onChange={(event) =>
+            testId="analytics-date-range"
+            options={[
+              { value: 'all', label: 'All time' },
+              { value: 'today', label: 'Today' },
+              { value: '7d', label: 'Last 7 days' },
+              { value: '30d', label: 'Last 30 days' },
+              { value: '90d', label: 'Last 90 days' },
+              { value: 'year', label: 'Last year' },
+              { value: 'custom', label: 'Custom…' },
+            ]}
+            onChange={(value) =>
               setFilters((current) => ({
                 ...current,
-                datePreset: event.target.value as AnalyticsFilters['datePreset'],
+                datePreset: value as AnalyticsFilters['datePreset'],
               }))
             }
-          >
-            <option value="all">All time</option>
-            <option value="today">Today</option>
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
-            <option value="90d">Last 90 days</option>
-            <option value="year">Last year</option>
-            <option value="custom">Custom…</option>
-          </select>
+          />
         </label>
 
         {filters.datePreset === 'custom' ? (
@@ -1610,44 +2021,45 @@ export default function AnalyticsPage({
 
         <label>
           Last solves
-          <select
-            value={filters.solveLimit ?? 'all'}
-            onChange={(event) =>
+          <Select
+            value={filters.solveLimit === null ? 'all' : String(filters.solveLimit)}
+            testId="analytics-solve-limit"
+            options={[
+              { value: 'all', label: 'All' },
+              { value: '5', label: '5' },
+              { value: '12', label: '12' },
+              { value: '50', label: '50' },
+              { value: '100', label: '100' },
+              { value: '500', label: '500' },
+              { value: '1000', label: '1,000' },
+            ]}
+            onChange={(value) =>
               setFilters((current) => ({
                 ...current,
-                solveLimit:
-                  event.target.value === 'all'
-                    ? null
-                    : Number(event.target.value),
+                solveLimit: value === 'all' ? null : Number(value),
               }))
             }
-          >
-            <option value="all">All</option>
-            <option value="5">5</option>
-            <option value="12">12</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-            <option value="500">500</option>
-            <option value="1000">1,000</option>
-          </select>
+          />
         </label>
 
         <label>
           Penalty
-          <select
+          <Select
             value={filters.penalty}
-            onChange={(event) =>
+            testId="analytics-penalty"
+            options={[
+              { value: 'all', label: 'All results' },
+              { value: 'none', label: 'Normal' },
+              { value: '+2', label: '+2' },
+              { value: 'dnf', label: 'DNF' },
+            ]}
+            onChange={(value) =>
               setFilters((current) => ({
                 ...current,
-                penalty: event.target.value as AnalyticsFilters['penalty'],
+                penalty: value as AnalyticsFilters['penalty'],
               }))
             }
-          >
-            <option value="all">All results</option>
-            <option value="none">Normal</option>
-            <option value="+2">+2</option>
-            <option value="dnf">DNF</option>
-          </select>
+          />
         </label>
 
         <button
@@ -1660,6 +2072,27 @@ export default function AnalyticsPage({
         </button>
       </section>
 
+      {noSessionsSelected ? (
+        <div
+          className="analytics-empty-selection"
+          role="status"
+          data-testid="analytics-no-sessions"
+        >
+          <div>
+            <strong>No sessions selected.</strong> Analytics is showing no
+            solves until you choose at least one session.
+          </div>
+          <button
+            type="button"
+            className="time-trend-button"
+            data-testid="analytics-select-all-sessions"
+            onClick={selectAllSessions}
+          >
+            Select all sessions
+          </button>
+        </div>
+      ) : null}
+
       {customizeOpen ? (
         <section
           className="analytics-customize"
@@ -1670,8 +2103,8 @@ export default function AnalyticsPage({
             <div>
               <h2>Dashboard sections</h2>
               <p>
-                Show, hide, widen or reorder sections. Preferences are saved with
-                your synced settings.
+                Show or hide overview and analyses, and reorder the analysis
+                navigation. Preferences are saved with your synced settings.
               </p>
             </div>
             <button type="button" className="time-trend-button" onClick={resetLayout}>
@@ -1697,28 +2130,12 @@ export default function AnalyticsPage({
                   />
                   {ANALYTICS_SECTION_LABELS[section.id]}
                 </label>
-                <label className="analytics-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={section.wide}
-                    onChange={() =>
-                      updateAnalytics({
-                        sections: analyticsSettings.sections.map((entry) =>
-                          entry.id === section.id
-                            ? { ...entry, wide: !entry.wide }
-                            : entry,
-                        ),
-                      })
-                    }
-                  />
-                  Wide
-                </label>
                 <span className="analytics-customize-move">
                   <button
                     type="button"
                     className="time-trend-button"
                     aria-label={`Move ${ANALYTICS_SECTION_LABELS[section.id]} up`}
-                    disabled={index === 0}
+                    disabled={index === 0 || section.id === 'overview'}
                     onClick={() => moveSection(section.id, -1)}
                   >
                     ↑
@@ -1727,7 +2144,10 @@ export default function AnalyticsPage({
                     type="button"
                     className="time-trend-button"
                     aria-label={`Move ${ANALYTICS_SECTION_LABELS[section.id]} down`}
-                    disabled={index === analyticsSettings.sections.length - 1}
+                    disabled={
+                      index === analyticsSettings.sections.length - 1 ||
+                      section.id === 'overview'
+                    }
                     onClick={() => moveSection(section.id, 1)}
                   >
                     ↓
@@ -1739,31 +2159,145 @@ export default function AnalyticsPage({
         </section>
       ) : null}
 
-      <div className="analytics-dashboard">
-        {sectionSettings
-          .filter((section) => section.visible)
-          .map((section) => (
-            <Section
-              key={section.id}
-              id={section.id}
-              title={ANALYTICS_SECTION_LABELS[section.id]}
-              wide={section.wide}
-            >
-              {sectionContent[section.id]}
-            </Section>
-          ))}
-        {sectionSettings.every((section) => !section.visible) ? (
-          <p className="analytics-empty">
-            Every section is hidden. Use Customize to show dashboard sections.
-          </p>
-        ) : null}
-      </div>
+      {sectionSettings.find((section) => section.id === 'overview')?.visible ? (
+        <Section
+          id="overview"
+          title={ANALYTICS_SECTION_LABELS.overview}
+          wide
+        >
+          {sectionContent.overview}
+        </Section>
+      ) : null}
 
-      <p className="analytics-footer-note">
-        Analytics is read-only. Stored solves, penalties, timestamps and sync data
-        are never modified. Active session:{' '}
-        {sessions.find((session) => session.id === activeSessionId)?.name ?? '—'}.
-      </p>
+      {visibleAnalysisSections.length > 0 ? (
+        <div className="analytics-analysis-layout">
+          <nav
+            className="analytics-analysis-nav"
+            aria-labelledby="analytics-analysis-heading"
+          >
+            <h2 id="analytics-analysis-heading">Analyses</h2>
+            <div
+              className="analytics-analysis-tabs"
+              role="tablist"
+              aria-labelledby="analytics-analysis-heading"
+              aria-orientation="vertical"
+            >
+              {visibleAnalysisSections.map((section) => {
+                const selected = selectedAnalysis?.id === section.id
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    role="tab"
+                    id={`analytics-analysis-tab-${section.id}`}
+                    aria-selected={selected}
+                    aria-controls="analytics-analysis-panel"
+                    tabIndex={selected ? 0 : -1}
+                    className={`analytics-analysis-tab${selected ? ' is-selected' : ''}`}
+                    data-testid={`analytics-analysis-tab-${section.id}`}
+                    onClick={() => setActiveAnalysis(section.id)}
+                    onKeyDown={(event) => {
+                      const index = visibleAnalysisSections.findIndex(
+                        (candidate) => candidate.id === section.id,
+                      )
+                      let nextIndex: number | null = null
+                      if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+                        nextIndex = (index + 1) % visibleAnalysisSections.length
+                      } else if (
+                        event.key === 'ArrowUp' ||
+                        event.key === 'ArrowLeft'
+                      ) {
+                        nextIndex =
+                          (index - 1 + visibleAnalysisSections.length) %
+                          visibleAnalysisSections.length
+                      } else if (event.key === 'Home') {
+                        nextIndex = 0
+                      } else if (event.key === 'End') {
+                        nextIndex = visibleAnalysisSections.length - 1
+                      }
+                      if (nextIndex === null) return
+                      event.preventDefault()
+                      const next = visibleAnalysisSections[nextIndex]
+                      if (!next) return
+                      setActiveAnalysis(next.id)
+                      document
+                        .getElementById(`analytics-analysis-tab-${next.id}`)
+                        ?.focus()
+                    }}
+                  >
+                    {ANALYTICS_SECTION_LABELS[section.id]}
+                  </button>
+                )
+              })}
+            </div>
+            <label className="analytics-analysis-mobile-select">
+              Analysis
+              <Select
+                ariaLabel="Select analysis"
+                testId="analytics-analysis-select"
+                value={selectedAnalysis?.id ?? ''}
+                options={visibleAnalysisSections.map((section) => ({
+                  value: section.id,
+                  label: ANALYTICS_SECTION_LABELS[section.id],
+                }))}
+                onChange={(value) =>
+                  setActiveAnalysis(value as AnalyticsSectionId)
+                }
+              />
+            </label>
+            <p className="analytics-nav-hint">
+              Choose one analysis at a time. Use ↑/↓ to move between choices;
+              Customize changes visibility and order.
+            </p>
+          </nav>
+
+          <div
+            className="analytics-analysis-content"
+            id="analytics-analysis-panel"
+            data-testid="analytics-analysis-panel"
+            role="tabpanel"
+            aria-labelledby={
+              selectedAnalysis
+                ? `analytics-analysis-tab-${selectedAnalysis.id}`
+                : undefined
+            }
+          >
+            {selectedAnalysis ? (
+              <Section
+                key={selectedAnalysis.id}
+                id={selectedAnalysis.id}
+                title={ANALYTICS_SECTION_LABELS[selectedAnalysis.id]}
+                wide={false}
+              >
+                {sectionContent[selectedAnalysis.id]}
+              </Section>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {sectionSettings.every((section) => !section.visible) ? (
+        <p className="analytics-empty">
+          Every section is hidden. Use Customize to show dashboard sections.
+        </p>
+      ) : null}
+
+      <footer className="analytics-footer">
+        <p className="analytics-footer-note">
+          Analytics is read-only. Stored solves, penalties, timestamps and sync
+          data are never modified. Active session:{' '}
+          {sessions.find((session) => session.id === activeSessionId)?.name ?? '—'}.
+        </p>
+        <AppVersion />
+      </footer>
+
+      <SolveListDialog
+        open={solveListOpen}
+        solves={solveListSolves}
+        activeBin={activeBin}
+        onClose={() => setSolveListOpen(false)}
+        onSelect={setSelectedSolve}
+      />
 
       <SolveDetailsDialog
         solve={selectedSolve}

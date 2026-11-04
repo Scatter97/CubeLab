@@ -1,3 +1,9 @@
+> **Historical snapshot — archived 2026-11-01.** This record may contain
+> superseded behavior, approval milestones and verification results. For current
+> work read [STATUS.md](../../STATUS.md), [AGENTS.md](../../AGENTS.md) and
+> [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md). Paths in code spans
+> and command blocks retain their original repository-root context.
+
 # October 30 audit remediation — closure record
 
 **Created:** 2026-10-30. **Documentation reconciled:** 2026-11-01.
@@ -27,8 +33,10 @@ The November 1 documentation pass introduces no application behavior changes.
 
 csTimer import, the 2D/PG3D tool panel, Time Trend navigation and PB dialogs,
 settings-v8 trimming and the first timer-stop performance patch were delivered.
-The seven shipped events remain unchanged. The earlier label “Phase 6-1” for
-import/diagram work does not approve the separate remaining-WCA-events proposal.
+The seven-event set in this October 30 closure was later extended by the
+separately delivered November 1 Phase 6a to twelve events. The earlier label
+“Phase 6-1” for import/diagram work did not itself approve that event expansion.
+Further feature-phase proposals were subsequently removed at the user's request.
 
 ## Remaining limitations
 

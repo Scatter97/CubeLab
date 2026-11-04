@@ -16,6 +16,7 @@ import { ScramblePanel } from './components/ScramblePanel'
 import { ToolPanel } from './components/ToolPanel'
 import { useDrawScrambleMode } from './hooks/useDrawScrambleMode'
 import { SessionPanel } from './components/SessionPanel'
+import { AppVersion } from './components/AppVersion'
 import { SessionSettingsDialog } from './components/SessionSettingsDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SolveHistory } from './components/SolveHistory'
@@ -46,9 +47,11 @@ import {
   serializeBackup,
   type Backup,
 } from './lib/backup'
-import { getEventDefinition } from './lib/events'
-import { formatSolveCount, formatStatValue, formatTime } from './lib/format'
-import { countSolves, mergeSessionsById } from './lib/sessions'
+import { getEventLabel, isCustomEventId } from './lib/events'
+import { unionCustomEvents, findImportedEventCorrections } from './lib/customEvents'
+import { CustomEventsDialog } from './components/CustomEventsDialog'
+import { formatSessionHours, formatSolveCount, formatStatValue, formatTime } from './lib/format'
+import { countSolves, getSessionSummary, mergeSessionsById, appendSessionsInOrder } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
 import { createDriveTransport } from './lib/driveTransport'
 import { loadDriveBackupState, saveDriveBackupState } from './lib/driveStorage'
@@ -60,7 +63,6 @@ import type {
   PuzzleEvent,
   SessionPreferences,
   Session,
-  SessionsData,
 } from './types'
 import type { TimerInput, TimerState } from './timer/machine'
 
@@ -70,6 +72,22 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
     target.closest('input, textarea, [contenteditable="true"]') !== null
+  )
+}
+
+/**
+ * Disclosure summaries and custom combobox/listbox controls use Space to
+ * activate their own UI, so they must not start or stop the timer. Native
+ * selects, buttons and switches keep the established Space-for-timing boundary
+ * because Enter/arrows still operate them and existing timer flows rely on a
+ * focused session select not blocking timing.
+ */
+function isSpaceControlTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(
+      'summary, [role="combobox"], [role="listbox"], [role="option"], [data-timer-space-ignore]',
+    ) !== null
   )
 }
 
@@ -116,6 +134,8 @@ function downloadJsonFile(contents: string, fileName: string): void {
 export default function App() {
   const {
     sessions,
+    customEvents,
+    sessionOrder,
     activeSession,
     activeSessionId,
     storageOk,
@@ -126,14 +146,24 @@ export default function App() {
     deleteSolve,
     restoreSolve,
     clearSolves,
+    resetAllSolveData,
     createSession,
     renameSession,
     deleteSession,
     selectSession,
     setSessionEvent,
+    moveSession,
+    deleteAllSessions,
     replaceSessions,
+    createCustomEvent,
+    renameCustomEvent,
+    setCustomEventPlaceholder,
+    deleteCustomEvent,
+    reassignSessionsEvent,
+    correctImportedEvents,
   } = useSessions()
   const solves = activeSession.solves
+  const totalSolveCount = useMemo(() => countSolves(sessions), [sessions])
   // Only presentation may lag. Storage, the final readout and sync receive
   // current data; switching sessions must never show another session's solves.
   const deferredSession = usePostPaintValue(activeSession)
@@ -150,6 +180,7 @@ export default function App() {
     setTimerActive: setSettingsTimerActive,
     adoptedFieldsRef: adoptedSettingsFieldsRef,
   } = useSettings()
+  const storageHealthy = storageOk && settingsStorageOk
   const resolvedTheme = useTheme(settings.theme)
   const {
     scramble,
@@ -162,6 +193,10 @@ export default function App() {
   const driveTransport = useMemo(() => createDriveTransport(), [])
 
   const [clearOpen, setClearOpen] = useState(false)
+  const [resetAllOpen, setResetAllOpen] = useState(false)
+  const [resetAwaitingSync, setResetAwaitingSync] = useState(false)
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllAwaitingSync, setDeleteAllAwaitingSync] = useState(false)
   const [driveOpen, setDriveOpen] = useState(false)
   const [pendingDriveRestore, setPendingDriveRestore] = useState<Backup | null>(null)
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
@@ -172,6 +207,8 @@ export default function App() {
   const [toolPanelOpen, setToolPanelOpen] = useToolPanelOpen()
   const [drawScrambleMode, setDrawScrambleMode] = useDrawScrambleMode()
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
+
+  const [eventManagerOpen, setEventManagerOpen] = useState(false)
   const [mergeSessionsOpen, setMergeSessionsOpen] = useState(false)
   const [createSessionOpen, setCreateSessionOpen] = useState(false)
   const createSessionOpenPrev = useRef(false)
@@ -351,8 +388,13 @@ export default function App() {
   }, [timer.state.status, setSettingsTimerActive])
 
   const syncSessionsData = useMemo(
-    () => ({ activeSessionId, sessions }),
-    [activeSessionId, sessions],
+    () => ({
+      activeSessionId,
+      sessions,
+      ...(customEvents.length > 0 ? { customEvents } : {}),
+      ...(sessionOrder ? { sessionOrder } : {}),
+    }),
+    [activeSessionId, sessions, customEvents, sessionOrder],
   )
 
   const sync = useSync({
@@ -438,11 +480,14 @@ export default function App() {
     sessionSettingsOpen ||
     dataOpen ||
     clearOpen ||
+    resetAllOpen ||
+    deleteAllOpen ||
     sessionToDelete !== null ||
     pendingImport !== null ||
     driveOpen ||
     mergeSessionsOpen ||
     createSessionOpen ||
+    eventManagerOpen ||
     pendingDriveRestore !== null
   const timerCancel = timer.cancel
   const timerPressBase = timer.press
@@ -480,6 +525,10 @@ export default function App() {
   )
   const latestAo5 = stats.averages.get(5)?.latest ?? null
   const latestAo12 = stats.averages.get(12)?.latest ?? null
+  const sessionSummary = useMemo(
+    () => getSessionSummary(activeSession.solves),
+    [activeSession.solves],
+  )
 
   const handleOpenSettings = useCallback(() => {
     if (timer.state.status !== 'idle') return
@@ -561,6 +610,283 @@ export default function App() {
     showToast({ message: 'Session cleared' })
   }, [activeSession.id, activeSession.solves, clearSolves, showToast, sync])
 
+  const resetAllDisabledReason = useMemo(() => {
+    if (!storageHealthy) {
+      return 'Reset is blocked because browser storage is unavailable. Start a backup first or restore storage access.'
+    }
+    if (timer.state.status !== 'idle') {
+      return 'Reset is blocked while the timer is active. Finish or cancel the current attempt first.'
+    }
+    if (sync.phase === 'syncing') {
+      return 'Reset is blocked while Google Drive synchronization is in progress. Wait for it to finish, then try again.'
+    }
+    return null
+  }, [storageHealthy, sync.phase, timer.state.status])
+
+  const deleteAllSessionsDisabledReason = useMemo(() => {
+    if (!storageHealthy) {
+      return 'Deleting all sessions is blocked because browser storage is unavailable. Start a backup first or restore storage access.'
+    }
+    if (timer.state.status !== 'idle') {
+      return 'Deleting all sessions is blocked while the timer is active. Finish or cancel the current attempt first.'
+    }
+    if (sync.phase === 'syncing') {
+      return 'Deleting all sessions is blocked while Google Drive synchronization is in progress. Wait for it to finish, then try again.'
+    }
+    return null
+  }, [storageHealthy, sync.phase, timer.state.status])
+
+  const developerSyncStatus = useMemo(() => {
+    if (resetAwaitingSync || deleteAllAwaitingSync) {
+      return 'Deletion records are being synchronized with Google Drive. Historical snapshots are retained.'
+    }
+    switch (sync.phase) {
+      case 'disabled':
+        return 'Google Drive synchronization is off. Deletion records are stored locally and will be published after synchronization is enabled.'
+      case 'synced':
+        return 'Google Drive is synchronized. Deletions will publish on the next sync; historical snapshots are never deleted.'
+      case 'pending':
+        return 'Google Drive has pending local changes. Deletions will publish on the next synchronization.'
+      case 'offline':
+        return 'You are offline. Deletion records are saved locally and will publish after reconnection.'
+      case 'auth-required':
+        return 'Google Drive needs reconnection. Deletion records stay saved locally until sync is authorized.'
+      case 'conflict':
+        return 'Synchronization is paused for conflict review. Deletion records stay saved; existing conflict protection is not bypassed.'
+      case 'failed':
+        return 'The last synchronization failed. Deletion records stay saved locally; retry Sync now from Google Drive backup.'
+      case 'syncing':
+        return 'Google Drive synchronization is in progress.'
+      default:
+        return 'Deletion records are stored locally and publish through the existing synchronization system.'
+    }
+  }, [deleteAllAwaitingSync, resetAwaitingSync, sync.phase])
+
+  const handleOpenResetAll = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSettingsOpen(false)
+    setResetAllOpen(true)
+  }, [timer.state.status])
+
+  const confirmResetAll = useCallback(() => {
+    if (timer.state.status !== 'idle') {
+      setResetAllOpen(false)
+      showToast({
+        message: 'Reset blocked: finish or cancel the current timer attempt first.',
+      })
+      return
+    }
+    if (!storageHealthy) {
+      setResetAllOpen(false)
+      showToast({
+        message:
+          'Reset blocked: browser storage is unavailable, so deletion records cannot be saved safely.',
+      })
+      return
+    }
+    if (sync.phase === 'syncing') {
+      setResetAllOpen(false)
+      showToast({
+        message:
+          'Reset blocked: Google Drive synchronization is in progress. Wait for it to finish, then try again.',
+      })
+      return
+    }
+
+    const removed = sessions.flatMap((session) =>
+      session.solves.map((solve) => ({
+        id: solve.id,
+        sessionId: session.id,
+      })),
+    )
+    if (removed.length === 0) {
+      setResetAllOpen(false)
+      return
+    }
+
+    // Delete intent becomes durable before solve data is cleared. Even if the
+    // app closes immediately, a later merge cannot resurrect these solves.
+    if (!sync.recordDeletions(removed)) {
+      setResetAllOpen(false)
+      showToast({
+        message:
+          'Reset blocked: deletion records could not be saved. No solves were removed.',
+      })
+      return
+    }
+
+    const result = resetAllSolveData()
+    setResetAllOpen(false)
+    if (!result.ok) {
+      showToast({
+        message:
+          'Solve data could not be saved after the reset. Deletion records are saved; retry after storage recovers.',
+      })
+      return
+    }
+
+    const syncing = sync.phase !== 'disabled' && navigator.onLine
+    if (syncing) {
+      setResetAwaitingSync(true)
+      showToast({
+        message:
+          'All solves reset locally. Synchronizing deletion records with Google Drive…',
+      })
+      window.setTimeout(() => void sync.syncNow('reset'), 0)
+      return
+    }
+
+    setResetAwaitingSync(false)
+    showToast({
+      message:
+        sync.phase === 'disabled'
+          ? 'All solves reset locally. Synchronization is off; deletion records are saved for a later sync.'
+          : 'All solves reset locally. Deletion records are saved and will publish after reconnection.',
+    })
+  }, [
+    resetAllSolveData,
+    sessions,
+    showToast,
+    storageHealthy,
+    sync,
+    timer.state.status,
+  ])
+
+  useEffect(() => {
+    if (!resetAwaitingSync) return
+    if (sync.phase === 'synced' && !sync.hasPendingChanges) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setResetAwaitingSync(false)
+      showToast({
+        message:
+          'All solve data was reset and the deletion records synchronized with Google Drive.',
+      })
+      return
+    }
+    if (
+      sync.phase === 'failed' ||
+      sync.phase === 'conflict' ||
+      sync.phase === 'auth-required' ||
+      sync.phase === 'offline'
+    ) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setResetAwaitingSync(false)
+      showToast({
+        message:
+          'Solve data was reset locally, but Google Drive synchronization did not complete. Deletion records remain saved for a later sync.',
+      })
+    }
+  }, [resetAwaitingSync, showToast, sync.hasPendingChanges, sync.phase])
+
+  const handleOpenDeleteAllSessions = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSettingsOpen(false)
+    setDeleteAllOpen(true)
+  }, [timer.state.status])
+
+  const confirmDeleteAllSessions = useCallback(() => {
+    if (timer.state.status !== 'idle') {
+      setDeleteAllOpen(false)
+      showToast({
+        message:
+          'Delete all sessions blocked: finish or cancel the current timer attempt first.',
+      })
+      return
+    }
+    if (!storageHealthy) {
+      setDeleteAllOpen(false)
+      showToast({
+        message:
+          'Delete all sessions blocked: browser storage is unavailable, so deletion records cannot be saved safely.',
+      })
+      return
+    }
+    if (sync.phase === 'syncing') {
+      setDeleteAllOpen(false)
+      showToast({
+        message:
+          'Delete all sessions blocked: Google Drive synchronization is in progress. Wait for it to finish, then try again.',
+      })
+      return
+    }
+
+    // Deletion intent becomes durable before the session collection is replaced.
+    // Session tombstones carry every known solve ID and explicit solve
+    // tombstones prevent either record type from being resurrected by a merge.
+    if (!sync.recordAllSessionDeletions(sessions)) {
+      setDeleteAllOpen(false)
+      showToast({
+        message:
+          'Delete all sessions blocked: deletion records could not be saved. Nothing was removed.',
+      })
+      return
+    }
+
+    if (!deleteAllSessions()) {
+      setDeleteAllOpen(false)
+      showToast({
+        message:
+          'Sessions could not be saved after deletion. Deletion records are saved; retry after storage recovers.',
+      })
+      return
+    }
+
+    setDeleteAllOpen(false)
+    setSessionSettingsOpen(false)
+
+    const syncing = sync.phase !== 'disabled' && navigator.onLine
+    if (syncing) {
+      setDeleteAllAwaitingSync(true)
+      showToast({
+        message:
+          'All sessions deleted locally. Synchronizing deletion records with Google Drive…',
+      })
+      window.setTimeout(() => void sync.syncNow('reset'), 0)
+      return
+    }
+
+    setDeleteAllAwaitingSync(false)
+    showToast({
+      message:
+        sync.phase === 'disabled'
+          ? 'All sessions deleted locally. Session 1 is ready. Synchronization is off; deletion records are saved for a later sync.'
+          : 'All sessions deleted locally. Session 1 is ready. Deletion records are saved and will publish after reconnection.',
+    })
+  }, [
+    deleteAllSessions,
+    sessions,
+    showToast,
+    storageHealthy,
+    sync,
+    timer.state.status,
+  ])
+
+  useEffect(() => {
+    if (!deleteAllAwaitingSync) return
+    if (sync.phase === 'synced' && !sync.hasPendingChanges) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setDeleteAllAwaitingSync(false)
+      showToast({
+        message:
+          'All sessions were deleted and the deletion records synchronized with Google Drive.',
+      })
+      return
+    }
+    if (
+      sync.phase === 'failed' ||
+      sync.phase === 'conflict' ||
+      sync.phase === 'auth-required' ||
+      sync.phase === 'offline'
+    ) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setDeleteAllAwaitingSync(false)
+      showToast({
+        message:
+          'Sessions were deleted locally, but Google Drive synchronization did not complete. Deletion records remain saved for a later sync.',
+      })
+    }
+  }, [deleteAllAwaitingSync, showToast, sync.hasPendingChanges, sync.phase])
+
   const handleCreateSession = useCallback(
     (
       name: string,
@@ -608,6 +934,14 @@ export default function App() {
     setSessionSettingsOpen(true)
   }, [timer.state.status])
 
+  const handleMoveSession = useCallback(
+    (id: string, direction: -1 | 1) => {
+      if (timer.state.status !== 'idle') return
+      moveSession(id, direction)
+    },
+    [moveSession, timer.state.status],
+  )
+
   const handleSetSessionEvent = useCallback(
     (id: string, event: PuzzleEvent) => {
       if (timer.state.status !== 'idle') return false
@@ -620,6 +954,57 @@ export default function App() {
     if (timer.state.status !== 'idle' || sessions.length <= 1) return
     setSessionToDelete(activeSession)
   }, [activeSession, sessions.length, timer.state.status])
+
+  const handleOpenEventManager = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSessionSettingsOpen(false)
+    setEventManagerOpen(true)
+  }, [timer.state.status])
+
+  const handleDeleteCustomEvent = useCallback(
+    (id: string): { ok: true } | { ok: false; error: string } => {
+      const result = deleteCustomEvent(id)
+      if (result.ok) {
+        sync.recordDeletion('event', id)
+        showToast({ message: 'Custom event deleted' })
+      }
+      return result
+    },
+    [deleteCustomEvent, showToast, sync],
+  )
+
+  const handleReassignSessionsEvent = useCallback(
+    (sessionIds: readonly string[], event: PuzzleEvent): boolean => {
+      const changed = reassignSessionsEvent(sessionIds, event)
+      if (changed) {
+        showToast({
+          message: `Reassigned ${sessionIds.length === 1 ? 'session' : `${sessionIds.length} sessions`} to ${getEventLabel(event)}`,
+        })
+      }
+      return changed
+    },
+    [reassignSessionsEvent, showToast],
+  )
+
+  const handleCorrectImportedEvents = useCallback((): number => {
+    const moved = correctImportedEvents()
+    if (moved > 0) {
+      showToast({
+        message: `Corrected ${moved === 1 ? '1 imported solve' : `${moved} imported solves`}`,
+      })
+    }
+    return moved
+  }, [correctImportedEvents, showToast])
+
+  const importedCorrectionCount = useMemo(
+    () =>
+      findImportedEventCorrections({
+        activeSessionId,
+        sessions,
+        ...(customEvents.length > 0 ? { customEvents } : {}),
+      }).length,
+    [activeSessionId, sessions, customEvents],
+  )
 
   const confirmDeleteSession = useCallback(() => {
     if (!sessionToDelete) return
@@ -670,7 +1055,12 @@ export default function App() {
 
     try {
       const backup = createBackup(
-        { activeSessionId, sessions },
+        {
+          activeSessionId,
+          sessions,
+          ...(customEvents.length > 0 ? { customEvents } : {}),
+          ...(sessionOrder ? { sessionOrder } : {}),
+        },
         settings,
       )
       downloadJsonFile(serializeBackup(backup), backupFileName())
@@ -680,7 +1070,7 @@ export default function App() {
     } catch {
       return false
     }
-  }, [activeSessionId, sessions, settings, showToast, timer.state.status])
+  }, [activeSessionId, sessions, customEvents, sessionOrder, settings, showToast, timer.state.status])
 
   const handleImportRequested = useCallback((backup: Backup) => {
     setDataOpen(false)
@@ -692,10 +1082,25 @@ export default function App() {
 
     if (pendingImport.importMode === 'add') {
       const imported = pendingImport.sessions.sessions
-      const merged: SessionsData = {
-        activeSessionId: activeSessionId ?? imported[0]?.id ?? '',
-        sessions: [...sessions, ...imported],
-      }
+      const mergedCustomEvents = unionCustomEvents(
+        customEvents,
+        pendingImport.sessions.customEvents ?? [],
+      )
+      const merged = appendSessionsInOrder(
+        {
+          activeSessionId: activeSessionId ?? imported[0]?.id ?? '',
+          sessions: [...sessions],
+          ...(mergedCustomEvents.length > 0
+            ? { customEvents: mergedCustomEvents }
+            : {}),
+          ...(syncSessionsData.sessionOrder
+            ? { sessionOrder: syncSessionsData.sessionOrder }
+            : {}),
+        },
+        imported,
+        undefined,
+        'local-import',
+      )
       replaceSessions(merged)
       // keep existing settings; do not overwrite
       sync.resetBase(merged)
@@ -709,12 +1114,17 @@ export default function App() {
     sync.resetBase(pendingImport.sessions)
     setPendingImport(null)
     showToast({ message: 'Backup imported' })
-  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync, activeSessionId, sessions])
+  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync, activeSessionId, sessions, customEvents, syncSessionsData.sessionOrder])
 
   const handleMergeSessions = useCallback(
     (sourceId: string, targetId: string) => {
       const merged = mergeSessionsById(
-        { activeSessionId, sessions },
+        {
+          activeSessionId,
+          sessions,
+          ...(customEvents.length > 0 ? { customEvents } : {}),
+          ...(sessionOrder ? { sessionOrder } : {}),
+        },
         targetId,
         sourceId,
       )
@@ -724,16 +1134,71 @@ export default function App() {
       showToast({ message: 'Sessions merged' })
       return true
     },
-    [activeSessionId, sessions, replaceSessions, showToast, sync],
+    [activeSessionId, sessions, customEvents, sessionOrder, replaceSessions, showToast, sync],
   )
 
   const cancelConfirm = useCallback(() => {
     setClearOpen(false)
+    setResetAllOpen(false)
+    setDeleteAllOpen(false)
     setSessionToDelete(null)
     setPendingImport(null)
   }, [])
 
   const confirmContent = useMemo(() => {
+    if (deleteAllOpen) {
+      return {
+        eyebrow: 'Developer · Danger zone',
+        title: 'Delete all sessions and solves?',
+        description: (
+          <>
+            This permanently removes <strong>{sessions.length}</strong>{' '}
+            {sessions.length === 1 ? 'session' : 'sessions'} and{' '}
+            <strong>{totalSolveCount}</strong>{' '}
+            {totalSolveCount === 1 ? 'solve' : 'solves'} from this browser. A
+            new empty <strong>Session 1</strong> becomes active. Custom-event
+            definitions and all application settings are kept. Statistics, PBs,
+            averages, Analytics, and solve history reset because their solves
+            are gone. Durable session and solve deletion records prevent
+            synchronization from restoring the deleted data; Google Drive
+            historical snapshots are not deleted. This cannot be undone without
+            a previous backup.
+          </>
+        ),
+        cancelLabel: 'Cancel deletion',
+        confirmLabel: 'Delete all sessions',
+        requireText: 'DELETE ALL SESSIONS',
+        onConfirm: confirmDeleteAllSessions,
+      }
+    }
+
+    if (resetAllOpen) {
+      return {
+        eyebrow: 'Developer · Danger zone',
+        title: 'Reset all solve data?',
+        description: (
+          <>
+            This will permanently remove <strong>{totalSolveCount}</strong>{' '}
+            {totalSolveCount === 1 ? 'solve' : 'solves'} from{' '}
+            <strong>{sessions.length}</strong>{' '}
+            {sessions.length === 1 ? 'session' : 'sessions'} across every event,
+            including custom events. Session names, event assignments,
+            inspection and timer preferences, custom event definitions, and all
+            application settings stay intact. Statistics, PBs, averages,
+            Analytics, and solve history reset because their solves are gone.
+            This cannot be undone without a previous backup. Google Drive
+            historical snapshots are not deleted by this reset; deletion records
+            for recorded solves use the existing tombstone system so they cannot
+            reappear after synchronization.
+          </>
+        ),
+        cancelLabel: 'Cancel reset',
+        confirmLabel: 'Reset all solve data',
+        requireText: 'DELETE ALL SOLVES',
+        onConfirm: confirmResetAll,
+      }
+    }
+
     if (pendingImport) {
       const importedSolveCount = countSolves(pendingImport.sessions.sessions)
       const importedSessionCount = pendingImport.sessions.sessions.length
@@ -829,12 +1294,17 @@ export default function App() {
     activeSession.name,
     clearOpen,
     confirmClear,
+    confirmDeleteAllSessions,
     confirmDeleteSession,
     confirmImport,
+    confirmResetAll,
+    deleteAllOpen,
     pendingImport,
+    resetAllOpen,
     sessionToDelete,
     sessions,
     solves.length,
+    totalSolveCount,
   ])
 
   const handleConfirm = useCallback(() => {
@@ -871,6 +1341,7 @@ export default function App() {
         !event.repeat &&
         !isModifierKey(event.key) &&
         !isTextEntryTarget(event.target) &&
+        !isSpaceControlTarget(event.target) &&
         !(event.target instanceof Element && event.target.closest('[data-sidebar-divider]'))
       ) {
         // The optional any-key stop is intentionally limited to a running
@@ -885,7 +1356,10 @@ export default function App() {
       // Space is reserved for timing throughout the app, including while a
       // button is focused. Keyboard users can activate those buttons with
       // Enter, so timer input never becomes dependent on current focus.
+      // Disclosure and custom-combobox controls keep their own Space behavior
+      // instead of accidentally starting the timer.
       if (isTextEntryTarget(event.target)) return
+      if (isSpaceControlTarget(event.target)) return
       if (event.target instanceof Element && event.target.closest('[data-sidebar-divider]')) return
       event.preventDefault()
       if (event.repeat) return
@@ -898,6 +1372,7 @@ export default function App() {
       if (view !== 'timer') return
       if (modalOpen || event.code !== 'Space') return
       if (isTextEntryTarget(event.target)) return
+      if (isSpaceControlTarget(event.target)) return
       event.preventDefault()
       timerRelease('keyboard')
     }
@@ -1045,7 +1520,6 @@ export default function App() {
     return () => observer.disconnect()
   }, [settings.statsPanelHeightPercent, clampStatsHeight, isDesktopLayout])
 
-  const storageHealthy = storageOk && settingsStorageOk
   const appShellClassName = [
     'app-shell',
     settings.showTimerDecimalSmall ? 'is-decimal-small' : '',
@@ -1053,6 +1527,47 @@ export default function App() {
   ]
     .filter(Boolean)
     .join(' ')
+
+  const sessionSummaryContent = useMemo(
+    () =>
+      settings.showSessionSolveProgress || settings.showSessionTotalTime ? (
+        <>
+          {settings.showSessionSolveProgress ? (
+            <span
+              className="session-summary-item"
+              data-testid="session-solve-progress"
+              aria-label={`${sessionSummary.completed.toLocaleString()} of ${sessionSummary.total.toLocaleString()} solves completed in ${activeSession.name}`}
+              title="Completed (non-DNF) / total solves in this session"
+            >
+              {sessionSummary.completed.toLocaleString()} /{' '}
+              {sessionSummary.total.toLocaleString()}
+            </span>
+          ) : null}
+          {settings.showSessionSolveProgress &&
+          settings.showSessionTotalTime ? (
+            <span className="session-summary-separator" aria-hidden="true">
+              ·
+            </span>
+          ) : null}
+          {settings.showSessionTotalTime ? (
+            <span
+              className="session-summary-item"
+              data-testid="session-total-time"
+              aria-label={`Total completed solve time for ${activeSession.name}: ${formatSessionHours(sessionSummary.totalTimeMs).replace(/ h$/, ' hours')}`}
+              title="Sum of completed solve times; DNFs excluded, +2 included"
+            >
+              {formatSessionHours(sessionSummary.totalTimeMs)}
+            </span>
+          ) : null}
+        </>
+      ) : null,
+    [
+      activeSession.name,
+      sessionSummary,
+      settings.showSessionSolveProgress,
+      settings.showSessionTotalTime,
+    ],
+  )
 
   return (
     <div
@@ -1085,13 +1600,19 @@ export default function App() {
             scramble={scramble}
             isLoading={scrambleLoading}
             error={scrambleError}
-            canRegenerate={!timerActive && !scrambleLoading && scramble !== null}
+            canRegenerate={
+              !timerActive &&
+              !isCustomEventId(activeEvent) &&
+              !scrambleLoading &&
+              scramble !== null
+            }
             onRegenerate={handleRegenerate}
             onRetry={retryScramble}
             onNotify={(message) => showToast({ message })}
             scrambleAction={effectiveSettings.scrambleAction}
             alignment={effectiveSettings.scrambleAlignment}
             limitHeight={effectiveSettings.scrambleLimitHeight}
+            placeholder={isCustomEventId(activeEvent)}
             activeTool={currentTool}
             toolPanelOpen={toolPanelOpen}
             onToggleToolPanel={() => setToolPanelOpen(!toolPanelOpen)}
@@ -1099,7 +1620,7 @@ export default function App() {
 
           <TimerStage
             state={timer.state}
-            eventLabel={getEventDefinition(activeEvent)?.label ?? activeEvent}
+            eventLabel={getEventLabel(activeEvent)}
             timerUpdateMode={effectiveSettings.timerUpdateMode}
             inspectionElapsedMs={timer.inspectionElapsedMs}
             holdProgress={timer.holdProgress}
@@ -1135,10 +1656,23 @@ export default function App() {
           />
 
           <div className="session-caption">
-            <span className="caption-session">
-              {stats.count === 0
-                ? 'No solves yet'
-                : `${stats.count === 1 ? '1 solve' : `${stats.count} solves`} this session`}
+            <span
+              className="caption-session"
+              data-testid="session-footer-summary"
+            >
+              {sessionSummaryContent ? (
+                <span
+                  className="session-footer-summary"
+                  role="group"
+                  aria-label="Current session summary"
+                >
+                  {sessionSummaryContent}
+                </span>
+              ) : stats.count === 0 ? (
+                'No solves yet'
+              ) : (
+                `${stats.count === 1 ? '1 solve' : `${stats.count} solves`} this session`
+              )}
             </span>
             {settings.statVisibility.ao5 || settings.statVisibility.ao12 ? (
               <span className="quick-stats" aria-label="Current averages">
@@ -1160,6 +1694,7 @@ export default function App() {
                 ) : null}
               </span>
             ) : null}
+            <AppVersion />
           </div>
         </div>
 
@@ -1173,6 +1708,7 @@ export default function App() {
             onRename={handleRenameSession}
             onSelect={handleSelectSession}
             onOpenSessionSettings={handleOpenSessionSettings}
+            onMove={handleMoveSession}
           />
 
           {isDesktopLayout ? (
@@ -1309,12 +1845,17 @@ export default function App() {
         settings={settings}
         storageOk={storageHealthy}
         sessionCount={sessions.length}
-        solveCount={countSolves(sessions)}
+        solveCount={totalSolveCount}
         drawScrambleMode={drawScrambleMode}
         onDrawScrambleModeChange={setDrawScrambleMode}
         onChange={updateSettings}
         onOpenBackup={handleOpenBackup}
         onOpenDriveBackup={handleOpenDriveBackup}
+        onRequestResetAllSolveData={handleOpenResetAll}
+        resetAllDisabledReason={resetAllDisabledReason}
+        onRequestDeleteAllSessions={handleOpenDeleteAllSessions}
+        deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
+        developerSyncStatus={developerSyncStatus}
         onClose={() => setSettingsOpen(false)}
       />
 
@@ -1326,20 +1867,19 @@ export default function App() {
         canDelete={sessions.length > 1}
         onRenameSession={(id, name) => handleRenameSession(id, name)}
         onSetSessionEvent={(id, event) => handleSetSessionEvent(id, event)}
-        onCreateForEvent={() => {
-          setSessionSettingsOpen(false)
-          setCreateSessionOpen(true)
-        }}
         onSetInspection={handleSetSessionInspection}
         onRequestClear={requestClear}
         onRequestDelete={requestDeleteSession}
+        onOpenEventManager={handleOpenEventManager}
         onClose={() => setSessionSettingsOpen(false)}
       />
 
       <DataDialog
         open={dataOpen}
+        sessions={sessions}
         sessionCount={sessions.length}
         solveCount={countSolves(sessions)}
+        customEvents={customEvents}
         onClose={() => setDataOpen(false)}
         onExport={handleExport}
         onImport={handleImportRequested}
@@ -1348,7 +1888,12 @@ export default function App() {
       <DriveBackupDialog
         open={driveOpen}
         transport={driveTransport}
-        sessions={{ activeSessionId, sessions }}
+        sessions={{
+          activeSessionId,
+          sessions,
+          ...(customEvents.length > 0 ? { customEvents } : {}),
+          ...(sessionOrder ? { sessionOrder } : {}),
+        }}
         settings={settings}
         storageOk={storageHealthy}
         sync={sync}
@@ -1387,9 +1932,28 @@ export default function App() {
 
       <MergeSessionsDialog
         open={mergeSessionsOpen}
-        sessions={{ activeSessionId, sessions }}
+        sessions={{
+          activeSessionId,
+          sessions,
+          ...(customEvents.length > 0 ? { customEvents } : {}),
+          ...(sessionOrder ? { sessionOrder } : {}),
+        }}
         onClose={() => setMergeSessionsOpen(false)}
         onMerge={handleMergeSessions}
+      />
+
+      <CustomEventsDialog
+        open={eventManagerOpen}
+        customEvents={customEvents}
+        sessions={sessions}
+        correctionCount={importedCorrectionCount}
+        onCreate={createCustomEvent}
+        onRename={renameCustomEvent}
+        onSetPlaceholder={setCustomEventPlaceholder}
+        onDelete={handleDeleteCustomEvent}
+        onReassignSessions={handleReassignSessionsEvent}
+        onCorrectImported={handleCorrectImportedEvents}
+        onClose={() => setEventManagerOpen(false)}
       />
 
       <SessionSetupDialog

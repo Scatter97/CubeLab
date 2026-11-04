@@ -2,12 +2,11 @@ import { copyText } from '../lib/clipboard'
 import { toolLabel, type CurrentTool } from '../lib/tools'
 import { WrenchIcon, RefreshIcon } from './Icons'
 import type { ScrambleAction, ScrambleAlignment, PuzzleEvent } from '../types'
-import { CUBELAB_EVENTS } from '../lib/events'
+import { getEventLabel } from '../lib/events'
 
 interface ScramblePanelProps {
   event: PuzzleEvent
   scramble: string | null
-  nextScramble: string | null
   isLoading: boolean
   error: string | null
   canRegenerate: boolean
@@ -17,6 +16,8 @@ interface ScramblePanelProps {
   scrambleAction?: ScrambleAction
   alignment?: ScrambleAlignment
   limitHeight?: boolean
+  /** True when the text is a custom-event placeholder, not a real scramble. */
+  placeholder?: boolean
   activeTool: CurrentTool
   toolPanelOpen: boolean
   onToggleToolPanel: () => void
@@ -25,7 +26,6 @@ interface ScramblePanelProps {
 export function ScramblePanel({
   event,
   scramble,
-  nextScramble,
   isLoading,
   error,
   canRegenerate,
@@ -35,6 +35,7 @@ export function ScramblePanel({
   scrambleAction = 'none',
   alignment,
   limitHeight = false,
+  placeholder = false,
   activeTool,
   toolPanelOpen,
   onToggleToolPanel,
@@ -53,19 +54,18 @@ export function ScramblePanel({
     }
   }
 
-  const canActivate = Boolean(scramble) && scrambleAction !== 'none'
+  const canActivate =
+    Boolean(scramble) && !placeholder && scrambleAction !== 'none'
 
   return (
     <section className="panel scramble-panel" aria-labelledby="scramble-title">
       <div className="scramble-header">
         <div className="section-heading">
-          <span className="eyebrow">
-            <span className="eyebrow-index">02</span>
+          <h2 id="scramble-title" className="scramble-heading">
             Scramble
-          </span>
+          </h2>
           <span className="scramble-badge">
-            <span className="badge-dot" aria-hidden="true" />
-            {CUBELAB_EVENTS.find((option) => option.id === event)?.label ?? event} · scramble
+            {getEventLabel(event)}
           </span>
         </div>
 
@@ -122,6 +122,8 @@ export function ScramblePanel({
         {scramble ? (
           <p
             className={`scramble-text${
+              placeholder ? ' is-placeholder' : ''
+            }${
               alignment ? ` is-aligned-${alignment}` : ''
             }${limitHeight ? ' is-height-limited' : ''}`}
             aria-live="polite"
@@ -143,28 +145,13 @@ export function ScramblePanel({
         )}
       </div>
 
-      <div className="scramble-footer">
-        <span className="queue-label">
-          <span
-            className={`queue-indicator ${
-              error ? 'is-error' : isLoading ? 'is-loading' : ''
-            }`}
-            aria-hidden="true"
-          />
-          {error ? 'Scramble unavailable' : isLoading ? 'Preparing next' : 'Queue ready'}
-        </span>
-        {error && scramble ? (
+      {error ? (
+        <div className="scramble-footer">
           <button type="button" className="text-button" onClick={onRetry}>
-            Retry next scramble
+            {scramble ? 'Retry next scramble' : 'Retry'}
           </button>
-        ) : (
-          <span className="next-scramble" title={nextScramble ?? undefined}>
-            {error
-              ? 'Retry above to continue'
-              : nextScramble ?? 'Next scramble will appear here'}
-          </span>
-        )}
-      </div>
+        </div>
+      ) : null}
     </section>
   )
 }

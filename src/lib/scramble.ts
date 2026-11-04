@@ -1,4 +1,10 @@
-import { getEventDefinition, type ScrambleFormat } from './events'
+import {
+  DEFAULT_CUSTOM_EVENT_PLACEHOLDER,
+  getCustomEventDefinition,
+  getEventDefinition,
+  isCustomEventId,
+  type ScrambleFormat,
+} from './events'
 import type { PuzzleEvent } from '../types'
 
 const CUBE_TOKEN_PATTERN = /^(?:[2-3])?[URFDLB]w?(?:2|')?$/
@@ -29,6 +35,13 @@ function scrambleFormat(event: PuzzleEvent): ScrambleFormat {
  * scramble always matches the persisted value.
  */
 export async function generateScramble(event: PuzzleEvent = '333'): Promise<string> {
+  // Custom events intentionally have no generator. Return the user's
+  // placeholder immediately so no cubing.js worker is loaded for them.
+  const custom = getCustomEventDefinition(event)
+  if (isCustomEventId(event)) {
+    return custom?.placeholder.trim() || DEFAULT_CUSTOM_EVENT_PLACEHOLDER
+  }
+
   // Load cubing.js on demand so its large solver chunk does not block the
   // initial application shell. The production build still emits it as a
   // separate cached chunk, and the worker isolation in vite.config.ts is

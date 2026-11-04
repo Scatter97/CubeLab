@@ -30,6 +30,8 @@ export const SETTINGS_FIELD_KEYS: readonly SettingsFieldKey[] = [
   'statPrecision',
   'averageTrimBetter',
   'averageTrimWorse',
+  'showSessionSolveProgress',
+  'showSessionTotalTime',
   'analytics',
 ]
 

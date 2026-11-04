@@ -1,3 +1,9 @@
+> **Historical snapshot — archived 2026-11-01.** This record may contain
+> superseded behavior, approval milestones and verification results. For current
+> work read [STATUS.md](../../STATUS.md), [AGENTS.md](../../AGENTS.md) and
+> [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md). Paths in code spans
+> and command blocks retain their original repository-root context.
+
 # CubeLab — Project Progress
 
 **Documentation updated:** 2026-11-01. **Implementation last verified:** 2026-11-01.
@@ -6,16 +12,19 @@ audit remediation, and Phase 6a (Pyraminx, Skewb, Square-1, Clock, and Megaminx)
 are implemented. Approved follow-ups include csTimer import, 2D/PG3D tools,
 Time Trend and trackpad navigation, historical PB dialogs, configurable
 trimming and the first large-session stop-response patch.
-Settings are schema v8; sessions are schema v4. Phase 6b (blindfolded,
-Multi-Blind, and Fewest Moves) and the broader training and portability
-proposals are not approved by this checkpoint.
+Settings are schema v8; sessions are schema v4. Future feature-phase proposals
+were subsequently removed at the user's request; use the current root roadmap
+for the retained work queue.
 
 ## Current implementation and verification
 
-1. Timer-safe sync, exact approvals, restore normalization, cross-tab
-   reconciliation, active-session metadata and cleanup retries are implemented.
-2. csTimer imports use preview/confirmation; scramble tools are derived from
-   actual scrambles, pointer-isolated and persist their final position/size.
+1. Timer-safe sync, exact approvals, restore normalization, cross-tab reconciliation,
+   active-session metadata and cleanup retries are implemented. The November 1
+   regression follow-up fixes selection approvals/provenance through pure merges,
+   envelope parsing, hook adoption and production conflict review.
+2. csTimer imports reject malformed supported rows before preview/confirmation,
+   then add valid sessions without replacing history or settings. Scramble tools
+   are scramble-derived, pointer-isolated and persist their final position/size.
 3. Time Trend supports compact/expanded views, independent axes, pinch/pan,
    date/range views, DNF gaps, extrema preservation and accessible PB details.
 4. Trimming is global and shared by cards, charts, custom averages, PB windows,
@@ -32,8 +41,9 @@ proposals are not approved by this checkpoint.
    import, and sync validate the new events; existing records stay compatible.
 
 Latest `VITE_DRIVE_MOCK=true npm run check`: **passed as one command, exit 0**
-on November 1. Typecheck/lint/build passed; **518 unit/component tests in
-39 files** and **252 browser tests passed / 9 existing skips / 261 total**
+on November 1 after the regression fixes. Typecheck/lint/build passed;
+**553 unit/component tests in 39 files** and **258 browser tests passed /
+9 existing skips / 267 total**
 across Chromium, Firefox and WebKit, including per-event coverage for all 12
 events at desktop and 390 px mobile widths. The 7,000-solve keyboard/pointer
 regression passed in all engines. Offline coverage passed in the supported
@@ -67,11 +77,84 @@ Live Drive was not rerun; its last recorded provider harness passed 7/7 on
 [NEXT_SESSION_HANDOFF.md](NEXT_SESSION_HANDOFF.md) provides execution steps and
 acceptance checks. [ROADMAP.md](ROADMAP.md) distinguishes delivered slices from
 proposed phases. [PATCH_LIMITATIONS.md](PATCH_LIMITATIONS.md) records current
-limits. [README.md](README.md) documents use, storage and commands; [AGENTS.md](AGENTS.md)
+limits. [README.md](../../README.md) documents use, storage and commands; [AGENTS.md](../../AGENTS.md)
 contains invariants. The October 28 plan is historical; the October 30 checklist
 has been consolidated into a closure record. The Phase 6a commit records its own
 implementation and verification; inspect Git rather than assuming a clean tree
 or push.
+
+## Documentation-to-code audit — 2026-11-01
+
+Compared current product claims, contributor guidance, roadmap/limitations,
+handoff, dated closure records and project skills with source and regression
+coverage. Historical test/provider/performance records remain dated claims;
+they are not substitutes for a current run or tracked raw measurement artifacts.
+
+The audit originally reproduced two active-session gaps with synthetic pure-merge
+inputs (subsequently fixed in the follow-up below):
+
+- A reviewed `activeSessionId` choice in `resolvedConflicts` is ignored: selecting
+  this device still returns the newer cloud choice and another pending conflict.
+- Equal-time selection values use an editor-ID tiebreak, but the returned field
+  metadata always favors the local stamp. Swapping input orientation preserves
+  the selected ID while changing its editor provenance.
+
+A third reproduction shows incomplete csTimer numeric validation: a valid
+JSON numeric literal `1e400` is accepted as an infinite raw duration, but the
+imported row disappears after JSON storage/reload validation. Existing valid rows
+survived in the fixture. The subsequent follow-up rejects malformed supported rows
+and validates provided dates before preview/confirmation.
+
+These were implementation gaps outside the then-existing suite's passing
+active-session/cross-tab scenarios. They are now covered and repaired by the
+follow-up below. The audit itself
+corrects stale tab/import/schema/warning/precision claims and narrows offline,
+layout, accessibility and external-validation statements. Application behavior
+is unchanged; inline comments are reconciled where they contradicted code.
+
+Fresh audit verification on November 1, using Node v22.23.2 and source baseline
+`2df7f2c`: `VITE_DRIVE_MOCK=true npm run check` passed as one command, exit 0.
+Typecheck, lint and production build passed; **518 unit/component tests in 39
+files** and **252 browser tests with 9 existing skips** passed across Chromium,
+Firefox and WebKit (browser run: 9.0 minutes). The isolated reproductions above
+exercise gaps outside those existing tests; no assertions or skips were changed.
+No live Drive, OAuth console, physical-device, actual screen-reader or new
+performance-profile validation was performed. Documentation/comment changes do
+not change emitted application behavior.
+A normal non-mock `npm run build` passed after the mock suite, restoring
+production output. Relative documentation links and skill discovery were checked
+separately; full findings are recorded in the audit deliverable.
+
+## Audit regression follow-up — 2026-11-01
+
+User-authorized fixes address all three reproduced gaps without changing schemas
+or rewriting existing solve history:
+
+- Reviewed `activeSessionId` choices match exact value/timestamp pairs in either
+  orientation. Applied approval/Undo stamps are handled narrowly; a later edit
+  raises new review. Equal-time ties use editor ID then value, and the selected
+  value carries the same winning metadata. Legacy metadata-free selection and
+  invalid-ID fallback remain conservative.
+- The sync-envelope parser now retains validated selection provenance, which it
+  previously checked but dropped. Sync adoption preserves that provenance instead
+  of stamping a cloud selection as a fresh local edit. Tests cover both reviewed
+  choices, subsequent publication and redundant-upload skipping.
+- Preview/import share csTimer row/date validation. Malformed supported rows,
+  missing/negative/nonfinite times, empty scrambles and invalid provided dates
+  reject the whole file before confirmation with a session/solve error. Valid
+  zero/fractional times, penalties/comments, missing-date fallback and unknown-
+  puzzle skipping remain covered. Imported sessions are still additive; existing
+  solves/settings remain unchanged through cancel, confirm and reload.
+- Added **35 unit/hook cases** across `src/lib/sync.test.ts`,
+  `src/lib/csTimerImport.test.ts` and `src/hooks/useSync.test.ts`, plus two new
+  browser scenarios in `e2e/timer.spec.ts` (six engine cases). The initial run
+  exposed 25 failing test cases against the prior implementation; focused
+  regressions pass after the fixes.
+- Fresh `VITE_DRIVE_MOCK=true npm run check`: exit 0, typecheck/lint/build passed,
+  **553 tests in 39 files**, **258 browser passes / 9 existing skips /
+  267 total** across Chromium/Firefox/WebKit. A normal non-mock production build
+  passed afterward. No dependencies, real user storage, live Drive or physical
+  devices were used. Earlier audit/provider/performance figures remain dated.
 
 ## Scope delivered
 
@@ -106,15 +189,16 @@ calculations.
   Non-cube puzzles use their official `cubing.js` event IDs.
 - Optional WCA inspection with 15-second / 17-second boundaries and automatic
   `+2` or DNF penalty at solve start. The display can count down or count up,
-  with independent optional **8 seconds** and **12 seconds** warnings that follow
-  the displayed direction.
+  with independent warnings at **8 and 12 seconds elapsed**: count-down labels
+  announce 7 and 3 seconds remaining; count-up labels announce 8 and 12 seconds.
 - Optional visual, sound, haptic, or combined feedback for completed solves and
   DNFs, with adjustable alert volume (70% default). The DNF/danger tone uses a
   1.5× gain capped at 0.75, so it is louder than solve feedback without changing
   the volume control.
 - Light, dark, and system theme preferences with a pre-paint bootstrap, plus
-  four accent colors in both palettes. Every text/surface pair and accent pair
-  is verified at WCAG AA by `src/lib/theme.test.ts`.
+  four accent colors in both palettes. The predefined text/surface and accent pairs
+  are checked against WCAG AA thresholds by `src/lib/theme.test.ts`; this is not
+  exhaustive rendered-page or physical assistive-technology certification.
 - csTimer-inspired Settings dialog with Timer, Alerts, Display, Appearance,
   Statistics, Scramble, Controls, Data, and About sections. It centralizes
   inspection direction and warnings, feedback, theme, accent, statistic
@@ -143,8 +227,9 @@ calculations.
   **Session 1**.
 - Versioned local persistence for sessions and settings, with corruption
   recovery.
-- Installable PWA that works fully offline after the first visit, including
-  scramble generation.
+- Installable PWA with local timing and scramble generation offline after the
+  service worker and production assets finish caching. Drive still needs network;
+  the service-worker regression is Chromium-only in this harness.
 - No CubeLab backend, account, analytics, or telemetry. Optional Google Drive
   synchronization stores a device-owned versioned snapshot in the user's own
   Drive app-data folder (`cubelab-backup-<device-id>-<uuid>.json`), merges every
@@ -156,8 +241,8 @@ calculations.
 
 - Pure timer state machine separated from the React adapter.
 - Input events are timestamped; the machine owns all timing transitions.
-- The timer hook keeps an authoritative state ref to make double-recording
-  impossible across repeated or same-frame events.
+- The timer hook keeps an authoritative state ref to guard against duplicate
+  recording across repeated or same-frame events, with focused regression coverage.
 - Pure session/name/comment/inspection mutation logic in `src/lib/sessions.ts`,
   backed by focused unit tests.
 - Built-in statistic definitions and custom-average validation live in
@@ -794,7 +879,7 @@ application code.
   independently scrolling body on short screens.
 - The v8 settings schema stores presentation, interaction and average-trimming preferences as
   typed fields with documented defaults. Unknown or corrupt values fall back
-  field-by-field, while v1–v6 records upgrade automatically. Sessions use schema
+  field-by-field, while v1–v7 records upgrade automatically. Sessions use schema
   v4 with optional per-session preferences, inspection overrides, solve comments,
   and field-level merge metadata. Global settings field timestamps live in
   `cubelab:sync:v1`, so field provenance adds no settings-record fields.
@@ -803,12 +888,14 @@ application code.
   zoom without introducing blank scroll space or horizontal overflow.
 - Effective-time annotations in history wrap onto a second metadata line when
   the rail is narrow; they must never be ellipsized or clipped.
-- New timer settings can only affect interaction behavior. WCA timing and
-  statistics rules remain fixed.
+- Timer interaction and display settings do not rewrite raw solve duration or
+  inspection penalties. The separate global trimming preferences deliberately
+  recalculate training averages through the shared statistics helpers.
 - Solve/DNF feedback is opt-in and uses the configured channel. Inspection
-  warnings, when enabled, always show their direction-aware text (12/8 seconds
-  remaining when counting down, 8/12 seconds when counting up) regardless of that
-  channel; sound and haptic still follow it. Web Audio is
+  warnings, when enabled, always pulse visually and announce a direction-aware
+  live-region label (7/3 seconds remaining when counting down, 8/12 seconds
+  elapsed when counting up). No warning-text overlay is rendered; sound and haptic
+  still follow the selected channel. Web Audio is
   primed on timer press so a timer-driven warning is not blocked by autoplay
   policy. The DNF/danger tone applies a 1.5× gain capped at 0.75; solve and
   warning tones keep the normal volume gain. Statistics precision changes only
@@ -816,7 +903,7 @@ application code.
 - History rows are buttons with `aria-haspopup="menu"` and `aria-expanded`. The
   floating menu is rendered in a portal, positioned near the row and clamped to
   the viewport. It supports keyboard focus, Escape dismissal, and outside-click
-  dismissal. Inline penalty/delete buttons were removed from history rows.
+  dismissal. Inline +2 and DNF buttons remain on each row; delete stays in the floating menu.
 - Solve comments are plain text, limited to 500 characters, and stored on the
   solve record. They never affect timing or statistics.
 - The palette has flat light and dark variants with a pale or deep accent-tinted
@@ -854,10 +941,11 @@ application code.
   disabled while the timer is armed, running, or in inspection.
 - Export includes every session, every solve, the active session ID, and all
   settings. The backup is a detached snapshot.
-- Import is replace-only. It validates the file, then shows current and incoming
-  session/solve counts before applying anything. Cancelling leaves local data
-  untouched. Merging lives in the separate Google Drive synchronization path and
-  never changes the replace-only local-file import contract.
+- Native CubeLab backup import replaces sessions and settings only after
+  validation and current/incoming-count confirmation. csTimer import instead
+  previews and adds supported sessions while retaining existing sessions and
+  settings. Cancelling either flow leaves local data untouched. Drive uses its
+  separate ID/field merge path.
 - The backup file format is versioned (`cubelab-backup`, version 1) and capped at
   10 MB. Invalid JSON, wrong markers, unsupported versions, empty sessions, and
   invalid settings are rejected before confirmation.
@@ -867,8 +955,8 @@ application code.
 - Hold threshold: 300 ms by default; configurable from 0–10,000 ms in Settings.
 - Inspection penalty thresholds: `> 15,000 ms` gives `+2`;
   `> 17,000 ms` gives DNF. The penalty is captured when the solve starts.
-- Inspection displays a countdown from 15 to 0 by default, or a count-up from 0
-  to 17. The 8-second and 12-second warnings are independent; count-up warns at
+- Inspection counts down from 15 by default or counts up from 0; the readout
+  changes to +2 strictly after 15 seconds and DNF strictly after 17 seconds. The 8-second and 12-second warnings are independent; count-up warns at
   8 and 12 seconds elapsed, while count-down now warns at 7 and 3 seconds
   remaining, matching the same elapsed points. The count-down warning can pulse
   the timer surface or entire screen based on **Settings → Alerts → Inspection
@@ -894,7 +982,8 @@ application code.
 - Best values scan every valid window and never report a DNF as a personal best.
   Large averages use a Fenwick-tree sliding-window pass rather than sorting each
   window.
-- Means are rounded to the nearest hundredth (10 ms).
+- Aggregate results below ten minutes are rounded to the nearest hundredth
+  (10 ms); results at or above ten minutes are rounded to whole seconds.
 
 ### Persistence
 
@@ -928,8 +1017,9 @@ time, not as fabricated persisted history. The legacy `cubelab:solves:v1`
 migration is restricted to 3×3 records, while the modern session key keeps every
 supported event.
 
-Settings are stored at schema version 7. Loading accepts versions 1–7, upgrades
-older records with defaults, and validates each new field independently. A
+Settings are stored at schema version 8. Loading accepts versions 1–8, upgrades
+older records with defaults, and validates each field independently. v8 adds
+independent better/worse trimming with p5/auto defaults. A
 record without `inspectionEnabled` is rejected as invalid, matching the original
 settings contract. The v7 records add the light/dark/system theme preference
 with a `light` default; v6 added the optional any-key stop preference. Global
@@ -1008,9 +1098,9 @@ offline Playwright test and must not be undone casually.
   cannot vary their splash colors by preference.
 - Sound and haptic alerts depend on browser/device support. The visual feedback
   and live-region announcement remain available when those channels are absent.
-- JSON import remains replace-only. Google Drive synchronization adds merge,
-  tombstones, redirects, and conflict handling, but there is no general-purpose
-  local-file merge path.
+- Native CubeLab JSON import remains replace-only. csTimer files add new sessions
+  after preview/confirmation. Neither is a general-purpose local-file merge by
+  solve ID; that reconciliation belongs to Drive synchronization.
 - Google Drive has no transaction across the snapshot set. Every automatic write
   adds a new, uniquely named, immutable snapshot, so no writer can overwrite
   another writer's file — including two tabs or profiles sharing a device
@@ -1059,13 +1149,15 @@ offline Playwright test and must not be undone casually.
 - Sync-on-exit is best effort. Visibility loss, `pagehide`, and `freeze` are
   deduplicated before requesting a sync, but browsers may terminate async OAuth
   and network work during close; local persistence remains the durability boundary.
-- In-flight local-edit guards compare React object identity. The application
-  state is treated as immutable; an accidental in-place mutation would bypass the
-  guard.
-- Multiple open tabs are not synchronized with each other. Each tab holds its own
-  in-memory state and writes it independently, so the last write wins. Google
-  Drive sync does not change this; use one tab when changing sessions or
-  importing a backup.
+- In-flight guards recompute content fingerprints across asynchronous boundaries.
+  Render-time pending detection memoizes on immutable React state references, so
+  in-place mutation can leave that display stale. The fingerprint is 32-bit FNV-1a,
+  not an object-identity comparison or a collision-free equality proof.
+- Same-origin tabs listen for session/settings storage changes. Session adoption
+  is deferred during timing and in-flight solves are merged by ID when idle;
+  settings reconcile per field with pending local edits retained. Idle collection
+  replacement is not transactional concurrent editing. Use one tab for destructive
+  changes and imports.
 - Backup files are unencrypted JSON. They contain solve history and settings and
   are the user's responsibility once downloaded.
 - Import is capped at 10 MB. Export has no cap, so an extremely large local
@@ -1089,21 +1181,21 @@ offline Playwright test and must not be undone casually.
   use **Show all solves** when every row must be reachable. A 2,000-solve session
   now renders about 18 rows, 423 DOM nodes, 7.6 MB JS heap, and loads in about
   0.8 s in Chromium.
-- Automated browser testing now runs Chromium, Firefox, and WebKit. Firefox and
-  WebKit skip the service-worker offline test and the touch hold-to-time test,
-  which remain Chromium-only because those engines cannot support the harness or
-  the emulated touch timing reliably. A physical iOS/Android device was not
-  available and was not tested.
+- Automated browser testing runs Chromium, Firefox and WebKit with nine skips:
+  the offline, touch hold-to-time and two CDP canvas/PG3D checks are Chromium-only
+  (eight skipped cases across Firefox/WebKit); WebKit also skips cross-tab timing.
+  Non-cube player initialization checks assert puzzle IDs/status, not rendered
+  pixel correctness. Physical iOS/Android devices were not tested.
 - The mobile E2E flow exercises pointer events in a mobile viewport. It does not
   emulate platform-specific touch scrolling/pinch behavior.
-- A formal keyboard and screen-reader-oriented audit was completed for Phase 4.
-  Axe scans of the main view and Settings dialog are now part of the Playwright
-  suite. The only remaining axe finding is `label-content-name-mismatch` on the
-  composite timer surface; its inner content is marked `aria-hidden` and the
-  control exposes a descriptive `aria-label`, so the finding is treated as a
-  false positive for a composite control and is documented here.>
-- First launch requires network access to install the service worker. Later
-  launches are offline-capable.
+- Phase 4 added keyboard/focus and screen-reader-oriented DOM checks. Current
+  axe assertions reject serious/critical findings in the tested main and Settings
+  views; they do not assert zero findings of every impact level. The main-view
+  scans disable `label-content-name-mismatch` for the composite timer surface.
+  Physical screen-reader/assistive-device validation has not been performed.
+- First launch requires network access. Local timing and scramble generation
+  are offline-capable after service-worker installation and asset caching finish;
+  Drive operations are not offline-capable.
 - The production bundle intentionally includes a large `cubing.js` chunk; no
   attempt was made to reimplement or trim its random-state solver.
 
@@ -1633,8 +1725,9 @@ Do not use the historical stage plans below as the current approval boundary.
 
 The local checkpoint includes the accumulated audit remediation, import/tools,
 analytics and trimming work, timer-stop response patch, tests, documentation and
-referenced UI screenshots. The documentation reconciliation on November 1 changes
-no application source or tests after the October 31 full check. No generated
+referenced UI screenshots, followed by Phase 6a on November 1, the default-panel
+right-gutter mitigation, and tracked OpenCode skills. Documentation-only passes
+do not establish fresh behavioral or provider verification. No generated
 build, browser output or credentials belong in the commit. Inspect `git log -1`
 and `git status --short` for the actual commit and current working-tree state;
 a local commit does not imply a remote push.
@@ -1971,8 +2064,8 @@ Fresh verification (Node v22.23.2, 2026-10-31):
 Registry-driven extension of the event set with official `cubing.js` scrambles.
 No timer, statistics, trimming, persistence, or synchronization rules changed;
 the new events reuse the shared WCA inspection, `+2`/DNF, and effective-time,
-trimming, and PB logic. Phase 6b (blindfolded, Multi-Blind, Fewest Moves)
-remains proposed and unapproved.
+trimming, and PB logic. Further feature-phase proposals were subsequently
+removed at the user's request.
 
 Delivered:
 
@@ -1990,7 +2083,8 @@ Delivered:
   `isPlausibleScramble` validates each notation family separately (N×N faces
   and wide moves, Pyraminx tips, Skewb, Square-1 tuples/slashes, Clock pins and
   dials, Megaminx `R++`/`D--`/`U'`), and an all-events unit test generates a
-  real random-state scramble for every event.
+  real library-generated scramble for every event; notation tests do not prove
+  the generator's random-state distribution.
 - **Data safety.** Storage, backup, csTimer import, and sync validation accept
   the five new events; solves with unknown events are dropped while valid
   records survive, backups mixing events in one session are rejected before

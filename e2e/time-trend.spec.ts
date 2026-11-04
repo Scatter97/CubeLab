@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { chooseOption } from './interactions'
 
 async function openTrend(page: Page, total = 7061) {
   await page.addInitScript((count) => {
@@ -17,7 +18,6 @@ async function openTrend(page: Page, total = 7061) {
     localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 7, settings: { inspectionEnabled: false, theme: 'dark' } }))
   }, total)
   await page.goto('/')
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', { timeout: 30000 })
   await page.getByTestId('current-tool-button').click()
   await page.getByTestId('tool-select-button').click()
   await page.getByRole('menuitemradio', { name: 'Time Trend' }).click()
@@ -63,7 +63,7 @@ test('Time Trend fits a dense session, expands, pans, zooms and contains keyboar
   await expect(page.getByTestId('time-trend-visible-range')).not.toHaveText(range!)
   await dialog.getByRole('button', { name: 'Fit all' }).click()
   await expect(page.getByTestId('time-trend-visible-range')).toHaveText('Solves #1–7061 of 7,061')
-  await dialog.getByRole('combobox', { name: 'X axis' }).selectOption('date')
+  await chooseOption(dialog.getByRole('combobox', { name: 'X axis' }), 'Date')
   expect((await page.getByTestId('time-trend-svg').locator('text').allTextContents()).some((value) => value.includes('Oct'))).toBe(true)
   const svg = await page.getByTestId('time-trend-svg').boundingBox()
   await page.mouse.move(svg!.x + svg!.width * 0.6, svg!.y + svg!.height * 0.5)
@@ -182,11 +182,11 @@ test('trackpad zooms each axis, pinches both, drags to pan and resets', async ({
   })
   await expect.poll(async () => { const b = await chartBounds(page); return b.max - b.min }).toBeCloseTo((original.max - original.min) / 2)
   await dialog.getByRole('button', { name: 'Fit all' }).click()
-  await dialog.getByRole('combobox', { name: 'Zoom axes' }).selectOption('y')
+  await chooseOption(dialog.getByRole('combobox', { name: 'Zoom axes' }), 'Vertical')
   await dialog.getByRole('button', { name: 'Zoom in' }).click()
   await expect(page.getByTestId('time-trend-visible-range')).toHaveText(originalRange!)
   await dialog.getByRole('button', { name: 'Fit all' }).click()
-  await dialog.getByRole('combobox', { name: 'Zoom axes' }).selectOption('x')
+  await chooseOption(dialog.getByRole('combobox', { name: 'Zoom axes' }), 'Horizontal')
   await dialog.getByRole('button', { name: 'Zoom in' }).click()
   expect((await chartBounds(page)).min).toBe(original.min)
   expect((await chartBounds(page)).max).toBe(original.max)
@@ -227,7 +227,6 @@ async function pbFixture(page: Page) {
     localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 7, settings: { inspectionEnabled: false, theme: 'dark', stopWithAnyKey: true } }))
   })
   await page.goto('/')
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', { timeout: 30000 })
   await page.getByTestId('current-tool-button').click()
   await page.getByTestId('tool-select-button').click()
   await page.getByRole('menuitemradio', { name: 'Time Trend' }).click()
@@ -288,7 +287,7 @@ test('dragging from a PB pans without opening stats; zoomed and date-axis PBs re
   await page.getByTestId('time-trend-expand').click()
   const dialog = page.getByRole('dialog', { name: 'Time Trend' })
   const marker = page.getByRole('button', { name: 'PB solve #5, 18.00. Show stats' })
-  await dialog.getByRole('combobox', { name: 'Zoom axes' }).selectOption('x')
+  await chooseOption(dialog.getByRole('combobox', { name: 'Zoom axes' }), 'Horizontal')
   await dialog.getByRole('button', { name: 'Zoom in' }).click()
   const box = await marker.boundingBox()
   const before = await page.getByTestId('time-trend-visible-range').textContent()
@@ -299,7 +298,7 @@ test('dragging from a PB pans without opening stats; zoomed and date-axis PBs re
   await expect(page.getByRole('dialog', { name: 'Personal best' })).not.toBeVisible()
   await expect(page.getByTestId('time-trend-visible-range')).not.toHaveText(before!)
   await dialog.getByRole('button', { name: 'Fit all' }).click()
-  await dialog.getByRole('combobox', { name: 'X axis' }).selectOption('date')
+  await chooseOption(dialog.getByRole('combobox', { name: 'X axis' }), 'Date')
   await marker.click()
   await expect(page.getByTestId('pb-stats-time')).toHaveText('18.00')
   await page.keyboard.press('Escape')

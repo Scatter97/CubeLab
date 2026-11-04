@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatOptionalTime,
   formatRelativeTime,
+  formatSessionHours,
   formatSolveTime,
   formatStatValue,
   formatTime,
@@ -56,6 +57,15 @@ describe('time formatting', () => {
     expect(formatOptionalTime(83_456, 'tenths')).toBe('1:23.4')
     expect(formatOptionalTime(60_000, 'tenths')).toBe('1:00.0')
     expect(formatOptionalTime(null, 'tenths')).toBe('—')
+  })
+
+  it('formats session totals in hours with two decimals', () => {
+    expect(formatSessionHours(0)).toBe('0.00 h')
+    expect(formatSessionHours(3_600_000)).toBe('1.00 h')
+    expect(formatSessionHours(5_400_000)).toBe('1.50 h')
+    expect(formatSessionHours(142_164_000)).toBe('39.49 h')
+    expect(formatSessionHours(Number.POSITIVE_INFINITY)).toBe('0.00 h')
+    expect(formatSessionHours(1_000_000_000)).toBe('277.78 h')
   })
 
   it('formats relative timestamps', () => {

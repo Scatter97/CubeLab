@@ -6,6 +6,7 @@ import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import type { UseSyncResult } from '../hooks/useSync'
 import { AVERAGE_TRIM_OPTIONS } from '../lib/averageTrimming'
 import { CloseIcon } from './Icons'
+import { Select } from './Select'
 import type { SessionsData, Settings } from '../types'
 import { loadDriveBackupState } from '../lib/driveStorage'
 import type { SyncConflict } from '../lib/syncStorage'
@@ -52,6 +53,7 @@ const FIELD_LABELS: Record<string, string> = {
   averageTrimWorse: 'average trimming (worse side)',
   redirect: 'merge destination',
   legacyRecovery: 'legacy recovery',
+  placeholder: 'scramble placeholder',
 }
 
 function conflictFieldLabel(field: string): string {
@@ -137,7 +139,14 @@ function conflictTitle(
     (candidate) =>
       candidate.id === conflict.sessionId || candidate.id === conflict.id,
   )
-  const variable = conflictFieldLabel(conflict.field)
+  const variable =
+    conflict.kind === 'event'
+      ? conflict.field === 'name'
+        ? 'event name'
+        : conflict.field === 'placeholder'
+          ? 'scramble placeholder'
+          : conflict.field
+      : conflictFieldLabel(conflict.field)
   if (conflict.kind === 'settings') return `Global settings · ${variable}`
   if (conflict.kind === 'redirect') {
     return `Session merge${session ? ` · ${session.name}` : ''} · ${variable}`
@@ -147,6 +156,12 @@ function conflictTitle(
       return 'Deleted session · legacy recovery'
     }
     return `Session${session ? ` · ${session.name}` : ''} · ${variable}`
+  }
+  if (conflict.kind === 'event') {
+    const definition = (sessions.customEvents ?? []).find(
+      (candidate) => candidate.id === conflict.id,
+    )
+    return `Custom event${definition ? ` · ${definition.name}` : ''} · ${variable}`
   }
   return `Solve ${conflict.id.slice(0, 8)}${session ? ` · ${session.name}` : ''} · ${variable}`
 }
@@ -675,22 +690,21 @@ export function DriveBackupDialog({
                     How often CubeLab checks for changes.
                   </span>
                 </div>
-                <select
-                  aria-label="Time interval"
+                <Select
+                  ariaLabel="Time interval"
                   className="compact-select"
-                  value={sync.preferences.intervalMinutes}
-                  onChange={(event) =>
+                  testId="sync-interval"
+                  value={String(sync.preferences.intervalMinutes)}
+                  options={[1, 2, 3, 5, 10, 15, 30, 60].map((value) => ({
+                    value: String(value),
+                    label: `${value} minute${value === 1 ? '' : 's'}`,
+                  }))}
+                  onChange={(value) =>
                     sync.updatePreferences({
-                      intervalMinutes: Number(event.target.value) as never,
+                      intervalMinutes: Number(value) as never,
                     })
                   }
-                >
-                  {[1, 2, 3, 5, 10, 15, 30, 60].map((value) => (
-                    <option key={value} value={value}>
-                      {value} minute{value === 1 ? '' : 's'}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div className="sync-field-row">
@@ -700,22 +714,21 @@ export function DriveBackupDialog({
                     Sync after this many new solves.
                   </span>
                 </div>
-                <select
-                  aria-label="Solve threshold"
+                <Select
+                  ariaLabel="Solve threshold"
                   className="compact-select"
-                  value={sync.preferences.solveThreshold}
-                  onChange={(event) =>
+                  testId="sync-threshold"
+                  value={String(sync.preferences.solveThreshold)}
+                  options={[1, 2, 3, 5, 10, 20, 25, 50, 100].map((value) => ({
+                    value: String(value),
+                    label: `${value} solve${value === 1 ? '' : 's'}`,
+                  }))}
+                  onChange={(value) =>
                     sync.updatePreferences({
-                      solveThreshold: Number(event.target.value) as never,
+                      solveThreshold: Number(value) as never,
                     })
                   }
-                >
-                  {[1, 2, 3, 5, 10, 20, 25, 50, 100].map((value) => (
-                    <option key={value} value={value}>
-                      {value} solve{value === 1 ? '' : 's'}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div className="settings-row">
@@ -790,24 +803,23 @@ export function DriveBackupDialog({
                     The newest snapshot for each device is always kept.
                   </span>
                 </div>
-                <select
-                  aria-label="Snapshots kept per device"
+                <Select
+                  ariaLabel="Snapshots kept per device"
                   className="compact-select"
-                  value={sync.preferences.snapshotKeepPerDevice}
-                  onChange={(event) =>
+                  testId="snapshot-keep"
+                  value={String(sync.preferences.snapshotKeepPerDevice)}
+                  options={SNAPSHOT_KEEP_OPTIONS.map((value) => ({
+                    value: String(value),
+                    label: String(value),
+                  }))}
+                  onChange={(value) =>
                     sync.updatePreferences({
                       snapshotKeepPerDevice: Number(
-                        event.target.value,
+                        value,
                       ) as SnapshotKeepPerDevice,
                     })
                   }
-                >
-                  {SNAPSHOT_KEEP_OPTIONS.map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div className="sync-field-row">
@@ -817,24 +829,23 @@ export function DriveBackupDialog({
                     Age is measured from the snapshot's last update.
                   </span>
                 </div>
-                <select
-                  aria-label="Snapshot maximum age"
+                <Select
+                  ariaLabel="Snapshot maximum age"
                   className="compact-select"
-                  value={sync.preferences.snapshotMaxAgeDays}
-                  onChange={(event) =>
+                  testId="snapshot-age"
+                  value={String(sync.preferences.snapshotMaxAgeDays)}
+                  options={SNAPSHOT_MAX_AGE_OPTIONS.map((value) => ({
+                    value: String(value),
+                    label: `${value} days`,
+                  }))}
+                  onChange={(value) =>
                     sync.updatePreferences({
                       snapshotMaxAgeDays: Number(
-                        event.target.value,
+                        value,
                       ) as SnapshotMaxAgeDays,
                     })
                   }
-                >
-                  {SNAPSHOT_MAX_AGE_OPTIONS.map((value) => (
-                    <option key={value} value={value}>
-                      {value} days
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               {!drive.connected ? (

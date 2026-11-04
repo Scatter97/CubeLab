@@ -8,7 +8,7 @@ import {
 import { createPortal } from 'react-dom'
 import { applyCubeFaceColors, type PuzzleGeometryColors } from '../lib/cubeColors'
 import { cubeNetForScramble } from '../lib/cubeNet'
-import { getEventDefinition } from '../lib/events'
+import { getEventDefinition, getEventLabel, isCustomEventId } from '../lib/events'
 import {
   TOOL_PANEL_MIN_HEIGHT,
   TOOL_PANEL_MIN_WIDTH,
@@ -346,7 +346,8 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
   const definition = getEventDefinition(event)
   const size = definition?.cubeSize ?? null
   const puzzle = definition?.puzzleId ?? '3x3x3'
-  const label = definition?.label ?? event
+  const label = getEventLabel(event)
+  const customEvent = isCustomEventId(event)
   const net = (() => (scramble && size ? cubeNetForScramble(scramble, size) : null))()
 
   return (
@@ -360,7 +361,15 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
       </div>
       <div className="scramble-draw-stage" style={{ position: 'relative' }}>
         {activeTool === 'drawScramble' ? (
-          !scramble ? <p className="scramble-draw-status">Preparing scramble…</p>
+          customEvent ? (
+            <p
+              className="scramble-draw-status"
+              role="status"
+              data-testid="draw-scramble-unavailable"
+            >
+              Scramble visualization is not available for the custom event {label}.
+            </p>
+          ) : !scramble ? <p className="scramble-draw-status">Preparing scramble…</p>
           : mode === 'net' ? (
             size === null ? (
               <p

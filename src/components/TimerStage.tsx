@@ -79,7 +79,7 @@ function getInspectionDisplay(
     return {
       value: String(elapsedSeconds),
       tone: elapsed >= 12_000 ? 'warning' : 'safe',
-      caption: 'Hold to arm, release to start',
+      caption: '',
     }
   }
 
@@ -87,7 +87,7 @@ function getInspectionDisplay(
   return {
     value: String(Math.max(0, remaining)),
     tone: remaining <= 3 ? 'warning' : 'safe',
-    caption: 'Hold to arm, release to start',
+    caption: '',
   }
 }
 
@@ -145,21 +145,21 @@ export function TimerStage({
 
   if (isRunning) {
     mainValue = formatTime(elapsedMs ?? 0)
-    caption = 'Inspection +2 applied'
     if (state.inspectionStartedAt !== null) {
       const penalty = penaltyForInspection(state.startedAt - state.inspectionStartedAt)
       if (penalty === '+2') {
         suffix = '+2'
         toneClass = 'is-penalty'
+        caption = 'Inspection +2 applied'
       } else if (penalty === 'dnf') {
         suffix = 'DNF'
         toneClass = 'is-dnf'
         caption = 'Inspection DNF — finish or stop to record'
       } else {
-        caption = 'Press Space or tap to stop'
+        caption = ''
       }
     } else {
-      caption = 'Press Space or tap to stop'
+      caption = ''
     }
   } else if (inspection) {
     mainValue = inspection.value
@@ -182,32 +182,7 @@ export function TimerStage({
 
   if (disabled) caption = 'Timer unavailable'
 
-  const hint = (() => {
-    if (disabled) return disabledHint
-    switch (state.status) {
-      case 'idle':
-        return inspectionEnabled ? (
-          <>
-            <kbd>Space</kbd> to start inspection
-          </>
-        ) : (
-          <>
-            <kbd>Space</kbd> hold to arm · release to start
-          </>
-        )
-      case 'inspection':
-        return state.status === 'inspection' &&
-          (inspectionElapsedMs ?? 0) > INSPECTION_DNF_MS
-          ? 'Start now to record a DNF · Esc to reset'
-          : <><kbd>Space</kbd> hold to arm · <kbd>Esc</kbd> reset</>
-      case 'holding':
-        return 'Keep holding until the timer arms'
-      case 'ready':
-        return 'Release to start'
-      case 'running':
-        return 'Press Space or tap the timer to stop'
-    }
-  })()
+  const hint = ''
 
   const meterPercent = Math.min(
     100,
@@ -369,9 +344,6 @@ export function TimerStage({
 
         <span className="stage-bottom" aria-hidden="true">
           <span className="timer-hint">{hint}</span>
-          <span className="stage-key-hint" aria-hidden="true">
-            <kbd>SPACE</kbd>
-          </span>
         </span>
       </button>
 

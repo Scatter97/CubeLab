@@ -813,22 +813,16 @@ export const SolveHistory = memo(function SolveHistory({
   return (
     <section className="panel history-panel" aria-labelledby="history-title">
       <div className="panel-heading history-heading">
-        <div>
-          <span className="eyebrow">
-            <span className="eyebrow-index">04</span>
-            History
+        <h2 id="history-title">
+          Solves
+          <span
+            className="heading-count"
+            aria-live="polite"
+            data-testid="solve-count"
+          >
+            {solves.length}
           </span>
-          <h2 id="history-title">
-            Solves
-            <span
-              className="heading-count"
-              aria-live="polite"
-              data-testid="solve-count"
-            >
-              {solves.length}
-            </span>
-          </h2>
-        </div>
+        </h2>
         {solves.length > VIRTUALIZE_THRESHOLD ? (
           <button
             type="button"
@@ -861,9 +855,6 @@ export const SolveHistory = memo(function SolveHistory({
               <CubeMark size={44} />
             </span>
             <p>No solves yet.</p>
-            <span>
-              Hold <kbd>Space</kbd>, release to start, then press again to stop.
-            </span>
           </div>
         ) : (
           <>

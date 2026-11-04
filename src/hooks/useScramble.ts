@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { generateScramble } from '../lib/scramble'
+import {
+  DEFAULT_CUSTOM_EVENT_PLACEHOLDER,
+  getCustomEventDefinition,
+  isCustomEventId,
+} from '../lib/events'
 
 type Slots = [string | null, string | null]
 
@@ -27,19 +32,35 @@ export function useScramble(event: import('../types').PuzzleEvent = '333'): Scra
   const [error, setError] = useState<string | null>(null)
   const [fillVersion, setFillVersion] = useState(0)
   const eventRef = useRef(event)
+  const customEvent = getCustomEventDefinition(event)
+  const placeholder = isCustomEventId(event)
+    ? customEvent?.placeholder.trim() || DEFAULT_CUSTOM_EVENT_PLACEHOLDER
+    : null
 
   const commitSlots = useCallback((next: Slots) => {
     slotsRef.current = next
     setSlots(next)
   }, [])
 
-  // oxlint-disable-next-line react(set-state-in-effect)
+  // oxlint-disable-next-line react/set-state-in-effect
   useEffect(() => {
     let cancelled = false
     if (eventRef.current !== event) {
       eventRef.current = event
       slotsRef.current = EMPTY_SLOTS
       commitSlots(EMPTY_SLOTS)
+    }
+
+    if (placeholder !== null) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setError(null)
+      // oxlint-disable-next-line react/set-state-in-effect
+      setIsGenerating(false)
+      // oxlint-disable-next-line react/set-state-in-effect
+      commitSlots([placeholder, placeholder])
+      return () => {
+        cancelled = true
+      }
     }
 
     async function fillQueue() {
@@ -71,7 +92,7 @@ export function useScramble(event: import('../types').PuzzleEvent = '333'): Scra
     return () => {
       cancelled = true
     }
-  }, [commitSlots, event, fillVersion])
+  }, [commitSlots, event, fillVersion, placeholder])
 
   const advance = useCallback(() => {
     const next: Slots = [slotsRef.current[1], null]

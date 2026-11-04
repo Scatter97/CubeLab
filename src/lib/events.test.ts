@@ -1,5 +1,20 @@
-import { describe, expect, it } from 'vitest'
-import { CUBELAB_EVENTS, getEventDefinition, isPuzzleEventValue } from './events'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  CUBELAB_EVENTS,
+  formatEventOptionLabel,
+  getEventDefinition,
+  getEventLabel,
+  getEventOptions,
+  isCustomEvent,
+  isPuzzleEventValue,
+  isStoredEventValue,
+  resetCustomEventDefinitionsForTests,
+  setCustomEventDefinitions,
+} from './events'
+
+afterEach(() => {
+  resetCustomEventDefinitionsForTests()
+})
 
 describe('event registry', () => {
   it('keeps the seven original cube events and adds the five remaining WCA puzzles', () => {
@@ -88,5 +103,37 @@ describe('event registry', () => {
     expect(isPuzzleEventValue('333fm')).toBe(false)
     expect(isPuzzleEventValue(333)).toBe(false)
     expect(getEventDefinition('unknown')).toBeUndefined()
+  })
+
+  it('resolves custom event labels and marks them in selector options', () => {
+    setCustomEventDefinitions([
+      {
+        id: 'custom:fto',
+        name: 'FTO',
+        placeholder: 'No scramble',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'custom:other',
+        name: 'Other',
+        placeholder: '',
+        createdAt: 2,
+        updatedAt: 2,
+      },
+    ])
+    expect(getEventLabel('custom:fto')).toBe('FTO')
+    expect(getEventLabel('custom:missing')).toBe('custom:missing')
+    expect(isCustomEvent('custom:fto')).toBe(true)
+    expect(isCustomEvent('custom:missing')).toBe(false)
+    expect(isStoredEventValue('custom:fto')).toBe(true)
+    expect(isStoredEventValue('333bf')).toBe(true)
+    expect(isStoredEventValue('not valid')).toBe(true)
+    expect(isStoredEventValue('')).toBe(false)
+    expect(isStoredEventValue(undefined)).toBe(false)
+    expect(getEventOptions().slice(-2).map(formatEventOptionLabel)).toEqual([
+      'FTO (custom)',
+      'Other (custom)',
+    ])
   })
 })

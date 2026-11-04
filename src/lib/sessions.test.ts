@@ -4,15 +4,24 @@ import {
   DEFAULT_SESSION_NAME,
   addSolve,
   clearActiveSolves,
+  clearAllSolves,
   countSolves,
+  appendSessionsInOrder,
+  deleteAllSessions,
+  getOrderedSessions,
+  getSessionSummary,
+  moveSession,
+  resolveSessionOrdering,
   createSession,
   deleteSession,
   getActiveSession,
+  getSessionDisplayNames,
   getSessionNameError,
   nextSessionName,
   normalizeSessionName,
   removeSolve,
   renameSession,
+  resolveUniqueSessionNames,
   restoreSolve,
   reconcileExternalSessions,
   setActiveSession,
@@ -21,8 +30,10 @@ import {
   setSessionPreferences,
   setSolveComment,
   setSolvePenalty,
+  MAX_SESSION_NAME_LENGTH,
   MAX_SOLVE_COMMENT_LENGTH,
 } from './sessions'
+import { reassignSessionsEvent } from './customEvents'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
   return {
@@ -81,6 +92,58 @@ describe('session names', () => {
         session({ id: 'b', name: 'Session 3' }),
       ]),
     ).toBe('Session 2')
+  })
+})
+
+describe('unique session names', () => {
+  it('numbers duplicates in source order without changing the first name', () => {
+    expect(
+      resolveUniqueSessionNames(['Practice', 'practice', 'PRACTICE']),
+    ).toEqual(['Practice', 'practice(1)', 'PRACTICE(2)'])
+  })
+
+  it('avoids every existing name and already-numbered name case-insensitively', () => {
+    expect(
+      resolveUniqueSessionNames(
+        ['Practice', 'Practice(1)', 'Practice'],
+        ['practice', 'Practice(1)'],
+      ),
+    ).toEqual(['Practice(2)', 'Practice(3)', 'Practice(4)'])
+  })
+
+  it('keeps a later numbered original instead of generating its name first', () => {
+    expect(
+      resolveUniqueSessionNames(['Practice', 'Practice(1)'], ['practice']),
+    ).toEqual(['Practice(2)', 'Practice(1)'])
+  })
+
+  it('respects the stored name-length limit when numbering', () => {
+    const base = 'x'.repeat(MAX_SESSION_NAME_LENGTH)
+    expect(resolveUniqueSessionNames([base, base])).toEqual([
+      base,
+      `${'x'.repeat(MAX_SESSION_NAME_LENGTH - 3)}(1)`,
+    ])
+  })
+
+  it('labels existing duplicates without rewriting their stored names', () => {
+    const sessions = [
+      session({ id: 'a', name: 'Morning' }),
+      session({ id: 'b', name: 'morning' }),
+      session({ id: 'c', name: 'Morning(1)' }),
+      session({ id: 'd', name: 'Evening' }),
+    ]
+    expect(getSessionDisplayNames(sessions)).toEqual([
+      'Morning',
+      'morning(2)',
+      'Morning(1)',
+      'Evening',
+    ])
+    expect(sessions.map((item) => item.name)).toEqual([
+      'Morning',
+      'morning',
+      'Morning(1)',
+      'Evening',
+    ])
   })
 })
 
@@ -418,6 +481,72 @@ describe('solve mutations', () => {
   })
 })
 
+describe('developer reset', () => {
+  it('clears every solve while preserving sessions, preferences and custom events', () => {
+    const customEvent = {
+      id: 'custom:fto',
+      name: 'FTO',
+      placeholder: 'No scramble',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const current: SessionsData = {
+      activeSessionId: 'session-2',
+      customEvents: [customEvent],
+      sessions: [
+        session({
+          id: 'session-1',
+          name: 'Morning',
+          event: '333',
+          inspectionEnabled: true,
+          preferences: { timerUpdateMode: 'tenths' },
+          solves: [solve({ id: 'a' }), solve({ id: 'b' })],
+        }),
+        session({
+          id: 'session-2',
+          name: 'FTO practice',
+          event: customEvent.id,
+          preferences: { holdDurationMs: 500 },
+          solves: [solve({ id: 'c', event: customEvent.id, scramble: '' })],
+        }),
+        session({ id: 'session-3', name: 'Empty', event: '222', solves: [] }),
+      ],
+    }
+
+    const result = clearAllSolves(current, 9_999)
+    expect(result.removed.map((entry) => entry.solve.id)).toEqual(['a', 'b', 'c'])
+    expect(result.data.activeSessionId).toBe('session-2')
+    expect(result.data.customEvents).toEqual([customEvent])
+    expect(result.data.sessions.map((entry) => entry.solves)).toEqual([[], [], []])
+    expect(result.data.sessions[0]).toMatchObject({
+      id: 'session-1',
+      name: 'Morning',
+      event: '333',
+      inspectionEnabled: true,
+      preferences: { timerUpdateMode: 'tenths' },
+      updatedAt: 9_999,
+    })
+    expect(result.data.sessions[1]).toMatchObject({
+      id: 'session-2',
+      name: 'FTO practice',
+      event: customEvent.id,
+      preferences: { holdDurationMs: 500 },
+      updatedAt: 9_999,
+    })
+    expect(result.data.sessions[2]).toMatchObject({
+      id: 'session-3',
+      name: 'Empty',
+      event: '222',
+      updatedAt: 1_700_000_000_000,
+    })
+  })
+
+  it('leaves an already empty collection unchanged', () => {
+    const current = data({ sessions: [session(), session({ id: 'session-2', name: 'Empty' })] })
+    expect(clearAllSolves(current, 5)).toEqual({ data: current, removed: [] })
+  })
+})
+
 describe('session synchronization metadata', () => {
   it('stamps renamed, inspected, event, and preference fields independently', () => {
     const renamed = renameSession(data(), 'session-1', 'Practice', 10, 'laptop')!
@@ -592,5 +721,226 @@ describe('deferred external session reconciliation', () => {
     })
 
     expect(reconciled).toBe(external)
+  })
+})
+
+describe('session ordering', () => {
+  const three = () =>
+    data({
+      activeSessionId: 'b',
+      sessions: [
+        session({ id: 'a', name: 'A', createdAt: 1 }),
+        session({
+          id: 'b',
+          name: 'B',
+          createdAt: 2,
+          solves: [solve({ id: 'solve-b', event: '333' })],
+        }),
+        session({ id: 'c', name: 'C', createdAt: 3 }),
+      ],
+    })
+
+  it('moves sessions, keeps the active selection and solve data intact', () => {
+    const moved = moveSession(three(), 'c', -1, 50, 'laptop')
+    expect(moved.sessions.map((entry) => entry.id)).toEqual(['a', 'c', 'b'])
+    expect(moved.activeSessionId).toBe('b')
+    expect(moved.sessions.find((entry) => entry.id === 'b')?.solves).toHaveLength(1)
+    expect(moved.sessionOrder).toEqual({
+      ids: ['a', 'c', 'b'],
+      updatedAt: 50,
+      editorId: 'laptop',
+    })
+    expect(moveSession(moved, 'a', -1, 60)).toBe(moved)
+  })
+
+  it('preserves stored array order before the first explicit reorder', () => {
+    const legacy = data({
+      sessions: [
+        session({ id: 'later-created', name: 'Import rank 1', createdAt: 99 }),
+        session({ id: 'earlier-created', name: 'Import rank 2', createdAt: 1 }),
+      ],
+    })
+    expect(getOrderedSessions(legacy).map((entry) => entry.id)).toEqual([
+      'later-created',
+      'earlier-created',
+    ])
+  })
+
+  it('appends sessions that are missing from ordering metadata', () => {
+    const ordered = getOrderedSessions(
+      data({
+        sessionOrder: { ids: ['c'], updatedAt: 1, editorId: 'x' },
+        sessions: [
+          session({ id: 'a', name: 'A', createdAt: 1 }),
+          session({ id: 'b', name: 'B', createdAt: 2 }),
+          session({ id: 'c', name: 'C', createdAt: 3 }),
+        ],
+      }),
+    )
+    expect(ordered.map((entry) => entry.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('converges concurrent reorders and additions without losing sessions', () => {
+    const sessions = three().sessions
+    const local = { ids: ['b', 'a', 'c'], updatedAt: 10, editorId: 'a' }
+    const remote = { ids: ['c', 'b'], updatedAt: 20, editorId: 'b' }
+    const resolved = resolveSessionOrdering(local, remote, sessions)
+    expect(resolved?.ids).toEqual(['c', 'b', 'a'])
+    expect(resolveSessionOrdering(local, remote, sessions)).toEqual(resolved)
+
+    const tieA = resolveSessionOrdering(
+      { ids: ['a', 'b', 'c'], updatedAt: 10, editorId: 'a' },
+      { ids: ['c', 'b', 'a'], updatedAt: 10, editorId: 'b' },
+      sessions,
+    )
+    const tieB = resolveSessionOrdering(
+      { ids: ['c', 'b', 'a'], updatedAt: 10, editorId: 'b' },
+      { ids: ['a', 'b', 'c'], updatedAt: 10, editorId: 'a' },
+      sessions,
+    )
+    expect(tieA).toEqual(tieB)
+    expect(tieA?.ids).toHaveLength(3)
+  })
+
+  it('retains imported tail order in the ordering record', () => {
+    const current = three()
+    const imported = [
+      session({ id: 'imp-1', name: 'Import 1', createdAt: 4 }),
+      session({ id: 'imp-2', name: 'Import 2', createdAt: 5 }),
+    ]
+    const next = appendSessionsInOrder(current, imported, 70, 'import')
+    expect(next.sessionOrder?.ids).toEqual(['a', 'b', 'c', 'imp-1', 'imp-2'])
+  })
+})
+
+describe('session event reassignment with solves', () => {
+  it('updates the session and every solve without changing values', () => {
+    const originalSolve = solve({
+      id: 'solve-x',
+      rawMs: 12_345,
+      penalty: '+2',
+      scramble: 'Original scramble',
+      comment: 'keep me',
+      createdAt: 123,
+      importSource: {
+        provider: 'cstimer',
+        scrType: '333',
+        sessionNumber: 1,
+        solveIndex: 2,
+      },
+    })
+    const reassigned = reassignSessionsEvent(
+      data({ sessions: [session({ solves: [originalSolve] })] }),
+      ['session-1'],
+      '222',
+      99,
+      'laptop',
+    )
+    expect(reassigned?.sessions[0]?.event).toBe('222')
+    expect(reassigned?.sessions[0]?.fieldUpdates?.event).toEqual({
+      updatedAt: 99,
+      editorId: 'laptop',
+    })
+    const nextSolve = reassigned?.sessions[0]?.solves[0]
+    expect(nextSolve).toMatchObject({
+      id: 'solve-x',
+      event: '222',
+      rawMs: 12_345,
+      penalty: '+2',
+      scramble: 'Original scramble',
+      comment: 'keep me',
+      createdAt: 123,
+      importSource: originalSolve.importSource,
+    })
+    expect(nextSolve?.fieldUpdates?.event).toEqual({
+      updatedAt: 99,
+      editorId: 'laptop',
+    })
+  })
+})
+
+describe('delete all sessions', () => {
+  it('creates exactly one empty default session and preserves custom events', () => {
+    const customEvents = [
+      {
+        id: 'custom:fto',
+        name: 'FTO',
+        placeholder: '',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]
+    const next = deleteAllSessions(
+      data({
+        sessions: [
+          session({ id: 'a', name: 'Session 1', solves: [solve()] }),
+          session({ id: 'b', name: 'Morning', solves: [solve({ id: 's2' })] }),
+        ],
+        customEvents,
+      }),
+      500,
+      'laptop',
+    )
+    expect(next.sessions).toHaveLength(1)
+    expect(next.sessions[0]).toMatchObject({
+      name: DEFAULT_SESSION_NAME,
+      event: '333',
+      solves: [],
+      isAutoCreatedDefault: true,
+      createdAt: 500,
+      updatedAt: 500,
+    })
+    expect(next.activeSessionId).toBe(next.sessions[0]?.id)
+    expect(next.customEvents).toEqual(customEvents)
+    expect(next.sessionOrder).toEqual({
+      ids: [next.sessions[0]?.id],
+      updatedAt: 500,
+      editorId: 'laptop',
+    })
+    expect(countSolves(next.sessions)).toBe(0)
+  })
+
+  it('creates the default session from an empty collection too', () => {
+    const next = deleteAllSessions(
+      { activeSessionId: '', sessions: [] },
+      600,
+      'laptop',
+    )
+    expect(next.sessions).toHaveLength(1)
+    expect(next.sessions[0]?.name).toBe(DEFAULT_SESSION_NAME)
+    expect(next.activeSessionId).toBe(next.sessions[0]?.id)
+  })
+})
+
+describe('session summary', () => {
+  it('matches csTimer completed/total and sum semantics', () => {
+    const summary = getSessionSummary([
+      solve({ id: 'a', rawMs: 10_000, penalty: 'none' }),
+      solve({ id: 'b', rawMs: 11_000, penalty: '+2' }),
+      solve({ id: 'c', rawMs: 12_000, penalty: 'dnf' }),
+    ])
+    expect(summary).toEqual({
+      completed: 2,
+      total: 3,
+      totalTimeMs: 23_000,
+    })
+    expect(getSessionSummary([])).toEqual({
+      completed: 0,
+      total: 0,
+      totalTimeMs: 0,
+    })
+  })
+
+  it('uses the shared recorded-result precision for the sum', () => {
+    expect(
+      getSessionSummary([
+        solve({ id: 'a', rawMs: 12_345, penalty: 'none' }),
+        solve({ id: 'b', rawMs: 12_345, penalty: '+2' }),
+      ]),
+    ).toEqual({
+      completed: 2,
+      total: 2,
+      totalTimeMs: 12_340 + 14_340,
+    })
   })
 })

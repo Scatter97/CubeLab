@@ -1,15 +1,17 @@
 import type {
   AccentColor,
   AlertChannel,
+  CsTimerSolveSource,
+  CustomEventDefinition,
   CustomAverageSetting,
   FieldUpdate,
   InspectionCountDirection,
   Penalty,
   ScrambleAction,
-  PuzzleEvent,
   ScrambleAlignment,
   Session,
   SessionFieldUpdates,
+  SessionOrdering,
   SessionPreferences,
   SessionPreferenceKey,
   SessionsData,
@@ -26,11 +28,13 @@ import {
   parseAnalyticsSettings,
 } from './analyticsSettings'
 import { createId } from './id'
-import { isPuzzleEventValue } from './events'
+import { isStoredEventValue } from './events'
+import { parseCustomEvents } from './customEvents'
 import {
   DEFAULT_SESSION_NAME,
   MAX_SOLVE_COMMENT_LENGTH,
   normalizeSessionName,
+  sortSessionsByOrder,
 } from './sessions'
 import {
   BUILT_IN_STAT_DEFINITIONS,
@@ -43,8 +47,8 @@ export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
 export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
-export const SESSIONS_VERSION = 4
-export const SETTINGS_STORAGE_VERSION = 9
+export const SESSIONS_VERSION = 5
+export const SETTINGS_STORAGE_VERSION = 10
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -82,6 +86,8 @@ export const DEFAULT_SETTINGS: Settings = {
   statPrecision: 'centiseconds',
   averageTrimBetter: DEFAULT_AVERAGE_TRIMMING.better,
   averageTrimWorse: DEFAULT_AVERAGE_TRIMMING.worse,
+  showSessionSolveProgress: false,
+  showSessionTotalTime: false,
   analytics: createDefaultAnalyticsSettings(),
 }
 
@@ -105,6 +111,8 @@ interface StoredSessions {
   version: number
   activeSessionId: string
   sessions: Session[]
+  customEvents?: CustomEventDefinition[]
+  sessionOrder?: SessionOrdering
 }
 
 interface StoredSettings {
@@ -137,10 +145,43 @@ function parseFieldUpdate(value: unknown): FieldUpdate | null {
   return { updatedAt: value.updatedAt, editorId: value.editorId }
 }
 
+function parseImportSource(value: unknown): CsTimerSolveSource | undefined {
+  if (!isRecord(value) || value.provider !== 'cstimer') return undefined
+  if (typeof value.scrType !== 'string' || value.scrType.length > 200) return undefined
+  if (
+    typeof value.sessionNumber !== 'number' ||
+    !Number.isFinite(value.sessionNumber) ||
+    value.sessionNumber < 0
+  ) {
+    return undefined
+  }
+  if (
+    typeof value.solveIndex !== 'number' ||
+    !Number.isFinite(value.solveIndex) ||
+    value.solveIndex < 0
+  ) {
+    return undefined
+  }
+  const scrTypeSource =
+    value.scrTypeSource === 'explicit' ||
+    value.scrTypeSource === 'default' ||
+    value.scrTypeSource === 'unavailable'
+      ? value.scrTypeSource
+      : undefined
+  return {
+    provider: 'cstimer',
+    scrType: value.scrType,
+    ...(scrTypeSource ? { scrTypeSource } : {}),
+    sessionNumber: value.sessionNumber,
+    solveIndex: value.solveIndex,
+  }
+}
+
 function parseSolve(value: unknown): Solve | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
-  if (!isPuzzleEventValue(value.event)) return null
+  const rawEvent = value.event === undefined ? '333' : value.event
+  if (!isStoredEventValue(rawEvent)) return null
   if (
     typeof value.rawMs !== 'number' ||
     !Number.isFinite(value.rawMs) ||
@@ -149,14 +190,14 @@ function parseSolve(value: unknown): Solve | null {
     return null
   }
   if (!isPenalty(value.penalty)) return null
-  if (typeof value.scramble !== 'string' || value.scramble.length === 0) {
+  if (typeof value.scramble !== 'string') {
     return null
   }
   if (!isPositiveTimestamp(value.createdAt)) return null
 
   return {
     id: value.id,
-    event: value.event as PuzzleEvent,
+    event: rawEvent,
     rawMs: value.rawMs,
     penalty: value.penalty,
     scramble: value.scramble,
@@ -184,8 +225,14 @@ function parseSolve(value: unknown): Solve | null {
             ...(parseFieldUpdate(value.fieldUpdates.comment)
               ? { comment: parseFieldUpdate(value.fieldUpdates.comment)! }
               : {}),
+            ...(parseFieldUpdate(value.fieldUpdates.event)
+              ? { event: parseFieldUpdate(value.fieldUpdates.event)! }
+              : {}),
           },
         }
+      : {}),
+    ...(parseImportSource(value.importSource)
+      ? { importSource: parseImportSource(value.importSource) }
       : {}),
   }
 }
@@ -252,7 +299,12 @@ function parseSession(value: unknown): Session | null {
   return {
     id: value.id,
     name,
-    event: isPuzzleEventValue(value.event) ? value.event : '333',
+    event:
+      value.event === undefined
+        ? '333'
+        : isStoredEventValue(value.event)
+          ? value.event
+          : '333',
     ...(value.isAutoCreatedDefault === true ? { isAutoCreatedDefault: true } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -292,7 +344,12 @@ export function findSessionEventMismatches(value: unknown): string[] {
     const normalizedName =
       typeof candidate.name === 'string' ? normalizeSessionName(candidate.name) : ''
     const name = normalizedName || `Session ${sessionIndex + 1}`
-    const event = isPuzzleEventValue(candidate.event) ? candidate.event : '333'
+    const event =
+      candidate.event === undefined
+        ? '333'
+        : isStoredEventValue(candidate.event)
+          ? candidate.event
+          : '333'
     if (!Array.isArray(candidate.solves)) continue
     for (const rawSolve of candidate.solves) {
       const solve = parseSolve(rawSolve)
@@ -304,6 +361,29 @@ export function findSessionEventMismatches(value: unknown): string[] {
     }
   }
   return errors
+}
+
+function parseSessionOrdering(value: unknown): SessionOrdering | undefined {
+  if (!isRecord(value)) return undefined
+  if (!Array.isArray(value.ids)) return undefined
+  if (
+    typeof value.updatedAt !== 'number' ||
+    !Number.isFinite(value.updatedAt) ||
+    value.updatedAt < 0
+  ) {
+    return undefined
+  }
+  if (typeof value.editorId !== 'string' || value.editorId.length === 0) {
+    return undefined
+  }
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const id of value.ids) {
+    if (typeof id !== 'string' || id.length === 0 || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return { ids, updatedAt: value.updatedAt, editorId: value.editorId }
 }
 
 /**
@@ -334,7 +414,22 @@ export function parseSessionsData(value: unknown): SessionsData | null {
       : sessions[0]?.id
 
   if (!activeSessionId) return null
-  return { activeSessionId, sessions }
+  const customEvents = Array.isArray(value.customEvents)
+    ? parseCustomEvents(value.customEvents)
+    : undefined
+  const parsedOrder = parseSessionOrdering(value.sessionOrder)
+  const sessionOrder = parsedOrder
+    ? {
+        ...parsedOrder,
+        ids: parsedOrder.ids.filter((id) => seen.has(id)),
+      }
+    : undefined
+  return {
+    activeSessionId,
+    sessions: sessionOrder ? sortSessionsByOrder(sessions, sessionOrder) : sessions,
+    ...(customEvents ? { customEvents } : {}),
+    ...(sessionOrder ? { sessionOrder } : {}),
+  }
 }
 
 function isValidTimerUpdateMode(value: unknown): value is TimerUpdateMode {
@@ -513,6 +608,14 @@ export function parseSettingsData(value: unknown): Settings | null {
       : DEFAULT_SETTINGS.theme,
     averageTrimBetter: isAverageTrimRule(value.averageTrimBetter) ? value.averageTrimBetter : DEFAULT_SETTINGS.averageTrimBetter,
     averageTrimWorse: value.averageTrimWorse === 'auto' || isAverageTrimRule(value.averageTrimWorse) ? value.averageTrimWorse : DEFAULT_SETTINGS.averageTrimWorse,
+    showSessionSolveProgress:
+      typeof value.showSessionSolveProgress === 'boolean'
+        ? value.showSessionSolveProgress
+        : DEFAULT_SETTINGS.showSessionSolveProgress,
+    showSessionTotalTime:
+      typeof value.showSessionTotalTime === 'boolean'
+        ? value.showSessionTotalTime
+        : DEFAULT_SETTINGS.showSessionTotalTime,
     statVisibility: parseStatVisibility(value.statVisibility),
     customAverages: parseCustomAverages(value.customAverages),
     statPrecision: isValidStatPrecision(value.statPrecision)
@@ -582,10 +685,9 @@ export function loadSessions(storage = getDefaultStorage()): SessionsData {
       const parsed: unknown = JSON.parse(raw)
       if (
         isRecord(parsed) &&
-        (parsed.version === 1 ||
-          parsed.version === 2 ||
-          parsed.version === 3 ||
-          parsed.version === SESSIONS_VERSION)
+        typeof parsed.version === 'number' &&
+        parsed.version >= 1 &&
+        parsed.version <= SESSIONS_VERSION
       ) {
         const data = parseSessionsData(parsed)
         if (data) return data
@@ -610,6 +712,8 @@ export function saveSessions(
     version: SESSIONS_VERSION,
     activeSessionId: data.activeSessionId,
     sessions: [...data.sessions],
+    ...(data.customEvents ? { customEvents: data.customEvents } : {}),
+    ...(data.sessionOrder ? { sessionOrder: data.sessionOrder } : {}),
   }
 
   try {

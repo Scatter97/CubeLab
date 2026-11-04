@@ -408,3 +408,31 @@ it('requires conflict review for differing edits to the same trimming side', () 
   })
   expect(result.conflicts).toContainEqual(expect.objectContaining({ field: 'averageTrimBetter', resolution: 'manual-pending', localValue: '1', remoteValue: 'p10' }))
 })
+
+it('merges the optional session summary settings independently', () => {
+  const result = mergeSettingsData({
+    local: settings({ showSessionSolveProgress: true, showSessionTotalTime: false }),
+    remote: settings({ showSessionSolveProgress: false, showSessionTotalTime: true }),
+    localFieldUpdates: {
+      showSessionSolveProgress: { updatedAt: 300, editorId: 'laptop' },
+      showSessionTotalTime: { updatedAt: 100, editorId: 'laptop' },
+    },
+    remoteFieldUpdates: {
+      showSessionSolveProgress: { updatedAt: 100, editorId: 'phone' },
+      showSessionTotalTime: { updatedAt: 400, editorId: 'phone' },
+    },
+    remoteUpdatedAt: 400,
+    lastSyncAt: 1,
+    manualConflictReview: false,
+  })
+  expect(result.settings).toMatchObject({
+    showSessionSolveProgress: true,
+    showSessionTotalTime: true,
+  })
+  expect(result.fieldUpdates).toMatchObject({
+    showSessionSolveProgress: { updatedAt: 300, editorId: 'laptop' },
+    showSessionTotalTime: { updatedAt: 400, editorId: 'phone' },
+  })
+  expect(SETTINGS_FIELD_KEYS).toContain('showSessionSolveProgress')
+  expect(SETTINGS_FIELD_KEYS).toContain('showSessionTotalTime')
+})

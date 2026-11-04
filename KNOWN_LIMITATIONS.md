@@ -1,6 +1,6 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-03 against the implementation and the latest recorded
+**Reviewed:** 2026-11-04 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
@@ -15,20 +15,44 @@ These are current boundaries; dated repair details are in the
   synthetic solves, sync/audio off and isolated Firefox/Chromium. Actual Zen,
   enabled sync, 10,000 solves and physical display latency were not established.
   Chart/statistics completion can lag the first stopped result.
+- **Session total time is a rounded hour display.** Completed sessions show
+  hours to two decimals in the timer footer; a short session can therefore read
+  `0.00 h` even when it contains valid solves. The underlying millisecond sum
+  remains precise and the completed/total count stays exact.
 - **Saving still writes the full collection.** Browser storage serialization and
   writes are synchronous. Enabled sync still calculates full fingerprints;
   statistics/chart data rebuild after changes. Future caching or incremental
   persistence needs exact invalidation and durability/recovery tests.
 - **Analytics runs on the main thread.** The page is lazy loaded, calculation
-  results are memoized, dense chart lines are downsampled and the solve explorer
-  is virtualized. A synthetic 100,000-solve correctness case passes, but no Web
-  Worker offload, physical-device profiling, memory ceiling or 100,000-solve
-  browser workflow has been established. Very large histories can still make the
-  first Analytics calculation block noticeably.
+  results are memoized, dense chart lines are downsampled and the filtered
+  solve-list dialog is virtualized. A synthetic 100,000-solve correctness case
+  passes, but no Web Worker offload, physical-device profiling, memory ceiling or
+  100,000-solve browser workflow has been established. Very large histories can
+  still make the first Analytics calculation block noticeably.
 - **Analytics is read-only and tag-free.** There is no solve-tag schema, so tag
   filters are not offered. Session comparison uses each included session's
   matching history rather than the latest-count limit. Statistical target
   estimates are labeled approximations, not predictions or WCA probabilities.
+  The one-analysis layout ignores the legacy `wide` section preference (it is
+  still stored and synchronized). Retired Solve explorer entries in older saved
+  layouts are ignored; solve drill-down now uses the filterable details dialog.
+  Distribution edge intervals group values beyond the central 98%, so the
+  first/last x-axis ranges can be wider than the selected interval; all values
+  remain counted and drillable. Sub-X presets are offered for built-in events
+  only; custom events keep free-form entry. The Sub-X chart/table split is
+  session-local presentation state and resets to its default on reload. Practice
+  activity shows the complete filtered range and scrolls horizontally when it is
+  very long; it no longer silently limits itself to 52 weeks. Desktop Analytics
+  keeps the page itself fixed and scrolls the overview, analysis navigation or
+  selected analysis internally; at high interface zoom or short viewports users
+  may need to scroll those regions rather than seeing every card or table row at
+  once.
+- **Custom dropdowns replace native menus.** The shared combobox/listbox supports
+  keyboard selection, type-ahead, Escape/outside dismissal, viewport-aware
+  positioning and focus restoration, and menus opened inside dialogs remain in
+  the dialog's focus containment. Browser automation and axe scans do not replace
+  a physical screen-reader, switch-control or touch validation pass. Native date
+  inputs remain platform controls.
 - **Fingerprints have limits.** Render-time pending detection relies on immutable
   React state references; in-place mutations can leave the display stale.
   In-flight guards recompute content fingerprints, but 32-bit FNV-1a is not a
@@ -68,17 +92,55 @@ These are current boundaries; dated repair details are in the
   conservative fallback. Cross-tab adopted settings can lack external timestamps
   if the other tab has not yet published metadata. Selection metadata/review is
   implemented and regression-tested; it does not establish multi-device consensus.
+- **Custom event definitions use the same eventual-merge boundary.** Stable IDs
+  and event tombstones prevent duplicates and keep deletion intent, but an older
+  client that does not understand `custom:` events or event tombstones may still
+  publish without them. Keep every syncing browser on a current build.
+- **Session order is last-writer-wins, not review-gated.** Concurrent reorders
+  converge deterministically and never remove sessions, but the losing order is
+  not surfaced as a manual conflict. Equal-timestamp ties use editor-ID and
+  serialized-ID order, so an unusual mix of both orders can result until a user
+  reorders again. Reordering lives inside the session selector and uses
+  accessible Up/Down controls; there is no drag-and-drop pointer gesture.
+- **Delete all sessions preserves recovery semantics.** Session and solve
+  tombstones prevent every solve known to the deleting device from returning.
+  A solve created only on another offline device and never merged can still
+  arrive later and is recovered into a clearly labelled recovered session, as
+  with the existing solve reset. Google Drive snapshots are not deleted.
+- **A full reset only tombstones solves this device knows about.** A solve created
+  solely on another offline device and never merged can arrive later. The
+  reset-triggered publication skips snapshot cleanup so existing historical
+  snapshots are not pruned by that operation; later routine synchronization still
+  follows the configured retention policy. Keep devices synchronized when a
+  cross-device wipe is required.
 
 ## Import and supported scope
 
 - Native CubeLab JSON imports replace local data after confirmation; csTimer
   imports add sessions and retain existing settings. Neither implements a general
   local-file merge by solve ID. The import cap remains 10 MB.
-- Invalid rows/durations/provided dates in supported csTimer sessions reject the
-  file before preview; unknown-puzzle sessions are skipped with a warning.
-  Missing solve dates retain the established session-date/current-time fallback.
-- Twelve events are implemented. The retained roadmap covers the existing
-  product's layout, performance, storage design and external validation.
+- Invalid rows, durations, or provided dates in csTimer sessions that contain
+  solves reject the file before preview. Valid session metadata that omits
+  `opt.scrType` uses csTimer’s `333` default; explicitly supplied unsupported
+  identifiers become stable custom events, and missing or malformed metadata is
+  imported as unavailable rather than converted to 3×3. Empty sessions are
+  imported, with import time as the fallback when their dates are missing or
+  unusable. Missing solve dates retain the established
+  session-date/current-time fallback.
+- **Legacy csTimer corrections need manual reassignment.** Automatic correction
+  requires retained `importSource` metadata on solves. Imports made before that
+  provenance existed have no stored puzzle type, so CubeLab offers explicit bulk
+  session reassignment rather than inferring a puzzle from duration or scramble
+  text. Reassignment changes the event only and is confirmed before applying;
+  sessions with solves now use the same explicit confirmation from Session
+  settings. Previously imported sessions are not automatically reclassified when
+  csTimer default handling or mappings change; repairs remain a separately
+  reviewed operation. The whole session moves together, so intentionally mixed
+  events are not supported.
+- **Custom events have no scramble generator or 3D/2D visualization.** They show
+  the configured placeholder for new solves. Imported csTimer solves keep their
+  original scramble text. Solve duration is never used to infer an event, and
+  deleting a referenced custom event is blocked until its sessions are reassigned.
 
 ## External validation and build tooling
 

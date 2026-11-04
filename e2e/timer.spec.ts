@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { CUBELAB_EVENTS, type CubeLabEvent } from '../src/lib/events'
 import { isPlausibleScramble } from '../src/lib/scramble'
+import {
+  chooseTestOption,
+  selectSessionByName,
+  sessionNames,
+} from './interactions'
 
 const TIMER = '[data-testid="timer-surface"]'
 
@@ -28,12 +33,16 @@ interface StoredSessions {
 
 async function waitForApp(page: Page) {
   await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', {
-    timeout: 30_000,
-  })
 }
 
 async function holdSpace(page: Page) {
+  // Custom dropdowns keep Space for opening their own menu, so timing helpers
+  // explicitly return focus to the page before using the global timer key.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+  })
   await page.keyboard.down('Space')
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'ready', {
     timeout: 3_000,
@@ -54,22 +63,23 @@ async function recordSolve(page: Page, solveDurationMs = 120) {
 }
 
 /**
- * Waits until the visible scramble is no longer the one captured before an
- * event/session switch and both queue slots are filled again. Without this,
- * the new event's badge can render for a frame while the previous event's
- * scramble is still on screen.
+ * Waits for nonempty scramble text that differs from the text captured before
+ * an event/session switch or solve. The badge can update before the scramble,
+ * and generation can temporarily remove the text node altogether.
  */
 async function waitForFreshEventScramble(page: Page, previous: string) {
   await expect
     .poll(
-      async () =>
-        (await page.locator('.scramble-text').allInnerTexts())[0] ?? '',
+      async () => {
+        const current = (await page.locator('.scramble-text').allInnerTexts())[0]?.trim()
+        // Loading removes the text node. An empty placeholder is not a fresh
+        // scramble; keep the existing generation wait until real text arrives.
+        return Boolean(current && current !== previous)
+      },
       { timeout: 30_000 },
     )
-    .not.toBe(previous)
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', {
-    timeout: 30_000,
-  })
+    .toBe(true)
+
   await expect(page.locator('.scramble-text')).toBeVisible()
 }
 
@@ -89,10 +99,9 @@ async function storedSolves(page: Page): Promise<StoredSolve[]> {
 }
 
 async function selectedSessionName(page: Page): Promise<string> {
-  return page.getByTestId('session-select').evaluate((element) => {
-    const select = element as HTMLSelectElement
-    return select.selectedOptions[0]?.textContent?.trim() ?? ''
-  })
+  return page
+    .getByTestId('session-select')
+    .evaluate((element) => element.textContent?.trim() ?? '')
 }
 
 async function openSettings(page: Page) {
@@ -138,14 +147,14 @@ async function runEventScenario(page: Page, event: CubeLabEvent) {
   if (event.id !== '333') {
     const previousScramble = await page.locator('.scramble-text').innerText()
     const sessionDialog = await openSessionSettings(page)
-    await sessionDialog.locator('select').selectOption(event.id)
+    await chooseTestOption(page, 'session-event-select', event.id)
     await sessionDialog.getByTestId('session-settings-done').click()
     await expect(sessionDialog).toBeHidden()
     await waitForFreshEventScramble(page, previousScramble)
   }
 
   await expect(page.locator('.scramble-badge')).toContainText(
-    `${event.label} · scramble`,
+    `${event.label}`,
   )
   await expect(page.locator('.header-context .context-meta')).toContainText(
     event.label,
@@ -200,7 +209,7 @@ async function runEventScenario(page: Page, event: CubeLabEvent) {
   await waitForApp(page)
   await expect(page.getByTestId('solve-count')).toHaveText('3')
   await expect(page.locator('.scramble-badge')).toContainText(
-    `${event.label} · scramble`,
+    `${event.label}`,
   )
   await expect(
     page.locator('[data-testid="history-row"]').first().locator('.history-time'),
@@ -360,7 +369,7 @@ test('inspection supports count-down, count-up, and independent warnings', async
 
   let settings = await openSettings(page)
   await settings.getByTestId('inspection-setting').click()
-  await settings.getByTestId('inspection-direction').selectOption('down')
+  await chooseTestOption(page, 'inspection-direction', 'down')
   await expect(settings.getByTestId('inspection-warning-8s').locator('..')).toContainText(
     '7 seconds remaining',
   )
@@ -370,7 +379,7 @@ test('inspection supports count-down, count-up, and independent warnings', async
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('inspection-warning-12s').check()
   // Inspection warnings keep their visual pulse regardless of the channel.
-  await settings.getByTestId('alert-channel').selectOption('visual')
+  await chooseTestOption(page, 'alert-channel', 'visual')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -396,7 +405,7 @@ test('inspection supports count-down, count-up, and independent warnings', async
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
 
   settings = await openSettings(page)
-  await settings.getByTestId('inspection-direction').selectOption('up')
+  await chooseTestOption(page, 'inspection-direction', 'up')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -430,7 +439,7 @@ test('inspection warnings stay visible with sound-only alerts', async ({
 
   const settings = await openSettings(page)
   await settings.getByTestId('inspection-setting').click()
-  await settings.getByTestId('alert-channel').selectOption('sound')
+  await chooseTestOption(page, 'alert-channel', 'sound')
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
@@ -542,7 +551,7 @@ test('interface zoom fills the viewport and keeps dialogs usable', async ({
   await waitForApp(page)
 
   const settings = await openSettings(page)
-  await settings.getByTestId('ui-zoom').selectOption('70')
+  await chooseTestOption(page, 'ui-zoom', '70')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -567,7 +576,7 @@ test('interface zoom fills the viewport and keeps dialogs usable', async ({
   )
 
   const zoomedSettings = await openSettings(page)
-  await zoomedSettings.getByTestId('ui-zoom').selectOption('150')
+  await chooseTestOption(page, 'ui-zoom', '150')
   await zoomedSettings.getByTestId('settings-done').click()
   await expect(zoomedSettings).toBeHidden()
 
@@ -627,9 +636,9 @@ test('display and scramble preferences apply and keyboard activation works', asy
 
   const settings = await openSettings(page)
   await settings.locator('#decimal-small').check()
-  await settings.getByTestId('scramble-alignment').selectOption('right')
+  await chooseTestOption(page, 'scramble-alignment', 'right')
   await settings.locator('#scramble-limit-height').check()
-  await settings.getByTestId('scramble-action').selectOption('next')
+  await chooseTestOption(page, 'scramble-action', 'next')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -725,17 +734,17 @@ test('alerts, accent, and controls settings apply and persist', async ({
     settings.getByText('Hold to arm, release to start; press again to stop.'),
   ).toBeVisible()
 
-  await settings.getByTestId('alert-channel').selectOption('visual')
+  await chooseTestOption(page, 'alert-channel', 'visual')
   const volume = settings.getByTestId('alert-volume')
   await expect(volume).toHaveValue('70')
   await volume.press('ArrowRight')
   await volume.press('ArrowRight')
   await volume.press('ArrowRight')
   await expect(volume).toHaveValue('85')
-  await settings.getByTestId('inspection-direction').selectOption('up')
+  await chooseTestOption(page, 'inspection-direction', 'up')
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('inspection-warning-12s').check()
-  await settings.getByTestId('accent-color').selectOption('blue')
+  await chooseTestOption(page, 'accent-color', 'blue')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -753,12 +762,12 @@ test('alerts, accent, and controls settings apply and persist', async ({
   await page.reload()
   await waitForApp(page)
   const reopened = await openSettings(page)
-  await expect(reopened.getByTestId('alert-channel')).toHaveValue('visual')
+  await expect(reopened.getByTestId('alert-channel')).toContainText('Visual only')
   await expect(reopened.getByTestId('alert-volume')).toHaveValue('85')
-  await expect(reopened.getByTestId('inspection-direction')).toHaveValue('up')
+  await expect(reopened.getByTestId('inspection-direction')).toContainText('Count up')
   await expect(reopened.getByTestId('inspection-warning-8s')).toBeChecked()
   await expect(reopened.getByTestId('inspection-warning-12s')).toBeChecked()
-  await expect(reopened.getByTestId('accent-color')).toHaveValue('blue')
+  await expect(reopened.getByTestId('accent-color')).toContainText('Blue')
 })
 
 test('theme setting applies dark palette, follows system, and persists', async ({
@@ -776,8 +785,8 @@ test('theme setting applies dark palette, follows system, and persists', async (
   await expect(themeColor).toHaveAttribute('content', '#ffffff')
 
   const settings = await openSettings(page)
-  await expect(settings.getByTestId('theme-setting')).toHaveValue('light')
-  await settings.getByTestId('theme-setting').selectOption('dark')
+  await expect(settings.getByTestId('theme-setting')).toContainText('Light')
+  await chooseTestOption(page, 'theme-setting', 'dark')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -799,8 +808,8 @@ test('theme setting applies dark palette, follows system, and persists', async (
   await expect(shell).toHaveAttribute('data-theme', 'dark')
 
   const reopened = await openSettings(page)
-  await expect(reopened.getByTestId('theme-setting')).toHaveValue('dark')
-  await reopened.getByTestId('theme-setting').selectOption('system')
+  await expect(reopened.getByTestId('theme-setting')).toContainText('Dark')
+  await chooseTestOption(page, 'theme-setting', 'system')
   await reopened.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
   await expect(html).toHaveAttribute('data-theme', 'light')
@@ -843,7 +852,7 @@ test('DNF feedback uses the danger visual alert', async ({ page }) => {
 
   const settings = await openSettings(page)
   await settings.getByTestId('inspection-setting').click()
-  await settings.getByTestId('alert-channel').selectOption('visual')
+  await chooseTestOption(page, 'alert-channel', 'visual')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -907,7 +916,7 @@ test('expanded and custom statistics are display-only and persist', async ({
   await settings.getByTestId('stat-visible-mo3').uncheck()
   await settings.getByTestId('stat-visible-ao25').check()
   await settings.getByTestId('stat-visible-ao100').check()
-  await settings.getByTestId('stat-precision').selectOption('tenths')
+  await chooseTestOption(page, 'stat-precision', 'tenths')
   await settings.getByTestId('add-custom-average').click()
   const customSize = settings.getByTestId('custom-average-size-0')
   await expect(customSize).toHaveValue('6')
@@ -931,6 +940,17 @@ test('expanded and custom statistics are display-only and persist', async ({
   )
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
+
+  // Expand the statistics panel so the newly enabled averages remain visible.
+  const _divider = page.getByTestId('stats-solves-divider')
+  if (await _divider.count()) {
+    const _handle = await _divider.boundingBox()
+    await page.mouse.move(_handle!.x + _handle!.width / 2, _handle!.y + _handle!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(_handle!.x + _handle!.width / 2, _handle!.y + _handle!.height / 2 + 160, { steps: 10 })
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+  }
 
   await expect(page.getByTestId('best-mo3')).toHaveCount(0)
   await expect(page.getByTestId('best-single')).toHaveText('10.0')
@@ -1329,7 +1349,7 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await expect(sessionError.locator('svg')).toHaveCount(1)
   await expect(sessionError).toHaveCSS('color', 'rgb(198, 40, 40)')
   await expect(input).toHaveAttribute('aria-invalid', 'true')
-  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(1)
+  expect((await storedSessions(page))?.sessions).toHaveLength(1)
   await expect(input).toBeVisible()
 
   // The validation message and invalid highlight clear as soon as the name is
@@ -1343,11 +1363,11 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await expect(page.getByTestId('solve-count')).toHaveText('0')
   await expect(select).toBeFocused()
 
-  // Space still controls the timer while the session select is focused.
+  // Timer entry remains usable after the session dialog closes.
   await recordSolve(page, 100)
   await expect(page.getByTestId('solve-count')).toHaveText('1')
 
-  await select.selectOption({ label: 'Session 1' })
+  await selectSessionByName(page, 'Session 1')
   expect(await selectedSessionName(page)).toBe('Session 1')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
 
@@ -1463,7 +1483,7 @@ test('per-session inspection overrides the global default and persists', async (
     /Inspection off/,
   )
 
-  await page.getByTestId('session-select').selectOption({ label: 'Session 1' })
+  await selectSessionByName(page, 'Session 1')
   await expect(page.getByTestId('settings-button')).toHaveAttribute(
     'aria-label',
     /Inspection on/,
@@ -1475,7 +1495,7 @@ test('per-session inspection overrides the global default and persists', async (
     'aria-label',
     /Inspection on/,
   )
-  await page.getByTestId('session-select').selectOption({ label: 'Session 2' })
+  await selectSessionByName(page, 'Session 2')
   await expect(page.getByTestId('settings-button')).toHaveAttribute(
     'aria-label',
     /Inspection off/,
@@ -1548,7 +1568,7 @@ test('changing a session event saves its default name immediately', async ({
   expect(await selectedSessionName(page)).toBe('Session 1')
 
   const sessionDialog = await openSessionSettings(page)
-  await sessionDialog.locator('select').selectOption('222')
+  await chooseTestOption(page, 'session-event-select', '222')
   // Close without focusing or blurring the name field. The rename must already
   // have been committed when the event-driven default name was chosen.
   await sessionDialog.getByTestId('session-settings-done').click()
@@ -1630,20 +1650,19 @@ test('backup export and import restore sessions, comments, and settings', async 
   await page.getByRole('textbox', { name: 'Session name' }).fill('Evening')
   await page
     .getByRole('dialog', { name: 'Create new session' })
-    .locator('select')
-    .selectOption('555')
+  await chooseTestOption(page, 'session-setup-event', '555')
   await page.getByRole('button', { name: 'Create session', exact: true }).click()
   await waitForFreshEventScramble(page, previousScramble)
-  await expect(page.locator('.scramble-badge')).toContainText('5×5 · scramble')
+  await expect(page.locator('.scramble-badge')).toContainText('5×5')
   await recordSolve(page, 100)
 
   const settings = await openSettings(page)
   await settings.getByRole('switch', { name: /Inspection/ }).click()
-  await settings.getByTestId('inspection-direction').selectOption('up')
+  await chooseTestOption(page, 'inspection-direction', 'up')
   await settings.getByTestId('inspection-warning-8s').check()
   await settings.getByTestId('add-custom-average').click()
-  await settings.getByTestId('average-trim-better').selectOption('p10')
-  await settings.getByTestId('average-trim-worse').selectOption('1')
+  await chooseTestOption(page, 'average-trim-better', 'p10')
+  await chooseTestOption(page, 'average-trim-worse', '1')
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
@@ -1744,9 +1763,7 @@ test('backup export and import restore sessions, comments, and settings', async 
   await expect(page.getByTestId('settings-button')).toBeFocused()
   expect(await selectedSessionName(page)).toBe('Session 1')
   await expect(page.getByTestId('solve-count')).toHaveText('0')
-  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
-    1,
-  )
+  expect(await sessionNames(page)).toHaveLength(1)
 
   await openBackup(page)
   await page.getByTestId('backup-file-input').setInputFiles(downloadPath)
@@ -1759,10 +1776,8 @@ test('backup export and import restore sessions, comments, and settings', async 
   await expect(page.getByTestId('settings-button')).toBeFocused()
   expect(await selectedSessionName(page)).toBe('Evening')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
-  await expect(page.locator('.scramble-badge')).toContainText('5×5 · scramble')
-  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(
-    2,
-  )
+  await expect(page.locator('.scramble-badge')).toContainText('5×5')
+  expect(await sessionNames(page)).toHaveLength(2)
 
   const importedSettings = await openSettings(page)
   await expect(
@@ -1770,21 +1785,21 @@ test('backup export and import restore sessions, comments, and settings', async 
   ).toHaveAttribute('aria-checked', 'true')
   await expect(
     importedSettings.getByTestId('inspection-direction'),
-  ).toHaveValue('up')
+  ).toContainText('Count up')
   await expect(
     importedSettings.getByTestId('inspection-warning-8s'),
   ).toBeChecked()
   await expect(importedSettings.getByTestId('custom-average-size-0')).toHaveValue(
     '6',
   )
-  await expect(importedSettings.getByTestId('average-trim-better')).toHaveValue('p10')
-  await expect(importedSettings.getByTestId('average-trim-worse')).toHaveValue('1')
+  await expect(importedSettings.getByTestId('average-trim-better')).toContainText('10%')
+  await expect(importedSettings.getByTestId('average-trim-worse')).toContainText('1 solve')
   await importedSettings.getByTestId('settings-done').click()
   await expect(importedSettings).toBeHidden()
 
-  await page.getByTestId('session-select').selectOption({ label: 'Session 1' })
+  await selectSessionByName(page, 'Session 1')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
-  await expect(page.locator('.scramble-badge')).toContainText('3×3 · scramble')
+  await expect(page.locator('.scramble-badge')).toContainText('3×3')
   await expect(page.locator('.history-comment')).toHaveText('Backup comment')
 
   await page.reload()
@@ -1806,8 +1821,7 @@ test('scramble failure disables timing and offers retry', async ({ page }) => {
   const error = page.locator('.scramble-error')
   await expect(error).toBeVisible({ timeout: 30_000 })
   await expect(error).toContainText('Could not generate a scramble')
-  await expect(page.locator('.queue-label')).toContainText('Scramble unavailable')
-  await expect(page.locator('.timer-hint')).toContainText('Scramble unavailable')
+  await expect(page.locator('.scramble-error')).toContainText('Could not generate a scramble')
   await expect(page.locator(TIMER)).toBeDisabled()
   await expect(page.locator(TIMER)).toHaveAttribute(
     'aria-label',
@@ -2094,7 +2108,7 @@ test('remote snapshots show ownership, selective delete, and manual cleanup', as
   )
 
   // Manual cleanup is restricted to this device's superseded snapshots.
-  await drive.getByLabel('Snapshots kept per device').selectOption('3')
+  await chooseTestOption(page, 'snapshot-keep', '3')
   await drive.getByTestId('cleanup-remote-snapshots').click()
   const cleanup = page.getByRole('dialog', {
     name: 'Remove superseded snapshots?',
@@ -2446,10 +2460,8 @@ test('duplicate session names from Drive are reviewed and merged', async ({
   await merge.getByRole('button', { name: 'Confirm merge' }).click()
   await expect(merge).toBeHidden()
 
-  await expect(page.getByTestId('session-select').locator('option')).toHaveCount(1)
-  await expect(page.getByTestId('session-select').locator('option')).toHaveText(
-    'Shared',
-  )
+  expect(await sessionNames(page)).toHaveLength(1)
+  expect(await sessionNames(page)).toEqual(['Shared'])
 
   // Reopen Drive: the persistent review action disappears once the merged
   // collection has no duplicate name left.
@@ -2462,3 +2474,285 @@ test('duplicate session names from Drive are reviewed and merged', async ({
   await expect(driveAgain).toBeHidden()
 })
 
+
+test('csTimer rejects invalid values before preview and adds valid sessions without changing existing history', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.goto('/')
+  await waitForApp(page)
+  await recordSolve(page, 80)
+  const before = await page.evaluate(() => ({
+    sessions: localStorage.getItem('cubelab:sessions:v1'),
+    settings: localStorage.getItem('cubelab:settings:v1'),
+  }))
+  const dialog = await openBackup(page)
+  const invalidRows = [
+    '[[0,1e400],"R U","",1700000001]',
+    '[[0],"R U","",1700000001]',
+    '[[0,12000],"R U","",8640000000001]',
+  ]
+  for (const row of invalidRows) {
+    await page.getByTestId('backup-file-input').setInputFiles({ name: 'invalid-cstimer.txt', mimeType: 'text/plain',
+      buffer: Buffer.from(`{"session1":[[[0,12345],"R U","valid",1700000000],${row}]}`) })
+    await expect(page.getByTestId('backup-error')).toContainText('No data was imported.')
+    await expect(page.getByTestId('cs-preview')).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: 'Add imported sessions?' })).toHaveCount(0)
+    expect(await page.evaluate(() => ({ sessions: localStorage.getItem('cubelab:sessions:v1'),
+      settings: localStorage.getItem('cubelab:settings:v1') }))).toEqual(before)
+  }
+
+  const valid = JSON.stringify({ session1: [
+    [[2000, 12345], 'R U', 'first import', 1700000000],
+    [[0, 54321], 'F R', 'second import', 1700000001],
+  ], properties: { sessionData: { '1': { name: 'Imported practice', opt: { scrType: '333' }, date: [1700000000] } } } })
+  const chooseValid = async () => {
+    await page.getByTestId('backup-file-input').setInputFiles({ name: 'valid-cstimer.json', mimeType: 'application/json', buffer: Buffer.from(valid) })
+    await expect(page.getByTestId('cs-preview')).toContainText(
+      'Import csTimer backup',
+    )
+    await expect(page.getByTestId('cs-preview-summary')).toContainText(
+      '1 session · 2 solves',
+    )
+    await expect(page.getByTestId('cs-preview-session')).toContainText(
+      'Imported practice',
+    )
+    await expect(page.getByTestId('cs-preview')).not.toContainText(
+      'Event mappings',
+    )
+  }
+  await chooseValid()
+  await page.getByTestId('cs-preview-cancel').click()
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:sessions:v1'))).toBe(before.sessions)
+  await chooseValid()
+  await page.getByTestId('cs-preview-import').click()
+  const confirmation = page.getByRole('dialog', { name: 'Add imported sessions?' })
+  await expect(confirmation).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:sessions:v1'))).toBe(before.sessions)
+  await confirmation.getByRole('button', { name: 'Import sessions', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect.poll(async () => (await storedSessions(page))?.sessions.length).toBe(2)
+  const imported = await storedSessions(page)
+  const existing = JSON.parse(before.sessions!) as StoredSessions
+  expect(imported?.sessions[0]).toEqual(existing.sessions[0])
+  expect(imported?.activeSessionId).toBe(existing.activeSessionId)
+  const added = imported?.sessions.find((s) => s.name === 'Imported practice')
+  expect(added?.solves.map((s) => [s.rawMs, s.penalty, s.comment, s.createdAt])).toEqual([
+    [54321, 'none', 'second import', 1700000001000],
+    [12345, '+2', 'first import', 1700000000000],
+  ])
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:settings:v1'))).toBe(before.settings)
+  await page.reload()
+  await waitForApp(page)
+  // Reload normalizes legacy missing event fields to the existing 3x3 default.
+  // Every solve and the imported session must still round-trip unchanged.
+  expect(await storedSessions(page)).toEqual({ ...imported,
+    sessions: imported!.sessions.map((session) => ({ ...session, event: session.event ?? '333' })),
+  })
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!))).toEqual(JSON.parse(before.settings!))
+})
+
+test('csTimer preview keeps ranked names, empty sessions, and omitted default types', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await page.goto('/')
+  await waitForApp(page)
+  const existing = await storedSessions(page)
+
+  const csTimer = JSON.stringify({
+    session1: [
+      [[0, 1111], 'R U', 'kept', 1700000001],
+      [[2000, 2222], 'F R', 'second', 1700000002],
+    ],
+    session2: [],
+    session3: [[[0, 3333], 'U R', '', 1700000003]],
+    properties: {
+      sessionData: {
+        '1': { name: 14, opt: {}, rank: 30, date: [1700000000] },
+        '2': { name: 'Session 1', opt: {}, rank: 10, date: [null, null] },
+        '3': {
+          name: 'Explicit unsupported',
+          opt: { scrType: 'oll' },
+          rank: 20,
+          date: [1700000000],
+        },
+      },
+    },
+  })
+
+  const dialog = await openBackup(page)
+  await page.getByTestId('backup-file-input').setInputFiles({
+    name: 'ranked-cstimer.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(csTimer),
+  })
+
+  const preview = page.getByTestId('cs-preview')
+  await expect(preview).toBeVisible()
+  await expect(page.getByTestId('cs-preview-summary')).toHaveText(
+    '3 sessions · 3 solves',
+  )
+  const rows = page.getByTestId('cs-preview-session')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(0)).toContainText('Session 1(1)')
+  await expect(rows.nth(0)).toContainText('0')
+  await expect(rows.nth(1)).toContainText('Explicit unsupported')
+  await expect(rows.nth(1)).toContainText('1')
+  await expect(rows.nth(2)).toContainText('14')
+  await expect(rows.nth(2)).toContainText('2')
+  await expect(preview).not.toContainText('Event mappings')
+  await expect(preview).not.toContainText('scrType')
+  await expect(preview).not.toContainText('Unknown')
+  await expect(
+    page.getByRole('button', { name: 'Import 3 sessions' }),
+  ).toBeVisible()
+
+  await page.getByTestId('cs-preview-import').click()
+  const confirmation = page.getByRole('dialog', {
+    name: 'Add imported sessions?',
+  })
+  await expect(confirmation).toBeVisible()
+  await expect(confirmation).toContainText('3 new sessions')
+  await expect(confirmation).toContainText('3 solves')
+  await confirmation.getByRole('button', { name: 'Import sessions' }).click()
+  await expect(dialog).toBeHidden()
+
+  const imported = await storedSessions(page)
+  expect(imported?.sessions.slice(0, 1)).toEqual(existing?.sessions.slice(0, 1))
+  expect(imported?.activeSessionId).toBe(existing?.activeSessionId)
+  const added = imported?.sessions.slice(1) ?? []
+  expect(added.map((session) => session.name)).toEqual([
+    'Session 1(1)',
+    'Explicit unsupported',
+    '14',
+  ])
+  expect(added.map((session) => session.solves.length)).toEqual([0, 1, 2])
+  expect(added[0]!.createdAt).toBeGreaterThan(0)
+  expect(added[2]!.event).toBe('333')
+  expect(added[1]!.event).toMatch(/^custom:cstimer:/)
+  expect(
+    added[2]!.solves.map((solve) => [
+      solve.rawMs,
+      solve.penalty,
+      solve.comment,
+      solve.createdAt,
+    ]),
+  ).toEqual([
+    [2222, '+2', 'second', 1700000002000],
+    [1111, 'none', 'kept', 1700000001000],
+  ])
+
+  await page.reload()
+  await waitForApp(page)
+  const reloaded = await storedSessions(page)
+  expect(
+    reloaded?.sessions.slice(1).map((session) => [session.name, session.solves.length]),
+  ).toEqual([
+    ['Session 1(1)', 0],
+    ['Explicit unsupported', 1],
+    ['14', 2],
+  ])
+  expect(await sessionNames(page)).toHaveLength(4)
+  const optionTexts = await sessionNames(page)
+  expect(optionTexts).toEqual([
+    'Session 1',
+    'Session 1(1)',
+    'Explicit unsupported',
+    '14',
+  ])
+})
+
+test('active-session Drive review applies the chosen session and stays resolved on another sync', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.goto('/')
+  await waitForApp(page)
+  await recordSolve(page, 80)
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-drive-button').click()
+  let drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await drive.getByTestId('drive-connect').click()
+  await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+  await drive.getByTestId('sync-now').click()
+  await expect(drive.getByTestId('sync-status')).toContainText('synced', { timeout: 15000 })
+  await drive.getByTestId('drive-done').click()
+
+  // Make the local selection while synchronization is enabled so its real
+  // selection metadata participates in the cloud disagreement.
+  await page.getByTestId('new-session').click()
+  await page.getByRole('textbox', { name: 'Session name' }).fill('Evening')
+  await page.getByRole('button', { name: 'Create session', exact: true }).click()
+  await recordSolve(page, 80)
+  await selectSessionByName(page, 'Session 1')
+  const local = await storedSessions(page)
+  expect(local?.sessions).toHaveLength(2)
+  const originalSolves = local?.sessions.map((s) => s.solves)
+  const selectedId = local?.activeSessionId
+
+  await (await openSettings(page)).getByTestId('settings-drive-button').click()
+  drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+  await drive.getByRole('button', { name: /Advanced settings/ }).click()
+  await drive.getByLabel('Manual conflict review').check()
+  await page.evaluate(async () => {
+    const stored = JSON.parse(localStorage.getItem('cubelab:sessions:v1')!)
+    const settings = JSON.parse(localStorage.getItem('cubelab:settings:v1')!).settings
+    const remoteAt = Date.now() + 60000
+    const cloud = { app: 'CubeLab', format: 'cubelab-backup', version: 1, exportedAt: new Date().toISOString(),
+      sessions: { activeSessionId: stored.sessions[1].id, sessions: stored.sessions }, settings,
+      sync: { protocolVersion: 1, revision: 2, deviceId: 'selection-remote', updatedAt: remoteAt,
+        tombstones: [], conflicts: [], sessionRedirects: [], activeSessionFieldUpdate: { updatedAt: remoteAt, editorId: 'selection-remote' } } }
+    const mock = (window as { __cubeLabMockDrive?: { uploadBackup: (content: string, id: string | null) => Promise<unknown> } }).__cubeLabMockDrive
+    if (!mock) throw new Error('Mock Drive is unavailable')
+    await mock.uploadBackup(JSON.stringify(cloud), null)
+  })
+  await drive.getByTestId('sync-now').click()
+  await expect(drive.getByTestId('sync-conflict')).toHaveCount(1)
+  await drive.getByRole('button', { name: 'Use this device', exact: true }).click()
+  await expect(drive.getByTestId('sync-status')).toContainText('synced', { timeout: 15000 })
+  await expect(drive.getByTestId('sync-conflicts')).toHaveCount(0)
+  expect((await storedSessions(page))?.activeSessionId).toBe(selectedId)
+  expect((await storedSessions(page))?.sessions.map((s) => s.solves)).toEqual(originalSolves)
+  await drive.getByTestId('sync-now').click()
+  await expect(drive.getByTestId('sync-status')).toContainText('synced', { timeout: 15000 })
+  await expect(drive.getByTestId('sync-conflicts')).toHaveCount(0)
+  expect((await storedSessions(page))?.activeSessionId).toBe(selectedId)
+  expect((await storedSessions(page))?.sessions.map((s) => s.solves)).toEqual(originalSolves)
+})
+
+
+
+test('main interface fits the viewport without document scrolling', async ({ page }) => {
+  for (const [width, height] of [[320, 620], [390, 844], [1440, 600]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.goto('/')
+    await waitForApp(page)
+
+    const metrics = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+    }))
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.innerWidth + 1)
+    expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.innerHeight + 1)
+
+    await expect(page.getByTestId('settings-button')).toBeVisible()
+    await expect(page.getByTestId('timer-surface')).toBeVisible()
+    await expect(page.getByTestId('app-version')).toHaveText('0.01.261104:1')
+
+    if (width === 1440) {
+      await page.getByTestId('current-tool-button').click()
+      await expect(page.getByTestId('tool-panel')).toBeVisible()
+      const overlayMetrics = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+      }))
+      expect(overlayMetrics.scrollWidth).toBeLessThanOrEqual(
+        overlayMetrics.innerWidth + 1,
+      )
+      expect(overlayMetrics.scrollHeight).toBeLessThanOrEqual(
+        overlayMetrics.innerHeight + 1,
+      )
+    }
+  }
+})

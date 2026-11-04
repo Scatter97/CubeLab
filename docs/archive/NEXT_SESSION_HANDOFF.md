@@ -1,3 +1,9 @@
+> **Historical snapshot — archived 2026-11-01.** This record may contain
+> superseded behavior, approval milestones and verification results. For current
+> work read [STATUS.md](../../STATUS.md), [AGENTS.md](../../AGENTS.md) and
+> [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md). Paths in code spans
+> and command blocks retain their original repository-root context.
+
 # Next Session Handoff
 
 **Updated:** 2026-11-01. **Implementation last verified:** 2026-11-01.
@@ -10,15 +16,15 @@ import, the draggable/resizable 2D/3D scramble panel, Time Trend, independent
 trackpad axes and pinch/pan, clickable historical PB statistics, configurable
 average trimming, the first large-session stop-response patch, and Phase 6a
 (Pyraminx, Skewb, Square-1, Clock, and Megaminx). These are implemented and
-verified. Phase 6b (blindfolded, Multi-Blind, and Fewest Moves) and broader
-future feature phases are not approved by this checkpoint. Sessions remain
-schema v4; settings are schema v8.
+verified. Future feature-phase proposals were subsequently removed at the
+user's request. Sessions remain schema v4; settings are schema v8.
 
 The November 1 Phase 6a commit includes the new event registry, official
 `cubing.js` scrambles, storage/backup/import/sync validation, correct 3D
-puzzles, the honest 2D fallback, tests and documentation. Confirm its identity
-with `git log -1 --oneline` and its working-tree state with
-`git status --short`; no remote push is part of this handoff.
+puzzles, the honest 2D fallback, tests and documentation. Later commits add the
+default-panel gutter mitigation and tracked skills. Locate the Phase 6a commit
+with `git log --oneline --grep="Implement CubeLab Phase 6a"`. Inspect the current
+working tree with `git status --short`; no remote push is part of this handoff.
 
 ## Completed steps
 
@@ -41,21 +47,25 @@ with `git log -1 --oneline` and its working-tree state with
 7. Improved stopping with large histories: capture press time before audio and
    focus, animate the live readout locally, refresh expensive presentation after
    a rendering opportunity, and skip unused UI fingerprinting when sync is off.
+8. Fixed the audit's session-choice review/provenance and csTimer validation gaps.
+   Reviewed choices survive later syncs, metadata stays with its selected value
+   through envelope parsing/adoption, and malformed supported imports fail before
+   preview/confirmation. Regression tests cover pure, hook and browser paths.
 
 ## Verified baseline
 
-`VITE_DRIVE_MOCK=true npm run check` passed as one command on November 1 with
-Phase 6a:
+`VITE_DRIVE_MOCK=true npm run check` passed as one command on November 1 after
+the audit regression fixes (including all Phase 6a coverage):
 
 | Check | Result |
 | --- | --- |
 | TypeScript and Oxlint | Passed |
-| Unit/component tests | 518 passed in 39 files |
+| Unit/component tests | 553 passed in 39 files |
 | Production build | Passed |
-| Browser tests | 252 passed, 9 existing skips, 261 total |
+| Browser tests | 258 passed, 9 existing skips, 267 total |
 | Browser engines | Chromium, Firefox, WebKit |
 | Per-event coverage | All 12 events at desktop and 390 px mobile |
-| New-puzzle visualization | 3D puzzles render; 2D shows an honest unavailable state |
+| New-puzzle visualization | Players initialize with expected puzzle IDs; 2D shows an honest unavailable state; canvas probes are Chromium-only |
 | 7,000-solve stop regression | Passed in all three engines |
 | Offline service-worker flow | Passed in the supported Chromium project |
 | Final normal production build | Restored successfully after mock tests |
@@ -84,8 +94,10 @@ input-listener-to-observable-stopped-DOM response:
 | Production, chart closed | 66 ms | 25 ms |
 | Production, Time Trend open | 75 ms | 22 ms |
 
-These are not physical-display or actual Zen measurements. Chart completion
-can take longer, especially in development mode. Chromium Event Timing also
+These are historical recorded measurements; raw profiling traces are not tracked
+in the repository, so their original numbers were not independently revalidated
+by the documentation audit. They are not physical-display or actual Zen measurements.
+Chart completion can take longer, especially in development mode. Chromium Event Timing also
 showed earlier next-paint response with the development chart open (available
 entries: median 356 ms before, 56 ms after). Do not infer enabled-sync or
 10,000-solve stop performance from these sync-off 7,000-solve measurements.
@@ -130,9 +142,8 @@ credential. Test physical mobile/trackpad and assistive technology when availabl
 The Google Cloud owner must handle OAuth publishing/non-test access; the latest
 patch does not prove the current external console state. Recheck the dated
 build-dependency advisory before selecting a compatible fix, then verify offline
-behavior. Phase 6b (blindfolded, Multi-Blind, and Fewest Moves), new event
-batches, social/non-Google cloud features, a new sync
-protocol or a larger import cap require their own approved scope.
+behavior. Follow the retained work queue in the current root roadmap; the
+former future feature-phase proposals have been removed.
 
 ## Correctness rules to preserve
 

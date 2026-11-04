@@ -409,6 +409,12 @@ export interface HistogramBin {
   readonly endMs: number
   readonly count: number
   readonly percent: number
+  /**
+   * True when this edge bin absorbs values beyond the robust display range.
+   * Their counts and drill-down ranges are retained; only the visual scale is
+   * protected from a handful of unusually long solves.
+   */
+  readonly groupedExtreme?: boolean
 }
 
 export interface Histogram {
@@ -423,6 +429,10 @@ export interface Histogram {
   readonly outlierLowMs: number | null
   readonly outlierHighMs: number | null
   readonly outlierCount: number
+  /** False when an explicit interval was requested. */
+  readonly autoInterval: boolean
+  /** True when edge bins absorbed values outside the robust display range. */
+  readonly groupedExtremes: boolean
 }
 
 function niceInterval(value: number): number {
@@ -440,10 +450,17 @@ export function buildHistogram(
 ): Histogram {
   const valid = times.filter((value): value is number => value !== null)
   const sorted = [...valid].sort((left, right) => left - right)
+  const explicitInterval =
+    requestedIntervalMs !== null &&
+    requestedIntervalMs !== undefined &&
+    Number.isFinite(requestedIntervalMs) &&
+    requestedIntervalMs >= 10
   if (valid.length === 0) {
     return {
       bins: [],
-      intervalMs: requestedIntervalMs ?? 1_000,
+      intervalMs: explicitInterval
+        ? Math.round(requestedIntervalMs!)
+        : 1_000,
       validCount: 0,
       meanMs: null,
       medianMs: null,
@@ -453,39 +470,86 @@ export function buildHistogram(
       outlierLowMs: null,
       outlierHighMs: null,
       outlierCount: 0,
+      autoInterval: !explicitInterval,
+      groupedExtremes: false,
     }
   }
 
   const min = sorted[0]!
   const max = sorted[sorted.length - 1]!
   const targetBins = Math.max(8, Math.min(40, Math.ceil(Math.sqrt(valid.length))))
-  const intervalMs =
-    requestedIntervalMs !== null &&
-    requestedIntervalMs !== undefined &&
-    Number.isFinite(requestedIntervalMs) &&
-    requestedIntervalMs >= 10
-      ? Math.round(requestedIntervalMs)
-      : niceInterval((max - min || 1_000) / targetBins)
+  // Derive the automatic interval from the central 98% of the filtered data.
+  // A handful of unusually long solves must not widen every normal bin; those
+  // values remain counted and drillable through edge intervals below.
+  const centralLow = valid.length >= 20 ? percentileSorted(sorted, 0.01)! : min
+  const centralHigh = valid.length >= 20 ? percentileSorted(sorted, 0.99)! : max
+  const intervalMs = explicitInterval
+    ? Math.round(requestedIntervalMs!)
+    : niceInterval(
+        (centralHigh - centralLow || Math.max(1_000, (max - min) / targetBins)) /
+          targetBins,
+      )
 
-  const start = Math.floor(min / intervalMs) * intervalMs
-  const lastStart = Math.max(start, Math.floor(max / intervalMs) * intervalMs)
+  const centralStart = Math.floor(centralLow / intervalMs) * intervalMs
+  const displayEnd = Math.max(
+    centralStart + intervalMs,
+    Math.ceil(centralHigh / intervalMs) * intervalMs,
+  )
+  const hasLowExtreme = min < centralStart
+  const hasHighExtreme = max >= displayEnd
   const bins: HistogramBin[] = []
-  for (let edge = start; edge <= lastStart; edge += intervalMs) {
+  if (hasLowExtreme) {
+    bins.push({
+      startMs: min,
+      endMs: centralStart,
+      count: 0,
+      percent: 0,
+      groupedExtreme: true,
+    })
+  }
+  for (let edge = centralStart; edge < displayEnd; edge += intervalMs) {
     bins.push({
       startMs: edge,
-      endMs: edge + intervalMs,
+      endMs: Math.min(displayEnd, edge + intervalMs),
       count: 0,
       percent: 0,
     })
   }
-  if (bins.length === 0) {
-    bins.push({ startMs: start, endMs: start + intervalMs, count: 0, percent: 0 })
+  if (hasHighExtreme) {
+    // Counts and drill-down must include the exact maximum, so the grouped edge
+    // interval is inclusive by ending one millisecond after it.
+    bins.push({
+      startMs: displayEnd,
+      endMs: max + 1,
+      count: 0,
+      percent: 0,
+      groupedExtreme: true,
+    })
   }
+  if (bins.length === 0) {
+    bins.push({
+      startMs: min,
+      endMs: Math.max(max, min + intervalMs),
+      count: 0,
+      percent: 0,
+      groupedExtreme: true,
+    })
+  }
+  const lowOffset = hasLowExtreme ? 1 : 0
   for (const value of valid) {
-    const index = Math.min(
-      bins.length - 1,
-      Math.max(0, Math.floor((value - start) / intervalMs)),
-    )
+    let index: number
+    if (hasLowExtreme && value < centralStart) {
+      index = 0
+    } else if (hasHighExtreme && value >= displayEnd) {
+      index = bins.length - 1
+    } else {
+      index =
+        lowOffset +
+        Math.min(
+          Math.max(0, Math.floor((value - centralStart) / intervalMs)),
+          Math.max(0, bins.length - lowOffset - (hasHighExtreme ? 1 : 0) - 1),
+        )
+    }
     const bin = bins[index]!
     bins[index] = { ...bin, count: bin.count + 1, percent: bin.percent + 1 }
   }
@@ -514,6 +578,8 @@ export function buildHistogram(
     outlierCount: valid.filter(
       (value) => value < outlierLow || value > outlierHigh,
     ).length,
+    autoInterval: !explicitInterval,
+    groupedExtremes: hasLowExtreme || hasHighExtreme,
   }
 }
 
@@ -758,6 +824,8 @@ export interface PracticeDayPerformance {
 export interface ActivityReport {
   readonly daily: readonly ActivityDay[]
   readonly allDays: readonly ActivityDay[]
+  readonly heatmapStartMs: number | null
+  readonly heatmapEndMs: number | null
   readonly totalTimeMs: number
   readonly activeDays: number
   readonly averagePerActiveDay: number
@@ -781,6 +849,36 @@ function dayNumber(timestamp: number): number {
 function dateKey(timestamp: number): string {
   const date = new Date(timestamp)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+/** True when the supplied timestamps cover more than one calendar year. */
+export function analyticsSpansMultipleYears(
+  timestamps: readonly number[],
+): boolean {
+  if (timestamps.length === 0) return false
+  let first = timestamps[0]!
+  let last = timestamps[0]!
+  for (const timestamp of timestamps) {
+    if (timestamp < first) first = timestamp
+    if (timestamp > last) last = timestamp
+  }
+  return new Date(first).getFullYear() !== new Date(last).getFullYear()
+}
+
+/**
+ * Date labels stay compact for single-year histories and include the year when
+ * the filtered data spans multiple years, so "Sep 15" is never ambiguous.
+ */
+export function formatAnalyticsAxisDate(
+  timestamp: number,
+  includeYear: boolean,
+): string {
+  return new Date(timestamp).toLocaleDateString(
+    undefined,
+    includeYear
+      ? { year: 'numeric', month: 'short', day: 'numeric' }
+      : { month: 'short', day: 'numeric' },
+  )
 }
 
 export function buildActivity(
@@ -847,25 +945,33 @@ export function buildActivity(
     }
   }
 
+  // The heatmap covers the complete filtered activity range instead of a
+  // rolling one-year window. Empty calendar days are included so gaps remain
+  // visible and multi-year histories never silently lose earlier months.
   const daily: ActivityDay[] = []
-  const nowDate = new Date(now)
-  for (let offset = 364; offset >= 0; offset -= 1) {
-    const dateMs = new Date(
-      nowDate.getFullYear(),
-      nowDate.getMonth(),
-      nowDate.getDate() - offset,
-    ).getTime()
-    const number = dayNumber(dateMs)
-    const key = dateKey(dateMs)
-    daily.push(
-      days.get(key) ?? {
-        key,
-        dayNumber: number,
-        dateMs,
-        count: 0,
-        timeMs: 0,
-      },
-    )
+  const firstDay = allDays[0]
+  const lastDay = allDays[allDays.length - 1]
+  if (firstDay && lastDay) {
+    const firstDate = new Date(firstDay.dateMs)
+    const dayCount = lastDay.dayNumber - firstDay.dayNumber
+    for (let offset = 0; offset <= dayCount; offset += 1) {
+      const dateMs = new Date(
+        firstDate.getFullYear(),
+        firstDate.getMonth(),
+        firstDate.getDate() + offset,
+      ).getTime()
+      const number = dayNumber(dateMs)
+      const key = dateKey(dateMs)
+      daily.push(
+        days.get(key) ?? {
+          key,
+          dayNumber: number,
+          dateMs,
+          count: 0,
+          timeMs: 0,
+        },
+      )
+    }
   }
 
   const weeklyMap = new Map<string, ActivityBucket>()
@@ -907,6 +1013,8 @@ export function buildActivity(
   return {
     daily,
     allDays,
+    heatmapStartMs: daily[0]?.dateMs ?? null,
+    heatmapEndMs: daily[daily.length - 1]?.dateMs ?? null,
     totalTimeMs,
     activeDays,
     averagePerActiveDay,
@@ -947,22 +1055,16 @@ export function computeAdvanced(
   const valid = trend.singles.filter((value): value is number => value !== null)
   const sorted = [...valid].sort((left, right) => left - right)
   const movingMedian: (number | null)[] = new Array(trend.singles.length).fill(null)
-  let window: number[] = []
+  const attempts: (number | null)[] = []
 
   for (let index = 0; index < trend.singles.length; index += 1) {
-    const value = trend.singles[index] ?? null
-    if (value !== null) {
-      window.push(value)
-      window.sort((left, right) => left - right)
-    }
-    if (window.length > movingWindow) {
-      const outgoing = trend.singles[index - movingWindow]
-      if (outgoing !== null && outgoing !== undefined) {
-        const removeAt = window.indexOf(outgoing)
-        if (removeAt >= 0) window = window.filter((_, position) => position !== removeAt)
-      }
-    }
-    movingMedian[index] = medianSorted(window)
+    attempts.push(trend.singles[index] ?? null)
+    if (attempts.length > movingWindow) attempts.shift()
+    // DNFs occupy a slot in the rolling attempt window. Older solves must not
+    // remain eligible merely because the newest attempt was a DNF.
+    movingMedian[index] = medianSorted(
+      attempts.filter((value): value is number => value !== null),
+    )
   }
 
   const half = Math.floor(valid.length / 2)

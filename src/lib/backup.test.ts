@@ -63,6 +63,36 @@ describe('backup format', () => {
     expect(backup.version).toBe(BACKUP_VERSION)
   })
 
+  it('round-trips a collection containing only empty sessions', () => {
+    const empty: SessionsData = {
+      activeSessionId: 'empty-2',
+      sessions: [
+        {
+          id: 'empty-1',
+          name: 'Empty one',
+          event: '333',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_000,
+          solves: [],
+        },
+        {
+          id: 'empty-2',
+          name: 'Empty two',
+          event: '444',
+          createdAt: 1_700_000_001_000,
+          updatedAt: 1_700_000_001_000,
+          solves: [],
+        },
+      ],
+    }
+    const backup = createBackup(empty, DEFAULT_SETTINGS)
+    const result = parseBackup(serializeBackup(backup))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.backup.sessions).toEqual(empty)
+  })
+
   it('preserves every supported solve puzzle event in backups', () => {
     const events = [
       '333',
@@ -352,4 +382,113 @@ it('preserves trimming choices in backups and upgrades older backups to 5% / Aut
     expect(migrated.backup.settings).toMatchObject({ averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
     expect(migrated.backup.sessions).toEqual(backup.sessions)
   }
+})
+
+describe('custom event backups', () => {
+  it('round-trips definitions, custom solves and import provenance', () => {
+    const customId = 'custom:cstimer:fto-12345678'
+    const data: SessionsData = {
+      activeSessionId: 'custom-session',
+      customEvents: [
+        {
+          id: customId,
+          name: 'FTO',
+          placeholder: 'No scramble for FTO',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_002_000,
+          fieldUpdates: {
+            name: { updatedAt: 1_700_000_001_000, editorId: 'laptop' },
+          },
+          source: { provider: 'cstimer', identifiers: ['fto'] },
+        },
+      ],
+      sessions: [
+        {
+          id: 'custom-session',
+          name: 'FTO session',
+          event: customId,
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_002_000,
+          solves: [
+            solve({
+              id: 'custom-solve',
+              event: customId,
+              scramble: 'custom scramble',
+              importSource: {
+                provider: 'cstimer',
+                scrType: 'fto',
+                sessionNumber: 1,
+                solveIndex: 0,
+              },
+              fieldUpdates: {
+                event: { updatedAt: 1_700_000_002_000, editorId: 'laptop' },
+              },
+            }),
+          ],
+        },
+      ],
+    }
+    const backup = createBackup(data, DEFAULT_SETTINGS)
+    const result = parseBackup(serializeBackup(backup))
+    expect(result).toEqual({ ok: true, backup })
+    if (!result.ok) return
+    expect(result.backup.sessions).toEqual(data)
+  })
+
+  it('preserves empty scrambles and unknown event IDs', () => {
+    const data: SessionsData = {
+      activeSessionId: 'unknown-session',
+      sessions: [
+        {
+          id: 'unknown-session',
+          name: 'Blindfold',
+          event: '333bf',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_001_000,
+          solves: [
+            solve({
+              id: 'empty-scramble',
+              event: '333bf',
+              scramble: '',
+            }),
+          ],
+        },
+      ],
+    }
+
+    const backup = createBackup(data, DEFAULT_SETTINGS)
+    const result = parseBackup(serializeBackup(backup))
+    expect(result).toEqual({ ok: true, backup })
+    if (!result.ok) return
+    expect(result.backup.sessions).toEqual(data)
+    expect(result.backup.sessions.sessions[0]!.event).toBe('333bf')
+    expect(result.backup.sessions.sessions[0]!.solves[0]).toMatchObject({
+      event: '333bf',
+      scramble: '',
+    })
+  })
+})
+
+describe('backup session ordering', () => {
+  it('round-trips order metadata without changing session or solve data', () => {
+    const data: SessionsData = {
+      ...sessions(),
+      sessionOrder: {
+        ids: ['session-2', 'session-1'],
+        updatedAt: 1_700_000_004_000,
+        editorId: 'laptop',
+      },
+    }
+    const backup = createBackup(data, DEFAULT_SETTINGS)
+    const raw = serializeBackup(backup)
+    const result = parseBackup(raw)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.backup.sessions.sessionOrder).toEqual(data.sessionOrder)
+    expect(result.backup.sessions.sessions.map((entry) => entry.id)).toEqual([
+      'session-2',
+      'session-1',
+    ])
+    expect(result.backup.sessions.sessions[0]?.solves[0]?.id).toBe('solve-2')
+  })
 })

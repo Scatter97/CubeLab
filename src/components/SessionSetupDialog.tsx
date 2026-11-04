@@ -2,8 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { AlertCircleIcon, CloseIcon } from './Icons'
 import { getSessionNameError } from '../lib/sessions'
-import { CUBELAB_EVENTS } from '../lib/events'
+import {
+  formatEventOptionLabel,
+  getEventLabel,
+  getEventOptions,
+} from '../lib/events'
 import type { PuzzleEvent, SessionPreferences } from '../types'
+import { Select } from './Select'
 
 interface SessionSetupDialogProps {
   open: boolean
@@ -18,7 +23,7 @@ interface SessionSetupDialogProps {
 type SessionSetupContentProps = Omit<SessionSetupDialogProps, 'open'>
 
 function defaultNameForEvent(event: PuzzleEvent): string {
-  return CUBELAB_EVENTS.find((item) => item.id === event)?.label ?? 'Session 1'
+  return getEventLabel(event) || 'Session 1'
 }
 
 /**
@@ -168,11 +173,18 @@ function SessionSetupContent({
 
         <div className="settings-field">
           <span>Puzzle event</span>
-          <select
+          <Select
             className="compact-select"
             value={event}
-            onChange={(eventTarget) => {
-              const next = eventTarget.target.value as PuzzleEvent
+            ariaLabel="Puzzle event"
+            testId="session-setup-event"
+            options={getEventOptions().map((item) => ({
+              value: item.id,
+              label: formatEventOptionLabel(item),
+              text: item.label,
+            }))}
+            onChange={(value) => {
+              const next = value as PuzzleEvent
               const previous = event
               setEvent(next)
               if (!nameTouched) {
@@ -189,13 +201,7 @@ function SessionSetupContent({
                 }
               }
             }}
-          >
-            {CUBELAB_EVENTS.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         <div className="settings-row">

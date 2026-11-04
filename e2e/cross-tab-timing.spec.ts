@@ -1,15 +1,18 @@
 import { expect, test, type Page } from '@playwright/test'
+import { selectSessionByName } from './interactions'
 
 const TIMER = '[data-testid="timer-surface"]'
 
 async function waitForApp(page: Page) {
   await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('.queue-label')).toContainText('Queue ready', {
-    timeout: 30_000,
-  })
 }
 
 async function holdSpace(page: Page) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+  })
   await page.keyboard.down('Space')
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'ready', {
     timeout: 3_000,
@@ -24,10 +27,9 @@ async function stopWithSpace(page: Page) {
 }
 
 async function selectedSessionName(page: Page): Promise<string> {
-  return page.getByTestId('session-select').evaluate((element) => {
-    const select = element as HTMLSelectElement
-    return select.selectedOptions[0]?.textContent?.trim() ?? ''
-  })
+  return page
+    .getByTestId('session-select')
+    .evaluate((element) => element.textContent?.trim() ?? '')
 }
 
 async function storedSessions(page: Page) {
@@ -93,8 +95,8 @@ test('cross-tab timing is not redirected and reconciles when idle', async ({
   await expect(pageA.locator(TIMER)).toHaveAttribute('data-phase', 'running')
 
   // Page B switches the active session while Page A is timing.
-  await pageB.getByTestId('session-select').selectOption({ label: 'Evening' })
-  await expect(pageB.getByTestId('session-select')).toHaveValue(/session-2/)
+  await selectSessionByName(pageB, 'Evening')
+  expect(await selectedSessionName(pageB)).toBe('Evening')
   await pageB.waitForTimeout(200)
 
   // Page A must not redirect or replace its collection mid-timing.
@@ -113,7 +115,9 @@ test('cross-tab timing is not redirected and reconciles when idle', async ({
   // selection is authoritative, so Page A adopts Evening; the completed solve
   // must still land in Morning.
   await stopWithSpace(pageA)
-  await expect(pageA.getByTestId('session-select')).toHaveValue(/session-2/)
+  await expect
+    .poll(() => selectedSessionName(pageA))
+    .toBe('Evening')
   await expect(pageA.getByTestId('solve-count')).toHaveText('0')
 
   // The solve stays with the original session.

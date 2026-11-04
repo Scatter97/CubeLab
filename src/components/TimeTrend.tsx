@@ -6,6 +6,7 @@ import { DEFAULT_AVERAGE_TRIMMING } from '../lib/averageTrimming'
 import type { AverageTrimming, Solve } from '../types'
 import { formatTime } from '../lib/format'
 import { PBStatsDialog } from './PBStatsDialog'
+import { Select } from './Select'
 
 const SERIES: { key: SeriesId; label: string; size?: number }[] = [
   { key: 'single', label: 'Single' },
@@ -378,8 +379,8 @@ export const TimeTrend = memo(function TimeTrend({ solves, compact = false, disa
                 <button type="button" className="time-trend-button" disabled={(zoomAxes === 'y' || zoom <= 1) && (zoomAxes === 'x' || yView.zoom <= 1)} onClick={() => zoomButton(0.5)}>Zoom out</button>
                 <button type="button" className="time-trend-button" onClick={fitAll}>Fit all</button>
               </div>
-              <label className="time-trend-axis-select">Zoom axes<select value={zoomAxes} onChange={(event) => setZoomAxes(event.target.value as 'both' | 'x' | 'y')}><option value="both">Both</option><option value="x">Horizontal</option><option value="y">Vertical</option></select></label>
-              <label className="time-trend-axis-select">X axis<select value={xAxis} onChange={(e) => { setXAxis(e.target.value as 'solve' | 'date'); setHover(null) }}><option value="solve">Solve #</option><option value="date">Date</option></select></label>
+              <label className="time-trend-axis-select">Zoom axes<Select value={zoomAxes} options={[{value:'both',label:'Both'},{value:'x',label:'Horizontal'},{value:'y',label:'Vertical'}]} onChange={(value) => setZoomAxes(value as 'both' | 'x' | 'y')} /></label>
+              <label className="time-trend-axis-select">X axis<Select value={xAxis} options={[{value:'solve',label:'Solve #'},{value:'date',label:'Date'}]} onChange={(value) => { setXAxis(value as 'solve' | 'date'); setHover(null) }} /></label>
             </div>
             <p className="time-trend-gesture-help">{GESTURE_HELP}</p>
             <div className="time-trend-range">

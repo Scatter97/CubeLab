@@ -1054,6 +1054,169 @@ describe('useSync deletion tombstones', () => {
       ])
     })
   })
+
+  it('records an event tombstone when a custom definition disappears', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    const initial = sessionsData({
+      customEvents: [
+        {
+          id: 'custom:fto',
+          name: 'FTO',
+          placeholder: '',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_000,
+        },
+      ],
+    })
+    const { rerender } = renderHook(
+      ({ sessions }: { sessions: SessionsData }) =>
+        useSync({
+          transport,
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: false,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { sessions: initial } },
+    )
+
+    await act(async () => {
+      rerender({ sessions: sessionsData() })
+    })
+
+    await vi.waitFor(() => {
+      const stored = loadSyncStorage()
+      expect(stored.runtime.tombstones).toEqual([
+        expect.objectContaining({
+          kind: 'event',
+          id: 'custom:fto',
+          deletedByDeviceId: 'device-test',
+        }),
+      ])
+    })
+  })
+
+  it('records multiple solve tombstones in one durable call', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    const { result } = renderHook(() =>
+      useSync({
+        transport,
+        sessions: sessionsData(),
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    let saved = false
+    act(() => {
+      saved = result.current.recordDeletions([
+        { id: 'reset-a', sessionId: 'session-1' },
+        { id: 'reset-b', sessionId: 'session-2' },
+      ])
+    })
+
+    expect(saved).toBe(true)
+    expect(loadSyncStorage().runtime.tombstones).toEqual([
+      expect.objectContaining({
+        kind: 'solve',
+        id: 'reset-a',
+        sessionId: 'session-1',
+        deletedByDeviceId: 'device-test',
+      }),
+      expect.objectContaining({
+        kind: 'solve',
+        id: 'reset-b',
+        sessionId: 'session-2',
+        deletedByDeviceId: 'device-test',
+      }),
+    ])
+  })
+
+  it('records session and solve tombstones for a delete-all action in one call', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    const target = sessionsData({
+      sessions: [
+        session({
+          id: 'session-1',
+          name: 'Morning',
+          solves: [solve({ id: 'solve-1' }), solve({ id: 'solve-2' })],
+        }),
+        session({ id: 'session-2', name: 'Evening', solves: [solve({ id: 'solve-3' })] }),
+      ],
+    })
+    const { result } = renderHook(() =>
+      useSync({
+        transport,
+        sessions: target,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    let saved = false
+    act(() => {
+      saved = result.current.recordAllSessionDeletions(target.sessions)
+    })
+
+    expect(saved).toBe(true)
+    const tombstones = loadSyncStorage().runtime.tombstones
+    expect(tombstones).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'session',
+          id: 'session-1',
+          knownSolveIds: ['solve-1', 'solve-2'],
+        }),
+        expect.objectContaining({
+          kind: 'session',
+          id: 'session-2',
+          knownSolveIds: ['solve-3'],
+        }),
+        expect.objectContaining({ kind: 'solve', id: 'solve-1' }),
+        expect.objectContaining({ kind: 'solve', id: 'solve-2' }),
+        expect.objectContaining({ kind: 'solve', id: 'solve-3' }),
+      ]),
+    )
+    expect(tombstones).toHaveLength(5)
+  })
+
+  it('reports a delete-all tombstone failure when storage is unavailable', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    const target = sessionsData({
+      sessions: [session({ id: 'session-1', solves: [solve()] })],
+    })
+    const { result, unmount } = renderHook(() =>
+      useSync({
+        transport,
+        sessions: target,
+        settings: DEFAULT_SETTINGS,
+        storageOk: false,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+    act(() => {
+      expect(result.current.recordAllSessionDeletions(target.sessions)).toBe(false)
+    })
+    unmount()
+  })
 })
 
 describe('useSync duplicate session notifications', () => {
@@ -1681,6 +1844,34 @@ describe('useSync snapshot retention', () => {
     unmount()
   })
 
+  it('preserves historical snapshots during a solve-reset synchronization', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const own = await seedSnapshots(memory, 'device-test', 12)
+    const foreign = await seedSnapshots(memory, 'other-device', 2)
+    const { result, unmount } = renderStatefulSync({
+      transport: memory,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      expect(result.current.recordDeletions([{ id: 'reset-solve' }])).toBe(true)
+      await result.current.syncNow('reset')
+    })
+
+    expect(result.current.phase).toBe('synced')
+    const files = await memory.listBackups!()
+    expect(files).toHaveLength(15)
+    expect(
+      [...own, ...foreign].every((file) =>
+        files.some((entry) => entry.id === file.id),
+      ),
+    ).toBe(true)
+    unmount()
+  })
+
   it('keeps the completed sync successful when cleanup partially fails', async () => {
     enableSync()
     const memory = createMemoryDriveTransport()
@@ -2280,5 +2471,54 @@ describe('useSync pending-state fingerprint cost', () => {
     rerender({ sessions: initial })
     expect(result.current.hasPendingChanges).toBe(false)
     unmount()
+  })
+})
+
+describe('useSync active-session conflict publication', () => {
+  beforeEach(() => localStorage.clear())
+
+  it.each(['local', 'remote'] as const)('publishes the reviewed %s selection once and preserves its provenance and solves', async (resolution) => {
+    enableSync({ manualConflictReview: true })
+    const stored = loadSyncStorage()
+    saveSyncStorage({ ...stored, runtime: { ...stored.runtime,
+      activeSessionFieldUpdate: { updatedAt: 100, editorId: 'device-test' } } })
+    const collection = [
+      session({ id: 'a', name: 'Morning', solves: [solve({ id: 'morning' })] }),
+      session({ id: 'b', name: 'Evening', solves: [solve({ id: 'evening' })] }),
+    ]
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    await transport.uploadDeviceBackup!(JSON.stringify(createBackup(
+      { activeSessionId: 'b', sessions: collection }, DEFAULT_SETTINGS, new Date(),
+      createSyncEnvelope('remote-device', 1, [], [], [], {}, { updatedAt: 200, editorId: 'remote-device' }),
+    )), 'remote-device')
+    const upload = vi.spyOn(transport, 'uploadDeviceBackup')
+    const { result, onReplaceSessions } = renderStatefulSync({ transport,
+      sessions: { activeSessionId: 'a', sessions: collection }, settings: DEFAULT_SETTINGS })
+
+    await act(async () => { await result.current.syncNow('manual') })
+    expect(result.current.phase).toBe('conflict')
+    expect(result.current.pendingConflicts).toHaveLength(1)
+    expect(upload).not.toHaveBeenCalled()
+    await act(async () => {
+      result.current.resolveConflict('active-session', 'activeSessionId', resolution, 'session')
+      await result.current.syncNow('manual')
+    })
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    const expectedId = resolution === 'local' ? 'a' : 'b'
+    const approved = loadSyncStorage().runtime.conflicts.find((c) => c.field === 'activeSessionId')!
+    expect(result.current.pendingConflicts).toHaveLength(0)
+    expect(onReplaceSessions.mock.calls.at(-1)?.[0].activeSessionId).toBe(expectedId)
+    expect(loadSyncStorage().runtime.activeSessionFieldUpdate).toEqual({ updatedAt: approved.updatedAt,
+      editorId: resolution === 'local' ? 'device-test' : 'remote-device' })
+    const published = JSON.parse(upload.mock.calls[0]![0])
+    expect(published.sessions.activeSessionId).toBe(expectedId)
+    expect(published.sessions.sessions.flatMap((s: Session) => s.solves).map((s: Solve) => s.id).sort()).toEqual(['evening', 'morning'])
+    expect(published.sync.activeSessionFieldUpdate).toEqual(loadSyncStorage().runtime.activeSessionFieldUpdate)
+
+    await act(async () => { await result.current.syncNow('manual') })
+    expect(result.current.phase).toBe('synced')
+    expect(result.current.pendingConflicts).toHaveLength(0)
+    expect(upload).toHaveBeenCalledTimes(1)
   })
 })

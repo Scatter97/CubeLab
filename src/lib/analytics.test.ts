@@ -11,6 +11,8 @@ import {
   computeSubX,
   createAnalyticsFilters,
   filterAnalyticsSolves,
+  formatAnalyticsAxisDate,
+  analyticsSpansMultipleYears,
   standardDeviation,
   type AnalyticsFilters,
 } from './analytics'
@@ -353,12 +355,46 @@ describe('practice activity', () => {
     expect(activity.currentStreak).toBe(3)
     expect(activity.longestStreak).toBe(3)
     expect(activity.frequency).toBe(100)
-    expect(activity.daily).toHaveLength(365)
+    expect(activity.daily).toHaveLength(3)
+    expect(activity.daily[0]?.key).toBe('2026-11-01')
     expect(activity.daily.at(-1)?.count).toBe(3)
+    expect(activity.heatmapStartMs).toBe(new Date(2026, 10, 1).getTime())
+    expect(activity.heatmapEndMs).toBe(new Date(2026, 10, 3).getTime())
     expect(activity.mostActive[0]?.count).toBe(3)
     expect(activity.bestPerformanceDay?.meanMs).toBe(11_000)
     expect(activity.worstPerformanceDay?.meanMs).toBe(21_000)
     expect(activity.monthly).toHaveLength(1)
+  })
+
+  it('keeps the complete filtered activity range across calendar years', () => {
+    const session = makeSession('multi-year', 'Long history', [
+      makeSolve('old', 10_000, new Date(2025, 8, 18, 12).getTime()),
+      makeSolve('middle', 11_000, new Date(2026, 0, 5, 12).getTime()),
+      makeSolve('new', 12_000, new Date(2026, 10, 3, 12).getTime()),
+    ])
+    const trend = buildAnalyticsTrend(
+      filterAnalyticsSolves([session], createAnalyticsFilters('333'), NOW),
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+    const activity = buildActivity(trend, NOW)
+    expect(activity.daily[0]?.key).toBe('2025-09-18')
+    expect(activity.daily.at(-1)?.key).toBe('2026-11-03')
+    expect(activity.daily.length).toBeGreaterThan(365)
+    expect(activity.daily.filter((day) => day.count > 0)).toHaveLength(3)
+    expect(activity.heatmapStartMs).toBe(new Date(2025, 8, 18).getTime())
+    expect(activity.heatmapEndMs).toBe(new Date(2026, 10, 3).getTime())
+    expect(
+      analyticsSpansMultipleYears(
+        trend.solves.map((solve) => solve.createdAt),
+      ),
+    ).toBe(true)
+    expect(
+      formatAnalyticsAxisDate(new Date(2025, 8, 15).getTime(), true),
+    ).toMatch(/2025/)
+    expect(
+      formatAnalyticsAxisDate(new Date(2026, 10, 3).getTime(), false),
+    ).not.toMatch(/2026/)
   })
 })
 
@@ -374,6 +410,22 @@ describe('advanced analytics', () => {
     expect(advanced.slowest[0]?.ms).toBe(18_000)
     expect(advanced.movingMedian).toHaveLength(5)
     expect(advanced.estimatedTargetProbability).toBeGreaterThan(0)
+  })
+
+  it('uses the last N attempts, including DNFs, for the moving median', () => {
+    const session = makeSession('s1', 'Main', [
+      makeSolve('s0', 10_000, NOW - 4_000),
+      makeSolve('s1', 9_000, NOW - 3_000, { penalty: 'dnf' }),
+      makeSolve('s2', 20_000, NOW - 2_000),
+      makeSolve('s3', 30_000, NOW - 1_000),
+    ])
+    const trend = buildAnalyticsTrend(
+      filterAnalyticsSolves([session], createAnalyticsFilters('333'), NOW),
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+    const advanced = computeAdvanced(trend, 11_000, 3)
+    expect(advanced.movingMedian).toEqual([10_000, 10_000, 15_000, 25_000])
   })
 })
 
@@ -448,4 +500,67 @@ describe('large histories', () => {
     expect(overview.averages.every((average) => average.best !== null)).toBe(true)
     expect(solves).toHaveLength(100_000)
   }, 30_000)
+})
+
+describe('histogram rescaling', () => {
+  const typical = Array.from({ length: 100 }, (_, index) => 10_000 + index * 50)
+  const withExtreme = [...typical, 600_000]
+
+  it('keeps a few long solves from compressing the main distribution', () => {
+    const histogram = buildHistogram(withExtreme)
+    expect(histogram.validCount).toBe(101)
+    expect(histogram.intervalMs).toBeLessThanOrEqual(1_000)
+    expect(histogram.bins.length).toBeLessThanOrEqual(20)
+    expect(histogram.bins.reduce((sum, bin) => sum + bin.count, 0)).toBe(101)
+    const extremeBin = histogram.bins.find((bin) =>
+      bin.startMs <= 600_000 && 600_000 < bin.endMs,
+    )
+    expect(extremeBin?.count).toBeGreaterThanOrEqual(1)
+    expect(extremeBin?.groupedExtreme).toBe(true)
+    expect(histogram.groupedExtremes).toBe(true)
+  })
+
+  it('recomputes an automatic interval when data switches ranges', () => {
+    const long = buildHistogram(
+      Array.from({ length: 60 }, (_, index) => 90_000 + index * 1_000),
+    )
+    const short = buildHistogram(
+      Array.from({ length: 60 }, (_, index) => 9_000 + index * 100),
+    )
+    expect(long.autoInterval).toBe(true)
+    expect(short.autoInterval).toBe(true)
+    expect(short.intervalMs).toBeLessThan(long.intervalMs)
+    expect(short.bins.at(-1)!.endMs).toBeLessThanOrEqual(15_000)
+    expect(long.bins[0]!.startMs).toBeGreaterThanOrEqual(80_000)
+    const longAgain = buildHistogram(
+      Array.from({ length: 60 }, (_, index) => 90_000 + index * 1_000),
+    )
+    expect(longAgain.intervalMs).toBe(long.intervalMs)
+    expect(longAgain.bins).toEqual(long.bins)
+    expect(buildHistogram([12_345]).intervalMs).not.toBe(
+      buildHistogram([90_000, 90_500]).intervalMs,
+    )
+  })
+
+  it('preserves an explicit interval across different histories', () => {
+    const long = buildHistogram([60_000, 90_000, 1_000_000], 2_000)
+    const short = buildHistogram([10_000, 12_000, 14_000], 2_000)
+    expect(long.intervalMs).toBe(2_000)
+    expect(short.intervalMs).toBe(2_000)
+    expect(long.autoInterval).toBe(false)
+    expect(short.autoInterval).toBe(false)
+  })
+
+  it('handles empty and single-solve histories', () => {
+    const empty = buildHistogram([])
+    expect(empty.bins).toEqual([])
+    expect(empty.autoInterval).toBe(true)
+    expect(empty.groupedExtremes).toBe(false)
+
+    const one = buildHistogram([12_345])
+    expect(one.validCount).toBe(1)
+    expect(one.bins.reduce((sum, bin) => sum + bin.count, 0)).toBe(1)
+    expect(one.bins[0]!.startMs).toBeLessThanOrEqual(12_345)
+    expect(one.bins[0]!.endMs).toBeGreaterThan(12_345)
+  })
 })

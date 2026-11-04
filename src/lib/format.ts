@@ -79,6 +79,21 @@ export function formatSolveCount(count: number): string {
   return `${count} ${count === 1 ? 'solve' : 'solves'}`
 }
 
+/**
+ * Session totals are summarized in hours rather than timer notation. Two
+ * decimals keep the value readable while still distinguishing large sessions.
+ * The input is the effective-time sum used by `getSessionSummary`.
+ */
+export function formatSessionHours(ms: number): string {
+  const safeMs = Number.isFinite(ms) ? Math.max(0, ms) : 0
+  const hours = safeMs / 3_600_000
+  const formatted = new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(hours)
+  return `${formatted} h`
+}
+
 export function formatRelativeTime(timestamp: number, now = Date.now()): string {
   const elapsed = Math.max(0, now - timestamp)
   if (elapsed < 60_000) return 'Just now'

@@ -3,6 +3,7 @@ import { useModalDialog } from '../hooks/useModalDialog'
 import type { SessionsData } from '../types'
 import { normalizeSessionName } from '../lib/sessions'
 import { CloseIcon } from './Icons'
+import { Select } from './Select'
 
 interface MergeSessionsDialogProps {
   open: boolean
@@ -146,45 +147,45 @@ function MergeSessionsContent({
               <div className="settings-row-copy">
                 <span className="settings-row-label">Destination session</span>
               </div>
-              <select
-                aria-label="Destination session"
+              <Select
+                ariaLabel="Destination session"
                 className="compact-select"
                 value={effectiveTarget}
-                onChange={(event) => {
-                  setTargetId(event.target.value)
+                testId="merge-destination"
+                options={sessions.sessions.map((session) => ({
+                  value: session.id,
+                  label: `${session.name} (${session.solves.length} solves)`,
+                  text: session.name,
+                }))}
+                onChange={(value) => {
+                  setTargetId(value)
                   // A confirmation applies to one reviewed pair only.
                   setPhrase('')
                 }}
-              >
-                {sessions.sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name} ({session.solves.length} solves)
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div className="settings-row">
               <div className="settings-row-copy">
                 <span className="settings-row-label">Source session</span>
               </div>
-              <select
-                aria-label="Source session"
+              <Select
+                ariaLabel="Source session"
                 className="compact-select"
                 value={effectiveSource}
-                onChange={(event) => {
-                  setSourceId(event.target.value)
+                testId="merge-source"
+                options={sessions.sessions
+                  .filter((session) => session.id !== effectiveTarget)
+                  .map((session) => ({
+                    value: session.id,
+                    label: `${session.name} (${session.solves.length} solves)`,
+                    text: session.name,
+                  }))}
+                onChange={(value) => {
+                  setSourceId(value)
                   setPhrase('')
                 }}
-              >
-                {sessions.sessions
-                  .filter((session) => session.id !== effectiveTarget)
-                  .map((session) => (
-                    <option key={session.id} value={session.id}>
-                      {session.name} ({session.solves.length} solves)
-                    </option>
-                  ))}
-              </select>
+              />
             </div>
           </>
         ) : null}

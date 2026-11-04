@@ -1,7 +1,18 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
-import { CUBELAB_EVENTS } from './events'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  CUBELAB_EVENTS,
+  resetCustomEventDefinitionsForTests,
+  setCustomEventDefinitions,
+} from './events'
+import {
+  DEFAULT_CUSTOM_EVENT_PLACEHOLDER,
+} from './events'
 import { generateScramble, isPlausibleScramble } from './scramble'
+
+afterEach(() => {
+  resetCustomEventDefinitionsForTests()
+})
 
 describe('scramble generation', () => {
   it('validates well-formed and malformed N×N notation', () => {
@@ -117,4 +128,20 @@ describe('scramble generation', () => {
     },
     30_000,
   )
+
+  it('returns the custom placeholder without generating a scramble', async () => {
+    setCustomEventDefinitions([
+      {
+        id: 'custom:fto',
+        name: 'FTO',
+        placeholder: 'No FTO scramble',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ])
+    await expect(generateScramble('custom:fto')).resolves.toBe('No FTO scramble')
+    await expect(generateScramble('custom:missing')).resolves.toBe(
+      DEFAULT_CUSTOM_EVENT_PLACEHOLDER,
+    )
+  })
 })
