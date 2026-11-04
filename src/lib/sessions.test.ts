@@ -11,6 +11,7 @@ import {
   getOrderedSessions,
   getSessionSummary,
   moveSession,
+  moveSessionTo,
   resolveSessionOrdering,
   createSession,
   deleteSession,
@@ -751,6 +752,31 @@ describe('session ordering', () => {
       editorId: 'laptop',
     })
     expect(moveSession(moved, 'a', -1, 60)).toBe(moved)
+  })
+
+  it('moves a session to an explicit final position without changing identity', () => {
+    const moved = moveSessionTo(three(), 'c', 0, 50, 'laptop')
+    expect(moved.sessions.map((entry) => entry.id)).toEqual(['c', 'a', 'b'])
+    expect(moved.activeSessionId).toBe('b')
+    expect(moved.sessions.find((entry) => entry.id === 'b')?.solves).toHaveLength(1)
+    expect(moved.sessionOrder).toEqual({
+      ids: ['c', 'a', 'b'],
+      updatedAt: 50,
+      editorId: 'laptop',
+    })
+
+    expect(moveSessionTo(moved, 'c', 0, 60)).toBe(moved)
+    expect(moveSessionTo(moved, 'c', 99, 70).sessionOrder?.ids).toEqual([
+      'a',
+      'b',
+      'c',
+    ])
+    expect(moveSessionTo(moved, 'c', -4, 80).sessionOrder?.ids).toEqual([
+      'c',
+      'a',
+      'b',
+    ])
+    expect(moveSessionTo(moved, 'missing', 0, 90)).toBe(moved)
   })
 
   it('preserves stored array order before the first explicit reorder', () => {

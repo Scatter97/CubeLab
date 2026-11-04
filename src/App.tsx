@@ -153,6 +153,7 @@ export default function App() {
     selectSession,
     setSessionEvent,
     moveSession,
+    moveSessionTo,
     deleteAllSessions,
     replaceSessions,
     createCustomEvent,
@@ -942,6 +943,14 @@ export default function App() {
     [moveSession, timer.state.status],
   )
 
+  const handleReorderSession = useCallback(
+    (id: string, targetIndex: number) => {
+      if (timer.state.status !== 'idle') return
+      moveSessionTo(id, targetIndex)
+    },
+    [moveSessionTo, timer.state.status],
+  )
+
   const handleSetSessionEvent = useCallback(
     (id: string, event: PuzzleEvent) => {
       if (timer.state.status !== 'idle') return false
@@ -1709,6 +1718,7 @@ export default function App() {
             onSelect={handleSelectSession}
             onOpenSessionSettings={handleOpenSessionSettings}
             onMove={handleMoveSession}
+            onReorder={handleReorderSession}
           />
 
           {isDesktopLayout ? (

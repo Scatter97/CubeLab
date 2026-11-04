@@ -122,6 +122,17 @@ function seedData(overrides: Partial<SeedData> = {}): SeedData {
   }
 }
 
+function manySessions(count: number): SeedSession[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `long-${index}`,
+    name: `Session ${index + 1}`,
+    event: '333',
+    createdAt: NOW - (count - index) * 1_000,
+    updatedAt: NOW,
+    solves: [],
+  }))
+}
+
 async function seed(page: Page, data: SeedData = seedData()) {
   await page.addInitScript((payload) => {
     if (sessionStorage.getItem('cubelab-session-seeded')) return
@@ -308,6 +319,283 @@ test.describe('session management', () => {
     expect(
       persisted?.sessions.find((session) => session.id === 'a')?.solves,
     ).toHaveLength(3)
+  })
+
+  test('reorders sessions by dragging a handle without changing the active session and persists after reload', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const trigger = page.getByTestId('session-select')
+    await trigger.click()
+    const panel = page.getByRole('group', { name: 'Session list' })
+    await expect(panel).toBeVisible()
+    const handle = page.getByTestId('session-drag-handle-b')
+    const target = page.getByTestId('session-option-a')
+    const handleBox = await handle.boundingBox()
+    const targetBox = await target.boundingBox()
+    expect(handleBox).not.toBeNull()
+    expect(targetBox).not.toBeNull()
+
+    await page.mouse.move(
+      handleBox!.x + handleBox!.width / 2,
+      handleBox!.y + handleBox!.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      handleBox!.x + handleBox!.width / 2,
+      targetBox!.y + 3,
+      { steps: 6 },
+    )
+    await expect(page.getByTestId('session-drop-indicator')).toBeVisible()
+    await expect(
+      panel.locator('[data-session-id="b"]'),
+    ).toHaveClass(/is-dragging/)
+    await page.mouse.up()
+
+    const rows = panel.locator('.session-picker-row')
+    await expect(rows.nth(0)).toContainText('Evening')
+    await expect(rows.nth(1)).toContainText('Morning')
+    await expect(trigger).toContainText('Morning')
+    await expect(page.getByTestId('session-option-a')).toHaveAttribute(
+      'aria-current',
+      'true',
+    )
+    await expect(panel.getByRole('status')).toContainText(
+      'Evening moved to position 1 of 3.',
+    )
+    await expect(panel).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    expect(await sessionNames(page)).toEqual(['Evening', 'Morning', 'Empty'])
+    await page.reload()
+    await waitForApp(page)
+    expect(await sessionNames(page)).toEqual(['Evening', 'Morning', 'Empty'])
+    const persisted = await stored(page)
+    expect(persisted?.sessionOrder?.ids).toEqual(['b', 'a', 'c'])
+    expect(
+      persisted?.sessions.find((session) => session.id === 'a')?.solves,
+    ).toHaveLength(3)
+  })
+
+  test('auto-scrolls a long session list while dragging', async ({ page }) => {
+    const sessions = manySessions(24)
+    await seed(
+      page,
+      seedData({
+        activeSessionId: 'long-0',
+        sessions,
+        sessionOrder: {
+          ids: sessions.map((session) => session.id),
+          updatedAt: NOW,
+          editorId: 'seed',
+        },
+      }),
+    )
+    await page.goto('/')
+    await waitForApp(page)
+
+    const trigger = page.getByTestId('session-select')
+    await trigger.click()
+    const panel = page.getByRole('group', { name: 'Session list' })
+    await expect(panel).toBeVisible()
+    await panel.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+
+    const handle = page.getByTestId('session-drag-handle-long-23')
+    await expect(handle).toBeVisible()
+    const handleBox = await handle.boundingBox()
+    const panelBox = await panel.boundingBox()
+    expect(handleBox).not.toBeNull()
+    expect(panelBox).not.toBeNull()
+
+    await page.mouse.move(
+      handleBox!.x + handleBox!.width / 2,
+      handleBox!.y + handleBox!.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      handleBox!.x + handleBox!.width / 2,
+      panelBox!.y + 8,
+      { steps: 10 },
+    )
+    await expect
+      .poll(() => panel.evaluate((element) => element.scrollTop), {
+        // WebKit's headless animation frames run slower than a real display.
+        timeout: 20_000,
+      })
+      .toBe(0)
+    await page.mouse.move(handleBox!.x + handleBox!.width / 2, panelBox!.y + 6)
+    await page.mouse.up()
+
+    await expect(panel.locator('.session-picker-row').first()).toContainText(
+      'Session 24',
+    )
+    await expect(trigger).toContainText('Session 1')
+    await page.keyboard.press('Escape')
+    expect((await sessionNames(page))[0]).toBe('Session 24')
+
+    await page.reload()
+    await waitForApp(page)
+    expect((await sessionNames(page))[0]).toBe('Session 24')
+    const persisted = await stored(page)
+    expect(persisted?.sessionOrder?.ids[0]).toBe('long-23')
+    expect(persisted?.activeSessionId).toBe('long-0')
+  })
+
+  test('reveals keyboard-reordered rows in a long session list', async ({
+    page,
+  }) => {
+    const sessions = manySessions(24)
+    await seed(
+      page,
+      seedData({
+        activeSessionId: 'long-0',
+        sessions,
+        sessionOrder: {
+          ids: sessions.map((session) => session.id),
+          updatedAt: NOW,
+          editorId: 'seed',
+        },
+      }),
+    )
+    await page.goto('/')
+    await waitForApp(page)
+
+    const trigger = page.getByTestId('session-select')
+    await trigger.click()
+    const panel = page.getByRole('group', { name: 'Session list' })
+    await expect(page.getByTestId('session-option-long-0')).toBeFocused()
+    const handle = page.getByTestId('session-drag-handle-long-0')
+    await handle.focus()
+    await expect(handle).toBeFocused()
+
+    for (let index = 0; index < 16; index += 1) {
+      await page.keyboard.press('ArrowDown')
+    }
+    await expect
+      .poll(() => panel.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0)
+    const panelBox = await panel.boundingBox()
+    const handleBox = await handle.boundingBox()
+    expect(panelBox).not.toBeNull()
+    expect(handleBox).not.toBeNull()
+    expect(handleBox!.y).toBeGreaterThanOrEqual(panelBox!.y - 1)
+    expect(handleBox!.y + handleBox!.height).toBeLessThanOrEqual(
+      panelBox!.y + panelBox!.height + 1,
+    )
+    await expect(trigger).toContainText('Session 1')
+    await expect(page.getByTestId('session-option-long-0')).toHaveAttribute(
+      'aria-current',
+      'true',
+    )
+
+    for (let index = 0; index < 16; index += 1) {
+      await page.keyboard.press('ArrowUp')
+    }
+    const finalHandleBox = await handle.boundingBox()
+    expect(finalHandleBox).not.toBeNull()
+    expect(finalHandleBox!.y).toBeGreaterThanOrEqual(panelBox!.y - 1)
+    expect(finalHandleBox!.y + finalHandleBox!.height).toBeLessThanOrEqual(
+      panelBox!.y + panelBox!.height + 1,
+    )
+    await expect(panel.locator('.session-picker-row').first()).toContainText(
+      'Session 1',
+    )
+    await expect(trigger).toContainText('Session 1')
+  })
+
+  test('recalculates the drop position when the session list scrolls under a held pointer', async ({
+    page,
+  }) => {
+    const sessions = manySessions(20)
+    await seed(
+      page,
+      seedData({
+        activeSessionId: 'long-0',
+        sessions,
+        sessionOrder: {
+          ids: sessions.map((session) => session.id),
+          updatedAt: NOW,
+          editorId: 'seed',
+        },
+      }),
+    )
+    await page.goto('/')
+    await waitForApp(page)
+
+    const trigger = page.getByTestId('session-select')
+    await trigger.click()
+    const panel = page.getByRole('group', { name: 'Session list' })
+    await expect(panel).toBeVisible()
+    await panel.evaluate((element) => {
+      element.scrollTop = 0
+    })
+
+    const handle = page.getByTestId('session-drag-handle-long-2')
+    const handleBox = await handle.boundingBox()
+    expect(handleBox).not.toBeNull()
+    const x = handleBox!.x + handleBox!.width / 2
+    const startY = handleBox!.y + handleBox!.height / 2
+
+    await page.mouse.move(x, startY)
+    await page.mouse.down()
+    await page.mouse.move(x, startY + 8, { steps: 2 })
+    await panel.evaluate((element) => {
+      element.scrollTop = 200
+    })
+    await expect
+      .poll(() => panel.evaluate((element) => element.scrollTop))
+      .toBe(200)
+
+    const pointerY = startY + 8
+    const expectedOrder = await page.evaluate(
+      ({ pointerY: currentY, draggedId }) => {
+        const rows = Array.from(
+          document.querySelectorAll<HTMLElement>('.session-picker-row'),
+        )
+        const dragged = rows.find(
+          (row) => row.dataset.sessionId === draggedId,
+        )
+        const others = rows.filter((row) => row !== dragged)
+        let insertion = others.length
+        for (let index = 0; index < others.length; index += 1) {
+          const rect = others[index]!.getBoundingClientRect()
+          if (currentY < (rect.top + rect.bottom) / 2) {
+            insertion = index
+            break
+          }
+        }
+        const ids = others.map((row) => row.dataset.sessionId!)
+        ids.splice(insertion, 0, draggedId)
+        return ids
+      },
+      { pointerY, draggedId: 'long-2' },
+    )
+
+    await page.mouse.up()
+    const order = await panel
+      .locator('.session-picker-row')
+      .evaluateAll((rows) =>
+        rows.map((row) => (row as HTMLElement).dataset.sessionId),
+      )
+    expect(order).toEqual(expectedOrder)
+    expect(order.indexOf('long-2')).not.toBe(2)
+    await expect(trigger).toContainText('Session 1')
+    await expect(page.getByTestId('session-option-long-0')).toHaveAttribute(
+      'aria-current',
+      'true',
+    )
+
+    await page.keyboard.press('Escape')
+    await page.reload()
+    await waitForApp(page)
+    const persisted = await stored(page)
+    expect(persisted?.sessionOrder?.ids).toEqual(expectedOrder)
+    expect(persisted?.activeSessionId).toBe('long-0')
   })
 
   test('keeps the integrated session menu inside a narrow viewport', async ({

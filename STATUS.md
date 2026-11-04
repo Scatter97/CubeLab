@@ -26,8 +26,9 @@ and immediate work queue. [README.md](README.md) describes the product;
 - Inspection/penalties/warnings, named sessions, comments/actions, configurable
   average trimming, compact/expanded Time Trend, wheel/pinch/pan and historical
   PB statistics are implemented. Sessions use schema v5; settings use v10.
-  Sessions can be reordered with accessible Up/Down controls inside the session
-  selector; order is backed up and synchronized as an ID-based record. Session
+  Sessions can be reordered with drag handles, arrow-key reordering, and
+  accessible Up/Down controls inside the session selector; order is backed up
+  and synchronized as an ID-based record. Session
   settings can correct a session's event (with confirmation when solves exist)
   while preserving every solve field and import provenance. Optional completed/
   total solve and total-time summaries live in the slim timer footer, follow

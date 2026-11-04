@@ -21,6 +21,7 @@ import {
   getActiveSession,
   getOrderedSessions,
   moveSession as moveSessionInData,
+  moveSessionTo as moveSessionToInData,
   removeSolve as removeSolveFromData,
   renameSession as renameSessionInData,
   restoreSolve as restoreSolveInData,
@@ -60,6 +61,7 @@ export interface UseSessionsResult {
   renameSession: (id: string, name: string) => boolean
   setSessionEvent: (id: string, event: PuzzleEvent) => boolean
   moveSession: (id: string, direction: -1 | 1) => void
+  moveSessionTo: (id: string, targetIndex: number) => void
   deleteSession: (id: string) => boolean
   deleteAllSessions: () => boolean
   selectSession: (id: string) => void
@@ -283,6 +285,21 @@ export function useSessions(): UseSessionsResult {
     [commit, syncDeviceId],
   )
 
+  const moveSessionTo = useCallback(
+    (id: string, targetIndex: number) => {
+      commit((current) =>
+        moveSessionToInData(
+          current,
+          id,
+          targetIndex,
+          undefined,
+          syncDeviceId,
+        ),
+      )
+    },
+    [commit, syncDeviceId],
+  )
+
   const deleteSession = useCallback((id: string): boolean => {
     const next = deleteSessionFromData(dataRef.current, id)
     if (!next) return false
@@ -418,6 +435,7 @@ export function useSessions(): UseSessionsResult {
     renameSession,
     setSessionEvent,
     moveSession,
+    moveSessionTo,
     deleteSession,
     deleteAllSessions,
     selectSession,

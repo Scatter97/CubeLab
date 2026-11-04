@@ -327,6 +327,36 @@ function withSessionOrdering(
 }
 
 /**
+ * Moves one session to a final position in the user order. `targetIndex` is
+ * clamped to the collection and describes the position after the session has
+ * been removed, which is what a drag-and-drop insertion indicator represents.
+ * The whole ordered ID list is saved with one timestamp so two devices choose a
+ * single deterministic winner, while sessions unknown to that list are appended
+ * rather than deleted.
+ */
+export function moveSessionTo(
+  data: SessionsData,
+  sessionId: string,
+  targetIndex: number,
+  now = Date.now(),
+  editorId = 'legacy',
+): SessionsData {
+  const ordered = getOrderedSessions(data)
+  const index = ordered.findIndex((session) => session.id === sessionId)
+  if (index < 0) return data
+  const target = Math.max(
+    0,
+    Math.min(Math.trunc(targetIndex), ordered.length - 1),
+  )
+  if (target === index) return data
+  const next = [...ordered]
+  const [session] = next.splice(index, 1)
+  if (!session) return data
+  next.splice(target, 0, session)
+  return withSessionOrdering(data, next, now, editorId)
+}
+
+/**
  * Moves one session up or down in the user order. The whole ordered ID list is
  * saved with one timestamp so two devices choose a single deterministic winner,
  * while sessions unknown to that list are appended rather than deleted.
@@ -341,13 +371,7 @@ export function moveSession(
   const ordered = getOrderedSessions(data)
   const index = ordered.findIndex((session) => session.id === sessionId)
   if (index < 0) return data
-  const target = index + direction
-  if (target < 0 || target >= ordered.length) return data
-  const next = [...ordered]
-  const [session] = next.splice(index, 1)
-  if (!session) return data
-  next.splice(target, 0, session)
-  return withSessionOrdering(data, next, now, editorId)
+  return moveSessionTo(data, sessionId, index + direction, now, editorId)
 }
 
 /**

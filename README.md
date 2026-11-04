@@ -114,9 +114,10 @@ solves.
 - **Named local sessions** with create, switch, rename, reorder, and a per-session
   settings gear for event correction, inspection override, clear, and confirmed
   delete. Each session has independent solves and statistics. The session
-  selector contains separate selection and accessible **Up**/**Down** move
-  controls, so reordering never changes the active session. Order persists
-  locally, is included in backups, and synchronizes across devices.
+  selector contains separate selection, drag-handle, and accessible
+  **Up**/**Down** move controls, so reordering never changes the active
+  session. Order persists locally, is included in backups, and synchronizes
+  across devices.
 - **Configurable average trimming** in **Settings → Statistics**. Choose better
   and worse sides independently, with a 5% better-side default and **Auto** on
   the worse side. Options include 0/1 solve, 1%, 5%, 10%, 20%, and median.
@@ -749,9 +750,11 @@ persistence and direction, count-down and count-up warnings, per-session
 inspection overrides, mobile pointer timing, 320 px Settings/session/solve-menu
 targets, long-history scrolling, legacy single-session migration, named-session
 create/switch/rename/delete with typed confirmation, session event correction
-and field preservation, accessible session reordering, delete-all-sessions
+and field preservation, delete-all-sessions
 confirmation/tombstones/storage failure and mock-Drive non-resurrection,
-optional session summaries, timer locking of session controls and Settings,
+accessible keyboard and pointer drag session reordering with long-list
+auto-scroll, optional session summaries, timer locking of session controls and
+Settings,
 per-event scramble/statistics/persistence flows for all twelve events at desktop
 and mobile widths, multi-event backup export/import,
 invalid-file handling, import cancellation, confirmed restore of

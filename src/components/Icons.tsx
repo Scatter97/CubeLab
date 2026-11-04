@@ -182,6 +182,14 @@ export function ArrowDownIcon(props: IconProps) {
   )
 }
 
+export function GripVerticalIcon(props: IconProps) {
+  return (
+    <Icon strokeWidth="2.6" {...props}>
+      <path d="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01" />
+    </Icon>
+  )
+}
+
 export function CubeMark({ size = 38 }: { size?: number }) {
   return (
     <svg

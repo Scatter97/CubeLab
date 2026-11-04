@@ -1564,6 +1564,7 @@ kbd {
 }
 
 .session-picker-list {
+  position: relative;
   display: grid;
   gap: 4px;
   padding: 0;
@@ -1579,6 +1580,58 @@ kbd {
   padding: 2px;
   border: 1px solid transparent;
   border-radius: 4px;
+}
+
+.session-picker-row.is-dragging {
+  background: var(--surface-soft);
+  border-color: var(--accent-line);
+  border-style: dashed;
+  opacity: 0.62;
+}
+
+.session-picker-panel.is-reordering {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.session-picker-drop-line {
+  position: absolute;
+  z-index: 2;
+  height: 2px;
+  pointer-events: none;
+  background: var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.session-drag-handle {
+  display: grid;
+  flex: 0 0 auto;
+  width: 17px;
+  padding: 0;
+  color: var(--text-faint);
+  cursor: grab;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  place-items: center;
+  touch-action: none;
+}
+
+.session-drag-handle:hover {
+  color: var(--text-muted);
+  background: var(--surface-soft);
+}
+
+.session-drag-handle:focus-visible {
+  color: var(--text);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.session-picker-row.is-dragging .session-drag-handle {
+  cursor: grabbing;
+  color: var(--accent-strong);
 }
 
 .session-picker-row:has(.session-picker-option.is-active) {

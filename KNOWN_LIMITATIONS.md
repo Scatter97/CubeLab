@@ -100,8 +100,8 @@ These are current boundaries; dated repair details are in the
   converge deterministically and never remove sessions, but the losing order is
   not surfaced as a manual conflict. Equal-timestamp ties use editor-ID and
   serialized-ID order, so an unusual mix of both orders can result until a user
-  reorders again. Reordering lives inside the session selector and uses
-  accessible Up/Down controls; there is no drag-and-drop pointer gesture.
+  reorders again. Reordering lives inside the session selector and supports
+  pointer drag handles, arrow-key reordering, and accessible Up/Down controls.
 - **Delete all sessions preserves recovery semantics.** Session and solve
   tombstones prevent every solve known to the deleting device from returning.
   A solve created only on another offline device and never merged can still
