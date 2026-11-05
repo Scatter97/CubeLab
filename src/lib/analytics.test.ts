@@ -427,6 +427,39 @@ describe('advanced analytics', () => {
     const advanced = computeAdvanced(trend, 11_000, 3)
     expect(advanced.movingMedian).toEqual([10_000, 10_000, 15_000, 25_000])
   })
+
+  it('keeps chronological order for tied fastest and slowest solves', () => {
+    const session = makeSession('s', 'Main', [
+      makeSolve('first-fast', 9_000, NOW - 8_000),
+      makeSolve('first-slow', 20_000, NOW - 7_000),
+      makeSolve('second-fast', 9_000, NOW - 6_000),
+      makeSolve('second-slow', 20_000, NOW - 5_000),
+      makeSolve('third-fast', 9_000, NOW - 4_000),
+      makeSolve('third-slow', 20_000, NOW - 3_000),
+      makeSolve('fourth-fast', 9_000, NOW - 2_000),
+      makeSolve('fourth-slow', 20_000, NOW - 1_000),
+    ])
+    const trend = buildAnalyticsTrend(
+      filterAnalyticsSolves([session], createAnalyticsFilters('333'), NOW),
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+    const advanced = computeAdvanced(trend, 11_000)
+    expect(advanced.fastest.map((entry) => entry.solve.id)).toEqual([
+      'first-fast',
+      'second-fast',
+      'third-fast',
+      'fourth-fast',
+      'first-slow',
+    ])
+    expect(advanced.slowest.map((entry) => entry.solve.id)).toEqual([
+      'first-slow',
+      'second-slow',
+      'third-slow',
+      'fourth-slow',
+      'first-fast',
+    ])
+  })
 })
 
 describe('session comparisons', () => {

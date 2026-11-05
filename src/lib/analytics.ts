@@ -157,34 +157,72 @@ export interface AnalyticsTrend {
   /** Effective single time, or null for a DNF. */
   readonly singles: readonly (number | null)[]
   readonly personalBests: readonly boolean[]
+  /** Shared valid/sorted times used by every analysis section. */
+  readonly times: AnalyticsTimes
   /** Rolling averages aligned to the chronological solve index. */
   readonly averages: ReadonlyMap<number, readonly (number | null)[]>
   /** Best rolling average seen up to and including each index. */
   readonly bestAverages: ReadonlyMap<number, readonly (number | null)[]>
+  /** Latest complete-window result for each requested size. */
+  readonly currents: ReadonlyMap<number, StatResult>
 }
 
-/** Build rolling series once; all dashboard sections share the result. */
-export function buildAnalyticsTrend(
+export interface AnalyticsTimes {
+  /** Valid effective times in chronological order. */
+  readonly valid: readonly number[]
+  /** The same valid times sorted ascending, shared by percentile reports. */
+  readonly sorted: readonly number[]
+  readonly meanMs: number | null
+  readonly medianMs: number | null
+  readonly standardDeviationMs: number | null
+  readonly totalTimeMs: number
+}
+
+/**
+ * Prepare the valid-time views once for an immutable filtered dataset. Callers
+ * that already own this summary must reuse it instead of filtering or sorting
+ * `singles` again.
+ */
+export function prepareAnalyticsTimes(
+  singles: readonly (number | null)[],
+): AnalyticsTimes {
+  const valid: number[] = []
+  let totalTimeMs = 0
+  for (const value of singles) {
+    if (value === null) continue
+    valid.push(value)
+    totalTimeMs += value
+  }
+  const sorted = [...valid].sort((left, right) => left - right)
+  return {
+    valid,
+    sorted,
+    meanMs: valid.length > 0 ? totalTimeMs / valid.length : null,
+    medianMs: medianSorted(sorted),
+    standardDeviationMs:
+      valid.length > 1 ? standardDeviation(valid) : null,
+    totalTimeMs,
+  }
+}
+
+export interface AnalyticsAverages {
+  readonly averages: ReadonlyMap<number, readonly (number | null)[]>
+  readonly bestAverages: ReadonlyMap<number, readonly (number | null)[]>
+  /** Latest complete-window result for each requested size. */
+  readonly currents: ReadonlyMap<number, StatResult>
+}
+
+/** Build only the rolling series requested by the visible calculation. */
+export function buildAnalyticsAverages(
   solves: readonly AnalyticsSolve[],
   sizes: readonly number[],
   trimming: AverageTrimming,
-): AnalyticsTrend {
+): AnalyticsAverages {
   const count = solves.length
-  const singles: (number | null)[] = new Array(count)
-  const personalBests: boolean[] = new Array(count)
-  let bestSingle = Infinity
-
-  for (let index = 0; index < count; index += 1) {
-    const time = effectiveTimeMs(solves[index]!)
-    singles[index] = time
-    const isBest = time !== null && time < bestSingle
-    personalBests[index] = isBest
-    if (isBest) bestSingle = time!
-  }
-
   const newestFirst = [...solves].reverse()
   const averages = new Map<number, readonly (number | null)[]>()
   const bestAverages = new Map<number, readonly (number | null)[]>()
+  const currents = new Map<number, StatResult>()
 
   for (const size of new Set(sizes)) {
     if (!Number.isInteger(size) || size < 2 || size > 100_000) continue
@@ -209,10 +247,41 @@ export function buildAnalyticsTrend(
 
     averages.set(size, values)
     bestAverages.set(size, runningBest)
+    currents.set(size, rolling[0] ?? null)
   }
 
-  return { solves, singles, personalBests, averages, bestAverages }
+  return { averages, bestAverages, currents }
 }
+
+/** Build rolling series once; all dashboard sections share the result. */
+export function buildAnalyticsTrend(
+  solves: readonly AnalyticsSolve[],
+  sizes: readonly number[],
+  trimming: AverageTrimming,
+): AnalyticsTrend {
+  const count = solves.length
+  const singles: (number | null)[] = new Array(count)
+  const personalBests: boolean[] = new Array(count)
+  let bestSingle = Infinity
+
+  for (let index = 0; index < count; index += 1) {
+    const time = effectiveTimeMs(solves[index]!)
+    singles[index] = time
+    const isBest = time !== null && time < bestSingle
+    personalBests[index] = isBest
+    if (isBest) bestSingle = time!
+  }
+
+  const times = prepareAnalyticsTimes(singles)
+  return {
+    solves,
+    singles,
+    personalBests,
+    times,
+    ...buildAnalyticsAverages(solves, sizes, trimming),
+  }
+}
+
 
 function medianSorted(sorted: readonly number[]): number | null {
   if (sorted.length === 0) return null
@@ -267,29 +336,55 @@ export interface AnalyticsOverview {
   readonly averages: readonly AverageOverview[]
 }
 
+export function computeAverageOverviews(
+  trend: Pick<AnalyticsTrend, 'solves' | 'bestAverages' | 'currents'>,
+  sizes: readonly number[],
+  trimming: AverageTrimming,
+  averages: Pick<AnalyticsAverages, 'bestAverages'> &
+    Partial<Pick<AnalyticsAverages, 'currents'>> = trend,
+): AverageOverview[] {
+  const result: AverageOverview[] = []
+  for (const size of new Set(sizes)) {
+    if (!Number.isInteger(size) || size < 2) continue
+    const best = averages.bestAverages.get(size)
+    const current = averages.currents?.has(size)
+      ? averages.currents.get(size)!
+      : calculateAverage([...trend.solves].reverse(), size, trimming)
+    result.push({
+      size,
+      current,
+      best: best?.[best.length - 1] ?? null,
+    })
+  }
+  return result
+}
+
 export function computeAnalyticsOverview(
   trend: AnalyticsTrend,
   sizes: readonly number[],
   trimming: AverageTrimming,
+  averages: Pick<AnalyticsAverages, 'bestAverages'> &
+    Partial<Pick<AnalyticsAverages, 'currents'>> = trend,
 ): AnalyticsOverview {
-  const valid = trend.singles.filter((value): value is number => value !== null)
-  const sorted = [...valid].sort((left, right) => left - right)
+  const { times } = trend
   const count = trend.solves.length
-  const mean =
-    valid.length > 0
-      ? valid.reduce((sum, value) => sum + value, 0) / valid.length
-      : null
-  const totalTimeMs = valid.reduce((sum, value) => sum + value, 0)
 
   const dayNumbers = new Set<number>()
-  for (const solve of trend.solves) dayNumbers.add(dayNumber(solve.createdAt))
+  let firstDay = Infinity
+  let lastDay = -Infinity
+  for (const solve of trend.solves) {
+    const day = dayNumber(solve.createdAt)
+    dayNumbers.add(day)
+    if (day < firstDay) firstDay = day
+    if (day > lastDay) lastDay = day
+  }
   let solvesPerDay: number | null = null
   if (count > 0 && dayNumbers.size > 0) {
-    const days = [...dayNumbers].sort((left, right) => left - right)
-    const span = (days[days.length - 1]! - days[0]!) + 1
+    const span = lastDay - firstDay + 1
     solvesPerDay = count / Math.max(1, span)
   }
 
+  const valid = times.valid
   let improvementPercent: number | null = null
   if (valid.length >= 10) {
     const section = Math.max(1, Math.floor(valid.length * 0.1))
@@ -300,35 +395,24 @@ export function computeAnalyticsOverview(
     if (firstMean > 0) improvementPercent = ((firstMean - lastMean) / firstMean) * 100
   }
 
-  const newestFirst = [...trend.solves].reverse()
-  const averages: AverageOverview[] = []
-  for (const size of new Set(sizes)) {
-    if (!Number.isInteger(size) || size < 2) continue
-    const best = trend.bestAverages.get(size)
-    averages.push({
-      size,
-      current: calculateAverage(newestFirst, size, trimming),
-      best: best?.[best.length - 1] ?? null,
-    })
-  }
-
   return {
     count,
     validCount: valid.length,
     dnfCount: count - valid.length,
     dnfPercent: count > 0 ? ((count - valid.length) / count) * 100 : 0,
-    best: sorted[0] ?? null,
-    worst: sorted[sorted.length - 1] ?? null,
-    meanMs: mean,
-    medianMs: medianSorted(sorted),
-    standardDeviationMs: valid.length > 1 ? standardDeviation(valid) : null,
-    totalTimeMs,
+    best: times.sorted[0] ?? null,
+    worst: times.sorted[times.sorted.length - 1] ?? null,
+    meanMs: times.meanMs,
+    medianMs: times.medianMs,
+    standardDeviationMs: times.standardDeviationMs,
+    totalTimeMs: times.totalTimeMs,
     activeDays: dayNumbers.size,
     solvesPerDay,
     improvementPercent,
-    averages,
+    averages: computeAverageOverviews(trend, sizes, trimming, averages),
   }
 }
+
 
 export interface PBEvent {
   readonly index: number
@@ -346,7 +430,10 @@ export interface PBHistory {
   readonly averageSteps: ReadonlyMap<number, readonly (number | null)[]>
 }
 
-export function buildPBHistory(trend: AnalyticsTrend): PBHistory {
+export function buildPBHistory(
+  trend: AnalyticsTrend,
+  averages: ReadonlyMap<number, readonly (number | null)[]> = trend.averages,
+): PBHistory {
   const single: PBEvent[] = []
   const singleStep: (number | null)[] = new Array(trend.solves.length).fill(null)
   let previous: PBEvent | null = null
@@ -370,9 +457,9 @@ export function buildPBHistory(trend: AnalyticsTrend): PBHistory {
     singleStep[index] = running
   })
 
-  const averages = new Map<number, readonly PBEvent[]>()
+  const averagesResult = new Map<number, readonly PBEvent[]>()
   const averageSteps = new Map<number, readonly (number | null)[]>()
-  for (const [size, values] of trend.averages) {
+  for (const [size, values] of averages) {
     const events: PBEvent[] = []
     const step: (number | null)[] = new Array(values.length).fill(null)
     let best: number | null = null
@@ -397,11 +484,16 @@ export function buildPBHistory(trend: AnalyticsTrend): PBHistory {
       step[index] = best
     })
 
-    averages.set(size, events)
+    averagesResult.set(size, events)
     averageSteps.set(size, step)
   }
 
-  return { single, singleStep, averages, averageSteps }
+  return {
+    single,
+    singleStep,
+    averages: averagesResult,
+    averageSteps,
+  }
 }
 
 export interface HistogramBin {
@@ -447,9 +539,10 @@ function niceInterval(value: number): number {
 export function buildHistogram(
   times: readonly (number | null)[],
   requestedIntervalMs?: number | null,
+  prepared?: AnalyticsTimes,
 ): Histogram {
-  const valid = times.filter((value): value is number => value !== null)
-  const sorted = [...valid].sort((left, right) => left - right)
+  const valid = prepared?.valid ?? times.filter((value): value is number => value !== null)
+  const sorted = prepared?.sorted ?? [...valid].sort((left, right) => left - right)
   const explicitInterval =
     requestedIntervalMs !== null &&
     requestedIntervalMs !== undefined &&
@@ -568,16 +661,19 @@ export function buildHistogram(
     bins,
     intervalMs,
     validCount: valid.length,
-    meanMs: valid.reduce((sum, value) => sum + value, 0) / valid.length,
-    medianMs: medianSorted(sorted),
-    standardDeviationMs: standardDeviation(valid),
+    meanMs: prepared?.meanMs ?? valid.reduce((sum, value) => sum + value, 0) / valid.length,
+    medianMs: prepared?.medianMs ?? medianSorted(sorted),
+    standardDeviationMs:
+      prepared?.standardDeviationMs ?? standardDeviation(valid),
     p25Ms: p25,
     p75Ms: p75,
     outlierLowMs: outlierLow,
     outlierHighMs: outlierHigh,
-    outlierCount: valid.filter(
-      (value) => value < outlierLow || value > outlierHigh,
-    ).length,
+    outlierCount: valid.reduce(
+      (count, value) =>
+        value < outlierLow || value > outlierHigh ? count + 1 : count,
+      0,
+    ),
     autoInterval: !explicitInterval,
     groupedExtremes: hasLowExtreme || hasHighExtreme,
   }
@@ -606,13 +702,8 @@ export function computeConsistency(
   trend: AnalyticsTrend,
   windowSizes: readonly number[] = [12, 50],
 ): ConsistencyReport {
-  const valid = trend.singles.filter((value): value is number => value !== null)
-  const sorted = [...valid].sort((left, right) => left - right)
-  const mean =
-    valid.length > 0
-      ? valid.reduce((sum, value) => sum + value, 0) / valid.length
-      : null
-  const sd = valid.length > 1 ? standardDeviation(valid) : null
+  const { times } = trend
+  const valid = times.valid
   const rolling: RollingConsistency[] = []
 
   for (const size of new Set(windowSizes)) {
@@ -662,14 +753,19 @@ export function computeConsistency(
 
   return {
     validCount: valid.length,
-    meanMs: mean,
-    medianMs: medianSorted(sorted),
-    standardDeviationMs: sd,
-    coefficientOfVariation: mean !== null && mean > 0 && sd !== null ? sd / mean : null,
-    fastestMs: sorted[0] ?? null,
-    slowestMs: sorted[sorted.length - 1] ?? null,
+    meanMs: times.meanMs,
+    medianMs: times.medianMs,
+    standardDeviationMs: times.standardDeviationMs,
+    coefficientOfVariation:
+      times.meanMs !== null && times.meanMs > 0 && times.standardDeviationMs !== null
+        ? times.standardDeviationMs / times.meanMs
+        : null,
+    fastestMs: times.sorted[0] ?? null,
+    slowestMs: times.sorted[times.sorted.length - 1] ?? null,
     spreadMs:
-      sorted.length > 0 ? sorted[sorted.length - 1]! - sorted[0]! : null,
+      times.sorted.length > 0
+        ? times.sorted[times.sorted.length - 1]! - times.sorted[0]!
+        : null,
     rolling,
   }
 }
@@ -704,7 +800,7 @@ export function computeSubX(
   const successes = trend.singles.map(
     (value) => value !== null && value < targetMs,
   )
-  const validCount = trend.singles.filter((value) => value !== null).length
+  const validCount = trend.times.valid.length
   const totalSuccesses = successes.filter(Boolean).length
   let currentStreak = 0
   for (let index = successes.length - 1; index >= 0; index -= 1) {
@@ -791,11 +887,12 @@ export function normalCdf(z: number): number {
 export function estimateTargetProbability(
   trend: AnalyticsTrend,
   targetMs: number,
+  times: AnalyticsTimes = trend.times,
 ): number | null {
-  const valid = trend.singles.filter((value): value is number => value !== null)
+  const valid = times.valid
   if (valid.length < 2) return null
-  const mean = valid.reduce((sum, value) => sum + value, 0) / valid.length
-  const sd = standardDeviation(valid)
+  const mean = times.meanMs!
+  const sd = times.standardDeviationMs ?? 0
   if (sd <= 0) return mean < targetMs ? 100 : 0
   return Math.max(0, Math.min(100, normalCdf((targetMs - mean) / sd) * 100))
 }
@@ -1047,13 +1144,47 @@ export interface AdvancedReport {
   readonly estimatedTargetProbability: number | null
 }
 
+interface RankedSolve {
+  index: number
+  solve: AnalyticsSolve
+  ms: number
+}
+
+function selectExtreme(
+  trend: AnalyticsTrend,
+  limit: number,
+  descending: boolean,
+): RankedSolve[] {
+  const selected: RankedSolve[] = []
+  const compare = descending
+    ? (left: RankedSolve, right: RankedSolve) => right.ms - left.ms
+    : (left: RankedSolve, right: RankedSolve) => left.ms - right.ms
+
+  trend.solves.forEach((solve, index) => {
+    const ms = trend.singles[index]
+    if (ms === null || ms === undefined) return
+    const entry: RankedSolve = { index, solve, ms }
+    if (selected.length >= limit) {
+      const last = selected[selected.length - 1]!
+      // Equal values retain chronological order and never displace an earlier
+      // solve, matching the previous stable sort + slice behaviour.
+      if (compare(entry, last) >= 0) return
+    }
+    let insertion = selected.findIndex((existing) => compare(entry, existing) < 0)
+    if (insertion < 0) insertion = selected.length
+    selected.splice(insertion, 0, entry)
+    if (selected.length > limit) selected.pop()
+  })
+  return selected
+}
+
 export function computeAdvanced(
   trend: AnalyticsTrend,
   targetMs: number,
   movingWindow = 25,
 ): AdvancedReport {
-  const valid = trend.singles.filter((value): value is number => value !== null)
-  const sorted = [...valid].sort((left, right) => left - right)
+  const { times } = trend
+  const valid = times.valid
   const movingMedian: (number | null)[] = new Array(trend.singles.length).fill(null)
   const attempts: (number | null)[] = []
 
@@ -1080,16 +1211,8 @@ export function computeAdvanced(
       ? ((historicalMean - recentMean) / historicalMean) * 100
       : null
 
-  const ranked = trend.solves
-    .map((solve, index) => ({ index, solve, ms: trend.singles[index] }))
-    .filter(
-      (entry): entry is { index: number; solve: AnalyticsSolve; ms: number } =>
-        entry.ms !== null,
-    )
-  const fastest = [...ranked].sort((left, right) => left.ms - right.ms).slice(0, 5)
-  const slowest = [...ranked]
-    .sort((left, right) => right.ms - left.ms)
-    .slice(0, 5)
+  const fastest = selectExtreme(trend, 5, false)
+  const slowest = selectExtreme(trend, 5, true)
 
   const pbCount = trend.personalBests.filter(Boolean).length
   const months =
@@ -1106,11 +1229,11 @@ export function computeAdvanced(
       : 1
 
   return {
-    p5Ms: percentileSorted(sorted, 0.05),
-    p25Ms: percentileSorted(sorted, 0.25),
-    p50Ms: percentileSorted(sorted, 0.5),
-    p75Ms: percentileSorted(sorted, 0.75),
-    p95Ms: percentileSorted(sorted, 0.95),
+    p5Ms: percentileSorted(times.sorted, 0.05),
+    p25Ms: percentileSorted(times.sorted, 0.25),
+    p50Ms: percentileSorted(times.sorted, 0.5),
+    p75Ms: percentileSorted(times.sorted, 0.75),
+    p95Ms: percentileSorted(times.sorted, 0.95),
     movingMedian,
     pbCount,
     pbRatePer100: trend.solves.length > 0 ? (pbCount / trend.solves.length) * 100 : 0,
@@ -1120,7 +1243,7 @@ export function computeAdvanced(
     historicalMeanMs: historicalMean,
     fastest,
     slowest,
-    estimatedTargetProbability: estimateTargetProbability(trend, targetMs),
+    estimatedTargetProbability: estimateTargetProbability(trend, targetMs, times),
   }
 }
 

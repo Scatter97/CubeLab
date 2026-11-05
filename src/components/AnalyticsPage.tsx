@@ -18,12 +18,14 @@ import {
 } from './AnalyticsCharts'
 import {
   buildActivity,
+  buildAnalyticsAverages,
   buildAnalyticsTrend,
   buildHistogram,
   buildPBHistory,
   compareSessions,
   computeAdvanced,
   computeAnalyticsOverview,
+  computeAverageOverviews,
   computeConsistency,
   computeSubX,
   createAnalyticsFilters,
@@ -32,6 +34,8 @@ import {
   analyticsSpansMultipleYears,
   type AnalyticsFilters,
   type AnalyticsSolve,
+  type AnalyticsTrend,
+  type HistogramBin,
 } from '../lib/analytics'
 import {
   ANALYTICS_SECTION_LABELS,
@@ -506,6 +510,1144 @@ function SolveListDialog({
   )
 }
 
+interface SectionCalculationProps {
+  trend: AnalyticsTrend
+  onSelectSolve: (solve: AnalyticsSolve) => void
+}
+
+function useMultipleYears(trend: AnalyticsTrend): boolean {
+  return useMemo(
+    () => analyticsSpansMultipleYears(trend.solves.map((solve) => solve.createdAt)),
+    [trend.solves],
+  )
+}
+
+function ProgressionSection({
+  trend,
+  trimming,
+  progressSeries,
+  onToggleSeries,
+  progressXAxis,
+  onChangeXAxis,
+  onSelectSolve,
+}: SectionCalculationProps & {
+  trimming: AverageTrimming
+  progressSeries: ReadonlySet<string>
+  onToggleSeries: (key: string) => void
+  progressXAxis: 'solve' | 'date'
+  onChangeXAxis: (axis: 'solve' | 'date') => void
+}) {
+  const multipleYears = useMultipleYears(trend)
+  const { series, markers } = useMemo(() => {
+    const sizes = PROGRESS_SERIES.flatMap((entry) =>
+      entry.size !== null && progressSeries.has(entry.key) ? [entry.size] : [],
+    )
+    const averages = buildAnalyticsAverages(trend.solves, sizes, trimming)
+    return {
+      series: PROGRESS_SERIES.filter((entry) => progressSeries.has(entry.key)).map(
+        (entry): AnalyticsSeries => ({
+          key: entry.key,
+          label: entry.label,
+          color: entry.color,
+          values:
+            entry.size === null
+              ? trend.singles
+              : averages.averages.get(entry.size) ?? [],
+        }),
+      ),
+      markers: buildPBHistory(trend).single.map((event) => ({
+        index: event.index,
+        value: event.ms,
+        label: `PB · ${formatTime(event.ms)} · ${fullDate(event.solve.createdAt)}`,
+      })),
+    }
+  }, [progressSeries, trend, trimming])
+  const xSolveLabel = (index: number) => `#${index + 1}`
+  const xDateLabel = (index: number) =>
+    formatAnalyticsAxisDate(
+      trend.solves[index]?.createdAt ?? Date.now(),
+      multipleYears,
+    )
+
+  return (
+    <div className="analytics-chart-stack">
+      <div className="analytics-chart-toolbar" aria-label="Time progression series">
+        <span>Series</span>
+        {PROGRESS_SERIES.map((entry) => (
+          <button
+            key={entry.key}
+            type="button"
+            className="time-trend-chip"
+            aria-pressed={progressSeries.has(entry.key)}
+            onClick={() => onToggleSeries(entry.key)}
+          >
+            <i style={{ background: entry.color }} aria-hidden="true" />
+            {entry.label}
+          </button>
+        ))}
+        <span className="analytics-toolbar-separator" />
+        <button
+          type="button"
+          className="time-trend-chip"
+          aria-pressed={progressXAxis === 'solve'}
+          onClick={() => onChangeXAxis('solve')}
+        >
+          Solve #
+        </button>
+        <button
+          type="button"
+          className="time-trend-chip"
+          aria-pressed={progressXAxis === 'date'}
+          onClick={() => onChangeXAxis('date')}
+        >
+          Date
+        </button>
+      </div>
+      <AnalyticsLineChart
+        title="Time progression"
+        hideHeading
+        ariaLabel="Solve time progression"
+        series={series}
+        xLabel={progressXAxis === 'date' ? xDateLabel : xSolveLabel}
+        formatValue={(value) => formatTime(value)}
+        formatTick={(value) => formatTime(value)}
+        markers={markers}
+        onSelectIndex={(index) => {
+          const solve = trend.solves[index]
+          if (solve) onSelectSolve(solve)
+        }}
+        emptyMessage="Record or import solves to see time progression."
+        testId="analytics-progression"
+      />
+    </div>
+  )
+}
+
+function AveragesSection({
+  trend,
+  trimming,
+  statPrecision,
+  onSelectSolve,
+}: SectionCalculationProps & {
+  trimming: AverageTrimming
+  statPrecision: Settings['statPrecision']
+}) {
+  const { series, overviews } = useMemo(() => {
+    const averages = buildAnalyticsAverages(
+      trend.solves,
+      AVERAGE_CHART_SIZES,
+      trimming,
+    )
+    return {
+      series: AVERAGE_CHART_SIZES.flatMap((size): AnalyticsSeries[] => {
+        const values = averages.averages.get(size) ?? []
+        return values.some((value) => value !== null)
+          ? [
+              {
+                key: `ao${size}`,
+                label: `ao${size}`,
+                color: `var(--trend-ao${size})`,
+                values,
+              },
+            ]
+          : []
+      }),
+      overviews: computeAverageOverviews(
+        trend,
+        AVERAGE_CHART_SIZES,
+        trimming,
+        averages,
+      ),
+    }
+  }, [trend, trimming])
+
+  return (
+    <div className="analytics-chart-stack">
+      <AnalyticsLineChart
+        title="Average progression"
+        hideHeading
+        ariaLabel="Average progression"
+        series={series}
+        xLabel={(index) => `#${index + 1}`}
+        formatValue={(value) => formatTime(value)}
+        formatTick={(value) => formatTime(value)}
+        onSelectIndex={(index) => {
+          const solve = trend.solves[index]
+          if (solve) onSelectSolve(solve)
+        }}
+        emptyMessage="At least one complete average window is needed."
+        testId="analytics-averages"
+      />
+      <div className="analytics-average-table-wrap">
+        <table className="analytics-table">
+          <thead>
+            <tr>
+              <th scope="col">Average</th>
+              <th scope="col">Current</th>
+              <th scope="col">Best</th>
+              <th scope="col">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {overviews
+              .filter(
+                (average) =>
+                  average.best !== null || average.current !== null,
+              )
+              .map((average) => (
+                <tr key={average.size}>
+                  <th scope="row">ao{average.size}</th>
+                  <td>{formatStatValue(average.current, statPrecision)}</td>
+                  <td>{formatOptionalMs(average.best)}</td>
+                  <td>{average.size} solves</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function PersonalBestsSection({
+  trend,
+  trimming,
+  onSelectSolve,
+}: SectionCalculationProps & { trimming: AverageTrimming }) {
+  const multipleYears = useMultipleYears(trend)
+  const pbHistory = useMemo(() => {
+    const averages = buildAnalyticsAverages(trend.solves, [5, 12], trimming)
+    return buildPBHistory(trend, averages.averages)
+  }, [trend, trimming])
+  const markers = useMemo(
+    () =>
+      pbHistory.single.map((event) => ({
+        index: event.index,
+        value: event.ms,
+        label: `PB · ${formatTime(event.ms)}`,
+      })),
+    [pbHistory.single],
+  )
+
+  return (
+    <div className="analytics-chart-stack">
+      <AnalyticsLineChart
+        title="PB progression"
+        ariaLabel="Personal best progression"
+        series={[
+          {
+            key: 'single',
+            label: 'Single PB',
+            color: 'var(--trend-single)',
+            values: pbHistory.singleStep,
+          },
+          {
+            key: 'ao5',
+            label: 'ao5 PB',
+            color: 'var(--trend-ao5)',
+            values: pbHistory.averageSteps.get(5) ?? [],
+          },
+          {
+            key: 'ao12',
+            label: 'ao12 PB',
+            color: 'var(--trend-ao12)',
+            values: pbHistory.averageSteps.get(12) ?? [],
+          },
+        ]}
+        xLabel={(index) =>
+          formatAnalyticsAxisDate(
+            trend.solves[index]?.createdAt ?? Date.now(),
+            multipleYears,
+          )
+        }
+        formatValue={(value) => formatTime(value)}
+        formatTick={(value) => formatTime(value)}
+        markers={markers}
+        onSelectIndex={(index) => {
+          const solve = trend.solves[index]
+          if (solve) onSelectSolve(solve)
+        }}
+        emptyMessage="Personal bests appear after the first valid solve."
+        testId="analytics-personal-bests"
+      />
+      <div className="analytics-pb-columns">
+        <div>
+          <h3>Recent single PBs</h3>
+          {pbHistory.single.length === 0 ? (
+            <p className="analytics-empty">No valid solves yet.</p>
+          ) : (
+            <table className="analytics-table">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">When</th>
+                  <th scope="col">Gain</th>
+                  <th scope="col">Since previous</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pbHistory.single.slice(-8).reverse().map((event) => (
+                  <tr key={event.solve.id}>
+                    <th scope="row">{formatTime(event.ms)}</th>
+                    <td>{fullDate(event.solve.createdAt)}</td>
+                    <td>
+                      {event.improvementMs === null
+                        ? 'First PB'
+                        : `${formatTime(event.improvementMs)}`}
+                    </td>
+                    <td>
+                      {event.gapMs === null ? '—' : formatDuration(event.gapMs)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div>
+          <h3>Recent ao5 PBs</h3>
+          {(pbHistory.averages.get(5) ?? []).length === 0 ? (
+            <p className="analytics-empty">No complete ao5 window yet.</p>
+          ) : (
+            <table className="analytics-table">
+              <thead>
+                <tr>
+                  <th scope="col">Average</th>
+                  <th scope="col">When</th>
+                  <th scope="col">Gain</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(pbHistory.averages.get(5) ?? []).slice(-8).reverse().map((event) => (
+                  <tr key={`${event.solve.id}-ao5`}>
+                    <th scope="row">{formatTime(event.ms)}</th>
+                    <td>{fullDate(event.solve.createdAt)}</td>
+                    <td>
+                      {event.improvementMs === null
+                        ? 'First PB'
+                        : formatTime(event.improvementMs)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DistributionSection({
+  trend,
+  intervalMs,
+  selectedBin,
+  onIntervalChange,
+  onSelectBin,
+  onClearBin,
+}: SectionCalculationProps & {
+  intervalMs: number | null
+  selectedBin: HistogramBin | null
+  onIntervalChange: (value: number | null) => void
+  onSelectBin: (bin: HistogramBin) => void
+  onClearBin: () => void
+}) {
+  const histogram = useMemo(
+    () => buildHistogram(trend.singles, intervalMs, trend.times),
+    [trend, intervalMs],
+  )
+  const selectedIndex = selectedBin
+    ? histogram.bins.findIndex(
+        (bin) =>
+          bin.startMs === selectedBin.startMs && bin.endMs === selectedBin.endMs,
+      )
+    : -1
+
+  return (
+    <div className="analytics-chart-stack">
+      <div className="analytics-chart-toolbar">
+        <label>
+          Interval
+          <Select
+            value={intervalMs === null ? 'auto' : String(intervalMs)}
+            testId="analytics-interval"
+            options={[
+              { value: 'auto', label: 'Auto' },
+              { value: '250', label: '0.25 s' },
+              { value: '500', label: '0.5 s' },
+              { value: '1000', label: '1 s' },
+              { value: '2000', label: '2 s' },
+              { value: '5000', label: '5 s' },
+            ]}
+            onChange={(value) =>
+              onIntervalChange(value === 'auto' ? null : Number(value))
+            }
+          />
+        </label>
+        {selectedBin ? (
+          <button
+            type="button"
+            className="time-trend-button"
+            onClick={onClearBin}
+          >
+            Clear interval filter
+          </button>
+        ) : null}
+      </div>
+      <AnalyticsHistogram
+        title="Solve time distribution"
+        hideHeading
+        bins={histogram.bins}
+        formatValue={(value) => formatTime(value)}
+        meanMs={histogram.meanMs}
+        medianMs={histogram.medianMs}
+        selectedIndex={selectedIndex}
+        onSelectBin={(index) => {
+          const bin = histogram.bins[index]
+          if (bin) onSelectBin(bin)
+        }}
+      />
+      {selectedBin ? (
+        <p className="analytics-note" role="status">
+          Showing <strong>{selectedBin.count}</strong> solves from{' '}
+          {formatTime(selectedBin.startMs)} to {formatTime(selectedBin.endMs)} in
+          the solve list.{' '}
+        </p>
+      ) : histogram.groupedExtremes ? (
+        <p className="analytics-note">
+          Edge bars group values beyond the central 98%.
+        </p>
+      ) : null}
+      <div className="analytics-stat-grid is-compact">
+        <StatCard label="Mean" value={formatOptionalMs(histogram.meanMs)} />
+        <StatCard label="Median" value={formatOptionalMs(histogram.medianMs)} />
+        <StatCard
+          label="SD"
+          value={
+            histogram.standardDeviationMs === null
+              ? '—'
+              : `${(histogram.standardDeviationMs / 1_000).toFixed(2)} s`
+          }
+        />
+        <StatCard
+          label="Outliers"
+          value={String(histogram.outlierCount)}
+          detail={
+            histogram.outlierLowMs === null || histogram.outlierHighMs === null
+              ? 'No valid solves'
+              : `Outside ${formatTime(histogram.outlierLowMs)}–${formatTime(histogram.outlierHighMs)}`
+          }
+        />
+      </div>
+    </div>
+  )
+}
+
+function ConsistencySection({ trend, onSelectSolve }: SectionCalculationProps) {
+  const consistency = useMemo(() => computeConsistency(trend), [trend])
+
+  return (
+    <div className="analytics-chart-stack">
+      <div className="analytics-stat-grid is-compact">
+        <StatCard
+          label="SD"
+          value={
+            consistency.standardDeviationMs === null
+              ? '—'
+              : `${(consistency.standardDeviationMs / 1_000).toFixed(2)} s`
+          }
+        />
+        <StatCard
+          label="Coefficient of variation"
+          value={formatPercent(
+            consistency.coefficientOfVariation === null
+              ? null
+              : consistency.coefficientOfVariation * 100,
+            2,
+          )}
+        />
+        <StatCard
+          label="Spread"
+          value={formatOptionalMs(consistency.spreadMs)}
+          detail={`${formatOptionalMs(consistency.fastestMs)} → ${formatOptionalMs(consistency.slowestMs)}`}
+        />
+        <StatCard
+          label="Mean / median"
+          value={`${formatOptionalMs(consistency.meanMs)} / ${formatOptionalMs(consistency.medianMs)}`}
+        />
+        {consistency.rolling.map((rolling) => (
+          <StatCard
+            key={rolling.size}
+            label={`Rolling SD · ${rolling.size}`}
+            value={
+              rolling.latestMs === null
+                ? '—'
+                : `${(rolling.latestMs / 1_000).toFixed(2)} s`
+            }
+            detail={`Best ${rolling.bestMs === null ? '—' : `${(rolling.bestMs / 1_000).toFixed(2)} s`}`}
+          />
+        ))}
+      </div>
+      <AnalyticsLineChart
+        title="Rolling standard deviation"
+        ariaLabel="Rolling standard deviation"
+        series={consistency.rolling.map((rolling) => ({
+          key: `sd-${rolling.size}`,
+          label: `SD ${rolling.size}`,
+          color:
+            rolling.size === 12 ? 'var(--trend-ao12)' : 'var(--trend-ao50)',
+          values: rolling.values,
+        }))}
+        xLabel={(index) => `#${index + 1}`}
+        formatValue={(value) => `${(value / 1_000).toFixed(2)} s`}
+        formatTick={(value) => `${(value / 1_000).toFixed(1)}`}
+        onSelectIndex={(index) => {
+          const solve = trend.solves[index]
+          if (solve) onSelectSolve(solve)
+        }}
+        emptyMessage="A rolling standard deviation needs a complete window."
+        testId="analytics-consistency"
+      />
+    </div>
+  )
+}
+
+function clampSubXPercent(value: number): number {
+  return Math.max(38, Math.min(72, value))
+}
+
+function SubXSection({
+  trend,
+  event,
+  targetMs,
+  onCommitTarget,
+  chartPercent,
+  onChartPercentChange,
+  onSelectSolve,
+}: SectionCalculationProps & {
+  event: PuzzleEvent
+  targetMs: number
+  onCommitTarget: (targetMs: number) => void
+  chartPercent: number
+  onChartPercentChange: (value: number) => void
+}) {
+  const subX = useMemo(() => computeSubX(trend, targetMs), [trend, targetMs])
+  const splitRef = useRef<HTMLDivElement>(null)
+  const splitDragRef = useRef<{ startX: number; startPercent: number } | null>(
+    null,
+  )
+  const beginSplit = (pointerEvent: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerEvent.button !== 0) return
+    splitDragRef.current = {
+      startX: pointerEvent.clientX,
+      startPercent: chartPercent,
+    }
+    pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId)
+  }
+  const moveSplit = (pointerEvent: React.PointerEvent<HTMLDivElement>) => {
+    const drag = splitDragRef.current
+    const container = splitRef.current
+    if (!drag || !container) return
+    const width = Math.max(1, container.getBoundingClientRect().width)
+    onChartPercentChange(
+      clampSubXPercent(
+        drag.startPercent +
+          ((pointerEvent.clientX - drag.startX) / width) * 100,
+      ),
+    )
+  }
+  const endSplit = (pointerEvent: React.PointerEvent<HTMLDivElement>) => {
+    if (!splitDragRef.current) return
+    splitDragRef.current = null
+    if (pointerEvent.currentTarget.hasPointerCapture(pointerEvent.pointerId)) {
+      pointerEvent.currentTarget.releasePointerCapture(pointerEvent.pointerId)
+    }
+  }
+  const subXChart = (
+    <AnalyticsLineChart
+      title="Sub-X percentage over time"
+      ariaLabel="Sub-X percentage over time"
+      series={[
+        {
+          key: 'subx',
+          label: `Sub-${formatTime(targetMs)}`,
+          color: 'var(--accent)',
+          values: subX.progress,
+        },
+      ]}
+      xLabel={(index) => `#${index + 1}`}
+      formatValue={(value) => `${value.toFixed(1)}%`}
+      formatTick={(value) => `${Math.round(value)}%`}
+      onSelectIndex={(index) => {
+        const solve = trend.solves[index]
+        if (solve) onSelectSolve(solve)
+      }}
+      emptyMessage="No solves match the current filters."
+      testId="analytics-subx"
+    />
+  )
+
+  return (
+    <div className="analytics-chart-stack analytics-subx-stack">
+      <SubXTargetControl
+        key={`${event}:${targetMs}`}
+        event={event}
+        targetMs={targetMs}
+        onCommit={onCommitTarget}
+      />
+      <div className="analytics-stat-grid is-compact">
+        <StatCard
+          label="Sub-X rate"
+          value={formatPercent(subX.percent)}
+          detail={`${subX.successes.toLocaleString()} of ${subX.count.toLocaleString()} solves`}
+        />
+        <StatCard
+          label="Valid-only rate"
+          value={formatPercent(subX.validPercent)}
+          detail={`${subX.validCount.toLocaleString()} valid solves`}
+        />
+        <StatCard
+          label="Current streak"
+          value={subX.currentStreak.toLocaleString()}
+        />
+        <StatCard
+          label="Longest streak"
+          value={subX.longestStreak.toLocaleString()}
+        />
+        <StatCard
+          label="Estimated probability"
+          value={formatPercent(subX.estimatedProbability)}
+          title="A normal-approximation estimate based on the current mean and sample SD. It does not guarantee future results."
+        />
+      </div>
+      {subX.bySession.length > 0 ? (
+        <div
+          className="analytics-subx-split"
+          ref={splitRef}
+          data-testid="analytics-subx-split"
+        >
+          <div
+            className="analytics-subx-chart-pane"
+            style={{ flexBasis: `${chartPercent}%` }}
+          >
+            {subXChart}
+          </div>
+          <div
+            className="analytics-subx-divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize Sub-X chart and session breakdown"
+            aria-valuemin={38}
+            aria-valuemax={72}
+            aria-valuenow={Math.round(chartPercent)}
+            tabIndex={0}
+            data-testid="analytics-subx-divider"
+            onPointerDown={beginSplit}
+            onPointerMove={moveSplit}
+            onPointerUp={endSplit}
+            onPointerCancel={endSplit}
+            onDoubleClick={() => onChartPercentChange(58)}
+            onKeyDown={(keyEvent) => {
+              const step = keyEvent.shiftKey ? 8 : 3
+              if (
+                keyEvent.key === 'ArrowRight' ||
+                keyEvent.key === 'ArrowDown'
+              ) {
+                keyEvent.preventDefault()
+                onChartPercentChange(clampSubXPercent(chartPercent + step))
+              } else if (
+                keyEvent.key === 'ArrowLeft' ||
+                keyEvent.key === 'ArrowUp'
+              ) {
+                keyEvent.preventDefault()
+                onChartPercentChange(clampSubXPercent(chartPercent - step))
+              } else if (keyEvent.key === 'Home') {
+                keyEvent.preventDefault()
+                onChartPercentChange(38)
+              } else if (keyEvent.key === 'End') {
+                keyEvent.preventDefault()
+                onChartPercentChange(72)
+              } else if (keyEvent.key === 'Enter' || keyEvent.key === ' ') {
+                keyEvent.preventDefault()
+                onChartPercentChange(58)
+              }
+            }}
+          >
+            <span className="analytics-subx-divider-grip" aria-hidden="true" />
+          </div>
+          <div
+            className="analytics-subx-table-pane"
+            data-testid="analytics-subx-table-pane"
+          >
+            <div className="analytics-subx-table-heading">
+              <h3>Session breakdown</h3>
+              <span>
+                {subX.bySession.length.toLocaleString()}{' '}
+                {subX.bySession.length === 1 ? 'session' : 'sessions'}
+              </span>
+            </div>
+            <div
+              className="analytics-subx-table-scroll"
+              tabIndex={0}
+              role="region"
+              aria-label="Sub-X session breakdown. Scroll to see every session."
+              data-testid="analytics-subx-table-scroll"
+            >
+              <table className="analytics-table analytics-subx-table">
+                <caption className="sr-only">
+                  Sub-X results by session under the current target. Column
+                  headings stay visible while the table scrolls.
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Session</th>
+                    <th scope="col">Solves</th>
+                    <th scope="col">Sub-X</th>
+                    <th scope="col">Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subX.bySession.map((session) => (
+                    <tr key={session.sessionId}>
+                      <th scope="row" title={session.sessionName}>
+                        {session.sessionName}
+                      </th>
+                      <td>{session.count.toLocaleString()}</td>
+                      <td>{session.successes.toLocaleString()}</td>
+                      <td>{formatPercent(session.percent)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : (
+        subXChart
+      )}
+    </div>
+  )
+}
+
+function SessionsSection({
+  sessions,
+  filters,
+  trimming,
+  targetMs,
+}: {
+  sessions: readonly Session[]
+  filters: AnalyticsFilters
+  trimming: AverageTrimming
+  targetMs: number
+}) {
+  const comparison = useMemo(
+    () => compareSessions(sessions, filters, trimming, targetMs),
+    [sessions, filters, trimming, targetMs],
+  )
+  const comparisonMax = comparison.reduce(
+    (max, entry) => Math.max(max, entry.ao5.length),
+    0,
+  )
+  const comparisonSeries: AnalyticsSeries[] = useMemo(
+    () =>
+      comparison.map((entry, index) => ({
+        key: entry.id,
+        label: entry.name,
+        color: SESSION_PALETTE[index % SESSION_PALETTE.length]!,
+        values: Array.from(
+          { length: comparisonMax },
+          (_, solveIndex) => entry.ao5[solveIndex] ?? null,
+        ),
+      })),
+    [comparison, comparisonMax],
+  )
+
+  return (
+    <div className="analytics-chart-stack">
+      {comparison.length < 2 ? (
+        <p className="analytics-empty">
+          Select at least two sessions with solves, or record solves in another
+          session, to compare them.
+        </p>
+      ) : (
+        <>
+          <div className="analytics-table-wrap">
+            <table className="analytics-table analytics-compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Measure</th>
+                  {comparison.map((session) => (
+                    <th scope="col" key={session.id}>
+                      {session.name}
+                      <span className="analytics-column-note">
+                        {session.count.toLocaleString()} solves
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Mean</th>
+                  {comparison.map((session) => (
+                    <td key={session.id}>
+                      {formatOptionalMs(session.overview.meanMs)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <th scope="row">Median</th>
+                  {comparison.map((session) => (
+                    <td key={session.id}>
+                      {formatOptionalMs(session.overview.medianMs)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <th scope="row">Best single</th>
+                  {comparison.map((session) => (
+                    <td key={session.id}>
+                      {formatOptionalMs(session.overview.best)}
+                    </td>
+                  ))}
+                </tr>
+                {SESSION_AVERAGE_SIZES.map((size) => (
+                  <tr key={size}>
+                    <th scope="row">Best ao{size}</th>
+                    {comparison.map((session) => (
+                      <td key={session.id}>
+                        {formatOptionalMs(
+                          session.overview.averages.find(
+                            (average) => average.size === size,
+                          )?.best ?? null,
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                <tr>
+                  <th scope="row">Standard deviation</th>
+                  {comparison.map((session) => (
+                    <td key={session.id}>
+                      {session.overview.standardDeviationMs === null
+                        ? '—'
+                        : `${(session.overview.standardDeviationMs / 1_000).toFixed(2)} s`}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <th scope="row">DNF rate</th>
+                  {comparison.map((session) => (
+                    <td key={session.id}>
+                      {formatPercent(session.overview.dnfPercent)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <th scope="row">Sub-X rate</th>
+                  {comparison.map((session) => (
+                    <td key={session.id}>
+                      {formatPercent(session.subX.percent)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <AnalyticsLineChart
+            title="Session ao5 comparison"
+            ariaLabel="Session ao5 comparison"
+            series={comparisonSeries}
+            xLabel={(index) => `#${index + 1}`}
+            formatValue={(value) => formatTime(value)}
+            formatTick={(value) => formatTime(value)}
+            emptyMessage="No comparable sessions."
+            testId="analytics-session-comparison"
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+function ActivitySection({ trend }: SectionCalculationProps) {
+  const multipleYears = useMultipleYears(trend)
+  const { activity, weeklyCounts } = useMemo(() => {
+    const activityReport = buildActivity(trend)
+    return {
+      activity: activityReport,
+      weeklyCounts: activityReport.weekly.map((week) => week.count),
+    }
+  }, [trend])
+
+  return (
+    <div className="analytics-chart-stack">
+      <div className="analytics-stat-grid is-compact">
+        <StatCard
+          label="Timed practice"
+          value={formatDuration(activity.totalTimeMs)}
+        />
+        <StatCard
+          label="Active days"
+          value={activity.activeDays.toLocaleString()}
+          detail={`${activity.averagePerActiveDay.toFixed(1)} solves per active day`}
+        />
+        <StatCard
+          label="Practice frequency"
+          value={formatPercent(activity.frequency)}
+        />
+        <StatCard
+          label="Current streak"
+          value={`${activity.currentStreak.toLocaleString()} d`}
+          detail={`Longest ${activity.longestStreak.toLocaleString()} days`}
+        />
+      </div>
+      <div className="analytics-activity-split">
+        <ActivityHeatmap
+          days={activity.daily}
+          formatDate={(day) => fullDate(day.dateMs)}
+        />
+        <AnalyticsLineChart
+          title="Solve volume"
+          ariaLabel="Weekly solve volume"
+          series={[
+            {
+              key: 'weekly',
+              label: 'Solves / week',
+              color: 'var(--trend-ao200)',
+              values: weeklyCounts,
+            },
+          ]}
+          xLabel={(index) =>
+            formatAnalyticsAxisDate(
+              activity.weekly[index]?.startMs ?? Date.now(),
+              multipleYears,
+            )
+          }
+          formatValue={(value) => value.toLocaleString()}
+          formatTick={(value) => Math.round(value).toLocaleString()}
+          showControls
+          emptyMessage="No practice activity yet."
+          testId="analytics-activity-chart"
+        />
+      </div>
+      <div className="analytics-pb-columns">
+        <div>
+          <h3>Most active days</h3>
+          {activity.mostActive.length === 0 ? (
+            <p className="analytics-empty">No solves match the filters.</p>
+          ) : (
+            <table className="analytics-table">
+              <thead>
+                <tr>
+                  <th scope="col">Day</th>
+                  <th scope="col">Solves</th>
+                  <th scope="col">Timed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activity.mostActive.map((day) => (
+                  <tr key={day.key}>
+                    <th scope="row">{fullDate(day.dateMs)}</th>
+                    <td>{day.count.toLocaleString()}</td>
+                    <td>{formatDuration(day.timeMs)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div>
+          <h3>Best / hardest practice days</h3>
+          {activity.bestPerformanceDay === null ? (
+            <p className="analytics-empty">
+              Days with at least three valid solves are ranked by mean time.
+            </p>
+          ) : (
+            <table className="analytics-table">
+              <thead>
+                <tr>
+                  <th scope="col">Day</th>
+                  <th scope="col">Mean</th>
+                  <th scope="col">Solves</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">
+                    Best · {fullDate(activity.bestPerformanceDay.dateMs)}
+                  </th>
+                  <td>{formatTime(activity.bestPerformanceDay.meanMs)}</td>
+                  <td>{activity.bestPerformanceDay.count}</td>
+                </tr>
+                {activity.worstPerformanceDay &&
+                activity.worstPerformanceDay.key !==
+                  activity.bestPerformanceDay.key ? (
+                  <tr>
+                    <th scope="row">
+                      Hardest · {fullDate(activity.worstPerformanceDay.dateMs)}
+                    </th>
+                    <td>{formatTime(activity.worstPerformanceDay.meanMs)}</td>
+                    <td>{activity.worstPerformanceDay.count}</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AdvancedSection({
+  trend,
+  targetMs,
+  onSelectSolve,
+}: SectionCalculationProps & { targetMs: number }) {
+  const multipleYears = useMultipleYears(trend)
+  const advanced = useMemo(
+    () => computeAdvanced(trend, targetMs),
+    [trend, targetMs],
+  )
+
+  return (
+    <div className="analytics-chart-stack">
+      <div className="analytics-stat-grid is-compact is-advanced">
+        <StatCard label="5th percentile" value={formatOptionalMs(advanced.p5Ms)} />
+        <StatCard label="25th percentile" value={formatOptionalMs(advanced.p25Ms)} />
+        <StatCard label="50th percentile" value={formatOptionalMs(advanced.p50Ms)} />
+        <StatCard label="75th percentile" value={formatOptionalMs(advanced.p75Ms)} />
+        <StatCard label="95th percentile" value={formatOptionalMs(advanced.p95Ms)} />
+        <StatCard
+          label="PB frequency"
+          value={advanced.pbCount.toLocaleString()}
+          detail={`${advanced.pbRatePer100.toFixed(2)} per 100 solves`}
+          title="Count of new single personal bests in the filtered history."
+        />
+        <StatCard
+          label="PB per month"
+          value={
+            advanced.pbPerMonth === null
+              ? '—'
+              : advanced.pbPerMonth.toFixed(2)
+          }
+        />
+        <StatCard
+          label="Improvement rate"
+          value={formatPercent(advanced.improvementPercent)}
+        />
+        <StatCard
+          label="Target estimate"
+          value={formatPercent(advanced.estimatedTargetProbability)}
+          detail={`Sub-${formatTime(targetMs)} · normal estimate`}
+          title="Estimated from the filtered mean and sample standard deviation, not a guarantee."
+        />
+      </div>
+      <AnalyticsLineChart
+        title="Moving median"
+        ariaLabel="Moving median"
+        series={[
+          {
+            key: 'median',
+            label: 'Moving median',
+            color: 'var(--trend-ao25)',
+            values: advanced.movingMedian,
+          },
+        ]}
+        xLabel={(index) => `#${index + 1}`}
+        formatValue={(value) => formatTime(value)}
+        formatTick={(value) => formatTime(value)}
+        onSelectIndex={(index) => {
+          const solve = trend.solves[index]
+          if (solve) onSelectSolve(solve)
+        }}
+        emptyMessage="No valid solves match the current filters."
+        testId="analytics-moving-median"
+      />
+      <div className="analytics-pb-columns">
+        <div>
+          <h3>Fastest solves</h3>
+          {advanced.fastest.length === 0 ? (
+            <p className="analytics-empty">No valid solves.</p>
+          ) : (
+            <table className="analytics-table">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Session</th>
+                  <th scope="col">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {advanced.fastest.map((entry) => (
+                  <tr key={entry.solve.id}>
+                    <th scope="row">
+                      <button
+                        type="button"
+                        className="analytics-link"
+                        onClick={() => onSelectSolve(entry.solve)}
+                      >
+                        {formatTime(entry.ms)}
+                      </button>
+                    </th>
+                    <td>{entry.solve.sessionName}</td>
+                    <td>
+                      {formatAnalyticsAxisDate(
+                        entry.solve.createdAt,
+                        multipleYears,
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div>
+          <h3>Slowest solves</h3>
+          {advanced.slowest.length === 0 ? (
+            <p className="analytics-empty">No valid solves.</p>
+          ) : (
+            <table className="analytics-table">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Session</th>
+                  <th scope="col">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {advanced.slowest.map((entry) => (
+                  <tr key={entry.solve.id}>
+                    <th scope="row">
+                      <button
+                        type="button"
+                        className="analytics-link"
+                        onClick={() => onSelectSolve(entry.solve)}
+                      >
+                        {formatTime(entry.ms)}
+                      </button>
+                    </th>
+                    <td>{entry.solve.sessionName}</td>
+                    <td>
+                      {formatAnalyticsAxisDate(
+                        entry.solve.createdAt,
+                        multipleYears,
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 interface AnalyticsPageProps {
   sessions: readonly Session[]
   initialEvent: PuzzleEvent
@@ -544,7 +1686,7 @@ export default function AnalyticsPage({
       !window.matchMedia?.('(max-width: 680px)').matches,
   )
   const [selectedSolve, setSelectedSolve] = useState<AnalyticsSolve | null>(null)
-  const [selectedBin, setSelectedBin] = useState<number | null>(null)
+  const [selectedBin, setSelectedBin] = useState<HistogramBin | null>(null)
   const [solveListOpen, setSolveListOpen] = useState(false)
   const [sessionsMenuOpen, setSessionsMenuOpen] = useState(false)
   const [histogramIntervalMs, setHistogramIntervalMs] = useState<number | null>(null)
@@ -557,10 +1699,6 @@ export default function AnalyticsPage({
   const sessionsTriggerRef = useRef<HTMLButtonElement>(null)
   const sessionsPanelRef = useRef<HTMLDivElement>(null)
   const sessionsRootRef = useRef<HTMLDivElement>(null)
-  const subXSplitRef = useRef<HTMLDivElement>(null)
-  const subXSplitDragRef = useRef<{ startX: number; startPercent: number } | null>(
-    null,
-  )
 
   useDismissablePopover({
     open: sessionsMenuOpen,
@@ -581,13 +1719,25 @@ export default function AnalyticsPage({
     () => filterAnalyticsSolves(sessions, filters),
     [sessions, filters],
   )
+  // The single and PB preparation is shared by every section. Rolling series
+  // are built only by the section that needs them.
   const trend = useMemo(
-    () => buildAnalyticsTrend(filtered, OVERVIEW_AVERAGE_SIZES, trimming),
+    () => buildAnalyticsTrend(filtered, [], trimming),
+    [filtered, trimming],
+  )
+  const overviewAverages = useMemo(
+    () => buildAnalyticsAverages(filtered, OVERVIEW_AVERAGE_SIZES, trimming),
     [filtered, trimming],
   )
   const overview = useMemo(
-    () => computeAnalyticsOverview(trend, OVERVIEW_AVERAGE_SIZES, trimming),
-    [trend, trimming],
+    () =>
+      computeAnalyticsOverview(
+        trend,
+        OVERVIEW_AVERAGE_SIZES,
+        trimming,
+        overviewAverages,
+      ),
+    [trend, trimming, overviewAverages],
   )
   const visibleOverviewAverages = overview.averages.filter(
     (average) => average.best !== null || average.current !== null,
@@ -621,29 +1771,8 @@ export default function AnalyticsPage({
     (filters.datePreset === 'all' ? 0 : 1) +
     (filters.solveLimit === null ? 0 : 1) +
     (filters.penalty === 'all' ? 0 : 1)
-  const histogram = useMemo(
-    () => buildHistogram(trend.singles, histogramIntervalMs),
-    [trend.singles, histogramIntervalMs],
-  )
-  const consistency = useMemo(() => computeConsistency(trend), [trend])
   const activeTargetEvent = filters.event === 'all' ? initialEvent : filters.event
   const targetMs = getSubXTargetMs(analyticsSettings, activeTargetEvent)
-  const subX = useMemo(
-    () => computeSubX(trend, targetMs),
-    [trend, targetMs],
-  )
-  const activity = useMemo(() => buildActivity(trend), [trend])
-  const advanced = useMemo(
-    () => computeAdvanced(trend, targetMs),
-    [trend, targetMs],
-  )
-  const pbHistory = useMemo(() => buildPBHistory(trend), [trend])
-  const comparison = useMemo(() => {
-    const comparisonFilters: AnalyticsFilters = { ...filters }
-    return compareSessions(sessions, comparisonFilters, trimming, targetMs)
-  }, [sessions, filters, trimming, targetMs])
-  const activeBin =
-    selectedBin !== null ? histogram.bins[selectedBin] ?? null : null
   const selectedAnalysis =
     visibleAnalysisSections.find((section) => section.id === activeAnalysis) ??
     visibleAnalysisSections[0] ??
@@ -666,6 +1795,7 @@ export default function AnalyticsPage({
     sessions,
     histogramIntervalMs,
   ])
+  const activeBin = selectedBin
   const solveListSolves = useMemo(() => {
     if (activeBin) {
       const matches: AnalyticsSolve[] = []
@@ -684,93 +1814,13 @@ export default function AnalyticsPage({
     return [...filtered].reverse()
   }, [activeBin, filtered, trend])
 
-  const progressChartSeries: AnalyticsSeries[] = useMemo(
-    () =>
-      PROGRESS_SERIES.filter((entry) => progressSeries.has(entry.key))
-        .map((entry) => ({
-          key: entry.key,
-          label: entry.label,
-          color: entry.color,
-          values:
-            entry.size === null
-              ? trend.singles
-              : trend.averages.get(entry.size) ?? [],
-        })),
-    [progressSeries, trend],
-  )
-  const averageChartSeries: AnalyticsSeries[] = useMemo(
-    () =>
-      AVERAGE_CHART_SIZES.flatMap((size) => {
-        const values = trend.averages.get(size) ?? []
-        return values.some((value) => value !== null)
-          ? [
-              {
-                key: `ao${size}`,
-                label: `ao${size}`,
-                color: `var(--trend-ao${size})`,
-                values,
-              },
-            ]
-          : []
-      }),
-    [trend],
-  )
-  const comparisonMax = Math.max(0, ...comparison.map((entry) => entry.ao5.length))
-  const comparisonSeries: AnalyticsSeries[] = useMemo(
-    () =>
-      comparison.map((entry, index) => ({
-        key: entry.id,
-        label: entry.name,
-        color: SESSION_PALETTE[index % SESSION_PALETTE.length]!,
-        values: Array.from(
-          { length: comparisonMax },
-          (_, solveIndex) => entry.ao5[solveIndex] ?? null,
-        ),
-      })),
-    [comparison, comparisonMax],
-  )
-  const weeklyCounts = useMemo(
-    () => activity.weekly.map((week) => week.count),
-    [activity.weekly],
-  )
-  const multipleYears = useMemo(
-    () => analyticsSpansMultipleYears(filtered.map((solve) => solve.createdAt)),
-    [filtered],
-  )
-  const xSolveLabel = (index: number) => `#${index + 1}`
-  const xDateLabel = (index: number) =>
-    formatAnalyticsAxisDate(
-      trend.solves[index]?.createdAt ?? Date.now(),
-      multipleYears,
-    )
-
-  const clampSubXPercent = (value: number) =>
-    Math.max(38, Math.min(72, value))
-  const beginSubXSplit = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
-    subXSplitDragRef.current = {
-      startX: event.clientX,
-      startPercent: subXChartPercent,
-    }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-  const moveSubXSplit = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = subXSplitDragRef.current
-    const container = subXSplitRef.current
-    if (!drag || !container) return
-    const width = Math.max(1, container.getBoundingClientRect().width)
-    setSubXChartPercent(
-      clampSubXPercent(
-        drag.startPercent + ((event.clientX - drag.startX) / width) * 100,
-      ),
-    )
-  }
-  const endSubXSplit = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!subXSplitDragRef.current) return
-    subXSplitDragRef.current = null
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
+  const toggleProgressSeries = (key: string) => {
+    setProgressSeries((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
   const updateAnalytics = (next: Partial<Settings['analytics']>) => {
@@ -815,9 +1865,7 @@ export default function AnalyticsPage({
     selectedSessionIds !== null && selectedSessionCount === 0
   const analysisEmptyMessage = noSessionsSelected
     ? 'Select at least one session to see this analysis.'
-    : selectedAnalysis?.id === 'sessions' && comparison.length < 2
-      ? 'Select at least two sessions with solves to compare them.'
-      : undefined
+    : undefined
   const analysisEmpty = analysisEmptyMessage !== undefined
   const partialSessionsSelected =
     !allSessionsSelected && !noSessionsSelected
@@ -833,528 +1881,178 @@ export default function AnalyticsPage({
   const selectAllSessions = () =>
     setFilters((current) => ({ ...current, sessionIds: null }))
 
-  const subXChart = (
-    <AnalyticsLineChart
-      title="Sub-X percentage over time"
-      ariaLabel="Sub-X percentage over time"
-      series={[
-        {
-          key: 'subx',
-          label: `Sub-${formatTime(targetMs)}`,
-          color: 'var(--accent)',
-          values: subX.progress,
-        },
-      ]}
-      xLabel={xSolveLabel}
-      formatValue={(value) => `${value.toFixed(1)}%`}
-      formatTick={(value) => `${Math.round(value)}%`}
-      onSelectIndex={(index) => {
-        const solve = trend.solves[index]
-        if (solve) setSelectedSolve(solve)
-      }}
-      emptyMessage="No solves match the current filters."
-      testId="analytics-subx"
-    />
-  )
-
-  const sectionContent: Record<AnalyticsSectionId, ReactNode> = {
-    overview:
-      overview.count === 0 ? (
-        <div
-          className="analytics-overview-empty"
-          data-testid="analytics-overview"
-        >
-          <p>No solves match this scope.</p>
-          {activeFilterCount > 0 ? (
-            <button
-              type="button"
-              className="analytics-link"
-              onClick={resetFilters}
-            >
-              Reset filters
-            </button>
-          ) : (
-            <p>Record or import solves to populate the overview.</p>
-          )}
-        </div>
-      ) : (
-        <div className="analytics-overview" data-testid="analytics-overview">
-          <div className="analytics-overview-hero">
-            <StatCard
-              label="Best single"
-              value={formatOptionalMs(overview.best)}
-              variant="hero"
-              accent
-            />
-            {featuredAverages.map((average) => (
-              <StatCard
-                key={average.size}
-                label={`Current ao${average.size}`}
-                value={formatStatValue(
-                  average.current,
-                  settings.statPrecision,
-                )}
-                detail={`Best ${formatOptionalMs(average.best)}`}
-                title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
-                variant="hero"
-              />
-            ))}
-            <StatCard
-              label="Total solves"
-              value={overview.count.toLocaleString()}
-              detail={`${overview.validCount.toLocaleString()} valid · ${overview.dnfCount.toLocaleString()} DNF`}
-              title="Every solve matching the global filters. DNFs stay in the total and are excluded from time statistics."
-              variant="hero"
-            />
-          </div>
-          <div
-            className="analytics-overview-detail"
-            data-count={8 + detailAverages.length}
+  const overviewContent =
+    overview.count === 0 ? (
+      <div
+        className="analytics-overview-empty"
+        data-testid="analytics-overview"
+      >
+        <p>No solves match this scope.</p>
+        {activeFilterCount > 0 ? (
+          <button
+            type="button"
+            className="analytics-link"
+            onClick={resetFilters}
           >
+            Reset filters
+          </button>
+        ) : (
+          <p>Record or import solves to populate the overview.</p>
+        )}
+      </div>
+    ) : (
+      <div className="analytics-overview" data-testid="analytics-overview">
+        <div className="analytics-overview-hero">
+          <StatCard
+            label="Best single"
+            value={formatOptionalMs(overview.best)}
+            variant="hero"
+            accent
+          />
+          {featuredAverages.map((average) => (
             <StatCard
-              label="Worst single"
-              value={formatOptionalMs(overview.worst)}
-              variant="detail"
+              key={average.size}
+              label={`Current ao${average.size}`}
+              value={formatStatValue(
+                average.current,
+                settings.statPrecision,
+              )}
+              detail={`Best ${formatOptionalMs(average.best)}`}
+              title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
+              variant="hero"
             />
-            <StatCard
-              label="Mean"
-              value={formatOptionalMs(overview.meanMs)}
-              title="Arithmetic mean of valid recorded results."
-              variant="detail"
-            />
-            <StatCard
-              label="Median"
-              value={formatOptionalMs(overview.medianMs)}
-              variant="detail"
-            />
-            <StatCard
-              label="Standard deviation"
-              value={
-                overview.standardDeviationMs === null
-                  ? '—'
-                  : `${(overview.standardDeviationMs / 1_000).toFixed(2)} s`
-              }
-              title="Sample standard deviation of valid solve times. Lower is more consistent."
-              variant="detail"
-            />
-            <StatCard
-              label="Practice time"
-              value={formatDuration(overview.totalTimeMs)}
-              title="Time spent in recorded valid solves. CubeLab does not store idle time."
-              variant="detail"
-            />
-            <StatCard
-              label="Active days"
-              value={overview.activeDays.toLocaleString()}
-              variant="detail"
-            />
-            <StatCard
-              label="DNF rate"
-              value={formatPercent(overview.dnfPercent)}
-              title="Share of filtered solves marked DNF."
-              variant="detail"
-            />
-            <StatCard
-              label="Improvement"
-              value={formatPercent(overview.improvementPercent)}
-              title="Positive values mean the latest tenth of the filtered history is faster than the earliest tenth."
-              variant="detail"
-            />
-            {detailAverages.map((average) => (
-              <StatCard
-                key={average.size}
-                label={`Current ao${average.size}`}
-                value={formatStatValue(
-                  average.current,
-                  settings.statPrecision,
-                )}
-                detail={`Best ${formatOptionalMs(average.best)}`}
-                title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
-                variant="detail"
-              />
-            ))}
-          </div>
-        </div>
-      ),
-    progression: (
-      <div className="analytics-chart-stack">
-        <div className="analytics-chart-toolbar" aria-label="Time progression series">
-          <span>Series</span>
-          {PROGRESS_SERIES.map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              className="time-trend-chip"
-              aria-pressed={progressSeries.has(entry.key)}
-              onClick={() =>
-                setProgressSeries((current) => {
-                  const next = new Set(current)
-                  if (next.has(entry.key)) next.delete(entry.key)
-                  else next.add(entry.key)
-                  return next
-                })
-              }
-            >
-              <i style={{ background: entry.color }} aria-hidden="true" />
-              {entry.label}
-            </button>
           ))}
-          <span className="analytics-toolbar-separator" />
-          <button
-            type="button"
-            className="time-trend-chip"
-            aria-pressed={progressXAxis === 'solve'}
-            onClick={() => setProgressXAxis('solve')}
-          >
-            Solve #
-          </button>
-          <button
-            type="button"
-            className="time-trend-chip"
-            aria-pressed={progressXAxis === 'date'}
-            onClick={() => setProgressXAxis('date')}
-          >
-            Date
-          </button>
+          <StatCard
+            label="Total solves"
+            value={overview.count.toLocaleString()}
+            detail={`${overview.validCount.toLocaleString()} valid · ${overview.dnfCount.toLocaleString()} DNF`}
+            title="Every solve matching the global filters. DNFs stay in the total and are excluded from time statistics."
+            variant="hero"
+          />
         </div>
-        <AnalyticsLineChart
-          title="Time progression"
-          hideHeading
-          ariaLabel="Solve time progression"
-          series={progressChartSeries}
-          xLabel={progressXAxis === 'date' ? xDateLabel : xSolveLabel}
-          formatValue={(value) => formatTime(value)}
-          formatTick={(value) => formatTime(value)}
-          markers={pbHistory.single.map((event) => ({
-            index: event.index,
-            value: event.ms,
-            label: `PB · ${formatTime(event.ms)} · ${fullDate(event.solve.createdAt)}`,
-          }))}
-          onSelectIndex={(index) => {
-            const solve = trend.solves[index]
-            if (solve) setSelectedSolve(solve)
-          }}
-          emptyMessage="Record or import solves to see time progression."
-          testId="analytics-progression"
-        />
-      </div>
-    ),
-    averages: (
-      <div className="analytics-chart-stack">
-        <AnalyticsLineChart
-          title="Average progression"
-          hideHeading
-          ariaLabel="Average progression"
-          series={averageChartSeries}
-          xLabel={xSolveLabel}
-          formatValue={(value) => formatTime(value)}
-          formatTick={(value) => formatTime(value)}
-          onSelectIndex={(index) => {
-            const solve = trend.solves[index]
-            if (solve) setSelectedSolve(solve)
-          }}
-          emptyMessage="At least one complete average window is needed."
-          testId="analytics-averages"
-        />
-        <div className="analytics-average-table-wrap">
-          <table className="analytics-table">
-            <thead>
-              <tr>
-                <th scope="col">Average</th>
-                <th scope="col">Current</th>
-                <th scope="col">Best</th>
-                <th scope="col">Size</th>
-              </tr>
-            </thead>
-            <tbody>
-              {overview.averages
-                .filter(
-                  (average) =>
-                    average.best !== null || average.current !== null,
-                )
-                .map((average) => (
-                <tr key={average.size}>
-                  <th scope="row">ao{average.size}</th>
-                  <td>{formatStatValue(average.current, settings.statPrecision)}</td>
-                  <td>{formatOptionalMs(average.best)}</td>
-                  <td>{average.size} solves</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    ),
-    personalBests: (
-      <div className="analytics-chart-stack">
-        <AnalyticsLineChart
-          title="PB progression"
-          ariaLabel="Personal best progression"
-          series={[
-            {
-              key: 'single',
-              label: 'Single PB',
-              color: 'var(--trend-single)',
-              values: pbHistory.singleStep,
-            },
-            {
-              key: 'ao5',
-              label: 'ao5 PB',
-              color: 'var(--trend-ao5)',
-              values: pbHistory.averageSteps.get(5) ?? [],
-            },
-            {
-              key: 'ao12',
-              label: 'ao12 PB',
-              color: 'var(--trend-ao12)',
-              values: pbHistory.averageSteps.get(12) ?? [],
-            },
-          ]}
-          xLabel={xDateLabel}
-          formatValue={(value) => formatTime(value)}
-          formatTick={(value) => formatTime(value)}
-          markers={pbHistory.single.map((event) => ({
-            index: event.index,
-            value: event.ms,
-            label: `PB · ${formatTime(event.ms)}`,
-          }))}
-          onSelectIndex={(index) => {
-            const solve = trend.solves[index]
-            if (solve) setSelectedSolve(solve)
-          }}
-          emptyMessage="Personal bests appear after the first valid solve."
-          testId="analytics-personal-bests"
-        />
-        <div className="analytics-pb-columns">
-          <div>
-            <h3>Recent single PBs</h3>
-            {pbHistory.single.length === 0 ? (
-              <p className="analytics-empty">No valid solves yet.</p>
-            ) : (
-              <table className="analytics-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Time</th>
-                    <th scope="col">When</th>
-                    <th scope="col">Gain</th>
-                    <th scope="col">Since previous</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pbHistory.single.slice(-8).reverse().map((event) => (
-                    <tr key={event.solve.id}>
-                      <th scope="row">{formatTime(event.ms)}</th>
-                      <td>{fullDate(event.solve.createdAt)}</td>
-                      <td>
-                        {event.improvementMs === null
-                          ? 'First PB'
-                          : `${formatTime(event.improvementMs)}`}
-                      </td>
-                      <td>
-                        {event.gapMs === null
-                          ? '—'
-                          : formatDuration(event.gapMs)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-          <div>
-            <h3>Recent ao5 PBs</h3>
-            {(pbHistory.averages.get(5) ?? []).length === 0 ? (
-              <p className="analytics-empty">No complete ao5 window yet.</p>
-            ) : (
-              <table className="analytics-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Average</th>
-                    <th scope="col">When</th>
-                    <th scope="col">Gain</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(pbHistory.averages.get(5) ?? []).slice(-8).reverse().map((event) => (
-                    <tr key={`${event.solve.id}-ao5`}>
-                      <th scope="row">{formatTime(event.ms)}</th>
-                      <td>{fullDate(event.solve.createdAt)}</td>
-                      <td>
-                        {event.improvementMs === null
-                          ? 'First PB'
-                          : formatTime(event.improvementMs)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
-    ),
-    distribution: (
-      <div className="analytics-chart-stack">
-        <div className="analytics-chart-toolbar">
-          <label>
-            Interval
-            <Select
-              value={histogramIntervalMs === null ? 'auto' : String(histogramIntervalMs)}
-              testId="analytics-interval"
-              options={[
-                { value: 'auto', label: 'Auto' },
-                { value: '250', label: '0.25 s' },
-                { value: '500', label: '0.5 s' },
-                { value: '1000', label: '1 s' },
-                { value: '2000', label: '2 s' },
-                { value: '5000', label: '5 s' },
-              ]}
-              onChange={(value) =>
-                setHistogramIntervalMs(value === 'auto' ? null : Number(value))
-              }
-            />
-          </label>
-          {activeBin ? (
-            <button
-              type="button"
-              className="time-trend-button"
-              onClick={() => setSelectedBin(null)}
-            >
-              Clear interval filter
-            </button>
-          ) : null}
-        </div>
-        <AnalyticsHistogram
-          title="Solve time distribution"
-          hideHeading
-          bins={histogram.bins}
-          formatValue={(value) => formatTime(value)}
-          meanMs={histogram.meanMs}
-          medianMs={histogram.medianMs}
-          selectedIndex={selectedBin}
-          onSelectBin={(index) => {
-            setSelectedBin(index)
-            setSolveListOpen(true)
-          }}
-        />
-        {activeBin ? (
-          <p className="analytics-note" role="status">
-            Showing <strong>{activeBin.count}</strong> solves from{' '}
-            {formatTime(activeBin.startMs)} to {formatTime(activeBin.endMs)} in
-            the solve list.{' '}
-            <button
-              type="button"
-              className="analytics-link"
-              onClick={() => setSolveListOpen(true)}
-            >
-              View solves
-            </button>
-          </p>
-        ) : histogram.groupedExtremes ? (
-          <p className="analytics-note">
-            Edge bars group values beyond the central 98%.
-          </p>
-        ) : null}
-        <div className="analytics-stat-grid is-compact">
+        <div
+          className="analytics-overview-detail"
+          data-count={8 + detailAverages.length}
+        >
+          <StatCard
+            label="Worst single"
+            value={formatOptionalMs(overview.worst)}
+            variant="detail"
+          />
           <StatCard
             label="Mean"
-            value={formatOptionalMs(histogram.meanMs)}
+            value={formatOptionalMs(overview.meanMs)}
+            title="Arithmetic mean of valid recorded results."
+            variant="detail"
           />
           <StatCard
             label="Median"
-            value={formatOptionalMs(histogram.medianMs)}
+            value={formatOptionalMs(overview.medianMs)}
+            variant="detail"
           />
           <StatCard
-            label="SD"
+            label="Standard deviation"
             value={
-              histogram.standardDeviationMs === null
+              overview.standardDeviationMs === null
                 ? '—'
-                : `${(histogram.standardDeviationMs / 1_000).toFixed(2)} s`
+                : `${(overview.standardDeviationMs / 1_000).toFixed(2)} s`
             }
+            title="Sample standard deviation of valid solve times. Lower is more consistent."
+            variant="detail"
           />
           <StatCard
-            label="Outliers"
-            value={String(histogram.outlierCount)}
-            detail={
-              histogram.outlierLowMs === null || histogram.outlierHighMs === null
-                ? 'No valid solves'
-                : `Outside ${formatTime(histogram.outlierLowMs)}–${formatTime(histogram.outlierHighMs)}`
-            }
-          />
-        </div>
-      </div>
-    ),
-    consistency: (
-      <div className="analytics-chart-stack">
-        <div className="analytics-stat-grid is-compact">
-          <StatCard
-            label="SD"
-            value={
-              consistency.standardDeviationMs === null
-                ? '—'
-                : `${(consistency.standardDeviationMs / 1_000).toFixed(2)} s`
-            }
+            label="Practice time"
+            value={formatDuration(overview.totalTimeMs)}
+            title="Time spent in recorded valid solves. CubeLab does not store idle time."
+            variant="detail"
           />
           <StatCard
-            label="Coefficient of variation"
-            value={formatPercent(
-              consistency.coefficientOfVariation === null
-                ? null
-                : consistency.coefficientOfVariation * 100,
-              2,
-            )}
+            label="Active days"
+            value={overview.activeDays.toLocaleString()}
+            variant="detail"
           />
           <StatCard
-            label="Spread"
-            value={formatOptionalMs(consistency.spreadMs)}
-            detail={`${formatOptionalMs(consistency.fastestMs)} → ${formatOptionalMs(consistency.slowestMs)}`}
+            label="DNF rate"
+            value={formatPercent(overview.dnfPercent)}
+            title="Share of filtered solves marked DNF."
+            variant="detail"
           />
           <StatCard
-            label="Mean / median"
-            value={`${formatOptionalMs(consistency.meanMs)} / ${formatOptionalMs(consistency.medianMs)}`}
+            label="Improvement"
+            value={formatPercent(overview.improvementPercent)}
+            title="Positive values mean the latest tenth of the filtered history is faster than the earliest tenth."
+            variant="detail"
           />
-          {consistency.rolling.map((rolling) => (
+          {detailAverages.map((average) => (
             <StatCard
-              key={rolling.size}
-              label={`Rolling SD · ${rolling.size}`}
-              value={
-                rolling.latestMs === null
-                  ? '—'
-                  : `${(rolling.latestMs / 1_000).toFixed(2)} s`
-              }
-              detail={`Best ${rolling.bestMs === null ? '—' : `${(rolling.bestMs / 1_000).toFixed(2)} s`}`}
+              key={average.size}
+              label={`Current ao${average.size}`}
+              value={formatStatValue(
+                average.current,
+                settings.statPrecision,
+              )}
+              detail={`Best ${formatOptionalMs(average.best)}`}
+              title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
+              variant="detail"
             />
           ))}
         </div>
-        <AnalyticsLineChart
-          title="Rolling standard deviation"
-          ariaLabel="Rolling standard deviation"
-          series={consistency.rolling.map((rolling) => ({
-            key: `sd-${rolling.size}`,
-            label: `SD ${rolling.size}`,
-            color:
-              rolling.size === 12 ? 'var(--trend-ao12)' : 'var(--trend-ao50)',
-            values: rolling.values,
-          }))}
-          xLabel={xSolveLabel}
-          formatValue={(value) => `${(value / 1_000).toFixed(2)} s`}
-          formatTick={(value) => `${(value / 1_000).toFixed(1)}`}
-          onSelectIndex={(index) => {
-            const solve = trend.solves[index]
-            if (solve) setSelectedSolve(solve)
-          }}
-          emptyMessage="A rolling standard deviation needs a complete window."
-          testId="analytics-consistency"
-        />
       </div>
-    ),
-    subX: (
-      <div className="analytics-chart-stack analytics-subx-stack">
-        <SubXTargetControl
-          key={`${activeTargetEvent}:${targetMs}`}
+    )
+
+  const selectedAnalysisContent = !selectedAnalysis ? null
+    : selectedAnalysis.id === 'progression' ? (
+        <ProgressionSection
+          trend={trend}
+          trimming={trimming}
+          progressSeries={progressSeries}
+          onToggleSeries={toggleProgressSeries}
+          progressXAxis={progressXAxis}
+          onChangeXAxis={setProgressXAxis}
+          onSelectSolve={setSelectedSolve}
+        />
+      )
+    : selectedAnalysis.id === 'averages' ? (
+        <AveragesSection
+          trend={trend}
+          trimming={trimming}
+          statPrecision={settings.statPrecision}
+          onSelectSolve={setSelectedSolve}
+        />
+      )
+    : selectedAnalysis.id === 'personalBests' ? (
+        <PersonalBestsSection
+          trend={trend}
+          trimming={trimming}
+          onSelectSolve={setSelectedSolve}
+        />
+      )
+    : selectedAnalysis.id === 'distribution' ? (
+        <DistributionSection
+          trend={trend}
+          intervalMs={histogramIntervalMs}
+          selectedBin={selectedBin}
+          onIntervalChange={setHistogramIntervalMs}
+          onSelectBin={(bin) => {
+            setSelectedBin(bin)
+            setSolveListOpen(true)
+          }}
+          onClearBin={() => setSelectedBin(null)}
+          onSelectSolve={setSelectedSolve}
+        />
+      )
+    : selectedAnalysis.id === 'consistency' ? (
+        <ConsistencySection
+          trend={trend}
+          onSelectSolve={setSelectedSolve}
+        />
+      )
+    : selectedAnalysis.id === 'subX' ? (
+        <SubXSection
+          trend={trend}
           event={activeTargetEvent}
           targetMs={targetMs}
-          onCommit={(nextTargetMs) =>
+          onCommitTarget={(nextTargetMs) =>
             updateAnalytics({
               subXTargetsMs: {
                 ...analyticsSettings.subXTargetsMs,
@@ -1362,495 +2060,32 @@ export default function AnalyticsPage({
               },
             })
           }
+          chartPercent={subXChartPercent}
+          onChartPercentChange={setSubXChartPercent}
+          onSelectSolve={setSelectedSolve}
         />
-        <div className="analytics-stat-grid is-compact">
-          <StatCard
-            label="Sub-X rate"
-            value={formatPercent(subX.percent)}
-            detail={`${subX.successes.toLocaleString()} of ${subX.count.toLocaleString()} solves`}
-          />
-          <StatCard
-            label="Valid-only rate"
-            value={formatPercent(subX.validPercent)}
-            detail={`${subX.validCount.toLocaleString()} valid solves`}
-          />
-          <StatCard
-            label="Current streak"
-            value={subX.currentStreak.toLocaleString()}
-          />
-          <StatCard
-            label="Longest streak"
-            value={subX.longestStreak.toLocaleString()}
-          />
-          <StatCard
-            label="Estimated probability"
-            value={formatPercent(subX.estimatedProbability)}
-            title="A normal-approximation estimate based on the current mean and sample SD. It does not guarantee future results."
-          />
-        </div>
-        {subX.bySession.length > 0 ? (
-          <div
-            className="analytics-subx-split"
-            ref={subXSplitRef}
-            data-testid="analytics-subx-split"
-          >
-            <div
-              className="analytics-subx-chart-pane"
-              style={{ flexBasis: `${subXChartPercent}%` }}
-            >
-              {subXChart}
-            </div>
-            <div
-              className="analytics-subx-divider"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize Sub-X chart and session breakdown"
-              aria-valuemin={38}
-              aria-valuemax={72}
-              aria-valuenow={Math.round(subXChartPercent)}
-              tabIndex={0}
-              data-testid="analytics-subx-divider"
-              onPointerDown={beginSubXSplit}
-              onPointerMove={moveSubXSplit}
-              onPointerUp={endSubXSplit}
-              onPointerCancel={endSubXSplit}
-              onDoubleClick={() => setSubXChartPercent(58)}
-              onKeyDown={(event) => {
-                const step = event.shiftKey ? 8 : 3
-                if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-                  event.preventDefault()
-                  setSubXChartPercent((value) =>
-                    clampSubXPercent(value + step),
-                  )
-                } else if (
-                  event.key === 'ArrowLeft' ||
-                  event.key === 'ArrowUp'
-                ) {
-                  event.preventDefault()
-                  setSubXChartPercent((value) =>
-                    clampSubXPercent(value - step),
-                  )
-                } else if (event.key === 'Home') {
-                  event.preventDefault()
-                  setSubXChartPercent(38)
-                } else if (event.key === 'End') {
-                  event.preventDefault()
-                  setSubXChartPercent(72)
-                } else if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  setSubXChartPercent(58)
-                }
-              }}
-            >
-              <span className="analytics-subx-divider-grip" aria-hidden="true" />
-            </div>
-            <div
-              className="analytics-subx-table-pane"
-              data-testid="analytics-subx-table-pane"
-            >
-              <div className="analytics-subx-table-heading">
-                <h3>Session breakdown</h3>
-                <span>
-                  {subX.bySession.length.toLocaleString()}{' '}
-                  {subX.bySession.length === 1 ? 'session' : 'sessions'}
-                </span>
-              </div>
-              <div
-                className="analytics-subx-table-scroll"
-                tabIndex={0}
-                role="region"
-                aria-label="Sub-X session breakdown. Scroll to see every session."
-                data-testid="analytics-subx-table-scroll"
-              >
-                <table className="analytics-table analytics-subx-table">
-                  <caption className="sr-only">
-                    Sub-X results by session under the current target. Column
-                    headings stay visible while the table scrolls.
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Session</th>
-                      <th scope="col">Solves</th>
-                      <th scope="col">Sub-X</th>
-                      <th scope="col">Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {subX.bySession.map((session) => (
-                      <tr key={session.sessionId}>
-                        <th scope="row" title={session.sessionName}>
-                          {session.sessionName}
-                        </th>
-                        <td>{session.count.toLocaleString()}</td>
-                        <td>{session.successes.toLocaleString()}</td>
-                        <td>{formatPercent(session.percent)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        ) : (
-          subXChart
-        )}
-      </div>
-    ),
-    sessions: (
-      <div className="analytics-chart-stack">
-        {comparison.length < 2 ? (
-          <p className="analytics-empty">
-            Select at least two sessions with solves, or record solves in another
-            session, to compare them.
-          </p>
-        ) : (
-          <>
-            <div className="analytics-table-wrap">
-              <table className="analytics-table analytics-compare-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Measure</th>
-                    {comparison.map((session) => (
-                      <th scope="col" key={session.id}>
-                        {session.name}
-                        <span className="analytics-column-note">
-                          {session.count.toLocaleString()} solves
-                        </span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <th scope="row">Mean</th>
-                    {comparison.map((session) => (
-                      <td key={session.id}>
-                        {formatOptionalMs(session.overview.meanMs)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th scope="row">Median</th>
-                    {comparison.map((session) => (
-                      <td key={session.id}>
-                        {formatOptionalMs(session.overview.medianMs)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th scope="row">Best single</th>
-                    {comparison.map((session) => (
-                      <td key={session.id}>
-                        {formatOptionalMs(session.overview.best)}
-                      </td>
-                    ))}
-                  </tr>
-                  {SESSION_AVERAGE_SIZES.map((size) => (
-                    <tr key={size}>
-                      <th scope="row">Best ao{size}</th>
-                      {comparison.map((session) => (
-                        <td key={session.id}>
-                          {formatOptionalMs(
-                            session.overview.averages.find(
-                              (average) => average.size === size,
-                            )?.best ?? null,
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                  <tr>
-                    <th scope="row">Standard deviation</th>
-                    {comparison.map((session) => (
-                      <td key={session.id}>
-                        {session.overview.standardDeviationMs === null
-                          ? '—'
-                          : `${(session.overview.standardDeviationMs / 1_000).toFixed(2)} s`}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th scope="row">DNF rate</th>
-                    {comparison.map((session) => (
-                      <td key={session.id}>
-                        {formatPercent(session.overview.dnfPercent)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th scope="row">Sub-X rate</th>
-                    {comparison.map((session) => (
-                      <td key={session.id}>
-                        {formatPercent(session.subX.percent)}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <AnalyticsLineChart
-              title="Session ao5 comparison"
-              ariaLabel="Session ao5 comparison"
-              series={comparisonSeries}
-              xLabel={xSolveLabel}
-              formatValue={(value) => formatTime(value)}
-              formatTick={(value) => formatTime(value)}
-              emptyMessage="No comparable sessions."
-              testId="analytics-session-comparison"
-            />
-          </>
-        )}
-      </div>
-    ),
-    activity: (
-      <div className="analytics-chart-stack">
-        <div className="analytics-stat-grid is-compact">
-          <StatCard
-            label="Timed practice"
-            value={formatDuration(activity.totalTimeMs)}
-          />
-          <StatCard
-            label="Active days"
-            value={activity.activeDays.toLocaleString()}
-            detail={`${activity.averagePerActiveDay.toFixed(1)} solves per active day`}
-          />
-          <StatCard
-            label="Practice frequency"
-            value={formatPercent(activity.frequency)}
-          />
-          <StatCard
-            label="Current streak"
-            value={`${activity.currentStreak.toLocaleString()} d`}
-            detail={`Longest ${activity.longestStreak.toLocaleString()} days`}
-          />
-        </div>
-        <div className="analytics-activity-split">
-          <ActivityHeatmap
-            days={activity.daily}
-            formatDate={(day) => fullDate(day.dateMs)}
-          />
-          <AnalyticsLineChart
-            title="Solve volume"
-            ariaLabel="Weekly solve volume"
-            series={[
-              {
-                key: 'weekly',
-                label: 'Solves / week',
-                color: 'var(--trend-ao200)',
-                values: weeklyCounts,
-              },
-            ]}
-            xLabel={(index) =>
-              formatAnalyticsAxisDate(
-                activity.weekly[index]?.startMs ?? Date.now(),
-                multipleYears,
-              )
-            }
-            formatValue={(value) => value.toLocaleString()}
-            formatTick={(value) => Math.round(value).toLocaleString()}
-            showControls
-            emptyMessage="No practice activity yet."
-            testId="analytics-activity-chart"
-          />
-        </div>
-        <div className="analytics-pb-columns">
-          <div>
-            <h3>Most active days</h3>
-            {activity.mostActive.length === 0 ? (
-              <p className="analytics-empty">No solves match the filters.</p>
-            ) : (
-              <table className="analytics-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Day</th>
-                    <th scope="col">Solves</th>
-                    <th scope="col">Timed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activity.mostActive.map((day) => (
-                    <tr key={day.key}>
-                      <th scope="row">{fullDate(day.dateMs)}</th>
-                      <td>{day.count.toLocaleString()}</td>
-                      <td>{formatDuration(day.timeMs)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-          <div>
-            <h3>Best / hardest practice days</h3>
-            {activity.bestPerformanceDay === null ? (
-              <p className="analytics-empty">
-                Days with at least three valid solves are ranked by mean time.
-              </p>
-            ) : (
-              <table className="analytics-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Day</th>
-                    <th scope="col">Mean</th>
-                    <th scope="col">Solves</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <th scope="row">Best · {fullDate(activity.bestPerformanceDay.dateMs)}</th>
-                    <td>{formatTime(activity.bestPerformanceDay.meanMs)}</td>
-                    <td>{activity.bestPerformanceDay.count}</td>
-                  </tr>
-                  {activity.worstPerformanceDay &&
-                  activity.worstPerformanceDay.key !==
-                    activity.bestPerformanceDay.key ? (
-                    <tr>
-                      <th scope="row">Hardest · {fullDate(activity.worstPerformanceDay.dateMs)}</th>
-                      <td>{formatTime(activity.worstPerformanceDay.meanMs)}</td>
-                      <td>{activity.worstPerformanceDay.count}</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
-    ),
-    advanced: (
-      <div className="analytics-chart-stack">
-        <div className="analytics-stat-grid is-compact is-advanced">
-          <StatCard label="5th percentile" value={formatOptionalMs(advanced.p5Ms)} />
-          <StatCard label="25th percentile" value={formatOptionalMs(advanced.p25Ms)} />
-          <StatCard label="50th percentile" value={formatOptionalMs(advanced.p50Ms)} />
-          <StatCard label="75th percentile" value={formatOptionalMs(advanced.p75Ms)} />
-          <StatCard label="95th percentile" value={formatOptionalMs(advanced.p95Ms)} />
-          <StatCard
-            label="PB frequency"
-            value={advanced.pbCount.toLocaleString()}
-            detail={`${advanced.pbRatePer100.toFixed(2)} per 100 solves`}
-            title="Count of new single personal bests in the filtered history."
-          />
-          <StatCard
-            label="PB per month"
-            value={
-              advanced.pbPerMonth === null
-                ? '—'
-                : advanced.pbPerMonth.toFixed(2)
-            }
-          />
-          <StatCard
-            label="Improvement rate"
-            value={formatPercent(advanced.improvementPercent)}
-          />
-          <StatCard
-            label="Target estimate"
-            value={formatPercent(advanced.estimatedTargetProbability)}
-            detail={`Sub-${formatTime(targetMs)} · normal estimate`}
-            title="Estimated from the filtered mean and sample standard deviation, not a guarantee."
-          />
-        </div>
-        <AnalyticsLineChart
-          title="Moving median"
-          ariaLabel="Moving median"
-          series={[
-            {
-              key: 'median',
-              label: 'Moving median',
-              color: 'var(--trend-ao25)',
-              values: advanced.movingMedian,
-            },
-          ]}
-          xLabel={xSolveLabel}
-          formatValue={(value) => formatTime(value)}
-          formatTick={(value) => formatTime(value)}
-          onSelectIndex={(index) => {
-            const solve = trend.solves[index]
-            if (solve) setSelectedSolve(solve)
-          }}
-          emptyMessage="No valid solves match the current filters."
-          testId="analytics-moving-median"
+      )
+    : selectedAnalysis.id === 'sessions' ? (
+        <SessionsSection
+          sessions={sessions}
+          filters={filters}
+          trimming={trimming}
+          targetMs={targetMs}
         />
-        <div className="analytics-pb-columns">
-          <div>
-            <h3>Fastest solves</h3>
-            {advanced.fastest.length === 0 ? (
-              <p className="analytics-empty">No valid solves.</p>
-            ) : (
-              <table className="analytics-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Time</th>
-                    <th scope="col">Session</th>
-                    <th scope="col">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {advanced.fastest.map((entry) => (
-                    <tr key={entry.solve.id}>
-                      <th scope="row">
-                        <button
-                          type="button"
-                          className="analytics-link"
-                          onClick={() => setSelectedSolve(entry.solve)}
-                        >
-                          {formatTime(entry.ms)}
-                        </button>
-                      </th>
-                      <td>{entry.solve.sessionName}</td>
-                      <td>
-                        {formatAnalyticsAxisDate(
-                          entry.solve.createdAt,
-                          multipleYears,
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-          <div>
-            <h3>Slowest solves</h3>
-            {advanced.slowest.length === 0 ? (
-              <p className="analytics-empty">No valid solves.</p>
-            ) : (
-              <table className="analytics-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Time</th>
-                    <th scope="col">Session</th>
-                    <th scope="col">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {advanced.slowest.map((entry) => (
-                    <tr key={entry.solve.id}>
-                      <th scope="row">
-                        <button
-                          type="button"
-                          className="analytics-link"
-                          onClick={() => setSelectedSolve(entry.solve)}
-                        >
-                          {formatTime(entry.ms)}
-                        </button>
-                      </th>
-                      <td>{entry.solve.sessionName}</td>
-                      <td>
-                        {formatAnalyticsAxisDate(
-                          entry.solve.createdAt,
-                          multipleYears,
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
-    ),
-  }
+      )
+    : selectedAnalysis.id === 'activity' ? (
+        <ActivitySection
+          trend={trend}
+          onSelectSolve={setSelectedSolve}
+        />
+      )
+    : (
+        <AdvancedSection
+          trend={trend}
+          targetMs={targetMs}
+          onSelectSolve={setSelectedSolve}
+        />
+      )
 
   return (
     <main
@@ -2258,7 +2493,7 @@ export default function AnalyticsPage({
           }
           wide
         >
-          {sectionContent.overview}
+          {overviewContent}
         </Section>
       ) : null}
 
@@ -2361,7 +2596,7 @@ export default function AnalyticsPage({
                 emptyMessage={analysisEmptyMessage}
                 wide={false}
               >
-                {sectionContent[selectedAnalysis.id]}
+                {selectedAnalysisContent}
               </Section>
             ) : null}
           </div>

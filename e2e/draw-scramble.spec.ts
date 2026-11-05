@@ -43,6 +43,99 @@ async function useEvent(
   )
 }
 
+interface PaletteSignature {
+  colored: number
+  buckets: Record<string, number>
+}
+
+async function readPalette(
+  page: import('@playwright/test').Page,
+  player: import('@playwright/test').Locator,
+): Promise<PaletteSignature> {
+  const buffer = await player.screenshot()
+  return page.evaluate(async (dataUrl) => {
+    const image = new Image()
+    image.src = dataUrl
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width
+    canvas.height = image.height
+    const context = canvas.getContext('2d')!
+    context.drawImage(image, 0, 0)
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+    const buckets = new Map<string, number>()
+    let colored = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      const r = pixels[index]!
+      const g = pixels[index + 1]!
+      const b = pixels[index + 2]!
+      const a = pixels[index + 3]!
+      if (a < 128) continue
+      const max = Math.max(r, g, b)
+      const min = Math.min(r, g, b)
+      if (max < 60 || max - min < 50) continue
+      colored += 1
+      let key: string
+      if (r > 150 && g < 100 && b < 100) key = 'red'
+      else if (b > 150 && r < 100 && g < 100) key = 'blue'
+      else if (r > 150 && g > 150 && b < 100) key = 'yellow'
+      else if (g > 150 && b > 150 && r < 100) key = 'cyan'
+      else if (g > 130 && r < 120 && b < 120) key = 'green'
+      else if (r > 150 && g > 50 && g < 160 && b < 80) key = 'orange'
+      else if (r > 150 && g > 150 && b > 150) key = 'white'
+      else if (b > 150 && g > 100 && r < 120) key = 'lightblue'
+      else key = 'other'
+      buckets.set(key, (buckets.get(key) ?? 0) + 1)
+    }
+    return {
+      colored,
+      buckets: Object.fromEntries(buckets),
+    }
+  }, `data:image/png;base64,${buffer.toString('base64')}`)
+}
+
+async function readStablePalette(
+  page: import('@playwright/test').Page,
+  player: import('@playwright/test').Locator,
+): Promise<PaletteSignature> {
+  let previous = ''
+  let palette = await readPalette(page, player)
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await page.waitForTimeout(100)
+    const next = await readPalette(page, player)
+    const signature = JSON.stringify(next)
+    if (signature === previous) return next
+    previous = signature
+    palette = next
+  }
+  return palette
+}
+
+function expectSamePalette(
+  initial: PaletteSignature,
+  current: PaletteSignature,
+) {
+  for (const key of ['red', 'blue', 'yellow', 'green', 'orange', 'white']) {
+    const before = initial.buckets[key] ?? 0
+    const after = current.buckets[key] ?? 0
+    expect(before, `initial ${key} pixels`).toBeGreaterThan(20)
+    expect(after, `${key} pixels after navigation`).toBeGreaterThan(
+      before * 0.75,
+    )
+    expect(after, `${key} pixels after navigation`).toBeLessThan(
+      before * 1.25,
+    )
+  }
+  expect(current.buckets.cyan ?? 0, 'cyan should not replace yellow').toBeLessThan(
+    (initial.buckets.yellow ?? 0) * 0.25,
+  )
+  expect(
+    current.buckets.lightblue ?? 0,
+    'light blue should not replace orange',
+  ).toBeLessThan((initial.buckets.orange ?? 0) * 0.25)
+}
+
+
 test('3D Draw Scramble fills its canvas', async ({ page, browserName }) => {
   test.skip(
     browserName !== 'chromium',
@@ -51,7 +144,7 @@ test('3D Draw Scramble fills its canvas', async ({ page, browserName }) => {
 
   await openToolPanel(page)
   await useMode(page, '3d')
-  const player = page.getByTestId('tool-panel').locator('twisty-player')
+  const player = page.getByTestId('draw-scramble-player')
   await expect(player).toHaveCount(1, { timeout: 30_000 })
 
   // cubing.js renders into a closed shadow root, so use CDP to confirm the
@@ -176,7 +269,7 @@ test('Current Tool toggles the panel and the footer selects the tool', async ({
   // 2D/3D remains controlled only by the existing Settings option.
   await useMode(page, '3d')
   await expect(panel).toHaveAttribute('data-mode', '3d')
-  await expect(panel.locator('twisty-player')).toHaveCount(1, {
+  await expect(page.getByTestId('draw-scramble-player')).toHaveCount(1, {
     timeout: 30_000,
   })
 
@@ -361,7 +454,7 @@ test('renderer dimensions stay frozen during 3D resize', async ({ page }) => {
     expect(o.ph).toBe(before.player!.h)
   }
   expect(scaleSeen).toBe(true)
-  const viz = await page.getByTestId('tool-panel').locator('twisty-player').getAttribute('visualization')
+  const viz = await page.getByTestId('draw-scramble-player').getAttribute('visualization')
   expect(viz).toBe('PG3D')
 })
 
@@ -478,7 +571,7 @@ test('the 3D view uses the colour-corrected PG3D renderer', async ({
 
   await openToolPanel(page)
   await useMode(page, '3d')
-  const player = page.getByTestId('tool-panel').locator('twisty-player')
+  const player = page.getByTestId('draw-scramble-player')
   await expect(player).toHaveCount(1, { timeout: 30_000 })
   // PG3D reads the palette we rewrite before the player builds; Cube3D (the
   // 3×3×3 default) hardcodes its own colours inside cubing.js.
@@ -512,6 +605,99 @@ test('the 3D view uses the colour-corrected PG3D renderer', async ({
   expect(model.height).toBeGreaterThan(0)
 })
 
+test('3D sticker colours survive repeated Timer/Analytics navigation', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await openToolPanel(page)
+  await useMode(page, '3d')
+  const panel = page.getByTestId('tool-panel')
+  const player = page.getByTestId('draw-scramble-player')
+  await expect(player).toHaveCount(1, { timeout: 30_000 })
+  const scramble = await page.locator('.scramble-text').innerText()
+  const initial = await readStablePalette(page, player)
+  expect(initial.colored).toBeGreaterThan(1_000)
+  await page.evaluate(() => {
+    const element = document.querySelector('twisty-player')
+    ;(window as unknown as { __cubelabPlayer: Element | null }).__cubelabPlayer =
+      element
+  })
+
+  for (let roundTrip = 0; roundTrip < 5; roundTrip += 1) {
+    await page.getByTestId('analytics-nav').click()
+    await expect(
+      page.getByRole('heading', { name: 'Analytics', exact: true }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Timer' }).click()
+    await expect(player).toHaveCount(1, { timeout: 30_000 })
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const stored = (
+            window as unknown as { __cubelabPlayer?: Element | null }
+          ).__cubelabPlayer
+          return stored === document.querySelector('twisty-player')
+        }),
+      )
+      .toBe(true)
+    await expect(page.locator('.scramble-text')).toHaveText(scramble)
+    const current = await readStablePalette(page, player)
+    expectSamePalette(initial, current)
+  }
+
+  // Tool and 2D/3D switches reuse the same viewer instead of allocating more.
+  await page.getByTestId('tool-select-button').click()
+  await page.getByRole('menuitemradio', { name: 'Time Trend' }).click()
+  await expect(player).toBeHidden()
+  await page.getByTestId('tool-select-button').click()
+  await page.getByRole('menuitemradio', { name: 'Draw Scramble' }).click()
+  await expect(player).toBeVisible({ timeout: 30_000 })
+  expect(
+    await page.evaluate(() => {
+      const stored = (
+        window as unknown as { __cubelabPlayer?: Element | null }
+      ).__cubelabPlayer
+      return stored === document.querySelector('twisty-player')
+    }),
+  ).toBe(true)
+  expectSamePalette(initial, await readStablePalette(page, player))
+
+  await useMode(page, 'net')
+  await expect(panel).toHaveAttribute('data-mode', 'net')
+  await expect(page.getByTestId('scramble-net')).toBeVisible()
+  await useMode(page, '3d')
+  await expect(player).toHaveCount(1, { timeout: 30_000 })
+  expect(
+    await page.evaluate(() => {
+      const stored = (
+        window as unknown as { __cubelabPlayer?: Element | null }
+      ).__cubelabPlayer
+      return stored === document.querySelector('twisty-player')
+    }),
+  ).toBe(true)
+  expectSamePalette(initial, await readStablePalette(page, player))
+
+  const twoByTwo = CUBELAB_EVENTS.find((event) => event.id === '222')!
+  await useEvent(page, twoByTwo)
+  await expect(player).toHaveCount(1, { timeout: 30_000 })
+  await expect(player).toHaveAttribute('puzzle', twoByTwo.puzzleId)
+  expect(
+    await page.evaluate(() => {
+      const stored = (
+        window as unknown as { __cubelabPlayer?: Element | null }
+      ).__cubelabPlayer
+      return stored === document.querySelector('twisty-player')
+    }),
+  ).toBe(true)
+  const resized = await readStablePalette(page, player)
+  expect(resized.colored).toBeGreaterThan(300)
+  for (const key of ['red', 'blue', 'yellow', 'green', 'orange']) {
+    expect(resized.buckets[key] ?? 0, `${key} after event change`).toBeGreaterThan(
+      20,
+    )
+  }
+})
+
 test('2D Draw Scramble shows an honest unavailable state for non-cube puzzles', async ({
   page,
 }) => {
@@ -538,7 +724,7 @@ test('3D Draw Scramble renders every supported non-cube puzzle', async ({
 
   for (const event of CUBELAB_EVENTS.filter((item) => item.cubeSize === null)) {
     await useEvent(page, event)
-    const player = panel.locator('twisty-player')
+    const player = page.getByTestId('draw-scramble-player')
     await expect(player).toHaveCount(1, { timeout: 30_000 })
     await expect(player).toHaveAttribute('puzzle', event.puzzleId)
     await expect(panel.locator('.scramble-draw-status')).toHaveCount(0)

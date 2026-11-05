@@ -9,6 +9,7 @@ import {
 } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AnalyticsPage from './AnalyticsPage'
+import * as analytics from '../lib/analytics'
 import { DEFAULT_SETTINGS } from '../lib/storage'
 import { createDefaultAnalyticsSettings } from '../lib/analyticsSettings'
 import type { Session, Settings, Solve } from '../types'
@@ -140,6 +141,35 @@ describe('AnalyticsPage', () => {
     selectAnalysis('Solve time distribution')
     expect(screen.getByTestId('analytics-section-distribution')).toBeVisible()
     expect(screen.queryByTestId('analytics-section-progression')).toBeNull()
+  })
+
+  it('calculates an analysis only after that section is selected', () => {
+    const histogram = vi.spyOn(analytics, 'buildHistogram')
+    const consistency = vi.spyOn(analytics, 'computeConsistency')
+    const advanced = vi.spyOn(analytics, 'computeAdvanced')
+    const activity = vi.spyOn(analytics, 'buildActivity')
+
+    render(<Harness />)
+    expect(histogram).not.toHaveBeenCalled()
+    expect(consistency).not.toHaveBeenCalled()
+    expect(advanced).not.toHaveBeenCalled()
+    expect(activity).not.toHaveBeenCalled()
+
+    selectAnalysis('Solve time distribution')
+    expect(histogram).toHaveBeenCalledTimes(1)
+    expect(consistency).not.toHaveBeenCalled()
+    expect(advanced).not.toHaveBeenCalled()
+
+    selectAnalysis('Consistency')
+    expect(consistency).toHaveBeenCalledTimes(1)
+    expect(advanced).not.toHaveBeenCalled()
+
+    selectAnalysis('Advanced analytics')
+    expect(advanced).toHaveBeenCalledTimes(1)
+    expect(activity).not.toHaveBeenCalled()
+
+    selectAnalysis('Practice activity')
+    expect(activity).toHaveBeenCalledTimes(1)
   })
 
   it('orders filters as event, sessions, date, last solves and penalty', () => {

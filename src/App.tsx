@@ -10,8 +10,6 @@ import {
 } from 'react'
 import { AppHeader, type AppView } from './components/AppHeader'
 import { ConfirmDialog } from './components/ConfirmDialog'
-import { DriveBackupDialog } from './components/DriveBackupDialog'
-import { DataDialog } from './components/DataDialog'
 import { ScramblePanel } from './components/ScramblePanel'
 import { ToolPanel } from './components/ToolPanel'
 import { useDrawScrambleMode } from './hooks/useDrawScrambleMode'
@@ -31,7 +29,6 @@ import { useToolPanelOpen } from './hooks/useToolPanelOpen'
 import { useTimer } from './hooks/useTimer'
 import { usePostPaintValue } from './hooks/usePostPaintValue'
 import { useToast } from './hooks/useToast'
-import { MergeSessionsDialog } from './components/MergeSessionsDialog'
 import { SessionSetupDialog } from './components/SessionSetupDialog'
 import { useSync } from './hooks/useSync'
 import {
@@ -49,9 +46,8 @@ import {
 } from './lib/backup'
 import { getEventLabel, isCustomEventId } from './lib/events'
 import { unionCustomEvents, findImportedEventCorrections } from './lib/customEvents'
-import { CustomEventsDialog } from './components/CustomEventsDialog'
 import { formatSessionHours, formatSolveCount, formatStatValue, formatTime } from './lib/format'
-import { countSolves, getSessionSummary, mergeSessionsById, appendSessionsInOrder } from './lib/sessions'
+import { countSolves, getSessionMergeError, getSessionSummary, appendSessionsInOrder } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
 import { createDriveTransport } from './lib/driveTransport'
 import { loadDriveBackupState, saveDriveBackupState } from './lib/driveStorage'
@@ -67,6 +63,39 @@ import type {
 import type { TimerInput, TimerState } from './timer/machine'
 
 const AnalyticsPage = lazy(() => import('./components/AnalyticsPage'))
+const DataDialog = lazy(() =>
+  import('./components/DataDialog').then((module) => ({
+    default: module.DataDialog,
+  })),
+)
+const DriveBackupDialog = lazy(() =>
+  import('./components/DriveBackupDialog').then((module) => ({
+    default: module.DriveBackupDialog,
+  })),
+)
+const MergeSessionsDialog = lazy(() =>
+  import('./components/MergeSessionsDialog').then((module) => ({
+    default: module.MergeSessionsDialog,
+  })),
+)
+const SplitSessionDialog = lazy(() =>
+  import('./components/SplitSessionDialog').then((module) => ({
+    default: module.SplitSessionDialog,
+  })),
+)
+const CustomEventsDialog = lazy(() =>
+  import('./components/CustomEventsDialog').then((module) => ({
+    default: module.CustomEventsDialog,
+  })),
+)
+
+function DialogLoadingFallback() {
+  return (
+    <div className="dialog-loading-overlay" role="status" aria-live="polite">
+      <span>Loading dialog…</span>
+    </div>
+  )
+}
 
 function isTextEntryTarget(target: EventTarget | null): boolean {
   return (
@@ -136,6 +165,7 @@ export default function App() {
     sessions,
     customEvents,
     sessionOrder,
+    sessionTransfers,
     activeSession,
     activeSessionId,
     storageOk,
@@ -152,6 +182,8 @@ export default function App() {
     deleteSession,
     selectSession,
     setSessionEvent,
+    mergeSessions,
+    splitSession,
     moveSession,
     moveSessionTo,
     deleteAllSessions,
@@ -211,6 +243,12 @@ export default function App() {
 
   const [eventManagerOpen, setEventManagerOpen] = useState(false)
   const [mergeSessionsOpen, setMergeSessionsOpen] = useState(false)
+  const [mergeInitialTargetId, setMergeInitialTargetId] = useState<
+    string | null
+  >(null)
+  const [mergeOpenedFromSettings, setMergeOpenedFromSettings] =
+    useState(false)
+  const [splitSessionId, setSplitSessionId] = useState<string | null>(null)
   const [createSessionOpen, setCreateSessionOpen] = useState(false)
   const createSessionOpenPrev = useRef(false)
 
@@ -394,8 +432,9 @@ export default function App() {
       sessions,
       ...(customEvents.length > 0 ? { customEvents } : {}),
       ...(sessionOrder ? { sessionOrder } : {}),
+      ...(sessionTransfers ? { sessionTransfers } : {}),
     }),
-    [activeSessionId, sessions, customEvents, sessionOrder],
+    [activeSessionId, sessions, customEvents, sessionOrder, sessionTransfers],
   )
 
   const sync = useSync({
@@ -416,7 +455,11 @@ export default function App() {
             .map((name) => `'${name}'`)
             .join(', ')}. They remain separate until you approve a merge.`,
         actionLabel: 'Review Merge',
-        onAction: () => setMergeSessionsOpen(true),
+        onAction: () => {
+          setMergeOpenedFromSettings(false)
+          setMergeInitialTargetId(null)
+          setMergeSessionsOpen(true)
+        },
       })
     },
   })
@@ -476,6 +519,9 @@ export default function App() {
   ])
 
   const timerActive = timer.state.status !== 'idle'
+  const splitSessionSource = splitSessionId
+    ? sessions.find((session) => session.id === splitSessionId) ?? null
+    : null
   const modalOpen =
     settingsOpen ||
     sessionSettingsOpen ||
@@ -487,6 +533,7 @@ export default function App() {
     pendingImport !== null ||
     driveOpen ||
     mergeSessionsOpen ||
+    splitSessionSource !== null ||
     createSessionOpen ||
     eventManagerOpen ||
     pendingDriveRestore !== null
@@ -1017,7 +1064,15 @@ export default function App() {
 
   const confirmDeleteSession = useCallback(() => {
     if (!sessionToDelete) return
-    sync.recordDeletion('session', sessionToDelete.id)
+    if (!sync.recordSessionDeletion(sessionToDelete)) {
+      setSessionToDelete(null)
+      setSessionSettingsOpen(false)
+      showToast({
+        message:
+          'Session deletion blocked: deletion records could not be saved. Nothing was removed.',
+      })
+      return
+    }
     const deleted = deleteSession(sessionToDelete.id)
     setSessionToDelete(null)
     setSessionSettingsOpen(false)
@@ -1069,6 +1124,7 @@ export default function App() {
           sessions,
           ...(customEvents.length > 0 ? { customEvents } : {}),
           ...(sessionOrder ? { sessionOrder } : {}),
+          ...(sessionTransfers ? { sessionTransfers } : {}),
         },
         settings,
       )
@@ -1079,7 +1135,7 @@ export default function App() {
     } catch {
       return false
     }
-  }, [activeSessionId, sessions, customEvents, sessionOrder, settings, showToast, timer.state.status])
+  }, [activeSessionId, sessions, customEvents, sessionOrder, sessionTransfers, settings, showToast, timer.state.status])
 
   const handleImportRequested = useCallback((backup: Backup) => {
     setDataOpen(false)
@@ -1105,6 +1161,9 @@ export default function App() {
           ...(syncSessionsData.sessionOrder
             ? { sessionOrder: syncSessionsData.sessionOrder }
             : {}),
+          ...(syncSessionsData.sessionTransfers
+            ? { sessionTransfers: syncSessionsData.sessionTransfers }
+            : {}),
         },
         imported,
         undefined,
@@ -1123,27 +1182,179 @@ export default function App() {
     sync.resetBase(pendingImport.sessions)
     setPendingImport(null)
     showToast({ message: 'Backup imported' })
-  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync, activeSessionId, sessions, customEvents, syncSessionsData.sessionOrder])
+  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync, activeSessionId, sessions, customEvents, syncSessionsData.sessionOrder, syncSessionsData.sessionTransfers])
+
+  const splitFromSettingsRef = useRef(false)
+  const restoreSessionSelectorFocus = useCallback(() => {
+    window.setTimeout(() => {
+      document
+        .querySelector<HTMLElement>('[data-testid="session-select"]')
+        ?.focus()
+    }, 0)
+  }, [])
+
+  const closeMergeSessions = useCallback(() => {
+    const fromSettings = mergeOpenedFromSettings
+    setMergeOpenedFromSettings(false)
+    setMergeSessionsOpen(false)
+    setMergeInitialTargetId(null)
+    if (fromSettings) restoreSessionSelectorFocus()
+  }, [mergeOpenedFromSettings, restoreSessionSelectorFocus])
+
+  const closeSplitSession = useCallback(() => {
+    const fromSettings = splitFromSettingsRef.current
+    splitFromSettingsRef.current = false
+    setSplitSessionId(null)
+    if (fromSettings) restoreSessionSelectorFocus()
+  }, [restoreSessionSelectorFocus])
+
+  const handleOpenMergeSessions = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSessionSettingsOpen(false)
+    setMergeInitialTargetId(activeSession.id)
+    setMergeOpenedFromSettings(true)
+    setMergeSessionsOpen(true)
+  }, [activeSession.id, timer.state.status])
+
+  const handleOpenSplitSession = useCallback(() => {
+    if (timer.state.status !== 'idle' || activeSession.solves.length === 0) return
+    setSessionSettingsOpen(false)
+    splitFromSettingsRef.current = true
+    setSplitSessionId(activeSession.id)
+  }, [activeSession.id, activeSession.solves.length, timer.state.status])
 
   const handleMergeSessions = useCallback(
-    (sourceId: string, targetId: string) => {
-      const merged = mergeSessionsById(
-        {
-          activeSessionId,
-          sessions,
-          ...(customEvents.length > 0 ? { customEvents } : {}),
-          ...(sessionOrder ? { sessionOrder } : {}),
-        },
+    (sourceIds: readonly string[], targetId: string): boolean => {
+      if (timer.state.status !== 'idle') {
+        showToast({
+          message:
+            'Merge blocked: finish or cancel the current timer attempt first.',
+        })
+        return false
+      }
+      if (!storageHealthy) {
+        showToast({
+          message:
+            'Merge blocked: browser storage is unavailable. Nothing was changed.',
+        })
+        return false
+      }
+      if (sync.phase === 'syncing') {
+        showToast({
+          message:
+            'Merge blocked: Google Drive synchronization is in progress. Wait for it to finish, then try again.',
+        })
+        return false
+      }
+
+      const current = {
+        activeSessionId,
+        sessions,
+        ...(customEvents.length > 0 ? { customEvents } : {}),
+        ...(sessionOrder ? { sessionOrder } : {}),
+        ...(sessionTransfers ? { sessionTransfers } : {}),
+      }
+      const validationError = getSessionMergeError(
+        current,
         targetId,
-        sourceId,
+        sourceIds,
       )
-      if (!merged) return false
-      replaceSessions(merged)
-      sync.approveSessionMerge(sourceId, targetId)
-      showToast({ message: 'Sessions merged' })
+      if (validationError) {
+        showToast({ message: `Merge blocked: ${validationError}` })
+        return false
+      }
+
+      const targetName =
+        sessions.find((session) => session.id === targetId)?.name ?? 'session'
+      const uniqueSources = [...new Set(sourceIds)]
+
+      // Write the redirect intent first. The session collection is not replaced
+      // unless that intent is durable, so a stale device can still be moved to
+      // the chosen destination after a later synchronization.
+      if (!sync.recordSessionMerges(targetId, uniqueSources)) {
+        showToast({
+          message:
+            'Merge blocked: the merge record could not be saved. Nothing was changed.',
+        })
+        return false
+      }
+      if (!mergeSessions(targetId, uniqueSources)) {
+        const rolledBack = sync.removeSessionMerges(targetId, uniqueSources)
+        showToast({
+          message: rolledBack
+            ? 'Merge could not be saved. Nothing was removed.'
+            : 'Merge could not be saved locally. A saved merge record will be applied at the next successful synchronization.',
+        })
+        return false
+      }
+
+      showToast({
+        message: `Merged ${uniqueSources.length === 1 ? '1 session' : `${uniqueSources.length} sessions`} into “${targetName}”`,
+      })
+      if (sync.phase !== 'disabled' && navigator.onLine) {
+        window.setTimeout(() => void sync.syncNow('merge'), 0)
+      }
       return true
     },
-    [activeSessionId, sessions, customEvents, sessionOrder, replaceSessions, showToast, sync],
+    [
+      activeSessionId,
+      customEvents,
+      mergeSessions,
+      sessionOrder,
+      sessionTransfers,
+      sessions,
+      showToast,
+      storageHealthy,
+      sync,
+      timer.state.status,
+    ],
+  )
+
+  const handleSplitSession = useCallback(
+    (
+      sessionId: string,
+      name: string,
+      solveIds: readonly string[],
+    ): string | null => {
+      if (timer.state.status !== 'idle') {
+        showToast({
+          message:
+            'Split blocked: finish or cancel the current timer attempt first.',
+        })
+        return null
+      }
+      if (!storageHealthy) {
+        showToast({
+          message:
+            'Split blocked: browser storage is unavailable. Nothing was changed.',
+        })
+        return null
+      }
+      if (sync.phase === 'syncing') {
+        showToast({
+          message:
+            'Split blocked: Google Drive synchronization is in progress. Wait for it to finish, then try again.',
+        })
+        return null
+      }
+
+      const newSessionId = splitSession(sessionId, name, solveIds)
+      if (!newSessionId) {
+        showToast({
+          message: 'Split could not be saved. Nothing was moved.',
+        })
+        return null
+      }
+
+      showToast({
+        message: `Moved ${solveIds.length === 1 ? '1 solve' : `${solveIds.length} solves`} to “${name.trim()}”`,
+      })
+      if (sync.phase !== 'disabled' && navigator.onLine) {
+        window.setTimeout(() => void sync.syncNow('split'), 0)
+      }
+      return newSessionId
+    },
+    [showToast, splitSession, storageHealthy, sync, timer.state.status],
   )
 
   const cancelConfirm = useCallback(() => {
@@ -1880,38 +2091,49 @@ export default function App() {
         onSetInspection={handleSetSessionInspection}
         onRequestClear={requestClear}
         onRequestDelete={requestDeleteSession}
+        onRequestMerge={handleOpenMergeSessions}
+        onRequestSplit={handleOpenSplitSession}
         onOpenEventManager={handleOpenEventManager}
         onClose={() => setSessionSettingsOpen(false)}
       />
 
-      <DataDialog
-        open={dataOpen}
-        sessions={sessions}
-        sessionCount={sessions.length}
-        solveCount={countSolves(sessions)}
-        customEvents={customEvents}
-        onClose={() => setDataOpen(false)}
-        onExport={handleExport}
-        onImport={handleImportRequested}
-      />
+      {dataOpen ? (
+        <Suspense fallback={<DialogLoadingFallback />}>
+          <DataDialog
+            open
+            sessions={sessions}
+            sessionCount={sessions.length}
+            solveCount={countSolves(sessions)}
+            customEvents={customEvents}
+            onClose={() => setDataOpen(false)}
+            onExport={handleExport}
+            onImport={handleImportRequested}
+          />
+        </Suspense>
+      ) : null}
 
-      <DriveBackupDialog
-        open={driveOpen}
-        transport={driveTransport}
-        sessions={{
-          activeSessionId,
-          sessions,
-          ...(customEvents.length > 0 ? { customEvents } : {}),
-          ...(sessionOrder ? { sessionOrder } : {}),
-        }}
-        settings={settings}
-        storageOk={storageHealthy}
-        sync={sync}
-        onClose={() => setDriveOpen(false)}
-        onNotify={(message) => showToast({ message })}
-        onPendingRestore={handleDriveRestorePending}
-        onReviewDuplicateNames={() => setMergeSessionsOpen(true)}
-      />
+      {driveOpen ? (
+        <Suspense fallback={<DialogLoadingFallback />}>
+          <DriveBackupDialog
+            open
+            transport={driveTransport}
+            sessions={{
+              activeSessionId,
+              sessions,
+              ...(customEvents.length > 0 ? { customEvents } : {}),
+              ...(sessionOrder ? { sessionOrder } : {}),
+              ...(sessionTransfers ? { sessionTransfers } : {}),
+            }}
+            settings={settings}
+            storageOk={storageHealthy}
+            sync={sync}
+            onClose={() => setDriveOpen(false)}
+            onNotify={(message) => showToast({ message })}
+            onPendingRestore={handleDriveRestorePending}
+            onReviewDuplicateNames={() => setMergeSessionsOpen(true)}
+          />
+        </Suspense>
+      ) : null}
 
       {pendingDriveRestore ? (
         <ConfirmDialog
@@ -1940,31 +2162,57 @@ export default function App() {
         onConfirm={handleConfirm}
       />
 
-      <MergeSessionsDialog
-        open={mergeSessionsOpen}
-        sessions={{
-          activeSessionId,
-          sessions,
-          ...(customEvents.length > 0 ? { customEvents } : {}),
-          ...(sessionOrder ? { sessionOrder } : {}),
-        }}
-        onClose={() => setMergeSessionsOpen(false)}
-        onMerge={handleMergeSessions}
-      />
+      {mergeSessionsOpen ? (
+        <Suspense fallback={<DialogLoadingFallback />}>
+          <MergeSessionsDialog
+            open
+            sessions={{
+              activeSessionId,
+              sessions,
+              ...(customEvents.length > 0 ? { customEvents } : {}),
+              ...(sessionOrder ? { sessionOrder } : {}),
+              ...(sessionTransfers ? { sessionTransfers } : {}),
+            }}
+            initialTargetId={mergeInitialTargetId ?? undefined}
+            onClose={closeMergeSessions}
+            onMerge={handleMergeSessions}
+          />
+        </Suspense>
+      ) : null}
 
-      <CustomEventsDialog
-        open={eventManagerOpen}
-        customEvents={customEvents}
-        sessions={sessions}
-        correctionCount={importedCorrectionCount}
-        onCreate={createCustomEvent}
-        onRename={renameCustomEvent}
-        onSetPlaceholder={setCustomEventPlaceholder}
-        onDelete={handleDeleteCustomEvent}
-        onReassignSessions={handleReassignSessionsEvent}
-        onCorrectImported={handleCorrectImportedEvents}
-        onClose={() => setEventManagerOpen(false)}
-      />
+      {splitSessionSource !== null ? (
+        <Suspense fallback={<DialogLoadingFallback />}>
+          <SplitSessionDialog
+            open
+            session={splitSessionSource}
+            sessions={sessions}
+            onClose={closeSplitSession}
+            onSplit={(name, solveIds) =>
+              splitSessionSource
+                ? handleSplitSession(splitSessionSource.id, name, solveIds)
+                : null
+            }
+          />
+        </Suspense>
+      ) : null}
+
+      {eventManagerOpen ? (
+        <Suspense fallback={<DialogLoadingFallback />}>
+          <CustomEventsDialog
+            open
+            customEvents={customEvents}
+            sessions={sessions}
+            correctionCount={importedCorrectionCount}
+            onCreate={createCustomEvent}
+            onRename={renameCustomEvent}
+            onSetPlaceholder={setCustomEventPlaceholder}
+            onDelete={handleDeleteCustomEvent}
+            onReassignSessions={handleReassignSessionsEvent}
+            onCorrectImported={handleCorrectImportedEvents}
+            onClose={() => setEventManagerOpen(false)}
+          />
+        </Suspense>
+      ) : null}
 
       <SessionSetupDialog
         open={createSessionOpen}

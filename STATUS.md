@@ -25,12 +25,20 @@ and immediate work queue. [README.md](README.md) describes the product;
   publication.
 - Inspection/penalties/warnings, named sessions, comments/actions, configurable
   average trimming, compact/expanded Time Trend, wheel/pinch/pan and historical
-  PB statistics are implemented. Sessions use schema v5; settings use v10.
+  PB statistics are implemented. Sessions use schema v6; settings use v10.
   Sessions can be reordered with drag handles, arrow-key reordering, and
   accessible Up/Down controls inside the session selector; order is backed up
   and synchronized as an ID-based record. Session
   settings can correct a session's event (with confirmation when solves exist)
-  while preserving every solve field and import provenance. Optional completed/
+  while preserving every solve field and import provenance. **Session settings**
+  also merges one or more same-event sources into a destination and splits
+  individual/range-selected solves into a new session. Merge previews names,
+  counts and totals and removes sources only after transfer; split copies the
+  source event/settings, inserts the new session next to the source, keeps the
+  source even when emptied, and selects the new session. Both require typed
+  confirmation and provide no Undo. Partial splits persist durable transfer
+  records so stale cloud or cross-tab copies cannot duplicate or reclaim moved
+  solves. Optional completed/
   total solve and total-time summaries live in the slim timer footer, follow
   csTimer's DNF/+2 semantics, show counts without a suffix and total time in
   hours. A release-record display version appears in the bottom-right footer.
@@ -85,12 +93,13 @@ inspection as `Global default · Off` or `Session override · On`, removes neste
 surface containers, and keeps its Done action visible while the body scrolls on
 short screens.
 
-The main Settings dialog now keeps only short functional descriptions visible.
-Detailed inspection, warning, summary, trimming and keyboard rules live in
-labelled disclosures; statistics retain every visibility and custom-average
-control; destructive Developer actions keep their typed-confirmation handoffs;
-and About includes the release version. Light/dark, focus containment, keyboard
-activation and narrow layouts remain intact.
+The main Settings dialog keeps only short functional descriptions visible.
+Explanatory disclosure sections were removed after review; detailed inspection,
+warning, summary, trimming and keyboard behavior remains documented in the
+README. Statistics retain every visibility and custom-average control;
+destructive Developer actions keep their typed-confirmation handoffs; and About
+includes the release version. Light/dark, focus containment, keyboard activation
+and narrow layouts remain intact.
 
 `src/release.json` is now the single release record. `src/lib/version.ts` formats
 the footer and About labels, while `scripts/release.mjs` updates patch, feature or
@@ -103,11 +112,24 @@ Verification: TypeScript passed; Oxlint passed with the pre-existing
 `SessionPanel` purity warning. Full Vitest **759 passed in 55 files**, including
 release-date boundary tests. Production build and PWA generation passed before
 and after mock-Drive browser runs. Chromium Playwright: Analytics **13/13**,
-focused Settings/session flows **8/8**, average trimming **2/2**, and
-accessibility/axe **3/3**. Mobile checks
-covered 320×568 and 390×844 light/dark layouts, the disclosure controls, and
+focused Settings/session flows **8/8**, Session Settings transfer flows
+**5/5**, average trimming **2/2**, and accessibility/axe **3/3**. Mobile checks
+covered 320×568 and 390×844 light/dark layouts, the Settings controls, and
 horizontal-overflow bounds. Visual inspection used synthetic/empty local data
 only. No full browser matrix or release publication is claimed.
+
+### Explanatory Settings disclosures removed — 2026-11-05
+
+The explanatory Settings disclosures were removed after review: inspection
+penalties, warning behavior, footer DNF/+2 summaries, average calculations and
+keyboard shortcuts no longer expand inside Settings. Their component, test IDs,
+chevrons, styles and exclusive helper code are gone. Short inline descriptions,
+controls, validation, destructive warnings and Developer actions remain; detailed
+rules stay in the README. Desktop and 320px mobile visual checks showed no empty
+gaps, leftover disclosure styles or horizontal overflow. TypeScript and Oxlint
+passed with the existing `SessionPanel` warning; focused Vitest **43/43** passed,
+the production build/PWA passed, and focused Chromium accessibility, Settings and
+trimming checks passed **9/9**. No release version changed.
 
 ## UI debloat and responsive verification — 2026-11-05
 
@@ -141,17 +163,33 @@ light and dark themes, plus timer layouts at 320×568, 360×640, 568×320 and
 844×390. Settings, Solve History, Analytics, the filter disclosure and the Drive
 sync details were included. No real history or live Drive account was used.
 
-## Latest application verification — 2026-11-04
+## Previous application verification — 2026-11-04
 
-Node v22.23.2. Current checks on the working tree:
+Node v22.23.2. Previous checks on the working tree:
 
 | Check | Result |
 | --- | --- |
-| TypeScript, Oxlint | Passed |
-| Full Vitest run | 708 passed in 51 files |
-| Production build + PWA | Passed |
+| TypeScript, Oxlint | Passed; one pre-existing `SessionPanel` purity warning remains |
+| Full Vitest run | 743 passed in 54 files |
+| Production build + PWA | Passed; normal non-mock output restored after browser runs |
+| Focused Chromium merge/split/sync flows | 19/19 passed (`session-management`, `cross-tab-timing`) plus duplicate-name merge 1/1 in `timer` |
+| Visual merge/split inspection | Passed in light/dark at 1440×900 and 390×844 with long names and a 420-solve session |
 | Focused csTimer Chromium flows | 3/3 passed (unknown custom types; invalid/valid additive import; ranked names, empty sessions and omitted defaults) |
 | Example fixture visual/axe check | Passed; 49 sessions, 8,591 solves and nine empty sessions represented |
+
+### Merge and split sessions verification — 2026-11-04
+
+The session transfer path was exercised with stale-device ownership, concurrent
+offline additions, cancellation, failed session/sync writes, reload, native
+backup export, cross-tab adoption and mock-Drive publication. Focused Chromium
+coverage verified merging multiple sources into an active destination, preserving
+solve IDs/fields and destination settings, splitting a custom-event range with
+copied settings and a new ordered/active session, storage-failure rollback,
+cross-tab transfer adoption, and a stale cloud source snapshot that must not
+duplicate or reclaim moved solves. Unit coverage adds empty and 10,000-solve
+sessions, duplicate names, incompatible events, equal timestamps, backups,
+schema-v5 load compatibility, transfer normalization and sync merge behavior. No
+Undo is offered for either operation.
 
 ### Analytics debloat verification — 2026-11-04
 
@@ -296,6 +334,34 @@ counts and reachable actions. Production build + PWA passed and was rerun withou
 mock Drive to restore normal output. The full browser matrix, live Drive and
 offline re-verification were intentionally skipped. No real user history was
 used. Existing imports were not automatically repaired or reclassified.
+
+## Performance optimization and 3D viewer lifecycle — 2026-11-05
+
+Analytics now computes section-specific reports only when their analysis is selected,
+while the overview keeps its own calculations. Shared valid/effective-time views and
+rolling-series builders reduce repeated filtering/sorting, and the fastest/slowest
+five solves use bounded selection. The 2D net is generated only for the visible
+2D view and reused while its scramble and size are unchanged. Infrequently opened
+dialogs are lazy-loaded and mounted only when open. The 3D Draw Scramble player is
+kept connected to a persistent offscreen host across Timer/Analytics navigation,
+tool switching, and event changes, avoiding cubing.js' shared-renderer path and
+unbounded graphics-context allocation.
+
+Verification: TypeScript and Oxlint passed (pre-existing `SessionPanel` warning
+only). Vitest focused files passed: `src/lib/analytics.test.ts`,
+`src/components/AnalyticsPage.test.tsx`, `src/components/ToolPanel.test.tsx`,
+plus Data/Merge/Split dialog tests. Production build and PWA generation passed.
+Chromium Playwright: `e2e/draw-scramble.spec.ts` 15/15 and
+`e2e/analytics.spec.ts` 13/13. Firefox Chromium-equivalent color regression:
+1/1. No live Drive validation was run.
+
+Baseline/after measurements on isolated synthetic 10k-solve histories:
+- Analytics open: 405.5 ms -> section-specific calculations are now deferred;
+  distribution 151.5 ms, consistency 78.3 ms, advanced 91.9 ms, progression
+  111.8 ms when selected.
+- Stop to displayed result: 89.4–106.3 ms with a 158–315 ms long-task total;
+  storage write 22.3–23.3 ms for 5.19 MB; sync fingerprint 55.7–63.6 ms.
+- Main bundle: 578,390 -> 484,690 bytes raw (162,806 -> 141,120 bytes gzip).
 
 ## Immediate work
 

@@ -1,6 +1,8 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -26,6 +28,29 @@ import { DEFAULT_AVERAGE_TRIMMING } from '../lib/averageTrimming'
 import type { AverageTrimming } from '../types'
 import { TimeTrend } from './TimeTrend'
 
+interface TwistyPlayerElement extends HTMLElement {
+  pause?: () => void
+}
+
+// cubing.js allocates dedicated WebGL renderers for only the first two 3D
+// vantages and then copies a shared renderer into a 2D canvas. Its inner scene
+// wrappers also add another vantage whenever the player is disconnected and
+// reconnected. Keep one player connected to a persistent offscreen host for the
+// lifetime of the app, and only move/hide that host's fixed overlay. This avoids
+// both the shared-renderer path and unbounded graphics-context allocation.
+let floatingTwistyHost: HTMLDivElement | null = null
+let floatingTwistyPlayer: TwistyPlayerElement | null = null
+
+function ensureFloatingTwistyHost(): HTMLDivElement {
+  if (floatingTwistyHost) return floatingTwistyHost
+  const host = document.createElement('div')
+  host.className = 'scramble-draw-3d-host scramble-draw-3d-floating-host'
+  host.setAttribute('aria-hidden', 'true')
+  document.body.appendChild(host)
+  floatingTwistyHost = host
+  return host
+}
+
 function TwistyCube({
   scramble,
   puzzle,
@@ -35,20 +60,59 @@ function TwistyCube({
   puzzle: string
   useStandardCubeColors: boolean
 }) {
-  const hostRef = useRef<HTMLDivElement | null>(null)
-  const playerRef = useRef<HTMLElement | null>(null)
+  const targetRef = useRef<HTMLDivElement | null>(null)
   const scrambleRef = useRef(scramble)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => { scrambleRef.current = scramble }, [scramble])
 
+  useLayoutEffect(() => {
+    const target = targetRef.current
+    const host = floatingTwistyHost
+    if (!target || !host) return
+
+    const update = () => {
+      const rect = target.getBoundingClientRect()
+      host.style.left = `${rect.left}px`
+      host.style.top = `${rect.top}px`
+      host.style.width = `${rect.width}px`
+      host.style.height = `${rect.height}px`
+    }
+    update()
+    const observer =
+      typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null
+    observer?.observe(target)
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  })
+
   useEffect(() => {
     let cancelled = false
-    const host = hostRef.current
-    if (!host) return
-    host.innerHTML = ''
-    playerRef.current = null
-    setStatus('loading')
+    const target = targetRef.current
+    if (!target) return
+    const host = ensureFloatingTwistyHost()
+    const rect = target.getBoundingClientRect()
+    host.style.left = `${rect.left}px`
+    host.style.top = `${rect.top}px`
+    host.style.width = `${rect.width}px`
+    host.style.height = `${rect.height}px`
+    const player = floatingTwistyPlayer
+    const samePuzzle = player?.getAttribute('puzzle') === puzzle
+    if (player && samePuzzle) {
+      host.style.display = 'block'
+      player.setAttribute('alg', scrambleRef.current)
+      // oxlint-disable-next-line react/set-state-in-effect
+      setStatus('ready')
+    } else {
+      host.style.display = 'none'
+      // oxlint-disable-next-line react/set-state-in-effect
+      setStatus('loading')
+    }
 
     void (async () => {
       try {
@@ -83,18 +147,25 @@ function TwistyCube({
           }
         }
         if (cancelled) return
-        await import('cubing/twisty')
-        if (cancelled || !hostRef.current) return
-        const player = document.createElement('twisty-player')
-        player.setAttribute('puzzle', puzzle)
-        player.setAttribute('visualization', 'PG3D')
-        player.setAttribute('background', 'none')
-        player.setAttribute('control-panel', 'none')
-        player.setAttribute('experimental-drag-input', 'auto')
-        player.setAttribute('alg', scrambleRef.current)
-        hostRef.current.innerHTML = ''
-        hostRef.current.appendChild(player)
-        playerRef.current = player
+        let nextPlayer = floatingTwistyPlayer
+        if (!nextPlayer) {
+          await import('cubing/twisty')
+          if (cancelled) return
+          nextPlayer = document.createElement('twisty-player') as TwistyPlayerElement
+          nextPlayer.setAttribute('data-testid', 'draw-scramble-player')
+          nextPlayer.setAttribute('visualization', 'PG3D')
+          nextPlayer.setAttribute('background', 'none')
+          nextPlayer.setAttribute('control-panel', 'none')
+          nextPlayer.setAttribute('experimental-drag-input', 'auto')
+          nextPlayer.style.display = 'grid'
+          nextPlayer.style.width = '100%'
+          nextPlayer.style.height = '100%'
+          host.replaceChildren(nextPlayer)
+          floatingTwistyPlayer = nextPlayer
+        }
+        nextPlayer.setAttribute('puzzle', puzzle)
+        nextPlayer.setAttribute('alg', scrambleRef.current)
+        host.style.display = 'block'
         if (!cancelled) setStatus('ready')
       } catch {
         if (!cancelled) setStatus('error')
@@ -103,19 +174,18 @@ function TwistyCube({
 
     return () => {
       cancelled = true
-      host.innerHTML = ''
-      playerRef.current = null
+      host.style.display = 'none'
     }
   }, [puzzle, useStandardCubeColors])
 
   useEffect(() => {
-    const player = playerRef.current
+    const player = floatingTwistyPlayer
     if (player) player.setAttribute('alg', scramble)
   }, [scramble])
 
   return (
     <div className="scramble-draw-3d">
-      <div className="scramble-draw-3d-host" ref={hostRef} />
+      <div className="scramble-draw-3d-host" ref={targetRef} />
       {status !== 'ready' ? (
         <p className="scramble-draw-status" role={status === 'error' ? 'alert' : 'status'}>
           {status === 'error' ? '3D diagram unavailable' : 'Loading 3D diagram…'}
@@ -343,12 +413,23 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
     return () => window.removeEventListener('blur', handler)
   }, [cancelInteraction])
 
+  useEffect(() => {
+    if (menuOpen) document.body.classList.add('cubelab-tool-menu-open')
+    else document.body.classList.remove('cubelab-tool-menu-open')
+    return () => document.body.classList.remove('cubelab-tool-menu-open')
+  }, [menuOpen])
   const definition = getEventDefinition(event)
   const size = definition?.cubeSize ?? null
   const puzzle = definition?.puzzleId ?? '3x3x3'
   const label = getEventLabel(event)
   const customEvent = isCustomEventId(event)
-  const net = (() => (scramble && size ? cubeNetForScramble(scramble, size) : null))()
+  const net = useMemo(
+    () =>
+      activeTool === 'drawScramble' && mode === 'net' && scramble && size
+        ? cubeNetForScramble(scramble, size)
+        : null,
+    [activeTool, mode, scramble, size],
+  )
 
   return (
     <>

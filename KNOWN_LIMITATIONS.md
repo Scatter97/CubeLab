@@ -11,6 +11,13 @@ These are current boundaries; dated repair details are in the
   gutter, but moved/resized panels, 320 px, landscape and all timing/chart states
   still need visual verification. Existing layout tests do not establish that
   every placement keeps the readout clear.
+- **3D viewer lifecycle is fixed for the shared-renderer path.** The player is
+  retained across navigation, tool switching and event changes, so repeated
+  Timer/Analytics round trips no longer create additional vantages or enter the
+  shared renderer path. A red/blue channel swap in that path was reported on Zen,
+  but was not reproduced on Playwright Chromium 152 or Firefox 157; the new
+  regression compares rendered sticker colors across five round trips in both
+  engines.
 - **Stop performance evidence is limited.** Historical measurements used 7,000
   synthetic solves, sync/audio off and isolated Firefox/Chromium. Actual Zen,
   enabled sync, 10,000 solves and physical display latency were not established.
@@ -72,6 +79,18 @@ These are current boundaries; dated repair details are in the
 - **Duplicate names require user action.** Same-named sessions are never merged
   automatically. Dismissing a warning leaves the collision unresolved until the
   user reopens the Drive review action.
+- **Merge and split operations are not undoable.** Whole-session merges use
+  redirect records and partial splits use durable solve-ownership records; both
+  converge eventually with other devices. CubeLab does not offer Undo because
+  reversing an already-published redirect or transfer safely would require a
+  separate conflict/approval design. Use a backup before reorganizing data.
+  Simultaneous splits of the same solve use the newest transfer record with a
+  deterministic device/ID tiebreak, so one destination may remain empty; solve
+  fields and identities are still preserved rather than duplicated or discarded.
+- **Split ownership depends on current clients.** Older clients do not
+  understand partial-split transfer records. Keep every syncing browser on a
+  current build; an older client can publish a stale source copy, which a current
+  device will place back in the recorded destination on its next merge.
 - **Cleanup is best effort.** Listing can lag uploads; independent deletes can
   partially succeed. Automatic cleanup runs after merge/publication, preserves
   each group's newest snapshot and can prune superseded device groups. Manual

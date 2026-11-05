@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TOOL_PANEL_LAYOUT_STORAGE_KEY } from '../hooks/useToolPanelLayout'
+import * as cubeNet from '../lib/cubeNet'
 import { ToolPanel } from './ToolPanel'
 
 const baseProps = {
@@ -47,7 +48,10 @@ beforeEach(() => {
 })
 
 describe('ToolPanel', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('draws the current scramble and shows the selected tool in the footer', () => {
     render(<ToolPanel {...baseProps} />)
@@ -118,6 +122,26 @@ describe('ToolPanel', () => {
     rerender(<ToolPanel {...baseProps} event="222" />)
     expect(screen.getByTestId('scramble-net')).toHaveAttribute('data-size', '2')
     expect(screen.getByTestId('scramble-net').querySelectorAll('[data-sticker]')).toHaveLength(24)
+  })
+
+  it('builds the 2D net only for the visible net view and reuses it', () => {
+    const rebuild = vi.spyOn(cubeNet, 'cubeNetForScramble')
+    const { rerender } = render(<ToolPanel {...baseProps} mode="3d" />)
+    expect(rebuild).not.toHaveBeenCalled()
+
+    rerender(<ToolPanel {...baseProps} activeTool="timeTrend" />)
+    expect(rebuild).not.toHaveBeenCalled()
+
+    rerender(<ToolPanel {...baseProps} mode="net" />)
+    expect(rebuild).toHaveBeenCalledTimes(1)
+    expect(rebuild).toHaveBeenLastCalledWith(baseProps.scramble, 3)
+
+    rerender(<ToolPanel {...baseProps} mode="net" />)
+    expect(rebuild).toHaveBeenCalledTimes(1)
+
+    rerender(<ToolPanel {...baseProps} mode="net" scramble="R U" />)
+    expect(rebuild).toHaveBeenCalledTimes(2)
+    expect(rebuild).toHaveBeenLastCalledWith('R U', 3)
   })
 
   it('shows an honest 2D unavailable state for non-cube puzzles', () => {
