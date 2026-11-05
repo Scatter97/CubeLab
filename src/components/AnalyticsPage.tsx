@@ -42,6 +42,7 @@ import {
 } from '../lib/analyticsSettings'
 import { useDismissablePopover } from '../hooks/useDismissablePopover'
 import { AppVersion } from './AppVersion'
+import { ListIcon, ResetIcon, SlidersIcon } from './Icons'
 import { Select } from './Select'
 import {
   formatEventOptionLabel,
@@ -115,14 +116,21 @@ function StatCard({
   value,
   detail,
   title,
+  variant = 'default',
+  accent = false,
 }: {
   label: string
   value: string
   detail?: string
   title?: string
+  variant?: 'default' | 'hero' | 'detail'
+  accent?: boolean
 }) {
   return (
-    <div className="analytics-stat" title={title}>
+    <div
+      className={`analytics-stat is-${variant}${accent ? ' is-accent' : ''}`}
+      title={title}
+    >
       <span className="analytics-stat-label">{label}</span>
       <strong>{value}</strong>
       {detail ? <span className="analytics-stat-detail">{detail}</span> : null}
@@ -220,8 +228,7 @@ function SubXTargetControl({
         </p>
       ) : (
         <p id="sub-x-target-help" className="analytics-note">
-          Type a precise target. Sub-{formatTime(targetMs)} means strictly faster
-          than the target.
+          Strictly faster than Sub-{formatTime(targetMs)}.
         </p>
       )}
     </div>
@@ -231,17 +238,19 @@ function SubXTargetControl({
 function Section({
   id,
   title,
-  description,
+  meta,
   wide,
   children,
   actions,
+  emptyMessage,
 }: {
   id: AnalyticsSectionId
   title: string
-  description?: string
+  meta?: ReactNode
   wide: boolean
   children: ReactNode
   actions?: ReactNode
+  emptyMessage?: string
 }) {
   return (
     <section
@@ -251,13 +260,19 @@ function Section({
       data-testid={`analytics-section-${id}`}
     >
       <header className="analytics-section-header">
-        <div>
+        <div className="analytics-section-heading">
           <h2 id={`analytics-${id}-title`}>{title}</h2>
-          {description ? <p>{description}</p> : null}
+          {meta ? <span className="analytics-section-meta">{meta}</span> : null}
         </div>
         {actions}
       </header>
-      {children}
+      {emptyMessage ? (
+        <p className="analytics-empty" role="status">
+          {emptyMessage}
+        </p>
+      ) : (
+        children
+      )}
     </section>
   )
 }
@@ -342,7 +357,7 @@ interface AnalyticsSolveListProps {
   height?: number
 }
 
-const LIST_ROW_HEIGHT = 42
+const LIST_ROW_HEIGHT = 40
 const LIST_HEIGHT = 320
 const LIST_OVERSCAN = 160
 
@@ -493,7 +508,6 @@ function SolveListDialog({
 
 interface AnalyticsPageProps {
   sessions: readonly Session[]
-  activeSessionId: string
   initialEvent: PuzzleEvent
   settings: Settings
   onChange: (next: Partial<Settings>) => void
@@ -501,7 +515,6 @@ interface AnalyticsPageProps {
 
 export default function AnalyticsPage({
   sessions,
-  activeSessionId,
   initialEvent,
   settings,
   onChange,
@@ -571,6 +584,38 @@ export default function AnalyticsPage({
     () => computeAnalyticsOverview(trend, OVERVIEW_AVERAGE_SIZES, trimming),
     [trend, trimming],
   )
+  const visibleOverviewAverages = overview.averages.filter(
+    (average) => average.best !== null || average.current !== null,
+  )
+  const featuredAverages = visibleOverviewAverages.filter(
+    (average) =>
+      average.size === 5 || average.size === 12 || average.size === 50,
+  )
+  const detailAverages = visibleOverviewAverages.filter(
+    (average) =>
+      average.size !== 5 && average.size !== 12 && average.size !== 50,
+  )
+  const scopeSummary = useMemo(() => {
+    if (filtered.length === 0) return 'No solves in scope'
+    const first = filtered[0]!
+    const last = filtered[filtered.length - 1]!
+    const sessionCount = new Set(
+      filtered.map((solve) => solve.sessionId),
+    ).size
+    const range =
+      fullDate(first.createdAt) === fullDate(last.createdAt)
+        ? fullDate(first.createdAt)
+        : `${fullDate(first.createdAt)} – ${fullDate(last.createdAt)}`
+    return `${range} · ${sessionCount.toLocaleString()} ${
+      sessionCount === 1 ? 'session' : 'sessions'
+    }`
+  }, [filtered])
+  const activeFilterCount =
+    (filters.event === 'all' ? 0 : 1) +
+    (filters.sessionIds === null ? 0 : 1) +
+    (filters.datePreset === 'all' ? 0 : 1) +
+    (filters.solveLimit === null ? 0 : 1) +
+    (filters.penalty === 'all' ? 0 : 1)
   const histogram = useMemo(
     () => buildHistogram(trend.singles, histogramIntervalMs),
     [trend.singles, histogramIntervalMs],
@@ -763,6 +808,12 @@ export default function AnalyticsPage({
       selectedSessionCount === sessionChoices.length)
   const noSessionsSelected =
     selectedSessionIds !== null && selectedSessionCount === 0
+  const analysisEmptyMessage = noSessionsSelected
+    ? 'Select at least one session to see this analysis.'
+    : selectedAnalysis?.id === 'sessions' && comparison.length < 2
+      ? 'Select at least two sessions with solves to compare them.'
+      : undefined
+  const analysisEmpty = analysisEmptyMessage !== undefined
   const partialSessionsSelected =
     !allSessionsSelected && !noSessionsSelected
   const selectedSessionLabel = allSessionsSelected
@@ -780,7 +831,6 @@ export default function AnalyticsPage({
   const subXChart = (
     <AnalyticsLineChart
       title="Sub-X percentage over time"
-      description="Percentage of the latest 50 solves (or fewer at the beginning) under the target."
       ariaLabel="Sub-X percentage over time"
       series={[
         {
@@ -803,86 +853,123 @@ export default function AnalyticsPage({
   )
 
   const sectionContent: Record<AnalyticsSectionId, ReactNode> = {
-    overview: (
-      <div className="analytics-stat-grid" data-testid="analytics-overview">
-        <StatCard
-          label="Total solves"
-          value={overview.count.toLocaleString()}
-          detail={`${overview.validCount.toLocaleString()} valid · ${overview.dnfCount.toLocaleString()} DNF`}
-          title="Every solve matching the global filters. DNFs stay in the total and are excluded from time statistics."
-        />
-        <StatCard
-          label="Best single"
-          value={formatOptionalMs(overview.best)}
-          detail={overview.validCount > 0 ? 'Fastest valid solve' : 'No valid solves'}
-        />
-        <StatCard
-          label="Worst single"
-          value={formatOptionalMs(overview.worst)}
-          detail="Slowest valid solve"
-        />
-        <StatCard
-          label="Mean"
-          value={formatOptionalMs(overview.meanMs)}
-          detail="Valid solves only"
-          title="Arithmetic mean of valid recorded results."
-        />
-        <StatCard
-          label="Median"
-          value={formatOptionalMs(overview.medianMs)}
-          detail="Middle recorded result"
-        />
-        <StatCard
-          label="Standard deviation"
-          value={
-            overview.standardDeviationMs === null
-              ? '—'
-              : `${(overview.standardDeviationMs / 1_000).toFixed(2)} s`
-          }
-          detail="Lower is more consistent"
-        />
-        <StatCard
-          label="Practice time"
-          value={formatDuration(overview.totalTimeMs)}
-          detail="Valid solve time only"
-          title="CubeLab does not store idle time, so this is time spent in recorded valid solves."
-        />
-        <StatCard
-          label="Active days"
-          value={overview.activeDays.toLocaleString()}
-          detail={
-            overview.solvesPerDay === null
-              ? 'No solves yet'
-              : `${overview.solvesPerDay.toFixed(1)} solves / calendar day`
-          }
-        />
-        <StatCard
-          label="DNF rate"
-          value={formatPercent(overview.dnfPercent)}
-          detail="Of all filtered solves"
-        />
-        <StatCard
-          label="Improvement"
-          value={formatPercent(overview.improvementPercent)}
-          detail="First vs latest 10%"
-          title="Positive values mean the latest tenth is faster than the earliest tenth of the filtered history."
-        />
-        {overview.averages
-          .filter(
-            (average) =>
-              average.best !== null || average.current !== null,
-          )
-          .map((average) => (
-          <StatCard
-            key={average.size}
-            label={`ao${average.size}`}
-            value={formatStatValue(average.current, settings.statPrecision)}
-            detail={`Best ${formatOptionalMs(average.best)}`}
-            title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
-          />
-        ))}
-      </div>
-    ),
+    overview:
+      overview.count === 0 ? (
+        <div
+          className="analytics-overview-empty"
+          data-testid="analytics-overview"
+        >
+          <p>No solves match this scope.</p>
+          {activeFilterCount > 0 ? (
+            <button
+              type="button"
+              className="analytics-link"
+              onClick={resetFilters}
+            >
+              Reset filters
+            </button>
+          ) : (
+            <p>Record or import solves to populate the overview.</p>
+          )}
+        </div>
+      ) : (
+        <div className="analytics-overview" data-testid="analytics-overview">
+          <div className="analytics-overview-hero">
+            <StatCard
+              label="Best single"
+              value={formatOptionalMs(overview.best)}
+              variant="hero"
+              accent
+            />
+            {featuredAverages.map((average) => (
+              <StatCard
+                key={average.size}
+                label={`Current ao${average.size}`}
+                value={formatStatValue(
+                  average.current,
+                  settings.statPrecision,
+                )}
+                detail={`Best ${formatOptionalMs(average.best)}`}
+                title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
+                variant="hero"
+              />
+            ))}
+            <StatCard
+              label="Total solves"
+              value={overview.count.toLocaleString()}
+              detail={`${overview.validCount.toLocaleString()} valid · ${overview.dnfCount.toLocaleString()} DNF`}
+              title="Every solve matching the global filters. DNFs stay in the total and are excluded from time statistics."
+              variant="hero"
+            />
+          </div>
+          <div
+            className="analytics-overview-detail"
+            data-count={8 + detailAverages.length}
+          >
+            <StatCard
+              label="Worst single"
+              value={formatOptionalMs(overview.worst)}
+              variant="detail"
+            />
+            <StatCard
+              label="Mean"
+              value={formatOptionalMs(overview.meanMs)}
+              title="Arithmetic mean of valid recorded results."
+              variant="detail"
+            />
+            <StatCard
+              label="Median"
+              value={formatOptionalMs(overview.medianMs)}
+              variant="detail"
+            />
+            <StatCard
+              label="Standard deviation"
+              value={
+                overview.standardDeviationMs === null
+                  ? '—'
+                  : `${(overview.standardDeviationMs / 1_000).toFixed(2)} s`
+              }
+              title="Sample standard deviation of valid solve times. Lower is more consistent."
+              variant="detail"
+            />
+            <StatCard
+              label="Practice time"
+              value={formatDuration(overview.totalTimeMs)}
+              title="Time spent in recorded valid solves. CubeLab does not store idle time."
+              variant="detail"
+            />
+            <StatCard
+              label="Active days"
+              value={overview.activeDays.toLocaleString()}
+              variant="detail"
+            />
+            <StatCard
+              label="DNF rate"
+              value={formatPercent(overview.dnfPercent)}
+              title="Share of filtered solves marked DNF."
+              variant="detail"
+            />
+            <StatCard
+              label="Improvement"
+              value={formatPercent(overview.improvementPercent)}
+              title="Positive values mean the latest tenth of the filtered history is faster than the earliest tenth."
+              variant="detail"
+            />
+            {detailAverages.map((average) => (
+              <StatCard
+                key={average.size}
+                label={`Current ao${average.size}`}
+                value={formatStatValue(
+                  average.current,
+                  settings.statPrecision,
+                )}
+                title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
+                variant="detail"
+              />
+            ))}
+          </div>
+        </div>
+      ),
     progression: (
       <div className="analytics-chart-stack">
         <div className="analytics-chart-toolbar" aria-label="Time progression series">
@@ -926,7 +1013,7 @@ export default function AnalyticsPage({
         </div>
         <AnalyticsLineChart
           title="Time progression"
-          description="Individual solves and configurable rolling averages, oldest to newest. PB markers show singles."
+          hideHeading
           ariaLabel="Solve time progression"
           series={progressChartSeries}
           xLabel={progressXAxis === 'date' ? xDateLabel : xSolveLabel}
@@ -950,7 +1037,7 @@ export default function AnalyticsPage({
       <div className="analytics-chart-stack">
         <AnalyticsLineChart
           title="Average progression"
-          description="Rolling trimmed averages across the complete filtered history. DNF windows appear as gaps."
+          hideHeading
           ariaLabel="Average progression"
           series={averageChartSeries}
           xLabel={xSolveLabel}
@@ -995,8 +1082,7 @@ export default function AnalyticsPage({
     personalBests: (
       <div className="analytics-chart-stack">
         <AnalyticsLineChart
-          title="Personal best progression"
-          description="Cumulative best single and rolling average. A step down is a new personal best."
+          title="PB progression"
           ariaLabel="Personal best progression"
           series={[
             {
@@ -1134,6 +1220,7 @@ export default function AnalyticsPage({
         </div>
         <AnalyticsHistogram
           title="Solve time distribution"
+          hideHeading
           bins={histogram.bins}
           formatValue={(value) => formatTime(value)}
           meanMs={histogram.meanMs}
@@ -1157,15 +1244,11 @@ export default function AnalyticsPage({
               View solves
             </button>
           </p>
-        ) : (
+        ) : histogram.groupedExtremes ? (
           <p className="analytics-note">
-            Click a distribution bar to inspect those solves in the solve list.
-            Outliers use the 1.5 × IQR rule.
-            {histogram.groupedExtremes
-              ? ' Values beyond the central 98% are grouped into the edge intervals, so unusually long solves stay visible and drillable without compressing the main distribution.'
-              : ''}
+            Edge bars group values beyond the central 98%.
           </p>
-        )}
+        ) : null}
         <div className="analytics-stat-grid is-compact">
           <StatCard
             label="Mean"
@@ -1205,7 +1288,6 @@ export default function AnalyticsPage({
                 ? '—'
                 : `${(consistency.standardDeviationMs / 1_000).toFixed(2)} s`
             }
-            detail="Spread of single times"
           />
           <StatCard
             label="Coefficient of variation"
@@ -1215,7 +1297,6 @@ export default function AnalyticsPage({
                 : consistency.coefficientOfVariation * 100,
               2,
             )}
-            detail="SD ÷ mean · lower is more consistent"
           />
           <StatCard
             label="Spread"
@@ -1225,7 +1306,6 @@ export default function AnalyticsPage({
           <StatCard
             label="Mean / median"
             value={`${formatOptionalMs(consistency.meanMs)} / ${formatOptionalMs(consistency.medianMs)}`}
-            detail="A large gap suggests outliers"
           />
           {consistency.rolling.map((rolling) => (
             <StatCard
@@ -1241,8 +1321,7 @@ export default function AnalyticsPage({
           ))}
         </div>
         <AnalyticsLineChart
-          title="Consistency trend"
-          description="Rolling sample standard deviation. Falling values mean times are more tightly grouped, not necessarily faster."
+          title="Rolling standard deviation"
           ariaLabel="Rolling standard deviation"
           series={consistency.rolling.map((rolling) => ({
             key: `sd-${rolling.size}`,
@@ -1261,10 +1340,6 @@ export default function AnalyticsPage({
           emptyMessage="A rolling standard deviation needs a complete window."
           testId="analytics-consistency"
         />
-        <p className="analytics-note">
-          Consistency and speed are separate: a solver can set a fast mean while
-          remaining less consistent than a slower solver with a lower SD.
-        </p>
       </div>
     ),
     subX: (
@@ -1296,26 +1371,17 @@ export default function AnalyticsPage({
           <StatCard
             label="Current streak"
             value={subX.currentStreak.toLocaleString()}
-            detail="Consecutive sub-X solves"
           />
           <StatCard
             label="Longest streak"
             value={subX.longestStreak.toLocaleString()}
-            detail="Best consecutive run"
           />
           <StatCard
             label="Estimated probability"
             value={formatPercent(subX.estimatedProbability)}
-            detail="Normal estimate · not a prediction"
             title="A normal-approximation estimate based on the current mean and sample SD. It does not guarantee future results."
           />
         </div>
-        <progress
-          className="analytics-progress"
-          max={100}
-          value={subX.percent}
-          aria-label={`Sub-X progress ${subX.percent.toFixed(1)} percent`}
-        />
         {subX.bySession.length > 0 ? (
           <div
             className="analytics-subx-split"
@@ -1518,7 +1584,6 @@ export default function AnalyticsPage({
             </div>
             <AnalyticsLineChart
               title="Session ao5 comparison"
-              description="Each line is one session's rolling ao5, aligned by solve number within that session."
               ariaLabel="Session ao5 comparison"
               series={comparisonSeries}
               xLabel={xSolveLabel}
@@ -1537,7 +1602,6 @@ export default function AnalyticsPage({
           <StatCard
             label="Timed practice"
             value={formatDuration(activity.totalTimeMs)}
-            detail="Valid recorded solve time"
           />
           <StatCard
             label="Active days"
@@ -1547,7 +1611,6 @@ export default function AnalyticsPage({
           <StatCard
             label="Practice frequency"
             value={formatPercent(activity.frequency)}
-            detail="Active days across the filtered span"
           />
           <StatCard
             label="Current streak"
@@ -1555,34 +1618,35 @@ export default function AnalyticsPage({
             detail={`Longest ${activity.longestStreak.toLocaleString()} days`}
           />
         </div>
-        <ActivityHeatmap
-          days={activity.daily}
-          formatDate={(day) => fullDate(day.dateMs)}
-        />
-        <AnalyticsLineChart
-          title="Solve volume"
-          description="Solves per week across the filtered history."
-          ariaLabel="Weekly solve volume"
-          series={[
-            {
-              key: 'weekly',
-              label: 'Solves / week',
-              color: 'var(--trend-ao200)',
-              values: weeklyCounts,
-            },
-          ]}
-          xLabel={(index) =>
-            formatAnalyticsAxisDate(
-              activity.weekly[index]?.startMs ?? Date.now(),
-              multipleYears,
-            )
-          }
-          formatValue={(value) => value.toLocaleString()}
-          formatTick={(value) => Math.round(value).toLocaleString()}
-          showControls
-          emptyMessage="No practice activity yet."
-          testId="analytics-activity-chart"
-        />
+        <div className="analytics-activity-split">
+          <ActivityHeatmap
+            days={activity.daily}
+            formatDate={(day) => fullDate(day.dateMs)}
+          />
+          <AnalyticsLineChart
+            title="Solve volume"
+            ariaLabel="Weekly solve volume"
+            series={[
+              {
+                key: 'weekly',
+                label: 'Solves / week',
+                color: 'var(--trend-ao200)',
+                values: weeklyCounts,
+              },
+            ]}
+            xLabel={(index) =>
+              formatAnalyticsAxisDate(
+                activity.weekly[index]?.startMs ?? Date.now(),
+                multipleYears,
+              )
+            }
+            formatValue={(value) => value.toLocaleString()}
+            formatTick={(value) => Math.round(value).toLocaleString()}
+            showControls
+            emptyMessage="No practice activity yet."
+            testId="analytics-activity-chart"
+          />
+        </div>
         <div className="analytics-pb-columns">
           <div>
             <h3>Most active days</h3>
@@ -1648,7 +1712,7 @@ export default function AnalyticsPage({
     ),
     advanced: (
       <div className="analytics-chart-stack">
-        <div className="analytics-stat-grid is-compact">
+        <div className="analytics-stat-grid is-compact is-advanced">
           <StatCard label="5th percentile" value={formatOptionalMs(advanced.p5Ms)} />
           <StatCard label="25th percentile" value={formatOptionalMs(advanced.p25Ms)} />
           <StatCard label="50th percentile" value={formatOptionalMs(advanced.p50Ms)} />
@@ -1667,12 +1731,10 @@ export default function AnalyticsPage({
                 ? '—'
                 : advanced.pbPerMonth.toFixed(2)
             }
-            detail="Single PBs across the history span"
           />
           <StatCard
             label="Improvement rate"
             value={formatPercent(advanced.improvementPercent)}
-            detail="Recent half vs historical half"
           />
           <StatCard
             label="Target estimate"
@@ -1683,7 +1745,6 @@ export default function AnalyticsPage({
         </div>
         <AnalyticsLineChart
           title="Moving median"
-          description="A 25-solve moving median smooths short-term noise while preserving slower trends."
           ariaLabel="Moving median"
           series={[
             {
@@ -1781,35 +1842,28 @@ export default function AnalyticsPage({
             )}
           </div>
         </div>
-        <p className="analytics-note">
-          Percentiles and rankings use valid recorded results. Statistical target
-          estimates are approximate and are never guarantees or WCA predictions.
-        </p>
       </div>
     ),
   }
 
   return (
     <main
-      className={`analytics-page${customizeOpen ? ' is-customizing' : ''}`}
+      className={`analytics-page${customizeOpen ? ' is-customizing' : ''}${
+        overview.count === 0 ? ' is-empty' : ''
+      }${analysisEmpty ? ' is-analysis-empty' : ''}`}
       aria-labelledby="analytics-title"
     >
       <header className="analytics-heading">
-        <div>
-          <p className="analytics-eyebrow">CubeLab insights</p>
+        <div className="analytics-heading-copy">
           <h1 id="analytics-title">Analytics</h1>
-          <p>
-            Read-only analysis of your recorded solves. Global filters apply to
-            every section.
-          </p>
-        </div>
-        <div className="analytics-heading-actions">
           <span className="analytics-record-count">
             {overview.count.toLocaleString()} matching solves
           </span>
+        </div>
+        <div className="analytics-heading-actions">
           <button
             type="button"
-            className="time-trend-button"
+            className="analytics-action is-primary"
             onClick={() => {
               setSelectedBin(null)
               setSolveListOpen(true)
@@ -1817,259 +1871,264 @@ export default function AnalyticsPage({
             disabled={overview.count === 0}
             data-testid="analytics-view-solves"
           >
+            <ListIcon size={14} />
             View solves
           </button>
           <button
             type="button"
-            className="time-trend-button"
+            className={`analytics-action${customizeOpen ? ' is-active' : ''}`}
             aria-expanded={customizeOpen}
             aria-controls="analytics-customize"
             onClick={() => setCustomizeOpen((open) => !open)}
             data-testid="analytics-customize-toggle"
           >
+            <SlidersIcon size={14} />
             Customize
           </button>
         </div>
       </header>
 
       <section className="analytics-filters" aria-label="Analytics filters">
-        <label>
-          Event
-          <Select
-            value={filters.event}
-            ariaLabel="Analytics event"
-            testId="analytics-event"
-            options={[
-              { value: 'all', label: 'All events' },
-              ...getEventOptions().map((entry) => ({
-                value: entry.id,
-                label: formatEventOptionLabel(entry),
-                text: entry.label,
-              })),
-            ]}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                event: value as PuzzleEvent | 'all',
-                sessionIds: null,
-              }))
-            }
-          />
-        </label>
-
-        <div
-          className="analytics-filter-field analytics-multiselect"
-          ref={sessionsRootRef}
-        >
-          <span>Sessions</span>
-          <button
-            ref={sessionsTriggerRef}
-            type="button"
-            className="analytics-multiselect-trigger"
-            aria-haspopup="listbox"
-            aria-expanded={sessionsMenuOpen}
-            aria-controls="analytics-session-filter-menu"
-            data-testid="analytics-sessions-trigger"
-            onClick={() => setSessionsMenuOpen((open) => !open)}
-          >
-            <span className="analytics-multiselect-value">
-              {selectedSessionLabel}
-            </span>
-            <span
-              className="analytics-multiselect-chevron"
-              aria-hidden="true"
+        <div className="analytics-filter-controls">
+          <label className="analytics-filter-field is-event">
+            Event
+            <Select
+              value={filters.event}
+              ariaLabel="Analytics event"
+              testId="analytics-event"
+              options={[
+                { value: 'all', label: 'All events' },
+                ...getEventOptions().map((entry) => ({
+                  value: entry.id,
+                  label: formatEventOptionLabel(entry),
+                  text: entry.label,
+                })),
+              ]}
+              onChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  event: value as PuzzleEvent | 'all',
+                  sessionIds: null,
+                }))
+              }
             />
-          </button>
-          {sessionsMenuOpen ? (
-            <div
-              ref={sessionsPanelRef}
-              className="analytics-multiselect-menu"
-              id="analytics-session-filter-menu"
-              role="group"
-              aria-label="Session filters"
-              data-timer-space-ignore="true"
-            >
-              <label className="analytics-multiselect-row">
+          </label>
+
+          <label className="analytics-filter-field is-date">
+            Date range
+            <Select
+              value={filters.datePreset}
+              testId="analytics-date-range"
+              options={[
+                { value: 'all', label: 'All time' },
+                { value: 'today', label: 'Today' },
+                { value: '7d', label: 'Last 7 days' },
+                { value: '30d', label: 'Last 30 days' },
+                { value: '90d', label: 'Last 90 days' },
+                { value: 'year', label: 'Last year' },
+                { value: 'custom', label: 'Custom…' },
+              ]}
+              onChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  datePreset: value as AnalyticsFilters['datePreset'],
+                }))
+              }
+            />
+          </label>
+
+          {filters.datePreset === 'custom' ? (
+            <div className="analytics-date-custom">
+              <label>
+                From
                 <input
-                  type="checkbox"
-                  data-testid="analytics-sessions-all"
-                  checked={allSessionsSelected}
-                  aria-checked={
-                    partialSessionsSelected
-                      ? 'mixed'
-                      : allSessionsSelected
-                        ? 'true'
-                        : 'false'
-                  }
-                  ref={(input) => {
-                    if (input) input.indeterminate = partialSessionsSelected
-                  }}
-                  onChange={() =>
+                  type="date"
+                  value={filters.customStart}
+                  onChange={(event) =>
                     setFilters((current) => ({
                       ...current,
-                      sessionIds: allSessionsSelected ? [] : null,
+                      customStart: event.target.value,
                     }))
                   }
                 />
-                <span className="analytics-multiselect-name">All sessions</span>
-                <span className="analytics-multiselect-meta">
-                  {sessionChoices.length}{' '}
-                  {sessionChoices.length === 1 ? 'session' : 'sessions'}
-                </span>
               </label>
-              {sessionChoices.map((session) => {
-                const checked =
-                  filters.sessionIds === null ||
-                  filters.sessionIds.includes(session.id)
-                return (
-                  <label
-                    key={session.id}
-                    className="analytics-multiselect-row"
-                  >
-                    <input
-                      type="checkbox"
-                      data-testid={`analytics-session-option-${session.id}`}
-                      checked={checked}
-                      onChange={() => {
-                        const base =
-                          filters.sessionIds === null
-                            ? sessionChoices.map((entry) => entry.id)
-                            : filters.sessionIds
-                        setFilters((current) => ({
-                          ...current,
-                          sessionIds: checked
-                            ? base.filter((id) => id !== session.id)
-                            : [...base, session.id],
-                        }))
-                      }}
-                    />
-                    <span
-                      className="analytics-multiselect-name"
-                      title={session.name}
-                    >
-                      {session.name}
-                    </span>
-                    <span className="analytics-multiselect-meta">
-                      {session.solves.length} solves
-                    </span>
-                  </label>
-                )
-              })}
-              {sessionChoices.length === 0 ? (
-                <p className="analytics-note">No sessions match this event.</p>
-              ) : null}
+              <label>
+                To
+                <input
+                  type="date"
+                  value={filters.customEnd}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      customEnd: event.target.value,
+                    }))
+                  }
+                />
+              </label>
             </div>
           ) : null}
-          <span className="sr-only" role="status" aria-live="polite">
-            {selectedSessionLabel}
-          </span>
-        </div>
 
-        <label>
-          Date range
-          <Select
-            value={filters.datePreset}
-            testId="analytics-date-range"
-            options={[
-              { value: 'all', label: 'All time' },
-              { value: 'today', label: 'Today' },
-              { value: '7d', label: 'Last 7 days' },
-              { value: '30d', label: 'Last 30 days' },
-              { value: '90d', label: 'Last 90 days' },
-              { value: 'year', label: 'Last year' },
-              { value: 'custom', label: 'Custom…' },
-            ]}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                datePreset: value as AnalyticsFilters['datePreset'],
-              }))
-            }
-          />
-        </label>
-
-        {filters.datePreset === 'custom' ? (
-          <div className="analytics-date-custom">
-            <label>
-              From
-              <input
-                type="date"
-                value={filters.customStart}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    customStart: event.target.value,
-                  }))
-                }
+          <div
+            className="analytics-filter-field analytics-multiselect"
+            ref={sessionsRootRef}
+          >
+            <span>Sessions</span>
+            <button
+              ref={sessionsTriggerRef}
+              type="button"
+              className="analytics-multiselect-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={sessionsMenuOpen}
+              aria-controls="analytics-session-filter-menu"
+              data-testid="analytics-sessions-trigger"
+              onClick={() => setSessionsMenuOpen((open) => !open)}
+            >
+              <span className="analytics-multiselect-value">
+                {selectedSessionLabel}
+              </span>
+              <span
+                className="analytics-multiselect-chevron"
+                aria-hidden="true"
               />
-            </label>
-            <label>
-              To
-              <input
-                type="date"
-                value={filters.customEnd}
-                onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
-                    customEnd: event.target.value,
-                  }))
-                }
-              />
-            </label>
+            </button>
+            {sessionsMenuOpen ? (
+              <div
+                ref={sessionsPanelRef}
+                className="analytics-multiselect-menu"
+                id="analytics-session-filter-menu"
+                role="group"
+                aria-label="Session filters"
+                data-timer-space-ignore="true"
+              >
+                <label className="analytics-multiselect-row">
+                  <input
+                    type="checkbox"
+                    data-testid="analytics-sessions-all"
+                    checked={allSessionsSelected}
+                    aria-checked={
+                      partialSessionsSelected
+                        ? 'mixed'
+                        : allSessionsSelected
+                          ? 'true'
+                          : 'false'
+                    }
+                    ref={(input) => {
+                      if (input) input.indeterminate = partialSessionsSelected
+                    }}
+                    onChange={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        sessionIds: allSessionsSelected ? [] : null,
+                      }))
+                    }
+                  />
+                  <span className="analytics-multiselect-name">All sessions</span>
+                  <span className="analytics-multiselect-meta">
+                    {sessionChoices.length}{' '}
+                    {sessionChoices.length === 1 ? 'session' : 'sessions'}
+                  </span>
+                </label>
+                {sessionChoices.map((session) => {
+                  const checked =
+                    filters.sessionIds === null ||
+                    filters.sessionIds.includes(session.id)
+                  return (
+                    <label
+                      key={session.id}
+                      className="analytics-multiselect-row"
+                    >
+                      <input
+                        type="checkbox"
+                        data-testid={`analytics-session-option-${session.id}`}
+                        checked={checked}
+                        onChange={() => {
+                          const base =
+                            filters.sessionIds === null
+                              ? sessionChoices.map((entry) => entry.id)
+                              : filters.sessionIds
+                          setFilters((current) => ({
+                            ...current,
+                            sessionIds: checked
+                              ? base.filter((id) => id !== session.id)
+                              : [...base, session.id],
+                          }))
+                        }}
+                      />
+                      <span
+                        className="analytics-multiselect-name"
+                        title={session.name}
+                      >
+                        {session.name}
+                      </span>
+                      <span className="analytics-multiselect-meta">
+                        {session.solves.length} solves
+                      </span>
+                    </label>
+                  )
+                })}
+                {sessionChoices.length === 0 ? (
+                  <p className="analytics-note">No sessions match this event.</p>
+                ) : null}
+              </div>
+            ) : null}
+            <span className="sr-only" role="status" aria-live="polite">
+              {selectedSessionLabel}
+            </span>
           </div>
-        ) : null}
 
-        <label>
-          Last solves
-          <Select
-            value={filters.solveLimit === null ? 'all' : String(filters.solveLimit)}
-            testId="analytics-solve-limit"
-            options={[
-              { value: 'all', label: 'All' },
-              { value: '5', label: '5' },
-              { value: '12', label: '12' },
-              { value: '50', label: '50' },
-              { value: '100', label: '100' },
-              { value: '500', label: '500' },
-              { value: '1000', label: '1,000' },
-            ]}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                solveLimit: value === 'all' ? null : Number(value),
-              }))
-            }
-          />
-        </label>
+          <label className="analytics-filter-field is-limit">
+            Last solves
+            <Select
+              value={filters.solveLimit === null ? 'all' : String(filters.solveLimit)}
+              testId="analytics-solve-limit"
+              options={[
+                { value: 'all', label: 'All' },
+                { value: '5', label: '5' },
+                { value: '12', label: '12' },
+                { value: '50', label: '50' },
+                { value: '100', label: '100' },
+                { value: '500', label: '500' },
+                { value: '1000', label: '1,000' },
+              ]}
+              onChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  solveLimit: value === 'all' ? null : Number(value),
+                }))
+              }
+            />
+          </label>
 
-        <label>
-          Penalty
-          <Select
-            value={filters.penalty}
-            testId="analytics-penalty"
-            options={[
-              { value: 'all', label: 'All results' },
-              { value: 'none', label: 'Normal' },
-              { value: '+2', label: '+2' },
-              { value: 'dnf', label: 'DNF' },
-            ]}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                penalty: value as AnalyticsFilters['penalty'],
-              }))
-            }
-          />
-        </label>
+          <label className="analytics-filter-field is-penalty">
+            Penalty
+            <Select
+              value={filters.penalty}
+              testId="analytics-penalty"
+              options={[
+                { value: 'all', label: 'All results' },
+                { value: 'none', label: 'Normal' },
+                { value: '+2', label: '+2' },
+                { value: 'dnf', label: 'DNF' },
+              ]}
+              onChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  penalty: value as AnalyticsFilters['penalty'],
+                }))
+              }
+            />
+          </label>
 
-        <button
-          type="button"
-          className="time-trend-button"
-          onClick={resetFilters}
-          data-testid="analytics-reset-filters"
-        >
-          Reset filters
-        </button>
+          <button
+            type="button"
+            className="analytics-reset-filters"
+            onClick={resetFilters}
+            data-testid="analytics-reset-filters"
+          >
+            <ResetIcon size={13} />
+            Reset filters
+          </button>
+        </div>
       </section>
 
       {noSessionsSelected ? (
@@ -2100,12 +2159,12 @@ export default function AnalyticsPage({
           aria-label="Customize analytics dashboard"
         >
           <div className="analytics-customize-heading">
-            <div>
-              <h2>Dashboard sections</h2>
-              <p>
-                Show or hide overview and analyses, and reorder the analysis
-                navigation. Preferences are saved with your synced settings.
-              </p>
+            <div className="analytics-customize-title">
+              <h2>Sections</h2>
+              <span className="analytics-customize-count">
+                {analyticsSettings.sections.filter((section) => section.visible).length}{' '}
+                of {analyticsSettings.sections.length} visible
+              </span>
             </div>
             <button type="button" className="time-trend-button" onClick={resetLayout}>
               Reset layout
@@ -2163,6 +2222,13 @@ export default function AnalyticsPage({
         <Section
           id="overview"
           title={ANALYTICS_SECTION_LABELS.overview}
+          meta={
+            overview.count === 0
+              ? undefined
+              : `${scopeSummary} · ${overview.validCount.toLocaleString()} valid ${
+                  overview.validCount === 1 ? 'solve' : 'solves'
+                }`
+          }
           wide
         >
           {sectionContent.overview}
@@ -2175,7 +2241,9 @@ export default function AnalyticsPage({
             className="analytics-analysis-nav"
             aria-labelledby="analytics-analysis-heading"
           >
-            <h2 id="analytics-analysis-heading">Analyses</h2>
+            <div className="analytics-analysis-nav-heading">
+              <h2 id="analytics-analysis-heading">Analysis</h2>
+            </div>
             <div
               className="analytics-analysis-tabs"
               role="tablist"
@@ -2245,10 +2313,6 @@ export default function AnalyticsPage({
                 }
               />
             </label>
-            <p className="analytics-nav-hint">
-              Choose one analysis at a time. Use ↑/↓ to move between choices;
-              Customize changes visibility and order.
-            </p>
           </nav>
 
           <div
@@ -2267,6 +2331,7 @@ export default function AnalyticsPage({
                 key={selectedAnalysis.id}
                 id={selectedAnalysis.id}
                 title={ANALYTICS_SECTION_LABELS[selectedAnalysis.id]}
+                emptyMessage={analysisEmptyMessage}
                 wide={false}
               >
                 {sectionContent[selectedAnalysis.id]}
@@ -2283,11 +2348,6 @@ export default function AnalyticsPage({
       ) : null}
 
       <footer className="analytics-footer">
-        <p className="analytics-footer-note">
-          Analytics is read-only. Stored solves, penalties, timestamps and sync
-          data are never modified. Active session:{' '}
-          {sessions.find((session) => session.id === activeSessionId)?.name ?? '—'}.
-        </p>
         <AppVersion />
       </footer>
 

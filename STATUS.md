@@ -83,10 +83,37 @@ Node v22.23.2. Current checks on the working tree:
 | Check | Result |
 | --- | --- |
 | TypeScript, Oxlint | Passed |
-| Full Vitest run | 691 passed in 50 files |
+| Full Vitest run | 707 passed in 51 files |
 | Production build + PWA | Passed |
 | Focused csTimer Chromium flows | 3/3 passed (unknown custom types; invalid/valid additive import; ranked names, empty sessions and omitted defaults) |
 | Example fixture visual/axe check | Passed; 49 sessions, 8,591 solves and nine empty sessions represented |
+
+### Analytics debloat verification — 2026-11-04
+
+The Analytics dashboard received a focused design pass: removed the eyebrow,
+subtitle, scope-status and section dots, nav markers, metric descriptions and
+read-only footer; flattened the statistics overview into a primary metrics row
+and a compact secondary grid; turned the analysis rail into a flat index with an
+accent selection rule; compacted the filters, empty states and Sub-X controls;
+and paired the activity heatmap with the volume chart on wide screens. The green
+accent remains reserved for the fastest single, selection, links and primary
+actions. Calculations, filters, persistence, chart interactions and the nine
+sections are unchanged.
+
+TypeScript and Oxlint passed (one unrelated pre-existing `SessionPanel` purity
+warning remains). Full Vitest: **707 passed in 51 files**. Focused Chromium
+coverage passed `e2e/analytics.spec.ts` **12/12**. The production build and PWA
+generation passed without mock Drive. A one-off axe scan of the Analytics page
+reported no violations in desktop light, desktop dark, or 390 px layouts.
+
+Manual inspection used isolated synthetic histories with 140–266 solves, seven
+sessions and empty data. Light and dark themes were checked at 1440×900,
+1280×720, 1024×768, 768 px tablet, 390 px and 320 px; filters, Customize, the
+session menu, the Sub-X split, the solve list, histogram tooltips and 150%
+interface zoom were included. Automated Chromium coverage also exercised long
+session names, multi-year ranges, 10,000-solve histories and empty session
+selections. No real history or live Drive account was used. Firefox/WebKit, live
+Drive and assistive-technology sessions were not run for this visual change.
 
 ### Analytics layout, dropdown and footer verification — 2026-11-04
 

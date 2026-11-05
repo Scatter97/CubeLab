@@ -1583,6 +1583,7 @@ export default function App() {
       className={appShellClassName}
       data-accent={settings.accentColor}
       data-theme={resolvedTheme}
+      data-ui-zoom={settings.uiZoomPercent}
       style={
         {
           '--ui-scale': `${settings.uiZoomPercent / 100}`,
@@ -1838,7 +1839,6 @@ export default function App() {
         >
           <AnalyticsPage
             sessions={sessions}
-            activeSessionId={activeSessionId}
             initialEvent={activeEvent}
             settings={settings}
             onChange={updateSettings}

@@ -73,7 +73,6 @@ function Harness({
   return (
     <AnalyticsPage
       sessions={data}
-      activeSessionId="a"
       initialEvent="333"
       settings={settings}
       onChange={(next) =>
@@ -155,6 +154,40 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('1 matching solves')).toBeVisible()
     expect(screen.getByTestId('analytics-overview')).toHaveTextContent(
       '100.0%',
+    )
+  })
+
+  it('groups hero metrics with the active scope context', () => {
+    render(<Harness />)
+    const overview = screen.getByTestId('analytics-overview')
+    expect(overview).toHaveTextContent('Best single')
+    expect(overview).toHaveTextContent('Current ao5')
+    expect(overview).toHaveTextContent('Total solves')
+    expect(overview).toHaveTextContent('6 valid · 1 DNF')
+    expect(screen.getByTestId('analytics-section-overview')).toHaveTextContent(
+      'sessions · 6 valid solves',
+    )
+  })
+
+  it('shows per-series values and DNF gaps in the chart tooltip', () => {
+    render(<Harness />)
+    const plot = screen.getByRole('group', { name: /Solve time progression/ })
+    fireEvent.keyDown(plot, { key: 'ArrowLeft' })
+    const tooltip = screen.getByTestId('analytics-chart-tooltip')
+    expect(tooltip).toHaveTextContent('Single')
+    expect(tooltip).toHaveTextContent('ao5')
+    expect(tooltip).toHaveTextContent('ao12')
+    expect(tooltip).toHaveTextContent('20.00')
+    fireEvent.keyDown(plot, { key: 'ArrowLeft' })
+    fireEvent.keyDown(plot, { key: 'ArrowLeft' })
+    expect(tooltip).toHaveTextContent('—')
+  })
+
+  it('does not show a stale chart legend when there are no values', () => {
+    const { container } = render(<Harness data={[]} />)
+    expect(container.querySelector('.analytics-legend')).toBeNull()
+    expect(screen.getByTestId('analytics-section-overview')).toHaveTextContent(
+      'No solves match this scope.',
     )
   })
 

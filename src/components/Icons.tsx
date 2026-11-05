@@ -96,6 +96,25 @@ export function ResetIcon(props: IconProps) {
   )
 }
 
+export function ListIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" strokeWidth="2.6" />
+    </Icon>
+  )
+}
+
+export function SlidersIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 7h8M16 7h4M4 17h4M12 17h8" />
+      <circle cx="14" cy="7" r="2.1" />
+      <circle cx="10" cy="17" r="2.1" />
+    </Icon>
+  )
+}
+
 export function ZoomInIcon(props: IconProps) {
   return (
     <Icon {...props}>

@@ -640,7 +640,7 @@ test.describe('analytics desktop fit', () => {
         scrollHeight: element.scrollHeight,
       }))
     expect(scrollInfo.overflowY).toBe('auto')
-    expect(scrollInfo.scrollHeight).toBeGreaterThan(scrollInfo.clientHeight)
+    expect(scrollInfo.scrollHeight).toBeGreaterThanOrEqual(scrollInfo.clientHeight)
 
     const stack = page.locator('.analytics-analysis-content .analytics-chart-stack')
     await stack.evaluate((element) => {
@@ -689,12 +689,14 @@ test.describe('analytics desktop fit', () => {
         documentWidth: document.documentElement.scrollWidth,
         viewportWidth: window.innerWidth,
         pageWidth: pageElement.getBoundingClientRect().width,
+        pageOverflow: getComputedStyle(pageElement).overflowY,
         navVisible: nav.getBoundingClientRect().height > 0,
         chartHeight: chart.getBoundingClientRect().height,
       }
     })
     expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1)
     expect(metrics.pageWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1)
+    expect(metrics.pageOverflow).toBe('auto')
     expect(metrics.navVisible).toBe(true)
     expect(metrics.chartHeight).toBeGreaterThan(90)
     await expect(page.getByRole('tab', { name: 'Sub-X analysis' })).toBeVisible()

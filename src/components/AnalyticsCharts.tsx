@@ -32,6 +32,7 @@ export interface AnalyticsSeries {
 interface LineChartProps {
   title: string
   description?: string
+  hideHeading?: boolean
   ariaLabel: string
   series: readonly AnalyticsSeries[]
   xLabel: (index: number) => string
@@ -68,6 +69,7 @@ function useElementWidth(ref: React.RefObject<HTMLDivElement | null>) {
 export const AnalyticsLineChart = memo(function AnalyticsLineChart({
   title,
   description,
+  hideHeading = false,
   ariaLabel,
   series,
   xLabel,
@@ -193,6 +195,10 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
             return `${entry.label}: ${value === null ? '—' : formatValue(value)}`
           })
           .join(' · ')}`
+  const tooltipLeft =
+    hover === null
+      ? 0
+      : Math.min(width - 112, Math.max(112, xScale(hover)))
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (count === 0) return
@@ -215,8 +221,8 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
       {(title || showControls) && (
         <div className="analytics-chart-heading">
           <div>
-            <h3>{title}</h3>
-            {description ? <p>{description}</p> : null}
+            <h3 className={hideHeading ? 'sr-only' : undefined}>{title}</h3>
+            {description && !hideHeading ? <p>{description}</p> : null}
           </div>
           {showControls && count > 2 && hasValues ? (
             <div
@@ -380,11 +386,37 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
                   )}
                   fill="none"
                   stroke={entry.color}
-                  strokeWidth={1.6}
+                  strokeWidth={1.9}
                   strokeLinejoin="round"
                   strokeLinecap="round"
                 />
               ))}
+              {hover !== null
+                ? series.map((entry) => {
+                    const value = entry.values[hover] ?? null
+                    if (
+                      value === null ||
+                      hover < start ||
+                      hover >= start + visibleCount ||
+                      value < yAxis.min ||
+                      value > yAxis.max
+                    ) {
+                      return null
+                    }
+                    return (
+                      <circle
+                        key={`hover-${entry.key}`}
+                        className="analytics-chart-hover-dot"
+                        cx={xScale(hover)}
+                        cy={yScale(value)}
+                        r={3.2}
+                        fill={entry.color}
+                        stroke="var(--surface)"
+                        strokeWidth={1.5}
+                      />
+                    )
+                  })
+                : null}
               {visibleMarkers.map((marker) => (
                 <circle
                   key={`${marker.index}-${marker.value}`}
@@ -410,26 +442,52 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
             </g>
           </svg>
           {hoverLabel ? (
-            <div className="analytics-chart-tooltip" data-testid="analytics-chart-tooltip">
-              {hoverLabel}
-            </div>
+            <>
+              <div
+                className="analytics-chart-tooltip"
+                style={{ left: tooltipLeft }}
+                data-testid="analytics-chart-tooltip"
+                aria-hidden="true"
+              >
+                <span className="analytics-chart-tooltip-x">
+                  {xLabel(hover!)}
+                </span>
+                <span className="analytics-chart-tooltip-series">
+                  {series.map((entry) => {
+                    const value = entry.values[hover!] ?? null
+                    return (
+                      <span key={entry.key} className="analytics-chart-tooltip-row">
+                        <i style={{ background: entry.color }} aria-hidden="true" />
+                        <span>{entry.label}</span>
+                        <b>{value === null ? '—' : formatValue(value)}</b>
+                      </span>
+                    )
+                  })}
+                </span>
+              </div>
+              <p className="sr-only" role="status" aria-live="polite">
+                {hoverLabel}
+              </p>
+            </>
           ) : null}
         </div>
       )}
-      <div className="analytics-legend" aria-label={`${title} series`}>
-        {series.map((entry) => (
-          <span key={entry.key}>
-            <i style={{ background: entry.color }} aria-hidden="true" />
-            {entry.label}
-          </span>
-        ))}
-        {markers.length > 0 ? (
-          <span>
-            <i className="is-dot" style={{ background: markerColor }} aria-hidden="true" />
-            Personal best
-          </span>
-        ) : null}
-      </div>
+      {hasValues ? (
+        <div className="analytics-legend" aria-label={`${title} series`}>
+          {series.map((entry) => (
+            <span key={entry.key}>
+              <i style={{ background: entry.color }} aria-hidden="true" />
+              {entry.label}
+            </span>
+          ))}
+          {markers.length > 0 ? (
+            <span>
+              <i className="is-dot" style={{ background: markerColor }} aria-hidden="true" />
+              Personal best
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {visibleCount < count ? (
         <p className="analytics-chart-range">
           Showing solves {start + 1}–{start + visibleCount} of {count.toLocaleString()}.
@@ -442,6 +500,7 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
 
 interface HistogramChartProps {
   title: string
+  hideHeading?: boolean
   bins: readonly HistogramBin[]
   formatValue: (value: number) => string
   meanMs: number | null
@@ -453,6 +512,7 @@ interface HistogramChartProps {
 
 export const AnalyticsHistogram = memo(function AnalyticsHistogram({
   title,
+  hideHeading = false,
   bins,
   formatValue,
   meanMs,
@@ -463,6 +523,7 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
 }: HistogramChartProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const measured = useElementWidth(hostRef)
+  const [hoveredBin, setHoveredBin] = useState<number | null>(null)
   const width = Math.max(280, measured.width)
   const height = Math.max(
     140,
@@ -484,19 +545,39 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
   )
   const barGap = 1.5
   const barWidth = Math.max(1, plotW / Math.max(1, bins.length) - barGap)
+  const hovered = hoveredBin !== null ? bins[hoveredBin] ?? null : null
+  const hoveredLeft =
+    hoveredBin === null
+      ? 0
+      : Math.min(
+          width - 112,
+          Math.max(
+            112,
+            margin.left + (hoveredBin / bins.length) * plotW + barWidth / 2,
+          ),
+        )
 
   return (
     <div className="analytics-chart analytics-histogram" data-testid={testId}>
       <div className="analytics-chart-heading">
         <div>
-          <h3>{title}</h3>
-          <p>Click a bar to inspect its solves. Percentages use valid (non-DNF) solves.</p>
+          <h3 className={hideHeading ? 'sr-only' : undefined}>{title}</h3>
+          {!hideHeading ? (
+            <p>
+              Click a bar to inspect its solves. Percentages use valid (non-DNF)
+              solves.
+            </p>
+          ) : null}
         </div>
       </div>
       {bins.length === 0 ? (
         <p className="analytics-empty" role="status">No valid solve times match the current filters.</p>
       ) : (
-        <div className="analytics-chart-plot" ref={hostRef}>
+        <div
+          className="analytics-chart-plot"
+          ref={hostRef}
+          onPointerLeave={() => setHoveredBin(null)}
+        >
           <svg
             viewBox={`0 0 ${width} ${height}`}
             role="img"
@@ -544,8 +625,11 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
                   tabIndex={0}
                   aria-label={`${formatValue(bin.startMs)} to ${formatValue(bin.endMs)}: ${bin.count} solves, ${bin.percent.toFixed(1)} percent`}
                   aria-pressed={selected}
-                  className={`analytics-histogram-bar${selected ? ' is-selected' : ''}`}
+                  className={`analytics-histogram-bar${selected ? ' is-selected' : ''}${hoveredBin === index ? ' is-hovered' : ''}`}
                   onClick={() => onSelectBin(index)}
+                  onPointerEnter={() => setHoveredBin(index)}
+                  onFocus={() => setHoveredBin(index)}
+                  onBlur={() => setHoveredBin(null)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
@@ -569,6 +653,7 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
                     y={margin.top + plotH - barHeight}
                     width={Math.max(1, barWidth)}
                     height={Math.max(0, barHeight)}
+                    rx={2}
                   />
                   {bin.count > 0 && bins.length <= 14 ? (
                     <text
@@ -594,8 +679,9 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
                 />
                 <text
                   className="analytics-marker-label"
-                  x={xValue(meanMs) + 3}
+                  x={xValue(meanMs) - 4}
                   y={margin.top + 10}
+                  textAnchor="end"
                 >
                   Mean
                 </text>
@@ -637,6 +723,27 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
               )
             })}
           </svg>
+          {hovered ? (
+            <div
+              className="analytics-chart-tooltip is-histogram"
+              style={{ left: hoveredLeft }}
+              aria-hidden="true"
+            >
+              <span className="analytics-chart-tooltip-x">
+                {formatValue(hovered.startMs)}–{formatValue(hovered.endMs)}
+              </span>
+              <span className="analytics-chart-tooltip-series">
+                <span className="analytics-chart-tooltip-row">
+                  <span>Solves</span>
+                  <b>{hovered.count.toLocaleString()}</b>
+                </span>
+                <span className="analytics-chart-tooltip-row">
+                  <span>Share</span>
+                  <b>{hovered.percent.toFixed(1)}%</b>
+                </span>
+              </span>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -789,6 +896,13 @@ export const ActivityHeatmap = memo(function ActivityHeatmap({
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="analytics-heatmap-legend" aria-hidden="true">
+        <span>Less</span>
+        {[0, 1, 2, 3, 4].map((level) => (
+          <i key={level} className={`analytics-heatmap-cell level-${level}`} />
+        ))}
+        <span>More</span>
       </div>
     </div>
   )

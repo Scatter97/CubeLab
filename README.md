@@ -244,11 +244,13 @@ or scrambles.
 
 The Analytics tab analyzes the current solve history without modifying it. Event,
 session, date range, latest-solve count, and penalty filters apply to every
-analysis. The dashboard shares WCA effective-time, +2/DNF, precision, and
-trimming rules with the timer statistics. The Statistics overview stays at the
-top; below it, an analysis list selects one of the remaining analyses at a
-time. Narrow screens replace that list with an accessible **Analysis**
-dropdown.
+analysis. A compact scope toolbar sits below the page title, and the statistics
+overview promotes the fastest single, current rolling averages, and total volume
+above a dense secondary metric grid. The dashboard shares WCA effective-time,
++2/DNF, precision, and trimming rules with the timer statistics. The overview
+stays at the top; below it, a flat analysis list selects one of the remaining
+analyses at a time. Narrow screens replace that list with an accessible
+**Analysis** dropdown.
 
 ![CubeLab Analytics dashboard](docs/cubelab-analytics.png)
 
@@ -256,12 +258,14 @@ On desktop the dashboard fits the available viewport instead of scrolling the
 whole page. The overview and selected analysis use bounded internal scrolling;
 the selected chart flexes to the remaining height, and longer tables remain
 reachable inside the analysis panel. Narrow layouts deliberately keep page
-scrolling so controls and text stay readable, and increased interface zoom can
-scroll the analysis content without horizontal clipping.
+scrolling so controls and text stay readable. Increased interface zoom also
+switches the workspace to page scrolling instead of clipping the analysis.
 
 Charts remain interactive at large histories: dense lines use ordered bucket
 downsampling, the filtered solve-list dialog virtualizes its rows, and both the
-page and its chart code are loaded separately from the timer. Section visibility,
+page and its chart code are loaded separately from the timer. Hover or keyboard
+inspection shows a per-series tooltip, and histogram tooltips report the
+interval, solve count, and share before drill-down. Section visibility,
 order, and per-event Sub-X targets are stored in synchronized settings. Retired
 Solve explorer entries in older saved layouts are ignored without invalidating
 the rest of the customization. The retired width preference also remains in
