@@ -213,7 +213,6 @@ export function DataDialog({
           {csPreview ? (
             <div className="cs-preview" data-testid="cs-preview">
               <header className="cs-preview-header">
-                <span className="eyebrow">csTimer import</span>
                 <h2 id="cs-preview-title">Import csTimer backup</h2>
                 <p
                   id="cs-preview-total"
@@ -303,7 +302,6 @@ export function DataDialog({
               <span className="dialog-icon is-neutral" aria-hidden="true">
                 <CubeMark size={24} />
               </span>
-              <span className="eyebrow">Backup &amp; restore</span>
               <h2 id="data-title">Your local data</h2>
               <p id="data-description">
                 Export every session and setting as a JSON file, or restore a

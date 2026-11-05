@@ -291,6 +291,14 @@ test.describe('analytics responsive layout', () => {
     await expect(page.getByTestId('analytics-analysis-select')).toContainText(
       'Time progression',
     )
+
+    const filtersToggle = page.getByTestId('analytics-filters-toggle')
+    await expect(filtersToggle).toBeVisible()
+    await expect(filtersToggle).toContainText('1 active')
+    await expect(page.locator('.analytics-filters')).toBeHidden()
+    await filtersToggle.click()
+    await expect(page.locator('.analytics-filters')).toBeVisible()
+    await expect(filtersToggle).toHaveAttribute('aria-expanded', 'true')
     await chooseTestOption(page, 'analytics-analysis-select', 'subX')
     await expect(page.getByTestId('analytics-section-subX')).toBeVisible()
     await expect(page.getByTestId('analytics-subx-table-scroll')).toBeVisible()

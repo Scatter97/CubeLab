@@ -178,10 +178,19 @@ async function runEventScenario(page: Page, event: CubeLabEvent) {
   await expect(page.getByTestId('solve-count')).toHaveText('3')
 
   const newestRow = page.locator('[data-testid="history-row"]').first()
-  await newestRow.getByTestId('solve-plus-two').click()
-  await expect(newestRow.locator('.history-time')).toContainText('+2')
-  await newestRow.getByTestId('solve-dnf').click()
-  await expect(newestRow.locator('.history-time')).toContainText('DNF')
+  if (await newestRow.getByTestId('solve-plus-two').isVisible()) {
+    await newestRow.getByTestId('solve-plus-two').click()
+    await expect(newestRow.locator('.history-time')).toContainText('+2')
+    await newestRow.getByTestId('solve-dnf').click()
+    await expect(newestRow.locator('.history-time')).toContainText('DNF')
+  } else {
+    let menu = await openFirstSolveMenu(page)
+    await menu.getByRole('menuitem', { name: 'Add +2 penalty' }).click()
+    await expect(newestRow.locator('.history-time')).toContainText('+2')
+    menu = await openFirstSolveMenu(page)
+    await menu.getByRole('menuitem', { name: 'Mark as DNF' }).click()
+    await expect(newestRow.locator('.history-time')).toContainText('DNF')
+  }
 
   // A DNF makes mo3 a DNF, while the best single still comes from the valid
   // solves. This is the same WCA rule for every event.
@@ -2148,6 +2157,11 @@ test('invalid google drive backup is rejected', async ({ page }) => {
 
   await drive.getByTestId('drive-connect').click()
   await drive.getByTestId('sync-now').click()
+  // Let the first publication finish before corrupting the remote file;
+  // otherwise the second click is ignored while that sync is still running.
+  await expect(drive.getByTestId('sync-status')).toContainText('synced', {
+    timeout: 15_000,
+  })
   await page.evaluate(() => {
     ;(window as { __cubeLabMockDrive?: { __corruptRemote?: () => void } })
       .__cubeLabMockDrive?.__corruptRemote?.()

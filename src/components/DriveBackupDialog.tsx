@@ -256,6 +256,44 @@ export function DriveBackupDialog({
     phase === 'backing-up' ||
     phase === 'restoring' ||
     phase === 'deleting'
+  const driveStatus = !drive.configured
+    ? 'Not configured for this build.'
+    : phase === 'connecting'
+      ? 'Connecting to Google Drive…'
+      : phase === 'error'
+        ? 'Google Drive connection error.'
+        : phase === 'backing-up'
+          ? drive.connected
+            ? 'Connected · backing up…'
+            : 'Backing up…'
+          : phase === 'restoring'
+            ? drive.connected
+              ? 'Connected · restoring…'
+              : 'Restoring…'
+            : phase === 'deleting'
+              ? drive.connected
+                ? 'Connected · deleting remote backup…'
+                : 'Deleting remote backup…'
+              : !drive.connected
+                ? 'Not connected. Connect to enable synchronization.'
+                : sync.pendingConflicts.length > 0
+                  ? `Connected · ${sync.pendingConflicts.length} conflict${
+                      sync.pendingConflicts.length === 1 ? '' : 's'
+                    } to review.`
+                  : sync.phase === 'offline'
+                    ? 'Connected · offline. Changes are saved locally.'
+                    : sync.phase === 'failed'
+                      ? 'Connected · last sync failed.'
+                      : sync.phase === 'auth-required'
+                        ? 'Connected · Google Drive needs reconnection.'
+                        : sync.phase === 'syncing'
+                          ? 'Connected · syncing…'
+                          : !sync.preferences.enabled
+                            ? 'Connected · automatic synchronization is off.'
+                            : sync.hasPendingChanges
+                              ? 'Connected · changes waiting to sync.'
+                              : 'Connected · up to date.'
+  const conflictCount = sync.pendingConflicts.length
   const persistedDriveState = loadDriveBackupState()
   const remoteFileId =
     persistedDriveState.remoteFileId ?? drive.metadata.remoteFileId
@@ -305,7 +343,6 @@ export function DriveBackupDialog({
         <div className="dialog-content settings-content">
           <header className="settings-header">
             <div>
-              <span className="eyebrow">Data</span>
               <h2 id="drive-backup-title">Google Drive backup</h2>
             </div>
             <button
@@ -339,29 +376,9 @@ export function DriveBackupDialog({
                     className="settings-row-description"
                     data-testid="drive-status"
                   >
-                    {!drive.configured
-                      ? 'Not configured for this build.'
-                      : phase === 'connecting'
-                        ? 'Connecting…'
-                        : phase === 'connected'
-                          ? 'Connected'
-                          : phase === 'backing-up'
-                            ? 'Backing up…'
-                            : phase === 'restoring'
-                              ? 'Restoring…'
-                              : phase === 'deleting'
-                                ? 'Deleting remote backup…'
-                                : phase === 'error'
-                                  ? 'Error'
-                                  : 'Disconnected'}
+                    {driveStatus}
                   </span>
                 </div>
-                <span
-                  className={`settings-storage ${drive.connected ? 'is-ok' : 'is-error'}`}
-                >
-                  <span className="status-dot" aria-hidden="true" />
-                  {drive.connected ? 'Online' : 'Offline'}
-                </span>
               </div>
 
               {drive.metadata.connectedAccountLabel ? (
@@ -377,19 +394,25 @@ export function DriveBackupDialog({
                 <p className="settings-note">No remote backup found yet.</p>
               ) : null}
 
-              <p className="settings-note" data-testid="sync-status">
-                Status: {sync.phase}
-                {sync.hasPendingChanges ? ' · Unsynchronized changes' : ''}
-                {sync.pendingConflicts.length > 0
-                  ? ` · ${sync.pendingConflicts.length} conflict${
-                      sync.pendingConflicts.length === 1 ? '' : 's'
-                    } to review`
-                  : ''}
-                {' · '}New local solves since last sync: {sync.newSolvesSinceLastSync}
-                {sync.lastSyncAt
-                  ? ` · Last sync ${new Date(sync.lastSyncAt).toLocaleString()}`
-                  : ''}
-              </p>
+              <details className="drive-sync-details">
+                <summary>Sync details</summary>
+                <p className="settings-note" data-testid="sync-status">
+                  Sync state: {sync.phase}
+                  {sync.hasPendingChanges ? ' · Changes waiting to publish' : ''}
+                  {conflictCount > 0
+                    ? ` · ${conflictCount} conflict${
+                        conflictCount === 1 ? '' : 's'
+                      } to review`
+                    : ''}
+                  {' · '}New local solves since last sync:{' '}
+                  {sync.newSolvesSinceLastSync}
+                </p>
+                <p className="settings-note">
+                  {sync.lastSyncAt
+                    ? `Last sync ${new Date(sync.lastSyncAt).toLocaleString()}`
+                    : 'No completed sync yet.'}
+                </p>
+              </details>
 
               {sync.error ? (
                 <p

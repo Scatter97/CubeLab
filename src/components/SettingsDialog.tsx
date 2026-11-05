@@ -217,7 +217,6 @@ function SettingsContent({
     <div className="dialog-content settings-content">
         <header className="settings-header">
           <div>
-            <span className="eyebrow">Preferences</span>
             <h2 id="settings-title">Settings</h2>
           </div>
           <button
@@ -231,9 +230,8 @@ function SettingsContent({
           </button>
         </header>
 
-        <p id="settings-description" className="settings-intro">
-          Timer, alerts, appearance, statistics, scramble, and local-data
-          preferences. Changes save automatically in this browser.
+        <p id="settings-description" className="sr-only">
+          CubeLab settings. Changes save automatically in this browser.
         </p>
 
         <div className="settings-body">

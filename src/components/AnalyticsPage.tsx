@@ -538,6 +538,11 @@ export default function AnalyticsPage({
   const [filters, setFilters] = useState<AnalyticsFilters>(() =>
     createAnalyticsFilters(initialEvent),
   )
+  const [filtersOpen, setFiltersOpen] = useState(
+    () =>
+      typeof window === 'undefined' ||
+      !window.matchMedia?.('(max-width: 680px)').matches,
+  )
   const [selectedSolve, setSelectedSolve] = useState<AnalyticsSolve | null>(null)
   const [selectedBin, setSelectedBin] = useState<number | null>(null)
   const [solveListOpen, setSolveListOpen] = useState(false)
@@ -1889,7 +1894,28 @@ export default function AnalyticsPage({
         </div>
       </header>
 
-      <section className="analytics-filters" aria-label="Analytics filters">
+      <button
+        type="button"
+        className={`analytics-action analytics-filters-toggle${filtersOpen ? ' is-active' : ''}`}
+        aria-expanded={filtersOpen}
+        aria-controls="analytics-filters"
+        onClick={() => setFiltersOpen((open) => !open)}
+        data-testid="analytics-filters-toggle"
+      >
+        <SlidersIcon size={14} />
+        Filters
+        {activeFilterCount > 0 ? (
+          <span className="analytics-filters-count">
+            {activeFilterCount} active
+          </span>
+        ) : null}
+      </button>
+
+      <section
+        id="analytics-filters"
+        className={`analytics-filters${filtersOpen ? '' : ' is-collapsed'}`}
+        aria-label="Analytics filters"
+      >
         <div className="analytics-filter-controls">
           <label className="analytics-filter-field is-event">
             Event

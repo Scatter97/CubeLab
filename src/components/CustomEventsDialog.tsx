@@ -266,7 +266,6 @@ function CustomEventsContent({
     <div className="dialog-content custom-events-content">
       <header className="settings-header">
         <div>
-          <span className="eyebrow">Events</span>
           <h2 id="custom-events-title">Custom events</h2>
           <p id="custom-events-description" className="session-settings-meta">
             Record puzzles that have no official scramble generator. Times,

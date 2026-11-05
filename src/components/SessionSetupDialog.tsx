@@ -115,7 +115,6 @@ function SessionSetupContent({
     <div className="dialog-content session-settings-content">
       <header className="settings-header">
         <div>
-          <span className="eyebrow">Session</span>
           <h2 id="create-session-title">Create new session</h2>
           <p
             id="create-session-description"

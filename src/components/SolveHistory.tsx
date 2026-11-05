@@ -260,6 +260,7 @@ export const SolveHistory = memo(function SolveHistory({
   const anchorRef = useRef<HistoryAnchor | null>(null)
   const previousNewestRef = useRef<string | undefined>(newestId)
   const scrollRafRef = useRef<number | null>(null)
+  const menuScrollTopRef = useRef(0)
   const openMenuRef = useRef<OpenSolveMenu | null>(null)
   const solvesRef = useRef(solves)
   const offsetsRef = useRef<Float64Array | null>(null)
@@ -512,6 +513,7 @@ export const SolveHistory = memo(function SolveHistory({
       }
 
       captureAnchor()
+      menuScrollTopRef.current = scrollRef.current?.scrollTop ?? 0
       setCommentDraft(solve.comment)
       setCommentEditing(false)
       setOpenMenu({
@@ -531,6 +533,7 @@ export const SolveHistory = memo(function SolveHistory({
       }
 
       captureAnchor()
+      menuScrollTopRef.current = scrollRef.current?.scrollTop ?? 0
       setCommentDraft(solve.comment)
       setCommentEditing(false)
       setOpenMenu({
@@ -562,7 +565,14 @@ export const SolveHistory = memo(function SolveHistory({
       closeMenu()
     }
     const handleResize = () => closeMenu(false)
-    const handleScroll = () => closeMenu(false)
+    const handleScroll = () => {
+      const scroller = scrollRef.current
+      if (!scroller) return
+      // Row-height measurement can nudge the scroller by a pixel while the
+      // menu opens. Only a real scroll should dismiss it.
+      if (Math.abs(scroller.scrollTop - menuScrollTopRef.current) <= 4) return
+      closeMenu(false)
+    }
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.stopPropagation()

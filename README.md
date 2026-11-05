@@ -77,7 +77,9 @@ solves.
   hover, keyboard inspection, zoom, pan, and reset; solve points and list rows
   open a read-only detail dialog. The Statistics overview stays at the top and a
   left analysis list (or narrow-screen dropdown) shows one analysis at a time;
-  visibility and order preferences merge with the other global settings.
+  on narrow screens the filter controls collapse behind a **Filters** button
+  that shows the active-filter count. Visibility and order preferences merge
+  with the other global settings.
   Practice activity covers the complete filtered date range with year-aware
   labels, and the Sub-X session breakdown shares a resizable split with its
   chart. Analytics is lazy loaded, calculation results are memoized, large lines
@@ -129,8 +131,9 @@ solves.
   from ao3 to ao10000. All averages honor the configured trimming and DNF rules.
 - **Solve history** containing the raw time, penalty, scramble, timestamp,
   optional comment, and a stable unique ID. Click a row or press <kbd>Enter</kbd>
-  to open a floating action menu. Each row also has inline **+2** and **DNF**
-  controls, while other actions remain in the menu.
+  to open a floating action menu. Wider layouts also show inline **+2** and
+  **DNF** controls; narrow layouts keep every action in the row menu to avoid
+  crowding the timestamp and scramble.
 - **Solve actions**: add/remove `+2`, mark/clear DNF, delete with a durable
   synchronized undo, copy the scramble, solve time, or full solve text, and add
   or edit a persisted comment.
@@ -186,16 +189,19 @@ The layout follows the familiar speedcubing-timer structure: a session switcher,
 session statistics, and solve history in the left rail; the scramble above the
 timer; and the clock as the dominant element. When Draw Scramble is active, its
 compact diagram panel is anchored inside the bottom-right of the timer area and
-the readout reserves a right gutter for its default placement. Moved/resized
-panels and the full narrow-screen timing matrix still need visual verification;
-the gutter is a mitigation, not a guarantee that every panel placement stays clear. The flat light and dark themes
+the readout reserves a right gutter for its default placement. The base timer and
+sidebar stack without overlap at short viewports; moved/resized floating panels
+still need placement verification, and the gutter is a mitigation rather than a
+guarantee for every panel position. The flat light and dark themes
 use neutral panels, an accent-tinted timer surface, and a solid accent available
 in green, blue, violet, or amber. The theme follows **Light**, **Dark**, or
 **System** in **Settings → Appearance**; the predefined text/surface and accent pairs in both palettes are
 checked against WCAG AA contrast thresholds, and the stored choice is applied before
 the first paint. There are no decorative gradients, glows, or background
 effects. On narrow screens the timer comes first, with the session controls,
-statistics, and history stacked below it.
+statistics, and history stacked below it. Short portrait and landscape viewports
+give the timer a readable minimum height and let the workspace scroll beneath
+it, so panels never paint over the readout.
 
 The header **Settings** button opens a csTimer-inspired preferences dialog. The
 dialog groups timer, alerts, display, appearance, statistics, scramble, controls,
@@ -862,6 +868,7 @@ src/
   index.css              Tokenized light/dark palettes and responsive layout
 e2e/timer.spec.ts        Production browser and offline tests
 e2e/analytics.spec.ts    Analytics filtering, drill-down, large history, responsive layout
+e2e/responsive-timer.spec.ts  Small portrait/landscape timer layout and touch actions
 ```
 
 The timer is a pure state machine driven by timestamped events. The React layer

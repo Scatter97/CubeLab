@@ -1,6 +1,6 @@
 # CubeLab status
 
-**Updated:** 2026-11-04. This is the current implementation/verification record
+**Updated:** 2026-11-05. This is the current implementation/verification record
 and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
@@ -75,6 +75,38 @@ Core phases 2A–4, theme polish, Phase 5 remediation and Phase 6a are delivered
 Future feature-phase proposals have been removed at the user's request. The
 retained work is the five follow-ups below; the retired Solve explorer was
 replaced by the filtered solve-list details dialog.
+
+## UI debloat and responsive verification — 2026-11-05
+
+The timer/sidebar workspace now sizes to content and scrolls below the timer on
+narrow screens, with a compact short-height layout, so the readout cannot paint
+under Sessions or Statistics at 320×568, 360×640, 568×320 or 844×390. Settings,
+Solve History and Analytics moved to a four-step type scale; redundant dialog
+eyebrows and the Settings intro were removed; the Drive status row is now one
+human-readable state with technical sync details behind a disclosure; narrow
+Solve History rows use the row menu instead of cramped inline penalty buttons;
+and narrow Analytics filters collapse behind a Filters control with an active
+count. The repeated Latest DNF indicators and the Analytics averages Size column
+were intentionally left unchanged.
+
+TypeScript and Oxlint passed (the pre-existing `SessionPanel` purity warning
+remains). Full Vitest: **743 passed in 54 files**. Production build and PWA
+generation passed. Chromium focused checks: responsive timer **5/5**, Analytics
+**12/12**, accessibility **3/3**, and timer/session-management/average-trimming
+**82/82**. WebKit responsive timer, Analytics and accessibility: **20/20**.
+Firefox responsive timer, Analytics and accessibility passed; clean reruns of
+the previously failing Drive split/delete and trimming cases passed **3/3**.
+
+The full `npm run check` did not produce a clean matrix. Its first browser run
+reused a stale preview for the Drive cases; clean targeted reruns passed. Eleven
+Firefox mobile per-event cases still fail before the changed UI paths because
+the custom event selector ignores Playwright Firefox `isMobile` pointer clicks;
+keyboard selection reaches the same events. No full-matrix pass is claimed.
+
+Visual inspection used isolated synthetic history at 1440×900 and 390×844 in
+light and dark themes, plus timer layouts at 320×568, 360×640, 568×320 and
+844×390. Settings, Solve History, Analytics, the filter disclosure and the Drive
+sync details were included. No real history or live Drive account was used.
 
 ## Latest application verification — 2026-11-04
 
@@ -234,10 +266,12 @@ used. Existing imports were not automatically repaired or reclassified.
 
 ## Immediate work
 
-1. **Verify and fix panel/readout overlap.** A gutter mitigation exists for
-   the default open panel; inspect desktop, 320/390 px, landscape and timing
-   states with the panel open, moved, resized and restored after reload.
-   Preserve pointer isolation and refresh affected screenshots after UI changes.
+1. **Verify and fix tool-panel/readout overlap.** The base timer and sidebar
+   workspace now stacks and scrolls without overlap at short viewports. A gutter
+   mitigation remains for the default open Draw Scramble panel; inspect desktop,
+   320/390 px, landscape and timing states with the panel open, moved, resized
+   and restored after reload. Preserve pointer isolation and refresh affected
+   screenshots after UI changes.
 2. **Profile large-history performance.** Use the 7,000–10,000-solve matrix
    below, with sync on/off and charts open/closed. Include the Analytics page and
    separate first-result response from chart completion and durability before
