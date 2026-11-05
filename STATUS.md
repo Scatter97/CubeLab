@@ -83,7 +83,7 @@ Node v22.23.2. Current checks on the working tree:
 | Check | Result |
 | --- | --- |
 | TypeScript, Oxlint | Passed |
-| Full Vitest run | 707 passed in 51 files |
+| Full Vitest run | 708 passed in 51 files |
 | Production build + PWA | Passed |
 | Focused csTimer Chromium flows | 3/3 passed (unknown custom types; invalid/valid additive import; ranked names, empty sessions and omitted defaults) |
 | Example fixture visual/axe check | Passed; 49 sessions, 8,591 solves and nine empty sessions represented |
@@ -100,8 +100,10 @@ accent remains reserved for the fastest single, selection, links and primary
 actions. Calculations, filters, persistence, chart interactions and the nine
 sections are unchanged.
 
+Chart measurement now reattaches its `ResizeObserver` when an empty analysis
+becomes populated, covered by a focused AnalyticsPage regression test.
 TypeScript and Oxlint passed (one unrelated pre-existing `SessionPanel` purity
-warning remains). Full Vitest: **707 passed in 51 files**. Focused Chromium
+warning remains). Full Vitest: **708 passed in 51 files**. Focused Chromium
 coverage passed `e2e/analytics.spec.ts` **12/12**. The production build and PWA
 generation passed without mock Drive. A one-off axe scan of the Analytics page
 reported no violations in desktop light, desktop dark, or 390 px layouts.

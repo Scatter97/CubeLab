@@ -963,6 +963,7 @@ export default function AnalyticsPage({
                   average.current,
                   settings.statPrecision,
                 )}
+                detail={`Best ${formatOptionalMs(average.best)}`}
                 title={`Current and best trimmed ao${average.size}. DNFs follow the configured WCA-style trimming rules.`}
                 variant="detail"
               />

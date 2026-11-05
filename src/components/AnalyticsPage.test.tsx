@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AnalyticsPage from './AnalyticsPage'
 import { DEFAULT_SETTINGS } from '../lib/storage'
@@ -109,6 +116,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('AnalyticsPage', () => {
@@ -333,6 +341,26 @@ describe('AnalyticsPage', () => {
     expect(screen.getByTestId('analytics-activity-chart')).toHaveTextContent(
       'No practice activity yet.',
     )
+  })
+
+  it('attaches chart measurement when an empty scope becomes populated', async () => {
+    const observed: Element[] = []
+    class MockResizeObserver {
+      constructor(_callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        observed.push(target)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', MockResizeObserver)
+
+    const { rerender } = render(<Harness data={[]} />)
+    expect(observed).toHaveLength(0)
+
+    rerender(<Harness data={sessions} />)
+    await waitFor(() => expect(observed.length).toBeGreaterThan(0))
+    expect(observed[0]).toHaveClass('analytics-chart-plot')
   })
 
   it('recomputes the overview when solve data changes', () => {

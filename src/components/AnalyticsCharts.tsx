@@ -47,11 +47,14 @@ interface LineChartProps {
   showControls?: boolean
 }
 
-function useElementWidth(ref: React.RefObject<HTMLDivElement | null>) {
+function useElementWidth(
+  ref: React.RefObject<HTMLDivElement | null>,
+  active: boolean,
+) {
   const [size, setSize] = useState({ width: 640, height: 220 })
   useEffect(() => {
     const host = ref.current
-    if (!host || typeof ResizeObserver === 'undefined') return
+    if (!active || !host || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
       if (entry && entry.contentRect.width > 0 && entry.contentRect.height > 0) {
         setSize({
@@ -62,7 +65,7 @@ function useElementWidth(ref: React.RefObject<HTMLDivElement | null>) {
     })
     observer.observe(host)
     return () => observer.disconnect()
-  }, [ref])
+  }, [active, ref])
   return size
 }
 
@@ -84,7 +87,6 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
   showControls = true,
 }: LineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const measured = useElementWidth(hostRef)
   const [view, setView] = useState<TrendAxisView>({ zoom: 1, position: 1 })
   const [hover, setHover] = useState<number | null>(null)
   const dragRef = useRef<{
@@ -93,19 +95,20 @@ export const AnalyticsLineChart = memo(function AnalyticsLineChart({
     startX: number
     moved: boolean
   } | null>(null)
-  const width = Math.max(260, measured.width)
-  // Analytics charts fill their flex row on desktop; other uses fall back to the
-  // explicit/default height until the plot has been measured.
-  const chartHeight = Math.max(
-    150,
-    Math.round(measured.height > 0 ? measured.height : height),
-  )
   const count = Math.max(
     ...series.map((entry) => entry.values.length),
     0,
   )
   const hasValues = series.some((entry) =>
     entry.values.some((value) => value !== null),
+  )
+  const measured = useElementWidth(hostRef, hasValues)
+  const width = Math.max(260, measured.width)
+  // Analytics charts fill their flex row on desktop; other uses fall back to the
+  // explicit/default height until the plot has been measured.
+  const chartHeight = Math.max(
+    150,
+    Math.round(measured.height > 0 ? measured.height : height),
   )
   const allValues = useMemo(
     () => series.flatMap((entry) => entry.values.flatMap((value) => (value === null ? [] : [value]))),
@@ -522,7 +525,7 @@ export const AnalyticsHistogram = memo(function AnalyticsHistogram({
   testId = 'analytics-histogram',
 }: HistogramChartProps) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const measured = useElementWidth(hostRef)
+  const measured = useElementWidth(hostRef, bins.length > 0)
   const [hoveredBin, setHoveredBin] = useState<number | null>(null)
   const width = Math.max(280, measured.width)
   const height = Math.max(
