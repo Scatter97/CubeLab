@@ -35,6 +35,7 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | Custom events, csTimer event mapping and reassignment | `src/lib/events.ts`, `src/lib/customEvents.ts`, `src/components/CustomEventsDialog.tsx` |
 | Backup and csTimer parsing | `src/lib/backup.ts`, `src/lib/csTimerImport.ts` |
 | Sync orchestration and pure merges | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts` |
+| Display release version and release commands | `src/release.json`, `src/lib/version.ts`, `scripts/release.mjs` |
 | Statistics, trimming, session summaries and trend data | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts`, `src/lib/sessions.ts` |
 | Analytics dashboard, filters and reporting | `src/lib/analytics.ts`, `src/lib/analyticsSettings.ts`, `src/components/AnalyticsPage.tsx`, `src/components/AnalyticsCharts.tsx` |
 | Events, official scrambles and visualizations | `src/lib/events.ts`, `src/lib/scramble.ts`, `src/components/ToolPanel.tsx` |

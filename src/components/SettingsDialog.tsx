@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { formatSolveCount } from '../lib/format'
+import { CUBELAB_VERSION } from '../lib/version'
 import { AVERAGE_TRIM_OPTIONS, getAverageTrimCounts } from '../lib/averageTrimming'
 import { createId } from '../lib/id'
 import {
@@ -75,6 +76,23 @@ const DRAW_SCRAMBLE_OPTIONS = [
   { value: 'net', label: '2D net' },
   { value: '3d', label: '3D puzzle' },
 ] as const
+
+function SettingsHelp({
+  summary,
+  children,
+  testId,
+}: {
+  summary: string
+  children: ReactNode
+  testId?: string
+}) {
+  return (
+    <details className="settings-help" data-testid={testId}>
+      <summary>{summary}</summary>
+      <div className="settings-help-body">{children}</div>
+    </details>
+  )
+}
 
 interface SettingsDialogProps {
   open: boolean
@@ -247,9 +265,7 @@ function SettingsContent({
                   Inspection
                 </label>
                 <span className="settings-row-description">
-                  15-second WCA inspection before each solve. This is the default
-                  for sessions without an override. Started late: over 15 seconds
-                  is +2; over 17 seconds is DNF.
+                  WCA inspection for sessions without an override.
                 </span>
               </div>
               <button
@@ -266,6 +282,11 @@ function SettingsContent({
                 </span>
               </button>
             </div>
+
+            <SettingsHelp summary="Inspection penalties">
+              15 seconds are penalty-free. Starting after 15 seconds and through
+              17 seconds adds +2; starting after 17 seconds is a DNF.
+            </SettingsHelp>
 
             <label className="settings-field">
               <span className="settings-field-label">Inspection timer</span>
@@ -325,8 +346,7 @@ function SettingsContent({
                   Stop with any key
                 </label>
                 <span className="settings-row-description">
-                  While the timer is running, any non-modifier key stops it.
-                  Space always works.
+                  Any non-modifier key stops a running solve.
                 </span>
               </div>
               <input
@@ -446,15 +466,13 @@ function SettingsContent({
               </div>
             </fieldset>
 
-            <p className="settings-note">
+            <SettingsHelp summary="How warning alerts work">
               {settings.inspectionCountDirection === 'up'
                 ? 'Count up warns at 8 and 12 seconds elapsed.'
                 : 'Count down warns at 7 and 3 seconds remaining.'}{' '}
-              Warnings always show their text when enabled and follow the
-              inspection timer direction. Sound and haptic follow the feedback
-              channel above; volume applies to sound, and haptic support varies
-              by browser and device.
-            </p>
+              Warnings follow the selected feedback channel. Haptics depend on
+              browser and device support.
+            </SettingsHelp>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-display-title">
@@ -496,9 +514,7 @@ function SettingsContent({
                   Session solve progress
                 </label>
                 <span className="settings-row-description">
-                  Show completed / total solves for the active session in the
-                  timer footer, for example 7,012 / 7,061. DNFs stay in the
-                  total; +2 solves count as completed.
+                  Shows completed and total solves in the timer footer.
                 </span>
               </div>
               <input
@@ -521,9 +537,7 @@ function SettingsContent({
                   Session total time
                 </label>
                 <span className="settings-row-description">
-                  Show the sum of completed solve times for the active session
-                  in the timer footer, in hours, for example 39.49 h. DNFs are
-                  excluded and +2 penalties are included.
+                  Shows total solve time in the timer footer.
                 </span>
               </div>
               <input
@@ -537,6 +551,11 @@ function SettingsContent({
               />
             </div>
 
+            <SettingsHelp summary="DNF and +2 in summaries">
+              DNFs stay in the attempt total but are excluded from completed
+              solves and total time. A +2 counts as completed and adds two
+              seconds.
+            </SettingsHelp>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-appearance-title">
@@ -611,8 +630,24 @@ function SettingsContent({
                   }
                 />
               </label>
-              <p className="settings-note" data-testid="average-trim-example">ao1000: drop {trimExample.better} fastest and {trimExample.worse} worst; {trimExample.counted} solves count. More than {trimExample.worse} DNFs makes it DNF.</p>
-              <p className="settings-note">Percentages round up. DNFs occupy the worst-side slots first. Changes recalculate averages and average PBs everywhere. mo3 stays untrimmed; recorded solves and single PBs stay intact.</p>
+              <p className="settings-note">
+                Removes the fastest and slowest results before averaging.
+              </p>
+              <SettingsHelp
+                summary="How averages work"
+                testId="average-trim-help"
+              >
+                <p data-testid="average-trim-example">
+                  ao1000 currently drops {trimExample.better} fastest and{' '}
+                  {trimExample.worse} worst; {trimExample.counted} solves count.
+                </p>
+                <p>
+                  Percentages round up. DNFs fill the worst-side slots first;
+                  more than {trimExample.worse} makes the average DNF. mo3 stays
+                  untrimmed. Changes recalculate rolling averages and average
+                  PBs; recorded solves and single PBs stay intact.
+                </p>
+              </SettingsHelp>
             </fieldset>
 
             <fieldset className="settings-fieldset">
@@ -677,9 +712,9 @@ function SettingsContent({
                 Add custom average
               </button>
               <p className="settings-note settings-custom-note">
-                Up to {MAX_CUSTOM_AVERAGES} custom trimmed averages, from ao
-                {MIN_CUSTOM_AVERAGE_SIZE} to ao{MAX_CUSTOM_AVERAGE_SIZE}. Built-in
-                sizes such as ao5 and ao12 are already listed above.
+                Up to {MAX_CUSTOM_AVERAGES} averages, from ao
+                {MIN_CUSTOM_AVERAGE_SIZE} to ao{MAX_CUSTOM_AVERAGE_SIZE}.
+                Built-in sizes are already listed above.
               </p>
             </div>
 
@@ -698,8 +733,7 @@ function SettingsContent({
             </label>
 
             <p className="settings-note">
-              Precision changes only the display. Trimming controls the average
-              calculation; recorded-result precision is unchanged.
+              Display only. Recorded times keep their original precision.
             </p>
           </section>
 
@@ -759,10 +793,17 @@ function SettingsContent({
             </label>
           </section>
 
-          <section className="settings-section" aria-labelledby="settings-controls-title">
-            <div className="settings-section-heading">
-              <h3 id="settings-controls-title">Controls</h3>
-            </div>
+          <details
+            className="settings-section settings-shortcuts"
+            data-testid="settings-shortcuts"
+          >
+            <summary className="settings-shortcuts-summary">
+              <span id="settings-controls-title">Keyboard shortcuts</span>
+              <ChevronRightIcon
+                className="settings-shortcuts-chevron"
+                size={16}
+              />
+            </summary>
             <dl className="settings-controls">
               <div>
                 <dt><kbd>Space</kbd></dt>
@@ -785,7 +826,7 @@ function SettingsContent({
                 <dd>Change the focused session or select value.</dd>
               </div>
             </dl>
-          </section>
+          </details>
 
           <section className="settings-section" aria-labelledby="settings-data-title">
             <div className="settings-section-heading">
@@ -814,7 +855,7 @@ function SettingsContent({
               <span className="settings-data-copy">
                 <span className="settings-data-title">Backup &amp; restore</span>
                 <span className="settings-data-description">
-                  Export or import every session, solve, and setting
+                  Export or import all local data
                 </span>
               </span>
               <ChevronRightIcon size={16} />
@@ -828,15 +869,14 @@ function SettingsContent({
               <span className="settings-data-copy">
                 <span className="settings-data-title">Google Drive backup</span>
                 <span className="settings-data-description">
-                  Synchronize sessions and settings with Google Drive app data
+                  Sync with your Google account
                 </span>
               </span>
               <ChevronRightIcon size={16} />
             </button>
             <p className="settings-note">
-              Local JSON backups stay on this device. Google Drive
-              synchronization uploads session and setting data to your Google
-              account only when you connect it.
+              Backups stay on this device. Drive sync uploads data only after
+              you connect an account.
             </p>
           </section>
 
@@ -853,8 +893,7 @@ function SettingsContent({
                   <span className="settings-badge">Advanced</span>
                 </span>
                 <span className="settings-row-description">
-                  Destructive maintenance tools. These actions require typed
-                  confirmation and are unavailable while timing or synchronizing.
+                  Destructive maintenance with typed confirmation.
                 </span>
               </span>
               <ChevronRightIcon
@@ -872,13 +911,9 @@ function SettingsContent({
                   <span className="settings-danger-badge">Destructive</span>
                 </div>
                 <p className="settings-row-description">
-                  Remove every recorded solve from every session and event,
-                  including custom events. Session names, event assignments,
-                  preferences, custom event definitions, and all application
-                  settings are kept. Statistics, PBs, averages, Analytics, and
-                  solve history are derived from the removed solves and will
-                  reset to empty. This cannot be undone without a previous
-                  backup.
+                  Removes every solve from every session. Session names, event
+                  assignments, custom events, preferences, and settings remain.
+                  Cannot be undone without a backup.
                 </p>
                 <button
                   type="button"
@@ -916,13 +951,10 @@ function SettingsContent({
                   <span className="settings-danger-badge">Destructive</span>
                 </div>
                 <p className="settings-row-description">
-                  Delete every session and every solve, then start again with
-                  exactly one empty <strong>Session 1</strong>. Custom-event
-                  definitions and all application settings are kept. Google
-                  Drive historical snapshots are not deleted, but session and
-                  solve deletion records use the durable tombstone system so
-                  synchronization cannot bring the deleted data back. This
-                  cannot be undone without a previous backup.
+                  Deletes all sessions and solves, then creates one empty{' '}
+                  <strong>Session 1</strong>. Settings and custom events remain.
+                  Deletion records prevent sync from restoring the data; remote
+                  snapshots are retained. Cannot be undone without a backup.
                 </p>
                 <button
                   type="button"
@@ -949,16 +981,20 @@ function SettingsContent({
             </div>
             <dl className="settings-about">
               <div>
+                <dt>Version</dt>
+                <dd>{CUBELAB_VERSION}</dd>
+              </div>
+              <div>
                 <dt>Timer</dt>
                 <dd>12 WCA events · official scrambles</dd>
               </div>
               <div>
                 <dt>Data</dt>
-                <dd>Local-first, with no accounts or telemetry</dd>
+                <dd>Local-first · no accounts or telemetry</dd>
               </div>
               <div>
                 <dt>Offline</dt>
-                <dd>Installable PWA with offline scramble generation</dd>
+                <dd>Installable PWA with offline scrambles</dd>
               </div>
             </dl>
           </section>

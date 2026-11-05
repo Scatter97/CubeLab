@@ -95,7 +95,7 @@ export default defineConfig({
     // imports to an empty string unless CSS processing is enabled.
     css: true,
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
     setupFiles: ['./src/test/setup.ts'],
   },
 })

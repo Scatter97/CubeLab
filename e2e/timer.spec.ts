@@ -738,7 +738,7 @@ test('alerts, accent, and controls settings apply and persist', async ({
   await waitForApp(page)
 
   const settings = await openSettings(page)
-  await expect(settings.getByText('Controls', { exact: true })).toBeVisible()
+  await settings.getByText('Keyboard shortcuts').click()
   await expect(
     settings.getByText('Hold to arm, release to start; press again to stop.'),
   ).toBeVisible()
@@ -1055,6 +1055,12 @@ test('narrow mobile layout keeps settings, session, and solve-menu targets usabl
   const settings = await openSettings(page)
   await expect(settings.getByText('Inspection', { exact: true })).toBeVisible()
 
+  await settings.getByText('Keyboard shortcuts').click()
+  await expect(settings.getByText('Hold to arm, release to start')).toBeVisible()
+  await expect(settings.getByText('Change the focused session')).toBeVisible()
+  await settings.getByText('How averages work').click()
+  await expect(settings.getByTestId('average-trim-example')).toBeVisible()
+
   const inspectionSwitch = settings.getByRole('switch', {
     name: /Inspection/,
   })
@@ -1093,6 +1099,24 @@ test('narrow mobile layout keeps settings, session, and solve-menu targets usabl
   }
   expect(sessionSettingsBox.width).toBeGreaterThanOrEqual(28)
   expect(sessionSettingsBox.height).toBeGreaterThanOrEqual(28)
+
+  await sessionSettingsButton.click()
+  const sessionSettings = page.getByRole('dialog', {
+    name: 'Session settings',
+  })
+  await expect(
+    sessionSettings.getByTestId('session-settings-done'),
+  ).toBeVisible()
+  await expect(sessionSettings.getByTestId('session-clear')).toBeVisible()
+  const sessionBody = await sessionSettings
+    .locator('.session-settings-body')
+    .evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }))
+  expect(sessionBody.scrollWidth).toBeLessThanOrEqual(sessionBody.clientWidth)
+  await sessionSettings.getByTestId('session-settings-done').click()
+  await expect(sessionSettings).toBeHidden()
 
   const sessionSelectBox = await page.getByTestId('session-select').boundingBox()
   expect(sessionSelectBox).not.toBeNull()
@@ -1537,9 +1561,7 @@ test('per-session inspection can be cleared back to the global setting', async (
     sessionDialog.getByTestId('session-inspection-use-global'),
   ).toHaveCount(0)
   await expect(sessionSwitch).toHaveAttribute('aria-checked', 'false')
-  await expect(sessionDialog).toContainText(
-    'This session is using the global inspection default.',
-  )
+  await expect(sessionDialog).toContainText('Global default · Off')
   await sessionDialog.getByTestId('session-settings-done').click()
   await expect(sessionDialog).toBeHidden()
 
@@ -2750,7 +2772,9 @@ test('main interface fits the viewport without document scrolling', async ({ pag
 
     await expect(page.getByTestId('settings-button')).toBeVisible()
     await expect(page.getByTestId('timer-surface')).toBeVisible()
-    await expect(page.getByTestId('app-version')).toHaveText('0.01.261104:1')
+    await expect(page.getByTestId('app-version')).toHaveText(
+      /^\d+\.\d{2}\.\d{6}:\d+$/,
+    )
 
     if (width === 1440) {
       await page.getByTestId('current-tool-button').click()

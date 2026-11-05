@@ -16,6 +16,9 @@
     "validate:drive": "vitest run --config vitest.real.config.ts",
     "test:e2e": "playwright test",
     "preview": "vite preview",
+    "release:patch": "node scripts/release.mjs patch",
+    "release:feature": "node scripts/release.mjs feature",
+    "release:major": "node scripts/release.mjs major",
     "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:e2e"
   },
   "dependencies": {

@@ -1941,60 +1941,6 @@ export default function AnalyticsPage({
             />
           </label>
 
-          <label className="analytics-filter-field is-date">
-            Date range
-            <Select
-              value={filters.datePreset}
-              testId="analytics-date-range"
-              options={[
-                { value: 'all', label: 'All time' },
-                { value: 'today', label: 'Today' },
-                { value: '7d', label: 'Last 7 days' },
-                { value: '30d', label: 'Last 30 days' },
-                { value: '90d', label: 'Last 90 days' },
-                { value: 'year', label: 'Last year' },
-                { value: 'custom', label: 'Custom…' },
-              ]}
-              onChange={(value) =>
-                setFilters((current) => ({
-                  ...current,
-                  datePreset: value as AnalyticsFilters['datePreset'],
-                }))
-              }
-            />
-          </label>
-
-          {filters.datePreset === 'custom' ? (
-            <div className="analytics-date-custom">
-              <label>
-                From
-                <input
-                  type="date"
-                  value={filters.customStart}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      customStart: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                To
-                <input
-                  type="date"
-                  value={filters.customEnd}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      customEnd: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </div>
-          ) : null}
-
           <div
             className="analytics-filter-field analytics-multiselect"
             ref={sessionsRootRef}
@@ -2102,6 +2048,60 @@ export default function AnalyticsPage({
               {selectedSessionLabel}
             </span>
           </div>
+
+          <label className="analytics-filter-field is-date">
+            Date range
+            <Select
+              value={filters.datePreset}
+              testId="analytics-date-range"
+              options={[
+                { value: 'all', label: 'All time' },
+                { value: 'today', label: 'Today' },
+                { value: '7d', label: 'Last 7 days' },
+                { value: '30d', label: 'Last 30 days' },
+                { value: '90d', label: 'Last 90 days' },
+                { value: 'year', label: 'Last year' },
+                { value: 'custom', label: 'Custom…' },
+              ]}
+              onChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  datePreset: value as AnalyticsFilters['datePreset'],
+                }))
+              }
+            />
+          </label>
+
+          {filters.datePreset === 'custom' ? (
+            <div className="analytics-date-custom">
+              <label>
+                From
+                <input
+                  type="date"
+                  value={filters.customStart}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      customStart: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                To
+                <input
+                  type="date"
+                  value={filters.customEnd}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      customEnd: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          ) : null}
 
           <label className="analytics-filter-field is-limit">
             Last solves

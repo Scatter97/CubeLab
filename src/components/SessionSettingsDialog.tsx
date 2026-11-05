@@ -166,9 +166,6 @@ function SessionSettingsContent({
             <label htmlFor="session-name-setting" className="settings-field-label">
               Session name
             </label>
-            <p className="settings-row-description">
-              Unique within this browser, up to 40 characters.
-            </p>
             <input
               id="session-name-setting"
               type="text"
@@ -215,9 +212,7 @@ function SessionSettingsContent({
               Event
             </label>
             <p className="settings-row-description">
-              Changes apply to this session and every solve it contains. Solve
-              times, penalties, scrambles, comments, dates, and import details
-              stay unchanged.
+              Changing the event also updates existing solves in this session.
             </p>
             <div className="session-settings-control-row">
               <Select
@@ -296,9 +291,8 @@ function SessionSettingsContent({
           <div className="settings-row-copy">
             <span className="settings-row-label">Inspection</span>
             <span className="settings-row-description">
-              {hasOverride
-                ? 'This session overrides the global inspection default.'
-                : 'This session is using the global inspection default.'}
+              {hasOverride ? 'Session override' : 'Global default'} ·{' '}
+              {effectiveInspectionEnabled ? 'On' : 'Off'}
             </span>
             {hasOverride ? (
               <button
@@ -326,10 +320,11 @@ function SessionSettingsContent({
           </button>
         </div>
 
-        <div className="session-settings-danger">
-          <div>
-            <h3>Manage session</h3>
-          </div>
+        <div
+          className="session-settings-danger"
+          role="group"
+          aria-label="Clear or delete session"
+        >
           <div className="session-settings-actions">
             <button
               type="button"

@@ -372,15 +372,32 @@ own menu, so interacting with a menu never starts or stops the timer. Text-entry
 fields such as the session-name or solve-comment editor keep their normal Space
 behavior.
 
-### Display version
+### Display version and releases
 
 A subtle version label appears in the bottom-right footer, for example
-`0.01.261104:1`. The format is `<major>.<two-digit minor>.YYMMDD:<patch>`.
-`0.01` comes from the repository's `0.1.0` package release, `261104` means
-November 4, 2026, and `1` is the first display patch for that date. Update the
-date and patch in [`src/lib/version.ts`](src/lib/version.ts) when publishing a
-new display build. The label is presentation-only and does not change session,
-settings, backup, or sync schema versions.
+`0.01.261105:2`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`, and the date is the
+intentional release date in `America/Toronto`.
+
+[`src/release.json`](src/release.json) is the single source of release
+information; [`src/lib/version.ts`](src/lib/version.ts) formats the footer and
+About labels from it. Ordinary builds, tests, development-server runs and commits
+do not change the version. Unreleased work keeps the last released version.
+
+Create a release only when explicitly intended:
+
+```bash
+npm run release:patch -- --dry-run    # preview a bug-fix/UI maintenance release
+npm run release:patch                 # PATCH + 1, today's Toronto date
+npm run release:feature -- --dry-run  # preview a feature release
+npm run release:feature               # FEATURE + 1, PATCH reset to 0
+npm run release:major                 # MAJOR + 1, FEATURE and PATCH reset
+```
+
+The script refuses to create another release while `src/release.json` already
+has uncommitted release changes. Commit the release record as part of the
+intended release; neither the script nor normal builds publish, deploy or push
+anything. The display version is separate from session, settings, backup and sync
+schema versions.
 
 ### Sessions
 
@@ -849,7 +866,8 @@ src/
   components/AnalyticsPage.tsx  Lazy analytics dashboard, filters, drill-down,
                                 solve-list details, Sub-X split and customization
   components/AnalyticsCharts.tsx Interactive SVG line, histogram, heatmap and zoom group
-  lib/version.ts         Maintained display-version string
+  release.json           Single source of the released display version
+  lib/version.ts         Formats the release record for display
   lib/averageTrimming.ts Trim presets, validation, counts, and labels
   lib/storage.ts         Versioned localStorage validation and migration
   lib/alerts.ts          Web Audio, vibration, DNF gain, and inspection warnings

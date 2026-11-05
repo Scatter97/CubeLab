@@ -142,6 +142,30 @@ describe('AnalyticsPage', () => {
     expect(screen.queryByTestId('analytics-section-progression')).toBeNull()
   })
 
+  it('orders filters as event, sessions, date, last solves and penalty', () => {
+    render(<Harness />)
+    const field = (testId: string) =>
+      screen.getByTestId(testId).closest('.analytics-filter-field')
+    const event = field('analytics-event')!
+    const sessions = field('analytics-sessions-trigger')!
+    const date = field('analytics-date-range')!
+    const limit = field('analytics-solve-limit')!
+    const penalty = field('analytics-penalty')!
+
+    expect(event.compareDocumentPosition(sessions)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(sessions.compareDocumentPosition(date)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(date.compareDocumentPosition(limit)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(limit.compareDocumentPosition(penalty)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+  })
+
   it('updates the overview and selected analysis from global filters and resets them', () => {
     render(<Harness />)
     chooseOption('analytics-event', '222')

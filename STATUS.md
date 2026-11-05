@@ -33,7 +33,7 @@ and immediate work queue. [README.md](README.md) describes the product;
   while preserving every solve field and import provenance. Optional completed/
   total solve and total-time summaries live in the slim timer footer, follow
   csTimer's DNF/+2 semantics, show counts without a suffix and total time in
-  hours. A maintained display version appears in the bottom-right footer.
+  hours. A release-record display version appears in the bottom-right footer.
 - A lazy Analytics dashboard adds global event/session/date/count/penalty
   filters, overview cards, progression and average charts, PB history,
   clickable distributions, consistency and Sub-X analysis, session comparison,
@@ -75,6 +75,39 @@ Core phases 2A–4, theme polish, Phase 5 remediation and Phase 6a are delivered
 Future feature-phase proposals have been removed at the user's request. The
 retained work is the five follow-ups below; the retired Solve explorer was
 replaced by the filtered solve-list details dialog.
+
+## Settings debloat, Analytics order and release versioning — 2026-11-05
+
+Analytics now orders filters **Event → Sessions → Date range → Last solves →
+Penalty** with filtering logic and persisted values unchanged. Session Settings
+removes its permanent name/uniqueness explanation and transfer preamble, states
+inspection as `Global default · Off` or `Session override · On`, removes nested
+surface containers, and keeps its Done action visible while the body scrolls on
+short screens.
+
+The main Settings dialog now keeps only short functional descriptions visible.
+Detailed inspection, warning, summary, trimming and keyboard rules live in
+labelled disclosures; statistics retain every visibility and custom-average
+control; destructive Developer actions keep their typed-confirmation handoffs;
+and About includes the release version. Light/dark, focus containment, keyboard
+activation and narrow layouts remain intact.
+
+`src/release.json` is now the single release record. `src/lib/version.ts` formats
+the footer and About labels, while `scripts/release.mjs` updates patch, feature or
+major releases using the current `America/Toronto` date. Dry runs and a guard
+against uncommitted duplicate release edits are included. The current released
+version remains `0.01.261104:1`; no release was declared by this implementation
+work and ordinary builds do not change the record.
+
+Verification: TypeScript passed; Oxlint passed with the pre-existing
+`SessionPanel` purity warning. Full Vitest **759 passed in 55 files**, including
+release-date boundary tests. Production build and PWA generation passed before
+and after mock-Drive browser runs. Chromium Playwright: Analytics **13/13**,
+focused Settings/session flows **8/8**, average trimming **2/2**, and
+accessibility/axe **3/3**. Mobile checks
+covered 320×568 and 390×844 light/dark layouts, the disclosure controls, and
+horizontal-overflow bounds. Visual inspection used synthetic/empty local data
+only. No full browser matrix or release publication is claimed.
 
 ## UI debloat and responsive verification — 2026-11-05
 

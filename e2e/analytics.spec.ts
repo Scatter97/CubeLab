@@ -102,7 +102,9 @@ test.describe('analytics dashboard', () => {
     await openAnalytics(page)
 
     await expect(page.getByText('9 matching solves')).toBeVisible()
-    await expect(page.getByTestId('app-version')).toHaveText('0.01.261104:1')
+    await expect(page.getByTestId('app-version')).toHaveText(
+      /^\d+\.\d{2}\.\d{6}:\d+$/,
+    )
     const overview = page.getByTestId('analytics-overview')
     await expect(overview).toContainText('9')
     await expect(overview).toContainText('10.00')
@@ -322,6 +324,28 @@ test.describe('analytics responsive layout', () => {
 })
 
 test.describe('analytics controls', () => {
+  test('orders filters event, sessions, date, last solves and penalty', async ({
+    page,
+  }) => {
+    await seed(page)
+    await openAnalytics(page)
+
+    const order = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll(
+          '#analytics-filters [data-testid="analytics-event"], #analytics-filters [data-testid="analytics-sessions-trigger"], #analytics-filters [data-testid="analytics-date-range"], #analytics-filters [data-testid="analytics-solve-limit"], #analytics-filters [data-testid="analytics-penalty"]',
+        ),
+      ).map((element) => element.getAttribute('data-testid')),
+    )
+    expect(order).toEqual([
+      'analytics-event',
+      'analytics-sessions-trigger',
+      'analytics-date-range',
+      'analytics-solve-limit',
+      'analytics-penalty',
+    ])
+  })
+
   test('aligns session filter rows and keeps keyboard focus behavior', async ({
     page,
   }) => {

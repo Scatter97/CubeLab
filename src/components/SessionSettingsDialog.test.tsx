@@ -75,6 +75,21 @@ function renderDialog(
   )
 }
 
+describe('SessionSettingsDialog layout', () => {
+  it('keeps concise state text and leaves destructive actions distinct', () => {
+    renderDialog()
+    const dialog = screen.getByRole('dialog', { name: 'Session settings' })
+    expect(dialog).not.toHaveTextContent('Unique within this browser')
+    expect(dialog).toHaveTextContent(
+      'Changing the event also updates existing solves in this session.',
+    )
+    expect(dialog).toHaveTextContent('Global default · Off')
+    expect(dialog).not.toHaveTextContent('Manage session')
+    expect(within(dialog).getByTestId('session-clear')).toBeVisible()
+    expect(within(dialog).getByTestId('session-delete')).toBeVisible()
+  })
+})
+
 describe('SessionSettingsDialog event correction', () => {
   it('requires explicit confirmation before reassigning a session with solves', () => {
     const onSetSessionEvent = vi.fn(() => true)
