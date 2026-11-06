@@ -114,10 +114,21 @@ minimum and the approximately 120 px Solves floor, Statistics scrolls internally
 rows remain mounted and the panels do not overlap. Keyboard Home/End and ARIA
 minimum/maximum values use the effective constraints.
 
+A spacing follow-up keeps each secondary metric label and value together as one
+inline-flex group. The flex parent distributes only complete BPA/WPA/Target
+groups, wraps them at narrow widths, and never inserts placeholder columns.
+Statistic names use the stronger 0.875rem/600 desktop treatment and 0.8125rem
+on narrow layouts without changing the divider architecture. Playwright geometry
+asserts the actual label/value gaps, same-line placement, group containment,
+order, and left/edge distribution for every metric combination, plus wrapped
+long-value groups and the ao9999 custom-average label at desktop, narrow desktop,
+390 px and 320 px. The wrapped layout remains included in the intrinsic divider
+measurement.
+
 Verification: TypeScript passed. Oxlint passed with the pre-existing
 `SessionPanel` purity warning. Full Vitest **822 passed in 58 files**. Production
 build and PWA generation passed. Focused Chromium coverage passed: statistics
-**9/9**, resizable sidebar **8/8**, average trimming **3/3**, timer statistics
+**11/11**, resizable sidebar **9/9**, average trimming **3/3**, timer statistics
 **1/1**, accessibility **3/3**, and responsive timer **5/5**. Large synthetic
 correctness/profiling used 100,000 solves: six visible average sizes built in
 about 295 ms, an ao10000 prediction in about 4–6 ms, and an appended-solve

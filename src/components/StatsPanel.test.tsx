@@ -107,6 +107,13 @@ describe('statistics panel rows', () => {
     expect(screen.getByTestId('bpa-ao5')).toHaveTextContent('13.00')
     expect(screen.getByTestId('wpa-ao5')).toHaveTextContent('15.67')
     expect(screen.getByTestId('target-ao5')).toHaveTextContent('14.98')
+    expect(
+      [
+        ...screen
+          .getByTestId('stat-row-ao5')
+          .querySelectorAll('.stat-secondary .stat-metric-label'),
+      ].map((label) => label.textContent),
+    ).toEqual(['BPA', 'WPA', 'Target'])
     expect(screen.getByTestId('target-ao5').closest('.stat-target')).toHaveClass(
       'is-reachable',
     )
@@ -146,6 +153,11 @@ describe('statistics panel rows', () => {
     }
     expect(screen.queryByTestId('current-ao5')).toBeNull()
     expect(screen.queryByTestId('best-ao5')).toBeNull()
+    expect(
+      screen
+        .getByTestId('stat-row-ao5')
+        .querySelector('.stat-secondary'),
+    ).toBeNull()
   })
 
   it('keeps average-row visibility independent from metric visibility', () => {

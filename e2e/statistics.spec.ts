@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
-import { selectSession } from './interactions'
+import {
+  metricLayout,
+  selectSession,
+  type MetricLayout,
+} from './interactions'
 
 const NOW = Date.now()
 
@@ -115,6 +119,38 @@ async function enableMetrics(
 
 const allMetrics = ['current', 'best', 'target', 'bpa', 'wpa'] as const
 
+type MetricKey = 'current' | 'best' | 'target' | 'bpa' | 'wpa'
+
+function expectMetricGroups(
+  layout: MetricLayout,
+  expectedLabels: readonly string[],
+) {
+  expect(layout.hasSecondary).toBe(expectedLabels.length > 0)
+  expect(layout.metrics.map((metric) => metric.label)).toEqual(expectedLabels)
+  expect(layout.overflow).toBe(false)
+  if (expectedLabels.length === 0) return
+
+  expect(layout.lineCount).toBe(1)
+  for (const metric of layout.metrics) {
+    // The label and value are one inline group with only the CSS gap between
+    // them; the parent distributes complete groups, not text fragments.
+    expect(metric.gap).toBeGreaterThanOrEqual(3)
+    expect(metric.gap).toBeLessThanOrEqual(7)
+    expect(metric.sameLine).toBe(true)
+    expect(metric.contained).toBe(true)
+  }
+  expect(layout.metrics[0]!.group.left).toBeLessThan(layout.parent.left + 1.5)
+  if (expectedLabels.length > 1) {
+    const last = layout.metrics.at(-1)!
+    expect(last.group.right).toBeGreaterThan(layout.parent.right - 1.5)
+    for (let index = 1; index < layout.metrics.length; index += 1) {
+      expect(layout.metrics[index]!.group.left).toBeGreaterThan(
+        layout.metrics[index - 1]!.group.right + 8,
+      )
+    }
+  }
+}
+
 test.describe('statistics panel', () => {
   test('stays between Sessions and Solves and shows Current and Best without expansion', async ({
     page,
@@ -202,6 +238,40 @@ test.describe('statistics panel', () => {
     await expect(page.getByTestId('target-ao5')).toHaveText('14.98')
     await expect(page.getByTestId('bpa-ao5')).toHaveText('13.00')
     await expect(page.getByTestId('wpa-ao5')).toHaveText('15.67')
+  })
+
+  test('keeps metric labels with their values across every visibility combination', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await seed(page)
+    const combos: Array<{ metrics: MetricKey[]; labels: string[] }> = [
+      { metrics: ['current', 'best', 'target'], labels: ['Target'] },
+      { metrics: ['current', 'best', 'bpa'], labels: ['BPA'] },
+      { metrics: ['current', 'best', 'wpa'], labels: ['WPA'] },
+      {
+        metrics: ['current', 'best', 'bpa', 'target'],
+        labels: ['BPA', 'Target'],
+      },
+      {
+        metrics: ['current', 'best', 'bpa', 'wpa', 'target'],
+        labels: ['BPA', 'WPA', 'Target'],
+      },
+      { metrics: [], labels: [] },
+    ]
+
+    for (const combo of combos) {
+      await enableMetrics(page, combo.metrics)
+      const layout = await metricLayout(page, 'stat-row-ao5')
+      expectMetricGroups(layout, combo.labels)
+      expect(layout.rowLabel.fontSize).toBeGreaterThanOrEqual(13.5)
+      expect(layout.rowLabel.fontWeight).toBeGreaterThanOrEqual(600)
+      if (combo.metrics.includes('current')) {
+        const current = await page.getByTestId('current-ao5').boundingBox()
+        expect(current).not.toBeNull()
+        expect(layout.rowLabel.right).toBeLessThanOrEqual(current!.x + 1)
+      }
+    }
   })
 
   test('updates Current, Best and Target after penalties and deletions', async ({
@@ -357,6 +427,77 @@ test.describe('statistics panel', () => {
     await expect(page.getByTestId('history-row').first()).toBeVisible()
     await expect(page.locator('.history-panel')).toBeVisible()
   })
+})
+
+test('wraps complete metric groups for long values without separating labels and values', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 900 })
+  await seed(page)
+  await enableMetrics(page, allMetrics)
+  await page.evaluate(() => {
+    const sessionsKey = 'cubelab:sessions:v1'
+    const settingsKey = 'cubelab:settings:v1'
+    const sessions = JSON.parse(localStorage.getItem(sessionsKey)!)
+    const session = sessions.sessions.find(
+      (item: { id: string }) => item.id === sessions.activeSessionId,
+    )
+    session.solves = Array.from({ length: 30 }, (_, index) => ({
+      id: `long-${index}`,
+      event: '333',
+      rawMs: 6_000_000 + ((index * 733) % 50_000),
+      penalty: 'none',
+      scramble: "R U R' U' F2 L D B2",
+      comment: '',
+      createdAt: Date.now() - index * 1000,
+    }))
+    localStorage.setItem(sessionsKey, JSON.stringify(sessions))
+    const settings = JSON.parse(localStorage.getItem(settingsKey)!)
+    settings.settings.customAverages = [
+      { id: 'long-custom', size: 9999, visible: true },
+    ]
+    localStorage.setItem(settingsKey, JSON.stringify(settings))
+  })
+  await page.reload()
+  await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+  await page.evaluate(() => document.fonts.ready)
+
+  for (const viewport of [
+    { width: 1366, height: 900 },
+    { width: 1024, height: 900 },
+    { width: 390, height: 844 },
+    { width: 320, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await expect(page.getByTestId('stat-row-ao5')).toBeAttached()
+    const layout = await metricLayout(page, 'stat-row-ao5')
+    expect(layout.metrics.map((metric) => metric.label)).toEqual([
+      'BPA',
+      'WPA',
+      'Target',
+    ])
+    expect(layout.overflow).toBe(false)
+    for (const metric of layout.metrics) {
+      expect(metric.gap).toBeGreaterThanOrEqual(3)
+      expect(metric.gap).toBeLessThanOrEqual(7)
+      expect(metric.sameLine).toBe(true)
+      expect(metric.contained).toBe(true)
+    }
+    // The long values wrap at the narrow desktop sidebar and stay complete.
+    if (viewport.width === 1024) expect(layout.lineCount).toBeGreaterThan(1)
+    const minimumLabelSize = viewport.width <= 900 ? 12.5 : 13.5
+    expect(layout.rowLabel.fontSize).toBeGreaterThanOrEqual(minimumLabelSize)
+    expect(layout.rowLabel.fontWeight).toBeGreaterThanOrEqual(600)
+
+    const custom = await metricLayout(page, 'stat-row-custom:long-custom')
+    expect(custom.rowLabel.text).toBe('ao9999')
+    expect(custom.overflow).toBe(false)
+    const customCurrent = await page
+      .getByTestId('current-ao9999')
+      .boundingBox()
+    expect(customCurrent).not.toBeNull()
+    expect(custom.rowLabel.right).toBeLessThanOrEqual(customCurrent!.x + 1)
+  }
 })
 
 test.describe('statistics responsive layout', () => {

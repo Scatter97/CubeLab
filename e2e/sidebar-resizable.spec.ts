@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { chooseTestOption } from './interactions'
+import { chooseTestOption, metricLayout } from './interactions'
 
 // Also run against Vite to exercise development Strict Mode, not just production.
 if (process.env.CUBELAB_TEST_URL) test.use({ baseURL: process.env.CUBELAB_TEST_URL })
@@ -189,6 +189,69 @@ test.describe('resizable statistics panel', () => {
     await settings.getByTestId('settings-done').click()
     await expectEveryRowMounted(page, 8)
     await expectMinimumFit(page)
+  })
+
+  test('keeps wrapped metric groups intact at the measured minimum', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 900 })
+    await page.goto('/')
+    await setMetrics(page, ['current', 'best', 'target', 'bpa', 'wpa'])
+    await page.evaluate(() => {
+      const key = 'cubelab:sessions:v1'
+      const data = JSON.parse(localStorage.getItem(key)!)
+      const session = data.sessions.find(
+        (item: { id: string }) => item.id === data.activeSessionId,
+      )
+      session.solves = Array.from({ length: 30 }, (_, index) => ({
+        id: `wrapped-${index}`,
+        event: '333',
+        rawMs: 6_000_000 + ((index * 733) % 50_000),
+        penalty: 'none',
+        scramble: "R U R' U' F2 L D B2",
+        comment: '',
+        createdAt: Date.now() - index * 1000,
+      }))
+      localStorage.setItem(key, JSON.stringify(data))
+    })
+    await page.reload()
+    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+    await page.evaluate(() => document.fonts.ready)
+    await expectEveryRowMounted(page, 4)
+
+    const wrapped = await metricLayout(page, 'stat-row-ao5')
+    expect(wrapped.metrics.map((metric) => metric.label)).toEqual([
+      'BPA',
+      'WPA',
+      'Target',
+    ])
+    expect(wrapped.lineCount).toBeGreaterThan(1)
+    expect(wrapped.overflow).toBe(false)
+    for (const metric of wrapped.metrics) {
+      expect(metric.gap).toBeGreaterThanOrEqual(3)
+      expect(metric.gap).toBeLessThanOrEqual(7)
+      expect(metric.sameLine).toBe(true)
+      expect(metric.contained).toBe(true)
+    }
+
+    await dragPanelToHeight(page, 20)
+    await expectMinimumFit(page)
+    const atMinimum = await statsGeometry(page)
+    expect(atMinimum.panelHeight + 2).toBeGreaterThanOrEqual(
+      atMinimum.measureHeight,
+    )
+    expect(atMinimum.failures).toEqual([])
+    const after = await metricLayout(page, 'stat-row-ao5')
+    expect(after.lineCount).toBeGreaterThan(1)
+    expect(after.overflow).toBe(false)
+    for (const metric of after.metrics) {
+      expect(metric.gap).toBeGreaterThanOrEqual(3)
+      expect(metric.gap).toBeLessThanOrEqual(7)
+      expect(metric.sameLine).toBe(true)
+      expect(metric.contained).toBe(true)
+    }
+    await expectEveryRowMounted(page, 4)
+    await expect(page.locator('.history-panel')).toBeVisible()
   })
 
   test('keyboard resizing, reset, shift acceleration and ARIA bounds', async ({

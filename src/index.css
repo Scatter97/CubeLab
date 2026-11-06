@@ -1803,7 +1803,9 @@ kbd {
 .stat-label {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.68rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
   color: var(--text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1853,18 +1855,21 @@ kbd {
 }
 
 .stat-secondary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  gap: 1px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
   align-items: baseline;
+  justify-content: space-between;
   min-width: 0;
 }
 
 .stat-metric {
-  display: flex;
+  display: inline-flex;
+  flex: 0 0 auto;
   gap: 5px;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-start;
+  max-width: 100%;
   min-width: 0;
   font-size: 0.57rem;
   color: var(--text-faint);
@@ -1872,6 +1877,7 @@ kbd {
 }
 
 .stat-metric-label {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1882,6 +1888,8 @@ kbd {
 }
 
 .stat-metric strong {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -3756,7 +3764,7 @@ kbd {
   }
 
   .stat-label {
-    font-size: 0.64rem;
+    font-size: 0.8125rem;
   }
 
   .stat-current strong,
