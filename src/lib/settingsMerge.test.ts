@@ -436,3 +436,45 @@ it('merges the optional session summary settings independently', () => {
   expect(SETTINGS_FIELD_KEYS).toContain('showSessionSolveProgress')
   expect(SETTINGS_FIELD_KEYS).toContain('showSessionTotalTime')
 })
+
+
+it('merges metric visibility independently and keeps legacy target data inert', () => {
+  const localMetrics = {
+    ...DEFAULT_SETTINGS.statMetricVisibility,
+    target: true,
+    bpa: true,
+  }
+  const remoteMetrics = {
+    ...DEFAULT_SETTINGS.statMetricVisibility,
+    target: false,
+    wpa: true,
+  }
+  const result = mergeSettingsData({
+    local: settings({
+      statMetricVisibility: localMetrics,
+      statTargetsMs: { '333': { ao5: 15_000 } },
+    }),
+    remote: settings({
+      statMetricVisibility: remoteMetrics,
+      statTargetsMs: { '333': { ao5: 12_000 } },
+    }),
+    localFieldUpdates: {
+      statMetricVisibility: { updatedAt: 300, editorId: 'laptop' },
+      statTargetsMs: { updatedAt: 100, editorId: 'laptop' },
+    },
+    remoteFieldUpdates: {
+      statMetricVisibility: { updatedAt: 400, editorId: 'phone' },
+      statTargetsMs: { updatedAt: 200, editorId: 'phone' },
+    },
+    remoteUpdatedAt: 400,
+    lastSyncAt: 1,
+    manualConflictReview: false,
+  })
+  expect(result.settings.statMetricVisibility).toEqual(remoteMetrics)
+  expect(result.settings.statTargetsMs).toEqual({ '333': { ao5: 12_000 } })
+  expect(result.fieldUpdates.statMetricVisibility).toMatchObject({
+    updatedAt: 400,
+    editorId: 'phone',
+  })
+  expect(SETTINGS_FIELD_KEYS).toContain('statMetricVisibility')
+})

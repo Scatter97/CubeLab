@@ -74,28 +74,49 @@ const sessions = {
   ],
 }
 
-async function seed(page: Page) {
-  await page.addInitScript((payload) => {
-    if (sessionStorage.getItem('cubelab-statistics-seeded')) return
-    sessionStorage.setItem('cubelab-statistics-seeded', '1')
-    localStorage.setItem('cubelab:sessions:v1', JSON.stringify(payload))
-    localStorage.removeItem('cubelab:settings:v1')
-    localStorage.removeItem('cubelab:expandedStats:v1')
-  }, sessions)
+async function seed(page: Page, settings?: Record<string, unknown>) {
+  await page.addInitScript(
+    ({ payload, storedSettings }) => {
+      if (sessionStorage.getItem('cubelab-statistics-seeded')) return
+      sessionStorage.setItem('cubelab-statistics-seeded', '1')
+      localStorage.setItem('cubelab:sessions:v1', JSON.stringify(payload))
+      if (storedSettings) {
+        localStorage.setItem(
+          'cubelab:settings:v1',
+          JSON.stringify({ version: 11, settings: storedSettings }),
+        )
+      } else {
+        localStorage.removeItem('cubelab:settings:v1')
+      }
+    },
+    { payload: sessions, storedSettings: settings },
+  )
   await page.goto('/')
   await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
 }
 
-async function expandRow(page: Page, key: string) {
-  const row = page.getByTestId(`stat-row-${key}`)
-  if ((await row.getAttribute('aria-expanded')) === 'false') {
-    await row.click()
-  }
-  await expect(page.getByTestId(`stat-details-${key}`)).toBeVisible()
+async function openSettings(page: Page) {
+  await page.getByTestId('settings-button').click()
+  return page.getByRole('dialog', { name: 'Settings' })
 }
 
+async function enableMetrics(
+  page: Page,
+  metrics: ReadonlyArray<'current' | 'best' | 'target' | 'bpa' | 'wpa'>,
+) {
+  const settings = await openSettings(page)
+  for (const key of ['current', 'best', 'target', 'bpa', 'wpa'] as const) {
+    const checkbox = settings.getByTestId(`stat-metric-${key}`)
+    if (metrics.includes(key)) await checkbox.check()
+    else await checkbox.uncheck()
+  }
+  await settings.getByTestId('settings-done').click()
+}
+
+const allMetrics = ['current', 'best', 'target', 'bpa', 'wpa'] as const
+
 test.describe('statistics panel', () => {
-  test('stays between Sessions and Solves, expands independently and persists', async ({
+  test('stays between Sessions and Solves and shows Current and Best without expansion', async ({
     page,
   }) => {
     await seed(page)
@@ -111,100 +132,92 @@ test.describe('statistics panel', () => {
 
     for (const key of ['single', 'mo3', 'ao5', 'ao12']) {
       await expect(page.getByTestId(`stat-row-${key}`)).toBeVisible()
+      await expect(page.getByTestId(`current-${key}`)).toBeVisible()
+      await expect(page.getByTestId(`best-${key}`)).toBeVisible()
     }
     await expect(page.getByTestId('current-ao5')).toHaveText('14.00')
     await expect(page.getByTestId('best-ao5')).toHaveText('14.00')
 
-    // The row is a normal button: Enter expands it without arming the timer.
-    await page.getByTestId('stat-row-ao5').focus()
-    await page.keyboard.press('Enter')
-    await expect(page.getByTestId('stat-details-ao5')).toBeVisible()
-    await expect(page.getByTestId('timer-surface')).toHaveAttribute(
-      'data-phase',
-      'idle',
+    // Defaults keep the optional metrics out of the panel.
+    await expect(page.getByTestId('target-ao5')).toHaveCount(0)
+    await expect(page.getByTestId('bpa-ao5')).toHaveCount(0)
+    await expect(page.getByTestId('wpa-ao5')).toHaveCount(0)
+    await expect(page.locator('.stat-chevron')).toHaveCount(0)
+    await expect(page.getByTestId('stat-row-ao5')).not.toHaveAttribute(
+      'aria-expanded',
+      /.*/,
     )
-
-    await expandRow(page, 'ao12')
-    await expect(page.getByTestId('stat-details-ao5')).toBeVisible()
-    await expect(page.getByTestId('stat-details-ao12')).toBeVisible()
-    await page.getByTestId('stat-row-ao12').click()
-    await expect(page.getByTestId('stat-details-ao12')).toBeHidden()
-    await expect(page.getByTestId('stat-details-ao5')).toBeVisible()
-
-    // Both open rows survive a reload through the local display preference.
-    await expandRow(page, 'ao12')
-    await page.reload()
-    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
-    await expect(page.getByTestId('stat-details-ao5')).toBeVisible()
-    await expect(page.getByTestId('stat-details-ao12')).toBeVisible()
-    expect(await page.locator('.stats-panel [role="menu"]').count()).toBe(0)
+    await expect(page.getByTestId('stat-target-ao5')).toHaveCount(0)
+    await expect(page.locator('.stats-panel [role="menu"]')).toHaveCount(0)
   })
 
-  test('edits targets in place, persists them per event and updates the next solve', async ({
+  test('enables all metrics inline, calculates the PB target and persists visibility', async ({
     page,
   }) => {
     await seed(page)
-    await expandRow(page, 'ao5')
-    const input = page.getByTestId('stat-target-ao5')
-    await input.fill('14.00')
-    await input.press('Enter')
-    await expect(page.getByTestId('stat-next-ao5')).toHaveText('≤ 15.01')
+    await enableMetrics(page, allMetrics)
+
+    await expect(page.getByTestId('current-ao5')).toHaveText('14.00')
+    await expect(page.getByTestId('best-ao5')).toHaveText('14.00')
+    await expect(page.getByTestId('bpa-ao5')).toHaveText('13.00')
+    await expect(page.getByTestId('wpa-ao5')).toHaveText('15.67')
+    // Strictly faster than the 14.00 ao5 PB; 14.99 would tie it.
+    await expect(page.getByTestId('target-ao5')).toHaveText('14.98')
+    await expect(page.getByTestId('target-ao5')).toHaveAttribute(
+      'aria-label',
+      /Maximum next result for a new ao5 best/,
+    )
+    await expect(page.getByTestId('target-single')).toHaveText('11.99')
+    await expect(page.getByTestId('bpa-single')).toHaveCount(0)
+    await expect(page.getByTestId('wpa-single')).toHaveCount(0)
+
     await expect
       .poll(() =>
         page.evaluate(() => {
           const raw = localStorage.getItem('cubelab:settings:v1')
-          return raw
-            ? (
-                JSON.parse(raw) as {
-                  settings: { statTargetsMs: Record<string, Record<string, number>> }
-                }
-              ).settings.statTargetsMs['333']?.ao5
-            : null
+          if (!raw) return null
+          const parsed = JSON.parse(raw) as {
+            version: number
+            settings: { statMetricVisibility: Record<string, boolean> }
+          }
+          return {
+            version: parsed.version,
+            metrics: parsed.settings.statMetricVisibility,
+          }
         }),
       )
-      .toBe(14_000)
-
-    await expect(page.getByTestId('stat-next-ao5')).toHaveClass(/is-reachable/)
-
-    await selectSession(page, 'stats-b')
-    await expect(page.getByTestId('current-ao5')).toHaveText('4.20')
-    await expandRow(page, 'ao5')
-    await expect(page.getByTestId('stat-target-ao5')).toHaveValue('')
-    await page.getByTestId('stat-target-ao5').fill('5.00')
-    await page.getByTestId('stat-target-ao5').press('Enter')
-
-    await selectSession(page, 'stats-a')
-    await expect(page.getByTestId('current-ao5')).toHaveText('14.00')
-    await expect(page.getByTestId('stat-target-ao5')).toHaveValue('14.00')
+      .toEqual({
+        version: 11,
+        metrics: {
+          current: true,
+          best: true,
+          target: true,
+          bpa: true,
+          wpa: true,
+        },
+      })
 
     await page.reload()
     await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
-    await expect(page.getByTestId('stat-target-ao5')).toHaveValue('14.00')
-    await expect(page.getByTestId('stat-next-ao5')).toHaveText('≤ 15.01')
-
-    const inputAfterReload = page.getByTestId('stat-target-ao5')
-    await inputAfterReload.fill('not-a-time')
-    await inputAfterReload.blur()
-    await expect(page.getByTestId('stat-details-ao5').getByRole('alert')).toContainText(
-      'Enter seconds',
-    )
-    await inputAfterReload.fill('0.01')
-    await inputAfterReload.press('Enter')
-    await expect(inputAfterReload).toHaveValue('0.01')
-    await expect(page.getByTestId('stat-next-ao5')).toHaveText('Not reachable')
+    await expect(page.getByTestId('target-ao5')).toHaveText('14.98')
+    await expect(page.getByTestId('bpa-ao5')).toHaveText('13.00')
+    await expect(page.getByTestId('wpa-ao5')).toHaveText('15.67')
   })
 
-  test('updates after penalty changes and deletions without moving Solves', async ({
+  test('updates Current, Best and Target after penalties and deletions', async ({
     page,
   }) => {
     await seed(page)
+    await enableMetrics(page, ['current', 'best', 'target'])
     await expect(page.getByTestId('current-ao5')).toHaveText('14.00')
     await expect(page.getByTestId('best-ao5')).toHaveText('14.00')
+    const initialTarget = await page.getByTestId('target-ao5').textContent()
 
     const first = page.locator('[data-testid="history-row"]').first()
     await first.getByTestId('solve-plus-two').click()
     await expect(page.getByTestId('current-ao5')).toHaveText('14.33')
     await expect(page.getByTestId('best-ao5')).toHaveText('14.33')
+    await expect(page.getByTestId('target-ao5')).not.toHaveText(initialTarget!)
 
     await first.getByTestId('solve-dnf').click()
     await expect(page.getByTestId('current-ao5')).toHaveText('16.33')
@@ -219,12 +232,107 @@ test.describe('statistics panel', () => {
     await expect(page.getByTestId('history-row').first()).toBeVisible()
   })
 
-  test('keeps the divider and Solves usable with multiple expanded rows', async ({
+  test('keeps metric and average-row visibility independent per event', async ({
     page,
   }) => {
     await seed(page)
-    await expandRow(page, 'ao5')
-    await expandRow(page, 'ao12')
+    await enableMetrics(page, ['best', 'target'])
+    await expect(page.getByTestId('current-ao5')).toHaveCount(0)
+    await expect(page.getByTestId('best-ao5')).toHaveText('14.00')
+    await expect(page.getByTestId('target-ao5')).toHaveText('14.98')
+
+    await selectSession(page, 'stats-b')
+    await expect(page.getByTestId('best-ao5')).toHaveText('4.20')
+    await expect(page.getByTestId('target-ao5')).toHaveText('4.28')
+
+    const settings = await openSettings(page)
+    await settings.getByTestId('stat-visible-ao5').uncheck()
+    await settings.getByTestId('settings-done').click()
+    await expect(page.getByTestId('stat-row-ao5')).toHaveCount(0)
+    await expect(page.getByTestId('best-ao12')).toBeVisible()
+    await expect(page.getByTestId('target-ao12')).toBeVisible()
+  })
+
+  test('shows dash and N/A target states honestly', async ({ page }) => {
+    await seed(page, {
+      inspectionEnabled: false,
+      statMetricVisibility: {
+        current: true,
+        best: true,
+        target: true,
+        bpa: false,
+        wpa: false,
+      },
+    })
+    await page.evaluate(() => {
+      const key = 'cubelab:sessions:v1'
+      const data = JSON.parse(localStorage.getItem(key)!)
+      const session = data.sessions.find(
+        (item: { id: string }) => item.id === data.activeSessionId,
+      )
+      session.solves = session.solves.slice(0, 4)
+      localStorage.setItem(key, JSON.stringify(data))
+    })
+    await page.reload()
+    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('target-ao5')).toHaveText('—')
+
+    await page.evaluate(() => {
+      const key = 'cubelab:sessions:v1'
+      const data = JSON.parse(localStorage.getItem(key)!)
+      const session = data.sessions.find(
+        (item: { id: string }) => item.id === data.activeSessionId,
+      )
+      session.solves = Array.from({ length: 5 }, (_, index) => ({
+        id: `tie-${index}`,
+        event: '333',
+        rawMs: 10_000,
+        penalty: 'none',
+        scramble: "R U R'",
+        comment: '',
+        createdAt: Date.now() - index * 1000,
+      }))
+      localStorage.setItem(key, JSON.stringify(data))
+    })
+    await page.reload()
+    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('target-ao5')).toHaveText('N/A')
+  })
+
+  test('ignores legacy editable targets without losing stored data', async ({
+    page,
+  }) => {
+    await seed(page, {
+      inspectionEnabled: false,
+      statMetricVisibility: {
+        current: true,
+        best: true,
+        target: true,
+        bpa: false,
+        wpa: false,
+      },
+      statTargetsMs: { '333': { ao5: 9_000 } },
+    })
+    await expect(page.getByTestId('target-ao5')).toHaveText('14.98')
+    await expect(page.getByTestId('stat-target-ao5')).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = localStorage.getItem('cubelab:settings:v1')
+          return raw
+            ? (JSON.parse(raw) as { settings: { statTargetsMs: unknown } })
+                .settings.statTargetsMs
+            : null
+        }),
+      )
+      .toEqual({ '333': { ao5: 9_000 } })
+  })
+
+  test('keeps the divider and Solves usable with every metric enabled', async ({
+    page,
+  }) => {
+    await seed(page)
+    await enableMetrics(page, allMetrics)
     const divider = page.getByTestId('stats-solves-divider')
     const before = await divider.boundingBox()
     expect(before).not.toBeNull()
@@ -243,35 +351,58 @@ test.describe('statistics panel', () => {
     const after = await divider.boundingBox()
     expect(after).not.toBeNull()
     expect(after!.y).toBeGreaterThan(handle.y + 30)
-    await expect(page.getByTestId('stat-details-ao5')).toBeVisible()
-    await expect(page.getByTestId('stat-details-ao12')).toBeVisible()
+    await expect(page.getByTestId('target-ao5')).toBeVisible()
+    await expect(page.getByTestId('bpa-ao5')).toBeVisible()
+    await expect(page.getByTestId('wpa-ao5')).toBeVisible()
     await expect(page.getByTestId('history-row').first()).toBeVisible()
     await expect(page.locator('.history-panel')).toBeVisible()
   })
 })
 
 test.describe('statistics responsive layout', () => {
-  test('remains usable at 380 px and 320 px without horizontal overflow', async ({
+  test('remains usable at 390 px and 320 px without horizontal overflow', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 380, height: 844 })
+    await page.setViewportSize({ width: 390, height: 844 })
     await seed(page)
-    await expect(page.getByTestId('stat-row-ao5')).toBeVisible()
-    await expandRow(page, 'ao5')
-    await expect(page.getByTestId('stat-target-ao5')).toBeVisible()
-    const width380 = await page.evaluate(() => ({
+    await enableMetrics(page, allMetrics)
+    const width390 = await page.evaluate(() => ({
       viewport: window.innerWidth,
       document: document.documentElement.scrollWidth,
+      panel: document.querySelector('.stats-panel')!.scrollWidth,
+      panelClient: document.querySelector('.stats-panel')!.clientWidth,
     }))
-    expect(width380.document).toBeLessThanOrEqual(width380.viewport + 1)
+    expect(width390.document).toBeLessThanOrEqual(width390.viewport + 1)
+    expect(width390.panel).toBeLessThanOrEqual(width390.panelClient + 1)
+    await expect(page.getByTestId('stat-row-ao5')).toBeVisible()
+    await expect(page.getByTestId('target-ao5')).toBeVisible()
 
     await page.setViewportSize({ width: 320, height: 844 })
     await expect(page.getByTestId('stat-row-ao5')).toBeVisible()
-    await expect(page.getByTestId('stat-details-ao5')).toBeVisible()
+    await expect(page.getByTestId('target-ao5')).toBeVisible()
     const width320 = await page.evaluate(() => ({
       viewport: window.innerWidth,
       document: document.documentElement.scrollWidth,
+      panel: document.querySelector('.stats-panel')!.scrollWidth,
+      panelClient: document.querySelector('.stats-panel')!.clientWidth,
     }))
     expect(width320.document).toBeLessThanOrEqual(width320.viewport + 1)
+    expect(width320.panel).toBeLessThanOrEqual(width320.panelClient + 1)
+  })
+
+  test('uses readable target colors in light and dark themes', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await seed(page)
+    await enableMetrics(page, ['current', 'best', 'target'])
+    const target = page.getByTestId('target-ao5')
+    const light = await target.evaluate((node) => getComputedStyle(node).color)
+    await page.getByTestId('settings-button').click()
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await settings.getByTestId('theme-setting').click()
+    await page.getByRole('option', { name: 'Dark' }).click()
+    await settings.getByTestId('settings-done').click()
+    const dark = await target.evaluate((node) => getComputedStyle(node).color)
+    expect(light).not.toBe(dark)
+    await expect(target).toBeVisible()
   })
 })

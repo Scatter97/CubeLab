@@ -23,7 +23,7 @@ The implemented product includes 12 built-in events plus user-defined custom eve
 inspection, named sessions, solve comments/actions, configurable trimmed statistics,
 Time Trend/PB details, the lazy Analytics dashboard, floating scramble/chart tools,
 native JSON backup, additive csTimer import, optional Drive sync, light/dark/system
-themes and an offline-capable PWA. Sessions use schema **v6**; settings use **v10**. Storage-key
+themes and an offline-capable PWA. Sessions use schema **v6**; settings use **v11**. Storage-key
 suffixes remain `v1`; do not confuse key names with payload schema versions.
 
 | Area | Owner |

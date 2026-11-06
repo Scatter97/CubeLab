@@ -52,7 +52,16 @@ describe('backup format', () => {
   it('round-trips sessions and settings', () => {
     const backup = createBackup(
       sessions(),
-      { ...DEFAULT_SETTINGS, inspectionEnabled: true },
+      {
+        ...DEFAULT_SETTINGS,
+        inspectionEnabled: true,
+        statMetricVisibility: {
+          ...DEFAULT_SETTINGS.statMetricVisibility,
+          target: true,
+          bpa: true,
+          wpa: true,
+        },
+      },
       new Date('2026-10-23T18:00:00.000Z'),
     )
     const result = parseBackup(serializeBackup(backup))
@@ -382,16 +391,23 @@ describe('import trust boundaries', () => {
       ...DEFAULT_SETTINGS,
       statVisibility: { ...DEFAULT_SETTINGS.statVisibility },
       customAverages: [{ id: 'custom', size: 7, visible: true }],
+      statMetricVisibility: {
+        ...DEFAULT_SETTINGS.statMetricVisibility,
+        target: true,
+        bpa: true,
+      },
       statTargetsMs: { '333': { ao5: 15_000 } },
     }
     const backup = createBackup(sessions(), live)
 
     live.statVisibility.ao5 = false
     live.customAverages[0]!.visible = false
+    live.statMetricVisibility.bpa = false
     live.statTargetsMs['333']!.ao5 = 12_000
 
     expect(backup.settings.statVisibility.ao5).toBe(true)
     expect(backup.settings.customAverages[0]?.visible).toBe(true)
+    expect(backup.settings.statMetricVisibility.bpa).toBe(true)
     expect(backup.settings.statTargetsMs['333']?.ao5).toBe(15_000)
   })
 })
@@ -403,10 +419,15 @@ it('preserves trimming choices in backups and upgrades older backups to 5% / Aut
   const old = JSON.parse(serializeBackup(backup))
   delete old.settings.averageTrimBetter
   delete old.settings.averageTrimWorse
+  delete old.settings.statMetricVisibility
   const migrated = parseBackup(JSON.stringify(old))
   expect(migrated.ok).toBe(true)
   if (migrated.ok) {
-    expect(migrated.backup.settings).toMatchObject({ averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
+    expect(migrated.backup.settings).toMatchObject({
+      averageTrimBetter: 'p5',
+      averageTrimWorse: 'auto',
+      statMetricVisibility: DEFAULT_SETTINGS.statMetricVisibility,
+    })
     expect(migrated.backup.sessions).toEqual(backup.sessions)
   }
 })

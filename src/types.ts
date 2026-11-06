@@ -157,6 +157,18 @@ export interface StatVisibility {
   ao10000: boolean
 }
 
+/**
+ * Independent metric visibility inside every visible statistics row. Current
+ * and Best are the primary values; the remaining metrics are optional.
+ */
+export interface StatMetricVisibility {
+  current: boolean
+  best: boolean
+  target: boolean
+  bpa: boolean
+  wpa: boolean
+}
+
 export interface CustomAverageSetting {
   id: string
   size: number
@@ -164,8 +176,9 @@ export interface CustomAverageSetting {
 }
 
 /**
- * Per-event target times keyed by stat identity (`single`, `mo3`, `ao5`, or
- * `custom:<id>`). Targets are display preferences only; solves remain unchanged.
+ * Legacy per-event goal times keyed by stat identity. CubeLab no longer exposes
+ * editable goals; the validated field remains accepted so existing settings and
+ * backups round-trip without data loss.
  */
 export type StatTargetsMs = Partial<Record<PuzzleEvent, Record<string, number>>>
 
@@ -220,7 +233,9 @@ export interface Settings {
   accentColor: AccentColor
   statVisibility: StatVisibility
   customAverages: CustomAverageSetting[]
-  /** Per-event goal times for the statistics panel. */
+  /** Independent Current/Best/Target/BPA/WPA visibility for statistics rows. */
+  statMetricVisibility: StatMetricVisibility
+  /** Legacy per-event goal times retained for backup and sync compatibility. */
   statTargetsMs: StatTargetsMs
   statPrecision: StatPrecision
   averageTrimBetter: AverageTrimRule

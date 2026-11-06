@@ -4,56 +4,82 @@ import { chooseTestOption } from './interactions'
 // Also run against Vite to exercise development Strict Mode, not just production.
 if (process.env.CUBELAB_TEST_URL) test.use({ baseURL: process.env.CUBELAB_TEST_URL })
 
-async function enableAllStats(page: Page) {
+async function openSettings(page: Page) {
   await page.getByTestId('settings-button').click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
+  return page.getByRole('dialog', { name: 'Settings' })
+}
+
+async function enableAllStats(page: Page) {
+  const settings = await openSettings(page)
   const boxes = settings.locator('[data-testid^="stat-visible-"]')
-  for (let i = 0; i < await boxes.count(); i++) await boxes.nth(i).check()
+  for (let i = 0; i < (await boxes.count()); i++) await boxes.nth(i).check()
   await settings.getByTestId('settings-done').click()
   await page.evaluate(() => document.fonts.ready)
 }
 
-async function geometry(page: Page) {
+async function setMetrics(
+  page: Page,
+  metrics: ReadonlyArray<'current' | 'best' | 'target' | 'bpa' | 'wpa'>,
+) {
+  const settings = await openSettings(page)
+  for (const key of ['current', 'best', 'target', 'bpa', 'wpa'] as const) {
+    const checkbox = settings.getByTestId(`stat-metric-${key}`)
+    if (metrics.includes(key)) await checkbox.check()
+    else await checkbox.uncheck()
+  }
+  await settings.getByTestId('settings-done').click()
+}
+
+async function statsGeometry(page: Page) {
   return page.locator('.stats-panel').evaluate((panel) => {
-    const grid = panel.querySelector<HTMLElement>('.stats-grid')!
-    const bounds = grid.getBoundingClientRect()
-    const rows = [...grid.querySelectorAll<HTMLElement>('.stat-tile')]
-    const failures: string[] = []
-    const epsilon = 0.75
+    const scroll = panel.querySelector<HTMLElement>('.stats-scroll')!
+    const measure = panel.querySelector<HTMLElement>('.stats-panel-measure')!
+    const rows = [
+      ...scroll.querySelectorAll<HTMLElement>('[data-testid^="stat-row-"]'),
+    ]
     const panelRect = panel.getBoundingClientRect()
-    const panelStyle = getComputedStyle(panel)
-    const scale = panelRect.width / (panel as HTMLElement).offsetWidth
-    const contentBottom = panelRect.bottom - (parseFloat(panelStyle.paddingBottom) + parseFloat(panelStyle.borderBottomWidth)) * scale
-    if (bounds.bottom > contentBottom + epsilon) failures.push('grid outside panel content')
-    rows.forEach((row, index) => {
-      const rect = row.getBoundingClientRect()
-      if (rect.top < bounds.top - epsilon || rect.bottom > bounds.bottom + epsilon) failures.push(`row ${index} outside grid`)
-      for (const child of row.children) {
-        const text = child.getBoundingClientRect()
-        if (text.top < rect.top - epsilon || text.bottom > rect.bottom + epsilon || text.left < rect.left - epsilon || text.right > rect.right + epsilon) failures.push(`row ${index} text outside row`)
+    const scrollRect = scroll.getBoundingClientRect()
+    const measureRect = measure.getBoundingClientRect()
+    const failures: string[] = []
+    const epsilon = 1.5
+    if (panelRect.height < measureRect.height - epsilon) {
+      // Only valid when the viewport cannot fit both panel minimums.
+    }
+    if (scroll.scrollWidth > scroll.clientWidth + epsilon) {
+      failures.push('statistics overflow horizontally')
+    }
+    const canFit = panelRect.height + epsilon >= measureRect.height
+    if (canFit) {
+      if (scroll.scrollHeight > scroll.clientHeight + epsilon) {
+        failures.push('statistics scroll despite enough panel height')
       }
-    })
-    const sample = grid.querySelector<HTMLElement>('.stats-measure-rows.is-compact')
-    const next = sample?.children[rows.length]
-    // No more complete compact rows should fit; empty space is distributed.
-    if (next && next.getBoundingClientRect().bottom <= bounds.bottom - 1) failures.push('another complete row fits')
+      for (const [index, row] of rows.entries()) {
+        const rect = row.getBoundingClientRect()
+        if (rect.top < scrollRect.top - epsilon) {
+          failures.push(`row ${index} above visible area`)
+        }
+        if (rect.bottom > scrollRect.bottom + epsilon) {
+          failures.push(`row ${index} below visible area`)
+        }
+      }
+    } else if (scroll.scrollHeight <= scroll.clientHeight + epsilon) {
+      failures.push('expected internal scroll fallback')
+    }
     return {
       failures,
       count: rows.length,
-      blank: rows.length ? bounds.bottom - rows.at(-1)!.getBoundingClientRect().bottom : bounds.height,
-      measuring: panel.classList.contains('is-measuring'),
+      panelHeight: panelRect.height,
+      measureHeight: measureRect.height,
+      scrollHeight: scroll.scrollHeight,
+      clientHeight: scroll.clientHeight,
+      scrollWidth: scroll.scrollWidth,
+      clientWidth: scroll.clientWidth,
+      canFit,
     }
   })
 }
 
-async function expectFitted(page: Page) {
-  await expect.poll(async () => {
-    const result = await geometry(page)
-    return { failures: result.failures, measuring: result.measuring, hasRows: result.count > 0, fillsArea: Math.abs(result.blank) < 2 }
-  }).toEqual({ failures: [], measuring: false, hasRows: true, fillsArea: true })
-}
-
-async function dragToHeight(page: Page, height: number) {
+async function dragPanelToHeight(page: Page, height: number) {
   const divider = page.getByTestId('stats-solves-divider')
   const handle = (await divider.boundingBox())!
   const panel = (await page.locator('.stats-panel').boundingBox())!
@@ -61,159 +87,328 @@ async function dragToHeight(page: Page, height: number) {
   const y = handle.y + handle.height / 2
   await page.mouse.move(x, y)
   await page.mouse.down()
-  await page.mouse.move(x, y + height - panel.height)
+  await page.mouse.move(x, y + height - panel.height, { steps: 8 })
   await page.mouse.up()
-  await expectFitted(page)
+}
+
+async function expectEveryRowMounted(page: Page, count: number) {
+  await expect(page.locator('.stats-scroll [data-testid^="stat-row-"]')).toHaveCount(
+    count,
+  )
+}
+
+async function expectMinimumFit(page: Page) {
+  await expect
+    .poll(async () => {
+      const geometry = await statsGeometry(page)
+      return {
+        failures: geometry.failures,
+        atOrAboveMinimum:
+          geometry.panelHeight + 2 >= geometry.measureHeight ||
+          !geometry.canFit,
+      }
+    })
+    .toEqual({ failures: [], atOrAboveMinimum: true })
 }
 
 test.describe('resizable statistics panel', () => {
-  for (const height of [680, 900]) {
-    test(`complete rows through bidirectional 4px sweep at ${height}px`, async ({ page }) => {
-      test.setTimeout(180_000)
-      await page.setViewportSize({ width: 1366, height })
-      await page.goto('/')
-      await enableAllStats(page)
-      await expectFitted(page)
-      const range = await page.locator('.sidebar-split').evaluate((split) => ({ min: 96, max: split.clientHeight - 120 }))
-      const divider = page.getByTestId('stats-solves-divider')
-      // Keep one real drag active in each direction; never reuse stale handle
-      // positions or silently skip a state that fails to settle.
-      for (const direction of [1, -1]) {
-        await dragToHeight(page, direction === 1 ? range.min : range.max)
-        const handle = (await divider.boundingBox())!
-        const panel = (await page.locator('.stats-panel').boundingBox())!
-        const x = handle.x + handle.width / 2
-        const y = handle.y + handle.height / 2
-        await page.mouse.move(x, y)
-        await page.mouse.down()
-        const start = direction === 1 ? range.min : range.max
-        const end = direction === 1 ? range.max : range.min
-        for (let target = start; direction === 1 ? target <= end : target >= end; target += direction * 4) {
-          await page.mouse.move(x, y + target - panel.height)
-          await expectFitted(page)
-        }
-        await page.mouse.up()
-      }
-    })
-  }
+  test('clamps at the content-aware minimum and maximum without hiding rows', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await page.goto('/')
+    await expectEveryRowMounted(page, 4)
+    const initial = await statsGeometry(page)
 
-  test('settings, populated results, fonts and scaling refit; reload preserves split', async ({ page }) => {
+    // Dragging upward stops when all four rows reach their compact content
+    // height, not at a fixed pixel value.
+    await dragPanelToHeight(page, 20)
+    await expectMinimumFit(page)
+    const atMinimum = await statsGeometry(page)
+    expect(atMinimum.panelHeight).toBeGreaterThanOrEqual(
+      atMinimum.measureHeight - 2,
+    )
+    expect(atMinimum.panelHeight).toBeLessThanOrEqual(
+      atMinimum.measureHeight + 2,
+    )
+    expect(atMinimum.count).toBe(4)
+    expect(atMinimum.canFit).toBe(true)
+    await expectEveryRowMounted(page, 4)
+
+    // Dragging downward enlarges Statistics until Solves reaches its floor.
+    const container = (await page.locator('.sidebar-split').boundingBox())!
+    await dragPanelToHeight(page, container.height + 200)
+    await expectMinimumFit(page)
+    const atMaximum = await statsGeometry(page)
+    expect(atMaximum.panelHeight).toBeGreaterThan(initial.panelHeight)
+    expect(atMaximum.panelHeight).toBeLessThanOrEqual(container.height - 119)
+    expect(atMaximum.failures).toEqual([])
+    await expect(page.locator('.history-panel')).toBeVisible()
+    await expectEveryRowMounted(page, 4)
+  })
+
+  test('adapts to metric and average-row changes without removing averages', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await page.goto('/')
+    await expectEveryRowMounted(page, 4)
+    await dragPanelToHeight(page, 20)
+    const base = await statsGeometry(page)
+
+    await setMetrics(page, ['current', 'best', 'target', 'bpa', 'wpa'])
+    await expect
+      .poll(async () => (await statsGeometry(page)).measureHeight)
+      .toBeGreaterThan(base.measureHeight)
+    await expectEveryRowMounted(page, 4)
+    const withMetrics = await statsGeometry(page)
+    expect(withMetrics.panelHeight + 2).toBeGreaterThanOrEqual(
+      withMetrics.measureHeight,
+    )
+    expect(withMetrics.failures).toEqual([])
+    await expect(page.getByTestId('target-ao5')).toBeVisible()
+    await expect(page.getByTestId('bpa-ao5')).toBeVisible()
+    await expect(page.getByTestId('wpa-ao5')).toBeVisible()
+
+    await setMetrics(page, ['current', 'best'])
+    await expect
+      .poll(async () => (await statsGeometry(page)).measureHeight)
+      .toBeLessThan(withMetrics.measureHeight)
+    await expectEveryRowMounted(page, 4)
+
+    await enableAllStats(page)
+    await expectEveryRowMounted(page, 11)
+    const allRows = await statsGeometry(page)
+    expect(allRows.failures).toEqual([])
+    await expect(page.getByTestId('best-ao10000')).toBeAttached()
+
+    const settings = await openSettings(page)
+    await settings.getByTestId('stat-visible-ao1000').uncheck()
+    await settings.getByTestId('stat-visible-ao5000').uncheck()
+    await settings.getByTestId('stat-visible-ao10000').uncheck()
+    await settings.getByTestId('settings-done').click()
+    await expectEveryRowMounted(page, 8)
+    await expectMinimumFit(page)
+  })
+
+  test('keyboard resizing, reset, shift acceleration and ARIA bounds', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await page.goto('/')
+    const divider = page.getByTestId('stats-solves-divider')
+    await divider.focus()
+    const bounds = await statsGeometry(page)
+    const minPercent = Number(await divider.getAttribute('aria-valuemin'))
+    const maxPercent = Number(await divider.getAttribute('aria-valuemax'))
+    expect(minPercent).toBeLessThan(maxPercent)
+
+    await divider.press('Home')
+    await expectMinimumFit(page)
+    const home = await statsGeometry(page)
+    expect(home.panelHeight).toBeLessThanOrEqual(home.measureHeight + 2)
+    await expect(divider).toBeFocused()
+    expect(Number(await divider.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(
+      minPercent,
+    )
+
+    await divider.press('Enter')
+    await expect
+      .poll(async () => (await statsGeometry(page)).panelHeight)
+      .toBeGreaterThan(home.panelHeight)
+    const reset = await statsGeometry(page)
+
+    await divider.press('End')
+    await expect
+      .poll(async () => (await statsGeometry(page)).panelHeight)
+      .toBeGreaterThan(reset.panelHeight)
+    expect(Number(await divider.getAttribute('aria-valuenow'))).toBeLessThanOrEqual(
+      maxPercent,
+    )
+    await expect(divider).toBeFocused()
+
+    await divider.press('ArrowUp')
+    const normalStep = await statsGeometry(page)
+    await divider.press('Shift+ArrowUp')
+    const acceleratedStep = await statsGeometry(page)
+    expect(normalStep.panelHeight - acceleratedStep.panelHeight).toBeGreaterThan(
+      30,
+    )
+
+    await divider.dblclick()
+    await expect
+      .poll(async () => (await statsGeometry(page)).panelHeight)
+      .toBeLessThan(acceleratedStep.panelHeight)
+    await expectMinimumFit(page)
+    await expect(divider).toBeFocused()
+    expect(bounds.failures).toEqual([])
+  })
+
+  test('clamps a saved percentage below the content minimum without rewriting it', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1366, height: 1200 })
     await page.goto('/')
     await enableAllStats(page)
-    // Seed only this isolated browser context, retaining the application's schema.
+    await setMetrics(page, ['current', 'best', 'target', 'bpa', 'wpa'])
     await page.evaluate(() => {
-      const key = 'cubelab:sessions:v1'
+      const key = 'cubelab:settings:v1'
       const data = JSON.parse(localStorage.getItem(key)!)
-      const session = data.sessions.find((item: { id: string }) => item.id === data.activeSessionId)
-      session.solves = Array.from({ length: 30 }, (_, index) => ({
-        id: `panel-fixture-${index}`, event: '333', rawMs: 654321 + index * 100,
-        penalty: 'none', scramble: "R U R'", createdAt: Date.now() - index * 1000,
-      }))
+      data.settings.statsPanelHeightPercent = 5
       localStorage.setItem(key, JSON.stringify(data))
     })
     await page.reload()
-    await expectFitted(page)
-    await expect(page.getByTestId('best-single')).toHaveText('10:54.00')
-    for (const zoom of ['1', '1.25', '1.5']) {
-      await page.evaluate((value) => { document.body.style.zoom = value }, zoom)
-      for (const target of [100, 150, 220, 300, 400, 220, 100]) await dragToHeight(page, target)
-    }
-    await page.evaluate(() => { document.body.style.zoom = ''; document.documentElement.style.fontSize = '20px' })
-    await expectFitted(page)
-    await page.evaluate(() => { document.documentElement.style.fontSize = '' })
-    await dragToHeight(page, 260)
-    await page.getByTestId('settings-button').click()
-    const settings = page.getByRole('dialog', { name: 'Settings' })
-    await settings.getByTestId('stat-visible-single').uncheck()
-    await settings.getByTestId('settings-done').click()
-    await expect(page.getByTestId('best-single')).toHaveCount(0)
-    await expectFitted(page)
-    const before = (await page.getByTestId('stats-solves-divider').boundingBox())!.y
-    await page.reload()
-    await expectFitted(page)
-    expect(Math.abs((await page.getByTestId('stats-solves-divider').boundingBox())!.y - before)).toBeLessThan(12)
+    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+    await expectEveryRowMounted(page, 11)
+    await expect
+      .poll(async () => {
+        const geometry = await statsGeometry(page)
+        return {
+          canFit: geometry.canFit,
+          atMinimum: geometry.panelHeight + 2 >= geometry.measureHeight,
+        }
+      })
+      .toEqual({ canFit: true, atMinimum: true })
+    expect(
+      await page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem('cubelab:settings:v1')!).settings
+            .statsPanelHeightPercent,
+      ),
+    ).toBe(5)
+    expect((await statsGeometry(page)).failures).toEqual([])
   })
 
-  test('keyboard divider controls and reset keep complete rows', async ({ page }) => {
+  test('keeps persistence, window resizing and narrow widths stable', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await page.goto('/')
+    await dragPanelToHeight(page, 280)
+    const beforeReload = (await page
+      .getByTestId('stats-solves-divider')
+      .boundingBox())!.y
+    await page.reload()
+    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+    await expectMinimumFit(page)
+    expect(
+      Math.abs(
+        (await page.getByTestId('stats-solves-divider').boundingBox())!.y -
+          beforeReload,
+      ),
+    ).toBeLessThan(12)
+
+    for (const viewport of [
+      { width: 1366, height: 650 },
+      { width: 1024, height: 900 },
+      { width: 1366, height: 900 },
+    ]) {
+      await page.setViewportSize(viewport)
+      await expectMinimumFit(page)
+      await expectEveryRowMounted(page, 4)
+      const geometry = await statsGeometry(page)
+      expect(geometry.failures).toEqual([])
+    }
+
+    await page.getByTestId('settings-button').click()
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await chooseTestOption(page, 'ui-zoom', '150')
+    await settings.getByTestId('settings-done').click()
+    await expectMinimumFit(page)
+    await dragPanelToHeight(page, 100)
+    await expectMinimumFit(page)
+    await dragPanelToHeight(page, 450)
+    await expectMinimumFit(page)
+    const zoomed = await statsGeometry(page)
+    expect(zoomed.failures).toEqual([])
+    expect(zoomed.scrollWidth).toBeLessThanOrEqual(zoomed.clientWidth + 1)
+  })
+
+  test('uses internal scrolling when the viewport cannot fit every enabled row', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1366, height: 500 })
     await page.goto('/')
     await enableAllStats(page)
-    const divider = page.getByTestId('stats-solves-divider')
-    await divider.focus()
-    for (const key of ['Home', 'ArrowDown', 'Shift+ArrowDown', 'End', 'ArrowUp', 'Enter']) {
-      await divider.press(key)
-      await expectFitted(page)
-      await expect(divider).toBeFocused()
-    }
+    await setMetrics(page, ['current', 'best', 'target', 'bpa', 'wpa'])
+    await expectEveryRowMounted(page, 11)
+    await expect
+      .poll(async () => (await statsGeometry(page)).canFit)
+      .toBe(false)
+    const constrained = await statsGeometry(page)
+    expect(constrained.failures).toEqual([])
+    expect(constrained.scrollHeight).toBeGreaterThan(constrained.clientHeight)
+
+    const scroll = page.locator('.stats-scroll')
+    await scroll.evaluate((node) => {
+      node.scrollTop = node.scrollHeight
+    })
+    await expect(page.getByTestId('stat-row-ao10000')).toBeVisible()
+    await expect(page.locator('.history-panel')).toBeVisible()
+    const statsBox = (await page.locator('.stats-panel').boundingBox())!
+    const dividerBox = (await page
+      .getByTestId('stats-solves-divider')
+      .boundingBox())!
+    const historyBox = (await page.locator('.history-panel').boundingBox())!
+    expect(statsBox.y + statsBox.height).toBeLessThanOrEqual(dividerBox.y + 1)
+    expect(historyBox.y).toBeGreaterThanOrEqual(
+      dividerBox.y + dividerBox.height,
+    )
+    expect(historyBox.height).toBeGreaterThan(100)
+
+    await page.setViewportSize({ width: 1366, height: 360 })
+    await expectEveryRowMounted(page, 11)
+    await expect(page.locator('.history-panel')).toBeVisible()
+    expect((await statsGeometry(page)).failures).toEqual([])
   })
 
-  test('empty selection can restore a single custom average', async ({ page }) => {
+  test('initializes through mobile-to-desktop transitions with every row', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
-    await page.getByTestId('settings-button').click()
-    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await enableAllStats(page)
+    await setMetrics(page, ['current', 'best', 'target', 'bpa', 'wpa'])
+    const divider = page.getByTestId('stats-solves-divider')
+    await expect(divider).toHaveCount(0)
+    await expectEveryRowMounted(page, 11)
+
+    await page.setViewportSize({ width: 1366, height: 1200 })
+    await expect(divider).toBeVisible()
+    await expectEveryRowMounted(page, 11)
+    await dragPanelToHeight(page, 20)
+    await expectMinimumFit(page)
+    const desktop = await statsGeometry(page)
+    expect(desktop.canFit).toBe(true)
+    expect(desktop.failures).toEqual([])
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(divider).toHaveCount(0)
+    await expectEveryRowMounted(page, 11)
+    const mobile = await statsGeometry(page)
+    expect(mobile.failures).toEqual([])
+  })
+
+  test('empty selection restores one custom average and refits', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await page.goto('/')
+    const settings = await openSettings(page)
     const boxes = settings.locator('[data-testid^="stat-visible-"]')
-    for (let i = 0; i < await boxes.count(); i++) await boxes.nth(i).uncheck()
+    for (let i = 0; i < (await boxes.count()); i++) await boxes.nth(i).uncheck()
     await settings.getByTestId('settings-done').click()
     await expect(page.locator('.stats-empty')).toBeVisible()
-    await expect(page.locator('.stat-tile')).toHaveCount(0)
+    await expectEveryRowMounted(page, 0)
+    await expectMinimumFit(page)
+
     await page.getByTestId('settings-button').click()
     await settings.getByTestId('add-custom-average').click()
     await chooseTestOption(page, 'stat-precision', 'tenths')
     await settings.getByTestId('settings-done').click()
-    await expect(page.locator('.stat-tile')).toHaveCount(1)
-    await expectFitted(page)
-    await dragToHeight(page, 400)
-    await dragToHeight(page, 100)
-  })
-
-  test('divider tracks the pointer with enlarged UI scaling', async ({ page }) => {
-    await page.goto('/')
-    await enableAllStats(page)
-    await page.getByTestId('settings-button').click()
-    const settings = page.getByRole('dialog', { name: 'Settings' })
-    await chooseTestOption(page, 'ui-zoom', '125')
-    await settings.getByTestId('settings-done').click()
-    await expectFitted(page)
-    const divider = page.getByTestId('stats-solves-divider')
-    const handle = (await divider.boundingBox())!
-    const x = handle.x + handle.width / 2
-    const y = handle.y + handle.height / 2
-    await page.mouse.move(x, y)
-    await page.mouse.down()
-    await page.mouse.move(x, y + 60)
-    await expect.poll(async () => (await divider.boundingBox())!.y - handle.y).toBeCloseTo(60, 0)
-    await page.mouse.up()
-    await expectFitted(page)
-    await expect(divider).toHaveAttribute('aria-valuenow', /^(?:[0-9]|[1-9][0-9]|100)$/)
-  })
-
-  test('mobile-to-desktop transitions initialize and restore the split', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/')
-    await enableAllStats(page)
-    for (const width of [1366, 390, 1366]) {
-      await page.setViewportSize({ width, height: 900 })
-      const divider = page.getByTestId('stats-solves-divider')
-      if (width < 901) {
-        await expect(divider).toHaveCount(0)
-        await expect(page.locator('.stat-tile')).toHaveCount(11)
-      } else {
-        await expect(divider).toBeVisible()
-        await expectFitted(page)
-        await dragToHeight(page, 320)
-      }
-    }
-  })
-
-  test('mobile shows every enabled statistic without the desktop divider', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/')
-    await enableAllStats(page)
-    await expect(page.getByTestId('stats-solves-divider')).toHaveCount(0)
-    await expect(page.locator('.stat-tile')).toHaveCount(11)
-    await expect(page.locator('.stats-measure-rows')).toHaveCount(0)
-    for (const width of [320, 390]) {
-      await page.setViewportSize({ width, height: 844 })
-      expect((await geometry(page)).failures).toEqual([])
-    }
+    await expectEveryRowMounted(page, 1)
+    await expectMinimumFit(page)
+    await dragPanelToHeight(page, 400)
+    await dragPanelToHeight(page, 20)
+    await expectMinimumFit(page)
+    expect((await statsGeometry(page)).count).toBe(1)
   })
 })

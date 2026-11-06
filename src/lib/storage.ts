@@ -18,6 +18,7 @@ import type {
   SessionTransfer,
   Settings,
   Solve,
+  StatMetricVisibility,
   StatPrecision,
   StatTargetsMs,
   StatVisibility,
@@ -56,7 +57,7 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 6
-export const SETTINGS_STORAGE_VERSION = 10
+export const SETTINGS_STORAGE_VERSION = 11
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: false,
@@ -91,6 +92,13 @@ export const DEFAULT_SETTINGS: Settings = {
     ao10000: false,
   },
   customAverages: [],
+  statMetricVisibility: {
+    current: true,
+    best: true,
+    target: false,
+    bpa: false,
+    wpa: false,
+  },
   statTargetsMs: {},
   statPrecision: 'centiseconds',
   averageTrimBetter: DEFAULT_AVERAGE_TRIMMING.better,
@@ -107,6 +115,7 @@ function cloneDefaultSettings(): Settings {
     customAverages: DEFAULT_SETTINGS.customAverages.map((average) => ({
       ...average,
     })),
+    statMetricVisibility: { ...DEFAULT_SETTINGS.statMetricVisibility },
     statTargetsMs: {},
     analytics: createDefaultAnalyticsSettings(),
   }
@@ -504,6 +513,19 @@ function parseStatVisibility(value: unknown): StatVisibility {
   return visibility
 }
 
+function parseStatMetricVisibility(value: unknown): StatMetricVisibility {
+  const fallback = DEFAULT_SETTINGS.statMetricVisibility
+  if (!isRecord(value)) return { ...fallback }
+  return {
+    current:
+      typeof value.current === 'boolean' ? value.current : fallback.current,
+    best: typeof value.best === 'boolean' ? value.best : fallback.best,
+    target: typeof value.target === 'boolean' ? value.target : fallback.target,
+    bpa: typeof value.bpa === 'boolean' ? value.bpa : fallback.bpa,
+    wpa: typeof value.wpa === 'boolean' ? value.wpa : fallback.wpa,
+  }
+}
+
 function parseCustomAverages(value: unknown): CustomAverageSetting[] {
   if (!Array.isArray(value)) return []
 
@@ -603,8 +625,8 @@ export function parseSettingsData(value: unknown): Settings | null {
     statsPanelHeightPercent:
       typeof value.statsPanelHeightPercent === 'number' &&
       Number.isFinite(value.statsPanelHeightPercent) &&
-      value.statsPanelHeightPercent >= 20 &&
-      value.statsPanelHeightPercent <= 80
+      value.statsPanelHeightPercent >= 5 &&
+      value.statsPanelHeightPercent <= 95
         ? value.statsPanelHeightPercent
         : DEFAULT_SETTINGS.statsPanelHeightPercent,
     scrambleAlignment: isValidScrambleAlignment(value.scrambleAlignment)
@@ -658,6 +680,7 @@ export function parseSettingsData(value: unknown): Settings | null {
         : DEFAULT_SETTINGS.showSessionTotalTime,
     statVisibility: parseStatVisibility(value.statVisibility),
     customAverages: parseCustomAverages(value.customAverages),
+    statMetricVisibility: parseStatMetricVisibility(value.statMetricVisibility),
     statTargetsMs: parseStatTargets(value.statTargetsMs),
     statPrecision: isValidStatPrecision(value.statPrecision)
       ? value.statPrecision

@@ -1,6 +1,6 @@
 # CubeLab status
 
-**Updated:** 2026-11-05. This is the current implementation/verification record
+**Updated:** 2026-11-06. This is the current implementation/verification record
 and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
@@ -25,7 +25,7 @@ and immediate work queue. [README.md](README.md) describes the product;
   publication.
 - Inspection/penalties/warnings, named sessions, comments/actions, configurable
   average trimming, compact/expanded Time Trend, wheel/pinch/pan and historical
-  PB statistics are implemented. Sessions use schema v6; settings use v10.
+  PB statistics are implemented. Sessions use schema v6; settings use v11.
   Sessions can be reordered with drag handles, arrow-key reordering, and
   accessible Up/Down controls inside the session selector; order is backed up
   and synchronized as an ID-based record. Session
@@ -70,11 +70,13 @@ and immediate work queue. [README.md](README.md) describes the product;
   receive current data. Enabled-sync guards remain in place. Optional session
   summaries are memoized from stored solves, so the stop path does no extra
   aggregation work.
-- The desktop Statistics/Solves divider fits complete rows using independent
-  normal/compact sizing samples, shares spare row space and accounts for display
-  scaling. The split initializes again after mobile/desktop transitions; mobile
-  retains every enabled statistic. This is separate from the floating-tool
-  overlap follow-up below.
+- Statistics rows render Current, Best and any enabled Target/BPA/WPA inline
+  with independently configurable metric visibility. Target is calculated from
+  the session PB (strictly faster), not a manual goal; BPA/WPA reuse the shared
+  trimming and recorded-result rules. The desktop Statistics/Solves divider uses
+  an intrinsic content measurement, keeps every enabled average mounted,
+  shares spare row space and falls back to internal Statistics scrolling only
+  when the viewport cannot fit both panel minimums.
 - The November 1 regression follow-up fixes active-session approval application,
   deterministic selection metadata (including envelope parsing/adoption), and
   csTimer malformed numeric/date validation before preview/confirmation.
@@ -83,6 +85,47 @@ Core phases 2A–4, theme polish, Phase 5 remediation and Phase 6a are delivered
 Future feature-phase proposals have been removed at the user's request. The
 retained work is the five follow-ups below; the retired Solve explorer was
 replaced by the filtered solve-list details dialog.
+
+## Statistics metrics and content-aware split — 2026-11-06
+
+The Statistics panel now shows Current and Best as primary values with optional
+Target, BPA and WPA inline. Settings → Statistics adds independent Row metrics
+controls (Current/Best on, Target/BPA/WPA off by default), stored as
+`statMetricVisibility` in settings schema v11, field-merged, backed up and
+cross-tab adopted. Average-row visibility is unchanged and separate. Editable
+targets and expandable rows are gone; legacy `statTargetsMs` values are retained
+as validated inert data for settings/backup/sync compatibility.
+
+Target is the maximum recorded next result that makes the next rolling average
+strictly faster than the session's historical Best. It uses the already-computed
+PB, examines only the newest N−1 retained solves, and accounts for the candidate
+being trimmed as fastest, retained, or trimmed as slowest. BPA uses a 0.00 next
+result and WPA a DNF; both use the same trimming, +2/DNF and recorded-precision
+path as Current/Best. The panel shows `—` without enough history or a PB, `N/A`
+when no result can beat the PB, `∞` when every finite result qualifies, and a
+numerical threshold otherwise. A PB tie is not a new best.
+
+The desktop divider now measures intrinsic content from an isolated sample
+including the header, padding, every enabled row and wrapped secondary metrics.
+Its dynamic minimum is passed to the sidebar clamp, so dragging upward stops
+when all rows reach their compact height. The saved percentage is never
+rewritten by automatic clamping. If the viewport cannot fit the Statistics
+minimum and the approximately 120 px Solves floor, Statistics scrolls internally;
+rows remain mounted and the panels do not overlap. Keyboard Home/End and ARIA
+minimum/maximum values use the effective constraints.
+
+Verification: TypeScript passed. Oxlint passed with the pre-existing
+`SessionPanel` purity warning. Full Vitest **822 passed in 58 files**. Production
+build and PWA generation passed. Focused Chromium coverage passed: statistics
+**9/9**, resizable sidebar **8/8**, average trimming **3/3**, timer statistics
+**1/1**, accessibility **3/3**, and responsive timer **5/5**. Large synthetic
+correctness/profiling used 100,000 solves: six visible average sizes built in
+about 295 ms, an ao10000 prediction in about 4–6 ms, and an appended-solve
+rebuild in about 258 ms in the Vitest environment. Light/dark desktop, narrow
+desktop, 390 px and 320 px layouts were inspected with all metrics enabled; no
+horizontal overflow was observed. Firefox/WebKit, live Drive and
+assistive-technology checks were not run for this change. No release version
+changed.
 
 ## Timer stability, inspection, statistics and Analytics rail — 2026-11-05
 

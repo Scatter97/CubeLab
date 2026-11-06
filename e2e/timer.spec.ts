@@ -195,9 +195,7 @@ async function runEventScenario(page: Page, event: CubeLabEvent) {
   // A DNF makes mo3 a DNF, while the best single still comes from the valid
   // solves. This is the same WCA rule for every event.
   await expect(page.getByTestId('best-single')).not.toHaveText('—')
-  await expect(
-    page.locator('.stat-tile').filter({ hasText: 'mo3' }).locator('.stat-current'),
-  ).toContainText('DNF')
+  await expect(page.getByTestId('current-mo3')).toContainText('DNF')
 
   const stored = await storedSessions(page)
   const active = stored?.sessions.find(
@@ -876,7 +874,7 @@ test('DNF feedback uses the danger visual alert', async ({ page }) => {
   )
 })
 
-test('expanded and custom statistics are display-only and persist', async ({
+test('custom statistics are display-only and persist', async ({
   page,
 }) => {
   const now = Date.now()
@@ -943,7 +941,7 @@ test('expanded and custom statistics are display-only and persist', async ({
   await settings.getByTestId('settings-done').click()
   await expect(settings).toBeHidden()
 
-  // Expand the statistics panel so the newly enabled averages remain visible.
+  // Grow the statistics panel so the newly enabled averages remain visible.
   const _divider = page.getByTestId('stats-solves-divider')
   if (await _divider.count()) {
     const _handle = await _divider.boundingBox()

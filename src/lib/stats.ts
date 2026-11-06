@@ -46,14 +46,14 @@ export function effectiveTimeMs(solve: Solve): number | null {
  * Aggregates are rounded to the recorded precision: hundredths below ten
  * minutes, whole seconds at or above ten minutes (WCA 9f2).
  */
-function roundResultMs(ms: number): number {
+export function roundAggregateMs(ms: number): number {
   if (ms >= 10 * 60 * 1000) return Math.round(ms / 1000) * 1000
   return Math.round(ms / 10) * 10
 }
 
 function meanValue(times: readonly number[]): StatValue {
   const sum = times.reduce((total, time) => total + time, 0)
-  return { status: 'value', ms: roundResultMs(sum / times.length) }
+  return { status: 'value', ms: roundAggregateMs(sum / times.length) }
 }
 
 /**
@@ -184,7 +184,7 @@ function visitAverageWindows(solves: readonly Solve[], size: number, trimming: A
     if (dnfs > worse || counted < 1) visit({ status: 'dnf' })
     else {
       const sum = tree.sumSmallest(size - worse) - tree.sumSmallest(better)
-      visit({ status: 'value', ms: roundResultMs(sum / counted) })
+      visit({ status: 'value', ms: roundAggregateMs(sum / counted) })
     }
     if (start + size < times.length) { change(start, -1); change(start + size, 1) }
   }
@@ -220,7 +220,7 @@ export function calculateBestMeanOf3(solves: readonly Solve[]): number | null {
   let best: number | null = null
   const consider = () => {
     if (dnfCount > 0) return
-    const value = roundResultMs(sum / 3)
+    const value = roundAggregateMs(sum / 3)
     if (best === null || value < best) best = value
   }
 

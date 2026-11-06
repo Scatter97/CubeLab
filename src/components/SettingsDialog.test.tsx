@@ -161,3 +161,22 @@ describe('session summary settings', () => {
     expect(onChange).toHaveBeenCalledWith({ showSessionTotalTime: true })
   })
 })
+
+describe('statistics settings', () => {
+  it('exposes independent row metric visibility switches', () => {
+    const onChange = vi.fn()
+    renderSettings({ onChange })
+    const defaults = DEFAULT_SETTINGS.statMetricVisibility
+    for (const key of ['current', 'best', 'target', 'bpa', 'wpa'] as const) {
+      const checkbox = screen.getByTestId(`stat-metric-${key}`)
+      expect(checkbox).toHaveProperty('checked', defaults[key])
+      fireEvent.click(checkbox)
+      expect(onChange).toHaveBeenLastCalledWith({
+        statMetricVisibility: {
+          ...defaults,
+          [key]: !defaults[key],
+        },
+      })
+    }
+  })
+})

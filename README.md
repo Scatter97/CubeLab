@@ -114,7 +114,7 @@ including interaction rules, settings defaults, session overrides and persistenc
   and About. It covers inspection direction and warnings, timer updates,
   Space-hold time, an optional any-key stop, visual/sound/haptic solve and DNF
   alerts with adjustable volume, a light/dark/system theme, accent color,
-  visible statistics, custom averages, display precision, display scaling,
+  visible statistics, independent row metrics, custom averages, display precision, display scaling,
   optional current-session solve progress and total time, scramble presentation
   (including the Draw Scramble 2D/3D visualization), local-data status, and
   backup/restore access. Changes save automatically.
@@ -221,11 +221,14 @@ button stays reachable.
 On desktop, drag the divider between Statistics and Solves to resize the
 statistics area. Arrow keys resize a focused divider; Shift makes the step
 larger, Home/End select the limits, and Enter or a double-click restores the
-default split. The split is saved locally with the display preferences. Only
-complete enabled statistics are shown when every row is collapsed, with remaining
-height shared between rows. Expanding one or more rows switches the statistics
-grid to an internal scroll area so Solves stays usable; narrow screens show every
-enabled statistic in the stacked layout.
+default split. The split is saved locally with the display preferences. The
+minimum is measured from the intrinsic compact height of the header and every
+enabled row, including wrapped metrics, so resizing never removes an average.
+Remaining height is shared between rows; when the viewport genuinely cannot fit
+both panel minimums, the Statistics content scrolls internally and Solves keeps
+its floor. Narrow screens show every enabled statistic in the stacked layout
+without the desktop divider. The accessible separator's percentage range and
+value reflect the effective content and Solves constraints.
 
 ![Resizable Statistics panel](docs/cubelab-statistics-panel.png)
 
@@ -687,14 +690,27 @@ does not rewrite raw times.
 - **Best** values scan every valid window in the session; a DNF is never reported
   as a personal best. Large averages use a Fenwick-tree sliding-window pass so
   ao1000–ao10000 remain responsive.
-- **Statistics rows:** each enabled row shows its current and best value. Click a
-  row, or focus it and press Enter, to expand that row independently. Expanded
-  rows show the editable target, BPA, WPA, and the maximum next solve that still
-  reaches the target. BPA assumes a best-case 0.00 next solve; WPA assumes a DNF
-  next solve. `Any result`, `Any valid result`, `Not reachable`, and
-  `Not enough solves` are used instead of inventing a value. Targets are stored
-  per event and per average in synchronized settings, included in backups, and
-  validated in timer notation. Expanded rows are remembered locally.
+- **Statistics rows:** each enabled row shows Current and Best inline. **Settings
+  → Statistics → Row metrics** independently controls Current, Best, Target, BPA,
+  and WPA; Current and Best default on and the other three default off. Row
+  visibility remains a separate control, so custom averages and any built-in
+  size can be shown without changing which metrics appear. Rows are not
+  expandable and no metric requires an extra click.
+- **BPA and WPA:** BPA adds a hypothetical 0.00 next result to the newest N−1
+  solves. WPA adds a DNF. Both use the same recorded-time, penalty and
+  configurable trimming rules as Current and Best, so the hypothetical result
+  may itself be trimmed. mo3 remains untrimmed and reports a DNF WPA.
+- **Target:** the maximum recorded next result that would make the next rolling
+  average strictly faster than the session's historical Best. It is calculated
+  from the retained N−1 window and the existing PB rather than a manually
+  entered goal, and it accounts for the new result being trimmed as fastest,
+  retained, or trimmed as slowest. `—` means there is not enough history or no
+  PB; `N/A` means no achievable next result can beat it; `∞` means every finite
+  next result qualifies because the candidate is trimmed out. A tie with the PB
+  never counts as a new best. Display precision does not change the comparison.
+- **Legacy target data:** older `statTargetsMs` settings remain validated,
+  backed up and synchronized as inert data so existing records load safely, but
+  the editable target fields and expanded-row controls are gone.
 
 Optional session summaries are enabled independently in **Settings → Display**
 and appear in the slim timer footer beneath the timer, replacing the repeated
@@ -830,7 +846,7 @@ sessions/comments/settings, the scramble-failure recovery state, and full
 offline scramble generation through the installed service worker. It also
 covers visual solve and DNF alerts, adjustable alert volume, accent persistence,
 light/dark/system theme application and persistence, the pre-paint theme
-bootstrap, the Controls reference, expanded/custom statistics, tenths precision,
+bootstrap, the Controls reference, custom statistics and metric visibility, tenths precision,
 Draw Scramble activation/deactivation, draggable/resizable panel persistence,
 2D/3D switching, panel placement, scramble synchronization, a non-zero 3D
 render surface, Google Drive mock
@@ -904,9 +920,9 @@ src/
   components/CustomEventsDialog.tsx  Create/rename/delete events and safe reassignment
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           Recorded singles/mo3 and shared trimmed rolling statistics
-  lib/statInsights.ts    BPA/WPA and target-aware next-solve calculations
-  lib/statTargets.ts     Target parsing, formatting, and validation
-  components/StatsPanel.tsx Expandable statistics rows, targets, and split sizing
+  lib/statInsights.ts    BPA/WPA and PB-based next-solve target calculations
+  lib/statTargets.ts     Legacy target parsing/validation for stored records only
+  components/StatsPanel.tsx Inline metric rows and intrinsic minimum measurement
   lib/analytics.ts       Pure analytics filtering, rolling series, PB, distribution,
                          consistency, Sub-X, comparison, activity, and percentiles
   lib/analyticsSettings.ts Analytics section layout and per-event Sub-X targets
@@ -992,7 +1008,7 @@ fields are additive so no destructive migration is required. Missing field
 metadata falls back to `updatedAt` only at merge time and is not written back as
 fabricated history.
 
-Settings are stored at schema version 10. Version 1–9 records are upgraded in
+Settings are stored at schema version 11. Version 1–10 records are upgraded in
 place with field-level defaults for newer settings; invalid individual values
 fall back without discarding the rest of the record. Version 7 adds the
 `theme` preference (`light`, `dark`, or `system`), defaulting to `light`.
@@ -1001,9 +1017,12 @@ and `auto` for older records/backups as well as new installations. Version 9
 adds the `analytics` dashboard layout and per-event Sub-X targets, defaulting to
 every section visible and the built-in targets for older records and backups.
 Version 10 adds independent `showSessionSolveProgress` and
-`showSessionTotalTime` options, both defaulting to off. Global settings field
-timestamps are stored in `cubelab:sync:v1` rather than in the settings record,
-so the settings schema remains backward compatible.
+`showSessionTotalTime` options, both defaulting to off. Version 11 adds
+`statMetricVisibility`, with Current and Best on and Target/BPA/WPA off for
+older records and backups. Legacy `statTargetsMs` values remain accepted as
+inert data. Global settings field timestamps are stored in `cubelab:sync:v1`
+rather than in the settings record, so the settings schema remains backward
+compatible.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
 exportedAt, sessions, settings, sync? }`. The parser validates the marker,
@@ -1037,7 +1056,7 @@ backup/restore. Phase 2A.1 adds the csTimer-inspired Settings dialog,
 centralizing the inspection preference and local-data controls. Phase 2A.2 adds
 alert feedback, accent colors, statistics display controls, and the Controls
 reference. Phase 2A.3 adds count-down/count-up inspection with independent
-warnings, expanded and custom statistics, per-session settings, typed destructive
+warnings, custom statistics and independent row metrics, per-session settings, typed destructive
 confirmations, persisted solve comments, and the floating solve action menu.
 Phase 2B introduced manual Google Drive backup and restore. Phase 2C supersedes
 those manual-only controls with optional local-first Google Drive

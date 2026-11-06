@@ -43,8 +43,8 @@ async function storedSolves(page: Page) {
 
 test('trimming migrates, recalculates stats/chart/PB details, and persists without changing solves', async ({ page }) => {
   await seedHistory(page)
-  // The resizable Statistics panel initially shows only the first few enabled
-  // rows; expand it so all average/trim assertions are visible during the test.
+  // Grow the Statistics panel so all enabled average/trim assertions are
+  // visible during the test.
   const _divider = page.getByTestId('stats-solves-divider')
   if (await _divider.count()) {
     await _divider.focus()
@@ -104,7 +104,7 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   settings = await openSettings(page)
   await expect(settings.getByTestId('average-trim-better')).toContainText('1 solve')
   await expect(settings.getByTestId('average-trim-worse')).toContainText('Auto')
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(10)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(11)
   expect(await storedSolves(page)).toEqual(original)
 })
 

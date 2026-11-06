@@ -118,6 +118,7 @@ export function createBackup(
       ...settings,
       statVisibility: { ...settings.statVisibility },
       customAverages: settings.customAverages.map((average) => ({ ...average })),
+      statMetricVisibility: { ...settings.statMetricVisibility },
       statTargetsMs: Object.fromEntries(
         Object.entries(settings.statTargetsMs).map(([event, targets]) => [
           event,

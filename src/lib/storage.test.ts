@@ -520,6 +520,13 @@ describe('settings persistence', () => {
         theme: 'dark',
         accentColor: 'violet',
         statPrecision: 'tenths',
+        statMetricVisibility: {
+          current: false,
+          best: true,
+          target: true,
+          bpa: true,
+          wpa: false,
+        },
         statVisibility: {
           single: false,
           mo3: true,
@@ -541,6 +548,13 @@ describe('settings persistence', () => {
       theme: 'dark',
       accentColor: 'violet',
       statPrecision: 'tenths',
+      statMetricVisibility: {
+        current: false,
+        best: true,
+        target: true,
+        bpa: true,
+        wpa: false,
+      },
       statVisibility: {
         single: false,
         mo3: true,
@@ -565,6 +579,13 @@ describe('settings persistence', () => {
         theme: 'sepia',
         accentColor: 'red',
         statPrecision: 'minutes',
+        statMetricVisibility: {
+          current: 'yes',
+          best: null,
+          target: true,
+          bpa: false,
+          wpa: 1,
+        },
         statVisibility: {
           single: false,
           mo3: 'yes',
@@ -579,6 +600,13 @@ describe('settings persistence', () => {
       theme: DEFAULT_SETTINGS.theme,
       accentColor: DEFAULT_SETTINGS.accentColor,
       statPrecision: DEFAULT_SETTINGS.statPrecision,
+      statMetricVisibility: {
+        current: true,
+        best: true,
+        target: true,
+        bpa: false,
+        wpa: false,
+      },
       statVisibility: {
         single: false,
         mo3: true,
@@ -586,6 +614,25 @@ describe('settings persistence', () => {
         ao12: true,
       },
     })
+  })
+
+  it('accepts the full divider range while rejecting unusable percentages', () => {
+    expect(
+      parseSettingsData({ inspectionEnabled: false, statsPanelHeightPercent: 5 })
+        ?.statsPanelHeightPercent,
+    ).toBe(5)
+    expect(
+      parseSettingsData({ inspectionEnabled: false, statsPanelHeightPercent: 95 })
+        ?.statsPanelHeightPercent,
+    ).toBe(95)
+    expect(
+      parseSettingsData({ inspectionEnabled: false, statsPanelHeightPercent: 4 })
+        ?.statsPanelHeightPercent,
+    ).toBe(DEFAULT_SETTINGS.statsPanelHeightPercent)
+    expect(
+      parseSettingsData({ inspectionEnabled: false, statsPanelHeightPercent: 96 })
+        ?.statsPanelHeightPercent,
+    ).toBe(DEFAULT_SETTINGS.statsPanelHeightPercent)
   })
 
   it('upgrades a v1 record with defaults for newer preferences', () => {
@@ -731,7 +778,7 @@ describe('settings persistence', () => {
     saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' }, storage)
     expect(loadSettings(storage)).toMatchObject({ theme: 'dark' })
     expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY) ?? '{}')).toMatchObject({
-      version: 10,
+      version: 11,
     })
   })
 
@@ -772,7 +819,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 11, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 12, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })
@@ -786,7 +833,7 @@ describe('trimming settings schema v8', () => {
     const settings = loadSettings(storage)
     expect(settings).toMatchObject({ inspectionEnabled: true, theme: 'dark', averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
     expect(saveSettings(settings, storage)).toBe(true)
-    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 10, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 11, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
   })
   it('round-trips independent side choices and recovers bad fields independently', () => {
     const storage = new MemoryStorage()

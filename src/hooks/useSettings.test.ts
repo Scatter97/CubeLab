@@ -26,13 +26,25 @@ describe('useSettings cross-tab reconciliation', () => {
   it('adopts an external settings change', () => {
     const { result } = renderHook(() => useSettings())
 
+    const metrics = {
+      ...DEFAULT_SETTINGS.statMetricVisibility,
+      target: true,
+      bpa: true,
+      wpa: true,
+    }
     act(() => {
-      saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark', accentColor: 'blue' })
+      saveSettings({
+        ...DEFAULT_SETTINGS,
+        theme: 'dark',
+        accentColor: 'blue',
+        statMetricVisibility: metrics,
+      })
       dispatchSettingsEvent()
     })
 
     expect(result.current.settings.theme).toBe('dark')
     expect(result.current.settings.accentColor).toBe('blue')
+    expect(result.current.settings.statMetricVisibility).toEqual(metrics)
   })
 
   it('keeps an external field when an unrelated local edit follows', () => {

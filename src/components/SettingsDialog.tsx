@@ -60,6 +60,14 @@ const PRECISION_OPTIONS = [
   { value: 'tenths', label: 'Tenths (12.3)' },
 ] as const
 
+const STAT_METRIC_OPTIONS = [
+  { key: 'current', label: 'Show Current' },
+  { key: 'best', label: 'Show Best' },
+  { key: 'target', label: 'Show Target' },
+  { key: 'bpa', label: 'Show BPA' },
+  { key: 'wpa', label: 'Show WPA' },
+] as const
+
 const SCRAMBLE_ALIGNMENT_OPTIONS = [
   { value: 'left', label: 'Left' },
   { value: 'center', label: 'Center' },
@@ -598,7 +606,31 @@ function SettingsContent({
             </fieldset>
 
             <fieldset className="settings-fieldset">
-              <legend className="settings-field-label">Visible cards</legend>
+              <legend className="settings-field-label">Row metrics</legend>
+              <div className="settings-checkbox-grid">
+                {STAT_METRIC_OPTIONS.map(({ key, label }) => (
+                  <label key={key} className="settings-checkbox">
+                    <input
+                      type="checkbox"
+                      data-testid={`stat-metric-${key}`}
+                      checked={settings.statMetricVisibility[key]}
+                      onChange={(event) =>
+                        onChange({
+                          statMetricVisibility: {
+                            ...settings.statMetricVisibility,
+                            [key]: event.target.checked,
+                          },
+                        })
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset className="settings-fieldset">
+              <legend className="settings-field-label">Visible rows</legend>
               <div className="settings-checkbox-grid">
                 {BUILT_IN_STAT_DEFINITIONS.map(({ key, label }) => (
                   <label key={key} className="settings-checkbox">

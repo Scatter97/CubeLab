@@ -89,8 +89,6 @@ const CustomEventsDialog = lazy(() =>
   })),
 )
 
-const EMPTY_STAT_TARGETS: Readonly<Record<string, number>> = {}
-
 function DialogLoadingFallback() {
   return (
     <div className="dialog-loading-overlay" role="status" aria-live="polite">
@@ -284,8 +282,8 @@ export default function App() {
   } | null>(null)
   const [sidebarDragging, setSidebarDragging] = useState(false)
 
-  const minStatsHeight = 96
   const minSolvesHeight = 120
+  const [statsMinimumHeight, setStatsMinimumHeight] = useState(0)
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [timerAlert, setTimerAlert] = useState<TimerAlert | null>(null)
@@ -569,8 +567,6 @@ export default function App() {
     return sizes
   }, [settings.customAverages, settings.statVisibility])
   const averageTrimming = useMemo(() => ({ better: settings.averageTrimBetter, worse: settings.averageTrimWorse }), [settings.averageTrimBetter, settings.averageTrimWorse])
-  const activeStatTargets =
-    settings.statTargetsMs[activeEvent] ?? EMPTY_STAT_TARGETS
   const stats = useMemo(
     () => getSessionStats(insightSolves, visibleAverageSizes, averageTrimming),
     [insightSolves, visibleAverageSizes, averageTrimming],
@@ -616,24 +612,6 @@ export default function App() {
       setComment(id, comment)
     },
     [setComment],
-  )
-
-  const handleSetStatTarget = useCallback(
-    (key: string, targetMs: number | null) => {
-      const eventTargets = {
-        ...(settings.statTargetsMs[activeEvent] ?? {}),
-      }
-      if (targetMs === null) delete eventTargets[key]
-      else eventTargets[key] = targetMs
-      const nextTargets = { ...settings.statTargetsMs }
-      if (Object.keys(eventTargets).length === 0) {
-        delete nextTargets[activeEvent]
-      } else {
-        nextTargets[activeEvent] = eventTargets
-      }
-      updateSettings({ statTargetsMs: nextTargets })
-    },
-    [activeEvent, settings.statTargetsMs, updateSettings],
   )
 
   const handleSetSessionInspection = useCallback(
@@ -1646,10 +1624,22 @@ export default function App() {
   }, [createSessionOpen, timer.state.status])
 
   // Sidebar split initialization and drag helpers.
-  const clampStatsHeight = useCallback((value: number, containerHeight: number) => {
-    const max = Math.max(minStatsHeight, containerHeight - minSolvesHeight)
-    return Math.min(Math.max(value, minStatsHeight), max)
-  }, [])
+  const getStatsBounds = useCallback(
+    (containerHeight: number) => {
+      const max = Math.max(0, containerHeight - minSolvesHeight)
+      const min = Math.min(statsMinimumHeight, max)
+      return { min, max }
+    },
+    [statsMinimumHeight],
+  )
+
+  const clampStatsHeight = useCallback(
+    (value: number, containerHeight: number) => {
+      const { min, max } = getStatsBounds(containerHeight)
+      return Math.min(Math.max(value, min), max)
+    },
+    [getStatsBounds],
+  )
 
   const resetStatsSplit = useCallback(() => {
     const container = sidebarSplitRef.current
@@ -1714,7 +1704,7 @@ export default function App() {
       const container = sidebarSplitRef.current
       if (container && statsPanelHeight !== null && container.clientHeight > 0) {
         const percent = Math.round((statsPanelHeight / container.clientHeight) * 100)
-        const clampedPercent = Math.min(80, Math.max(20, percent))
+        const clampedPercent = Math.min(95, Math.max(5, percent))
         updateSettings({ statsPanelHeightPercent: clampedPercent })
       }
     },
@@ -1726,6 +1716,18 @@ export default function App() {
     setSidebarDragging(false)
     document.body.style.userSelect = ''
   }, [])
+
+  // Grow the rendered split when newly enabled rows or metrics need more room.
+  // The saved percentage is retained so hiding the same content restores the
+  // user's previous preference.
+  useLayoutEffect(() => {
+    if (!isDesktopLayout) return
+    const container = sidebarSplitRef.current
+    if (!container) return
+    setStatsPanelHeight((previous) =>
+      previous === null ? previous : clampStatsHeight(previous, container.clientHeight),
+    )
+  }, [clampStatsHeight, isDesktopLayout])
 
   // Initialize/restore sidebar split height from settings.
   useEffect(() => {
@@ -1769,6 +1771,20 @@ export default function App() {
   ]
     .filter(Boolean)
     .join(' ')
+
+  const sidebarBounds = getStatsBounds(sidebarHeight)
+  const sidebarMinPercent =
+    sidebarHeight > 0
+      ? Math.round((sidebarBounds.min / sidebarHeight) * 100)
+      : 0
+  const sidebarMaxPercent =
+    sidebarHeight > 0
+      ? Math.round((sidebarBounds.max / sidebarHeight) * 100)
+      : 100
+  const statsSplitPercent =
+    statsPanelHeight !== null && sidebarHeight > 0
+      ? Math.round((statsPanelHeight / sidebarHeight) * 100)
+      : undefined
 
   const sessionSummaryContent = useMemo(
     () =>
@@ -1961,11 +1977,11 @@ export default function App() {
                 stats={stats}
                 visibleStats={settings.statVisibility}
                 customAverages={settings.customAverages}
+                metricVisibility={settings.statMetricVisibility}
                 precision={settings.statPrecision}
                 solves={insightSolves}
                 trimming={averageTrimming}
-                targetsMs={activeStatTargets}
-                onSetTarget={handleSetStatTarget}
+                onMinimumHeightChange={setStatsMinimumHeight}
                 style={{ height: statsPanelHeight ?? undefined }}
               />
 
@@ -1974,12 +1990,13 @@ export default function App() {
                 role="separator"
                 aria-orientation="horizontal"
                 aria-label="Resize Statistics and Solves panels"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={
-                  statsPanelHeight && statsPanelHeight > 0
-                    ? Math.round((statsPanelHeight / (sidebarHeight || statsPanelHeight)) * 100)
-                    : undefined
+                aria-valuemin={sidebarMinPercent}
+                aria-valuemax={sidebarMaxPercent}
+                aria-valuenow={statsSplitPercent}
+                aria-valuetext={
+                  statsSplitPercent === undefined
+                    ? undefined
+                    : `Statistics ${statsSplitPercent}%, Solves ${100 - statsSplitPercent}%`
                 }
                 tabIndex={0}
                 data-sidebar-divider="true"
@@ -2005,7 +2022,7 @@ export default function App() {
                     setStatsPanelHeight(next)
                     const percent = Math.round((next / container.clientHeight) * 100)
                     updateSettings({
-                      statsPanelHeightPercent: Math.min(80, Math.max(20, percent)),
+                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
                     })
                   } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
                     event.preventDefault()
@@ -2016,17 +2033,28 @@ export default function App() {
                     setStatsPanelHeight(next)
                     const percent = Math.round((next / container.clientHeight) * 100)
                     updateSettings({
-                      statsPanelHeightPercent: Math.min(80, Math.max(20, percent)),
+                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
                     })
                   } else if (event.key === 'Home') {
                     event.preventDefault()
-                    setStatsPanelHeight(minStatsHeight)
-                    updateSettings({ statsPanelHeightPercent: 20 })
+                    const bounds = getStatsBounds(container.clientHeight)
+                    setStatsPanelHeight(bounds.min)
+                    const percent = Math.round(
+                      (bounds.min / container.clientHeight) * 100,
+                    )
+                    updateSettings({
+                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
+                    })
                   } else if (event.key === 'End') {
                     event.preventDefault()
-                    const max = container.clientHeight - minSolvesHeight
-                    setStatsPanelHeight(Math.max(minStatsHeight, max))
-                    updateSettings({ statsPanelHeightPercent: 80 })
+                    const bounds = getStatsBounds(container.clientHeight)
+                    setStatsPanelHeight(bounds.max)
+                    const percent = Math.round(
+                      (bounds.max / container.clientHeight) * 100,
+                    )
+                    updateSettings({
+                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
+                    })
                   } else if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     resetStatsSplit()
@@ -2051,12 +2079,10 @@ export default function App() {
                 stats={stats}
                 visibleStats={settings.statVisibility}
                 customAverages={settings.customAverages}
+                metricVisibility={settings.statMetricVisibility}
                 precision={settings.statPrecision}
                 solves={insightSolves}
                 trimming={averageTrimming}
-                targetsMs={activeStatTargets}
-                onSetTarget={handleSetStatTarget}
-                showAllRows
               />
               <SolveHistory
                 key={activeSession.id}

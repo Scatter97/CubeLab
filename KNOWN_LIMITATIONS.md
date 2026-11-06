@@ -1,6 +1,6 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-05 against the implementation and the latest recorded
+**Reviewed:** 2026-11-06 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
@@ -26,10 +26,18 @@ These are current boundaries; dated repair details are in the
   hours to two decimals in the timer footer; a short session can therefore read
   `0.00 h` even when it contains valid solves. The underlying millisecond sum
   remains precise and the completed/total count stays exact.
-- **Statistics targets are training aids.** Targets, BPA, WPA, and next-solve
-  needed follow the current event, trimming, and DNF rules, but they are not WCA
-  results or predictions. BPA assumes a 0.00 next solve and WPA assumes a DNF;
-  expanded-row preferences are local UI state and are not synchronized.
+- **Statistics predictions are training aids.** Target compares the next rolling
+  average with the current session PB using strictly faster-than semantics; BPA
+  and WPA assume a 0.00 or DNF next result. They follow the current event,
+  trimming, penalty and recorded-precision rules, but they are not WCA results
+  or probabilities. A target can be `—`, `N/A`, a numerical ceiling, or `∞` when
+  every finite result qualifies. Metric visibility is synchronized; legacy
+  `statTargetsMs` values remain stored as inert compatibility data.
+- **Divider minimum depends on rendered content.** The intrinsic sample includes
+  the active fonts, panel width, enabled rows and wrapped metrics, so browser
+  font fallback, extreme text scaling or an unusually narrow sidebar can change
+  the stopping height. If the viewport cannot fit that minimum and the Solves
+  floor, Statistics scrolls internally rather than hiding an average.
 - **Saving still writes the full collection.** Browser storage serialization and
   writes are synchronous. Enabled sync still calculates full fingerprints;
   statistics/chart data rebuild after changes. Future caching or incremental
