@@ -127,7 +127,7 @@ test.describe('timer workspace stability', () => {
     })
   }
 
-  test('removes instructional captions and phase indicator without losing readiness feedback', async ({
+  test('removes instructional captions and workspace indicators without losing readiness feedback', async ({
     page,
   }) => {
     await page.goto('/')
@@ -139,7 +139,9 @@ test.describe('timer workspace stability', () => {
     await expect(page.locator('.phase-pill')).toHaveCount(0)
     await expect(page.locator('.phase-dot')).toHaveCount(0)
     await expect(page.locator('#timer-phase')).toHaveCount(0)
-    await expect(page.locator('.timer-stage .stage-mode')).toHaveText('3×3')
+    await expect(page.locator('.stage-top')).toHaveCount(0)
+    await expect(page.locator('.stage-mode')).toHaveCount(0)
+    await expect(page.locator('.timer-stage')).not.toContainText('3×3')
     await expect(readout).not.toContainText('Ready')
     await expect(readout).not.toContainText('Keep holding')
     await expect(readout).not.toContainText('Release to start')
@@ -165,8 +167,9 @@ test.describe('timer workspace stability', () => {
       timeout: 3_000,
     })
     await expect(page.locator('.phase-pill')).toHaveCount(0)
+    await expect(page.locator('.stage-top')).toHaveCount(0)
     await expect(readout).not.toContainText('Release to start')
-    await expect(page.locator('.timer-stage .stage-mode')).toHaveText('3×3')
+    await expect(page.locator('.timer-stage')).not.toContainText('3×3')
     const readyBackground = await stage.evaluate(
       (element) => getComputedStyle(element).backgroundColor,
     )

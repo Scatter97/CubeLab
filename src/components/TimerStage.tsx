@@ -256,20 +256,6 @@ export function TimerStage({
         onPointerCancel={handlePointerCancel}
         onContextMenu={(event) => event.preventDefault()}
       >
-        <span className="stage-top" aria-hidden="true">
-          <span className="stage-mode">
-            {inspection ? (
-              <>15s + 2s · WCA</>
-            ) : isRunning ? (
-              'Timing'
-            ) : inspectionEnabled ? (
-              'Inspection on'
-            ) : (
-              <>{eventLabel}</>
-            )}
-          </span>
-        </span>
-
         <span className="readout-zone" aria-hidden="true">
           <span
             className="timer-display"

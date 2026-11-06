@@ -154,7 +154,7 @@ describe('timer display and input isolation', () => {
     expect(readout()).not.toHaveTextContent('Release to start')
   })
 
-  it('does not render a phase pill, dot or timer-state label', () => {
+  it('does not render phase or workspace status labels', () => {
     const states: TimerState[] = [
       { status: 'idle' },
       {
@@ -179,9 +179,14 @@ describe('timer display and input isolation', () => {
     const { rerender } = render(
       <TimerStage {...props} state={states[0]!} />,
     )
-    expect(document.querySelector('.stage-mode')).toHaveTextContent('3×3')
+    expect(screen.queryByText('3×3')).toBeNull()
+    expect(screen.queryByText('Inspection on')).toBeNull()
+    expect(screen.queryByText('Timing')).toBeNull()
+    expect(screen.queryByText('15s + 2s · WCA')).toBeNull()
     for (const state of states) {
       rerender(<TimerStage {...props} state={state} />)
+      expect(document.querySelector('.stage-top')).toBeNull()
+      expect(document.querySelector('.stage-mode')).toBeNull()
       expect(document.querySelector('.phase-pill')).toBeNull()
       expect(document.querySelector('.phase-dot')).toBeNull()
       expect(document.querySelector('#timer-phase')).toBeNull()

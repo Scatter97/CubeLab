@@ -138,17 +138,19 @@ horizontal overflow was observed. Firefox/WebKit, live Drive and
 assistive-technology checks were not run for this change. No release version
 changed.
 
-### Timer phase indicator removed — 2026-11-06
+### Timer workspace indicators removed — 2026-11-06
 
-The decorative phase pill, dot, and `Ready`/`Inspecting`/`Arming`/`Armed`/
-`Solving` labels were removed from the timer's top-left corner. The timer
-section keeps a stable `Timer` region label, the event/inspection mode remains
-top-right, and the readout stays centered. Phase background/border transitions,
-the bottom arm meter, inspection thresholds, penalties, keyboard/pointer input,
-and timing calculations are unchanged. Unit coverage asserts every timer state
-renders no phase pill/dot/label while retaining the top-right event mode;
-Chromium checks assert absence during idle/holding/ready, unchanged readiness
-feedback and colors, and centered readout geometry.
+The decorative phase pill, dot, `Ready`/`Inspecting`/`Arming`/`Armed`/`Solving`
+labels, and the top-right event/mode group (`3×3`, `Inspection on`, `Timing`,
+`15s + 2s · WCA`) were removed from the timer workspace. No replacement label,
+icon, tooltip, or layout spacer was added. The timer section keeps a stable
+`Timer` region label and the readout stays centered. Phase background/border
+transitions, the bottom arm meter, inspection thresholds, penalties,
+keyboard/pointer input, event selection, and timing calculations are unchanged.
+Unit coverage asserts every timer state renders no phase or workspace status
+labels; Chromium checks assert absence during idle/holding/ready, unchanged
+readiness feedback and colors, centered readout geometry, and no timer-stage
+event text while the selected event still drives the session and timer.
 
 Verification: TypeScript and Oxlint passed (pre-existing `SessionPanel` purity
 warning only). Full Vitest **823 passed in 58 files**. Focused Chromium:

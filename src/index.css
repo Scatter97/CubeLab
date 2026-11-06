@@ -1168,23 +1168,6 @@ kbd {
   z-index: 20;
 }
 
-.stage-top {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: flex-end;
-  font-size: 0.6rem;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-
-.stage-mode {
-  font-size: 0.57rem;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
-}
-
 .readout-zone {
   display: flex;
   flex: 1;
@@ -3597,11 +3580,6 @@ kbd {
     gap: 8px;
   }
 
-  .stage-top,
-  .stage-mode {
-    font-size: 0.54rem;
-  }
-
   .stage-bottom {
     gap: 8px;
     min-height: 22px;
@@ -3858,11 +3836,6 @@ kbd {
 
   .timer-surface {
     padding: 6px 10px 5px;
-  }
-
-  .stage-top,
-  .stage-mode {
-    font-size: 0.52rem;
   }
 
   .readout-zone {
