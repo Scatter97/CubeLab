@@ -154,6 +154,43 @@ describe('timer display and input isolation', () => {
     expect(readout()).not.toHaveTextContent('Release to start')
   })
 
+  it('does not render a phase pill, dot or timer-state label', () => {
+    const states: TimerState[] = [
+      { status: 'idle' },
+      {
+        status: 'inspection',
+        inspectionStartedAt: 0,
+      },
+      {
+        status: 'holding',
+        holdStartedAt: 1_000,
+        inspectionStartedAt: null,
+        input: 'keyboard',
+        holdDurationMs: 300,
+      },
+      { status: 'ready', inspectionStartedAt: null, input: 'keyboard' },
+      {
+        status: 'running',
+        startedAt: 2_000,
+        inspectionStartedAt: null,
+        input: 'keyboard',
+      },
+    ]
+    const { rerender } = render(
+      <TimerStage {...props} state={states[0]!} />,
+    )
+    expect(document.querySelector('.stage-mode')).toHaveTextContent('3×3')
+    for (const state of states) {
+      rerender(<TimerStage {...props} state={state} />)
+      expect(document.querySelector('.phase-pill')).toBeNull()
+      expect(document.querySelector('.phase-dot')).toBeNull()
+      expect(document.querySelector('#timer-phase')).toBeNull()
+      for (const label of ['Ready', 'Inspecting', 'Arming', 'Armed', 'Solving']) {
+        expect(screen.queryByText(label)).toBeNull()
+      }
+    }
+  })
+
   it.each([
     ['live', '1.23'], ['tenths', '1.20'], ['seconds', '1.00'],
   ] as const)('retains %s display precision and resets a new run', (timerUpdateMode, expected) => {

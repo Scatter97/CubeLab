@@ -80,21 +80,6 @@ function getInspectionDisplay(
   }
 }
 
-function phaseLabel(state: TimerState): string {
-  switch (state.status) {
-    case 'idle':
-      return 'Ready'
-    case 'inspection':
-      return 'Inspecting'
-    case 'holding':
-      return 'Arming'
-    case 'ready':
-      return 'Armed'
-    case 'running':
-      return 'Solving'
-  }
-}
-
 export function TimerStage({
   state,
   eventLabel,
@@ -245,7 +230,7 @@ export function TimerStage({
     .join(' ')
 
   return (
-    <section className={stageClass} aria-labelledby="timer-phase">
+    <section className={stageClass} aria-label="Timer">
       {alert ? (
         <span
           key={alert.id}
@@ -272,12 +257,6 @@ export function TimerStage({
         onContextMenu={(event) => event.preventDefault()}
       >
         <span className="stage-top" aria-hidden="true">
-          <span className="phase-pill">
-            <span className={`phase-dot ${isRunning ? 'is-live' : ''}`} aria-hidden="true" />
-            <span id="timer-phase">
-              {disabled ? 'Waiting' : phaseLabel(state)}
-            </span>
-          </span>
           <span className="stage-mode">
             {inspection ? (
               <>15s + 2s · WCA</>

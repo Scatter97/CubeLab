@@ -1172,44 +1172,11 @@ kbd {
   display: flex;
   gap: 10px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   font-size: 0.6rem;
   letter-spacing: 0.08em;
   color: var(--text-muted);
   text-transform: uppercase;
-}
-
-.phase-pill {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  padding: 0;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  background: none;
-  border: 0;
-}
-
-.phase-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--dot);
-  border-radius: 50%;
-}
-
-.phase-inspection .phase-dot {
-  background: var(--warning);
-}
-
-.phase-ready .phase-pill {
-  color: var(--accent);
-}
-
-.phase-ready .phase-dot,
-.phase-running .phase-dot {
-  background: var(--accent);
 }
 
 .stage-mode {
@@ -3630,7 +3597,6 @@ kbd {
     gap: 8px;
   }
 
-  .phase-pill,
   .stage-top,
   .stage-mode {
     font-size: 0.54rem;
@@ -3895,7 +3861,6 @@ kbd {
   }
 
   .stage-top,
-  .phase-pill,
   .stage-mode {
     font-size: 0.52rem;
   }

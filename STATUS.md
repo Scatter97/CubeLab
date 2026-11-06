@@ -126,7 +126,7 @@ long-value groups and the ao9999 custom-average label at desktop, narrow desktop
 measurement.
 
 Verification: TypeScript passed. Oxlint passed with the pre-existing
-`SessionPanel` purity warning. Full Vitest **822 passed in 58 files**. Production
+`SessionPanel` purity warning. Full Vitest **823 passed in 58 files**. Production
 build and PWA generation passed. Focused Chromium coverage passed: statistics
 **11/11**, resizable sidebar **9/9**, average trimming **3/3**, timer statistics
 **1/1**, accessibility **3/3**, and responsive timer **5/5**. Large synthetic
@@ -137,6 +137,25 @@ desktop, 390 px and 320 px layouts were inspected with all metrics enabled; no
 horizontal overflow was observed. Firefox/WebKit, live Drive and
 assistive-technology checks were not run for this change. No release version
 changed.
+
+### Timer phase indicator removed — 2026-11-06
+
+The decorative phase pill, dot, and `Ready`/`Inspecting`/`Arming`/`Armed`/
+`Solving` labels were removed from the timer's top-left corner. The timer
+section keeps a stable `Timer` region label, the event/inspection mode remains
+top-right, and the readout stays centered. Phase background/border transitions,
+the bottom arm meter, inspection thresholds, penalties, keyboard/pointer input,
+and timing calculations are unchanged. Unit coverage asserts every timer state
+renders no phase pill/dot/label while retaining the top-right event mode;
+Chromium checks assert absence during idle/holding/ready, unchanged readiness
+feedback and colors, and centered readout geometry.
+
+Verification: TypeScript and Oxlint passed (pre-existing `SessionPanel` purity
+warning only). Full Vitest **823 passed in 58 files**. Focused Chromium:
+timer stability **8/8**, timer response **1/1**, responsive timer **5/5**, and
+accessibility **3/3**. Production build and PWA generation passed. Firefox/
+WebKit, live Drive and assistive-technology checks were not run for this change.
+No release version changed.
 
 ## Timer stability, inspection, statistics and Analytics rail — 2026-11-05
 

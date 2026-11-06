@@ -127,7 +127,7 @@ test.describe('timer workspace stability', () => {
     })
   }
 
-  test('removes instructional captions without losing readiness feedback', async ({
+  test('removes instructional captions and phase indicator without losing readiness feedback', async ({
     page,
   }) => {
     await page.goto('/')
@@ -136,9 +136,24 @@ test.describe('timer workspace stability', () => {
     const readout = page.locator('.readout-zone')
 
     await expect(page.locator('.timer-caption')).toHaveCount(0)
+    await expect(page.locator('.phase-pill')).toHaveCount(0)
+    await expect(page.locator('.phase-dot')).toHaveCount(0)
+    await expect(page.locator('#timer-phase')).toHaveCount(0)
+    await expect(page.locator('.timer-stage .stage-mode')).toHaveText('3×3')
     await expect(readout).not.toContainText('Ready')
     await expect(readout).not.toContainText('Keep holding')
     await expect(readout).not.toContainText('Release to start')
+    const centering = await page.evaluate(() => {
+      const stageRect = document.querySelector('.timer-stage')!.getBoundingClientRect()
+      const displayRect = document
+        .querySelector('.timer-display')!
+        .getBoundingClientRect()
+      return {
+        stageCenter: (stageRect.left + stageRect.right) / 2,
+        displayCenter: (displayRect.left + displayRect.right) / 2,
+      }
+    })
+    expect(Math.abs(centering.displayCenter - centering.stageCenter)).toBeLessThan(1.5)
     const idleBackground = await stage.evaluate(
       (element) => getComputedStyle(element).backgroundColor,
     )
@@ -149,7 +164,9 @@ test.describe('timer workspace stability', () => {
     await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'ready', {
       timeout: 3_000,
     })
+    await expect(page.locator('.phase-pill')).toHaveCount(0)
     await expect(readout).not.toContainText('Release to start')
+    await expect(page.locator('.timer-stage .stage-mode')).toHaveText('3×3')
     const readyBackground = await stage.evaluate(
       (element) => getComputedStyle(element).backgroundColor,
     )
