@@ -23,18 +23,23 @@ export interface SessionStats {
   readonly averages: ReadonlyMap<number, StatPair>
 }
 
+/**
+ * Converts a raw millisecond reading into the recorded result used by
+ * statistics. WCA 9f1: individual results under 10 minutes are recorded to the
+ * hundredth of a second (truncated). WCA 9f2: results at or above 10 minutes
+ * are rounded to the nearest second.
+ */
+export function recordedTimeMs(rawMs: number): number {
+  if (rawMs >= 10 * 60 * 1000) {
+    return Math.round(rawMs / 1000) * 1000
+  }
+  return Math.floor(rawMs / 10) * 10
+}
+
 /** Converts a solve to its post-penalty time in milliseconds. */
 export function effectiveTimeMs(solve: Solve): number | null {
   if (solve.penalty === 'dnf') return null
-  let ms = solve.rawMs
-  if (solve.penalty === '+2') ms = ms + 2_000
-  // WCA 9f1: individual results under 10 minutes are recorded to the
-  // hundredth of a second (truncated). WCA 9f2: results at or above 10
-  // minutes are rounded to the nearest second.
-  if (ms >= 10 * 60 * 1000) {
-    return Math.round(ms / 1000) * 1000
-  }
-  return Math.floor(ms / 10) * 10
+  return recordedTimeMs(solve.rawMs + (solve.penalty === '+2' ? 2_000 : 0))
 }
 
 /**
@@ -53,35 +58,57 @@ function meanValue(times: readonly number[]): StatValue {
 
 /**
  * Mean of 3 follows WCA rules: all three solves count and any DNF makes the
- * mean a DNF.
- *
- * `solves` is expected to be newest-first. Returns null when fewer than three
- * solves exist.
+ * mean a DNF. The first three entries are used; null represents a DNF.
  */
-export function calculateMeanOf3(solves: readonly Solve[]): StatResult {
-  if (solves.length < 3) return null
-  const window = solves.slice(0, 3)
-  const times = window.map(effectiveTimeMs)
-  if (times.some((time) => time === null)) return { status: 'dnf' }
-  return meanValue(times as number[])
+export function calculateMeanFromTimes(
+  times: readonly (number | null)[],
+): StatResult {
+  if (times.length < 3) return null
+  const window = times.slice(0, 3)
+  if (window.some((time) => time === null)) return { status: 'dnf' }
+  return meanValue(window as number[])
 }
 
-/** Configurable trimmed average; DNFs occupy worst-side slots first. */
-export function calculateAverage(
-  solves: readonly Solve[],
+/**
+ * Mean of 3 from solves. `solves` is expected to be newest-first. Returns null
+ * when fewer than three solves exist.
+ */
+export function calculateMeanOf3(solves: readonly Solve[]): StatResult {
+  return calculateMeanFromTimes(solves.slice(0, 3).map(effectiveTimeMs))
+}
+
+/**
+ * Configurable trimmed average from already-recorded result times. Null
+ * represents a DNF; DNFs occupy worst-side slots first.
+ */
+export function calculateAverageFromTimes(
+  times: readonly (number | null)[],
   size: number,
   trimming: AverageTrimming = DEFAULT_AVERAGE_TRIMMING,
 ): StatResult {
   const { better, worse, counted } = getAverageTrimCounts(size, trimming)
-  if (solves.length < size) return null
-  const times = solves.slice(0, size).map(effectiveTimeMs)
-  const valid = times.filter((time): time is number => time !== null).sort((a, b) => a - b)
+  if (times.length < size) return null
+  const window = times.slice(0, size)
+  const valid = window.filter((time): time is number => time !== null).sort((a, b) => a - b)
   const dnfs = size - valid.length
   if (dnfs > worse) return { status: 'dnf' }
   const end = valid.length - (worse - dnfs)
   const values = valid.slice(better, end)
   if (values.length !== counted || counted < 1) return { status: 'dnf' }
   return meanValue(values)
+}
+
+/** Configurable trimmed average from solves. */
+export function calculateAverage(
+  solves: readonly Solve[],
+  size: number,
+  trimming: AverageTrimming = DEFAULT_AVERAGE_TRIMMING,
+): StatResult {
+  return calculateAverageFromTimes(
+    solves.slice(0, size).map(effectiveTimeMs),
+    size,
+    trimming,
+  )
 }
 
 function isValue(

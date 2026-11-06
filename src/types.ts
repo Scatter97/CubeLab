@@ -164,6 +164,12 @@ export interface CustomAverageSetting {
 }
 
 /**
+ * Per-event target times keyed by stat identity (`single`, `mo3`, `ao5`, or
+ * `custom:<id>`). Targets are display preferences only; solves remain unchanged.
+ */
+export type StatTargetsMs = Partial<Record<PuzzleEvent, Record<string, number>>>
+
+/**
  * User preferences. Settings are local first and are intentionally small in
  * scope: they control presentation, timer interaction, and training-average trimming.
  */
@@ -214,6 +220,8 @@ export interface Settings {
   accentColor: AccentColor
   statVisibility: StatVisibility
   customAverages: CustomAverageSetting[]
+  /** Per-event goal times for the statistics panel. */
+  statTargetsMs: StatTargetsMs
   statPrecision: StatPrecision
   averageTrimBetter: AverageTrimRule
   averageTrimWorse: AverageTrimRule | 'auto'
@@ -258,6 +266,21 @@ export interface SessionFieldUpdates {
   event?: FieldUpdate
   inspectionEnabled?: FieldUpdate
   preferences?: Partial<Record<SessionPreferenceKey, FieldUpdate>>
+}
+
+/**
+ * Durable ownership of solves moved by a partial session split. Unlike a
+ * whole-session redirect, the source session remains, so synchronization needs
+ * the exact solve IDs that now belong to the destination. Records are retained
+ * so a stale device cannot put the same solve back into the source.
+ */
+export interface SessionTransfer {
+  id: string
+  fromSessionId: string
+  toSessionId: string
+  solveIds: string[]
+  transferredAt: number
+  byDeviceId: string
 }
 
 /**
@@ -308,6 +331,8 @@ export interface SessionsData {
   customEvents?: CustomEventDefinition[]
   /** User-defined display order for sessions. */
   sessionOrder?: SessionOrdering
+  /** Durable partial-split ownership records. */
+  sessionTransfers?: SessionTransfer[]
 }
 
 export type NewSolve = Omit<Solve, 'id' | 'event' | 'createdAt' | 'comment'>

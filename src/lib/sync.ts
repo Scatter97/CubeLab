@@ -4,6 +4,7 @@ import { mergeCustomEvents } from './customEvents'
 import { isCustomEventId } from './events'
 import { mergeSolveFields, recordTime, resolveSolveEvent, solvesEqual } from './solveMerge'
 import { applySessionRedirects, findRemoteRedirectDisagreements, findSessionRedirectDivergences, newestRedirectFor, normalizeSessionRedirects } from './sessionRedirects'
+import { mergeSessionTransfers, resolveSessionTransferOwners } from './sessionTransfers'
 import { maxSessionFieldUpdateTime, mergeSessionMetadata } from './sessionMetadata'
 import {
   isActiveTombstone,
@@ -442,6 +443,20 @@ export function mergeSessionsData(input: {
   const redirects = input.sessionRedirects ?? []
   const local = redirects.length > 0 ? applySessionRedirects(input.local, redirects) : input.local
   const remote = input.remote && redirects.length > 0 ? applySessionRedirects(input.remote, redirects) : input.remote
+  const normalizedRedirects = normalizeSessionRedirects(redirects)
+  const redirectMap = new Map(
+    normalizedRedirects.map((redirect) => [redirect.fromId, redirect.toId]),
+  )
+  const canonicalSessionId = (id: string): string =>
+    redirectMap.get(id) ?? id
+  const sessionTransfers = mergeSessionTransfers(
+    local.sessionTransfers ?? [],
+    remote?.sessionTransfers ?? [],
+  )
+  const transferOwners = resolveSessionTransferOwners(
+    sessionTransfers,
+    canonicalSessionId,
+  )
   // Local and remote envelopes routinely carry the same tombstones. Collapse
   // them before deriving deletion sets or reporting removal counts.
   const tombstones = mergeTombstones(input.tombstones ?? [])
@@ -519,6 +534,7 @@ export function mergeSessionsData(input: {
         sessions: orderedSessions,
         ...(customEvents.length > 0 ? { customEvents } : {}),
         ...(sessionOrder ? { sessionOrder } : {}),
+        ...(sessionTransfers.length > 0 ? { sessionTransfers } : {}),
       },
       adoptedLocalDefault: true,
       duplicateSessionNames: findDuplicateSessionNames(orderedSessions),
@@ -593,7 +609,28 @@ export function mergeSessionsData(input: {
     const localOwner = owners.local
     const remoteOwner = owners.remote
     let winner = localOwner ?? remoteOwner!
-    if (localOwner && remoteOwner && localOwner !== remoteOwner) {
+    const transferredOwner = transferOwners.get(solveId)
+    const transferredLocal = transferredOwner
+      ? localSessions.get(transferredOwner)
+      : undefined
+    const transferredRemote = transferredOwner
+      ? remoteSessions.get(transferredOwner)
+      : undefined
+    const transferCompatible =
+      transferredOwner !== undefined &&
+      !deletedSessionIds.has(transferredOwner) &&
+      sessionIds.has(transferredOwner) &&
+      (!transferredLocal ||
+        (transferredLocal.event ?? '333') === effectiveEvent) &&
+      (!transferredRemote ||
+        (transferredRemote.event ?? '333') === effectiveEvent) &&
+      Boolean(transferredLocal ?? transferredRemote)
+    if (transferCompatible && transferredOwner) {
+      // A partial split is durable ownership intent, not a timestamp guess.
+      // Field edits still merge normally, but the solve stays in the reviewed
+      // destination even when a stale device still holds a copy in the source.
+      winner = transferredOwner
+    } else if (localOwner && remoteOwner && localOwner !== remoteOwner) {
       const l = pair.local!
       const r = pair.remote!
       // The chosen owner must be compatible with the solve's merged puzzle
@@ -951,6 +988,7 @@ export function mergeSessionsData(input: {
       sessions: orderedSessions,
       ...(customEvents.length > 0 ? { customEvents } : {}),
       ...(sessionOrder ? { sessionOrder } : {}),
+      ...(sessionTransfers.length > 0 ? { sessionTransfers } : {}),
     },
     addedSolves,
     updatedSolves,

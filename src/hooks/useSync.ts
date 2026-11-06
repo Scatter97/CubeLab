@@ -32,7 +32,7 @@ import {
   resolveRedirectConflicts,
   createTombstone,
 } from '../lib/sync'
-import { normalizeSessionRedirects, applySessionRedirects } from '../lib/sessionRedirects'
+import { normalizeSessionRedirects } from '../lib/sessionRedirects'
 import { mergeSettingsData, SETTINGS_FIELD_KEYS } from '../lib/settingsMerge'
 import { syncStateFingerprint } from '../lib/syncFingerprint'
 import {
@@ -80,7 +80,19 @@ export interface UseSyncResult {
   /** Local-only history of manual conflict decisions, newest first. */
   conflictAudit: ConflictAuditEntry[]
   duplicateNames: string[]
-  approveSessionMerge: (sourceId: string, targetId: string) => void
+  /**
+   * Records whole-session merge redirects before the local collection changes.
+   * Returns false without changing sync storage when the write cannot be saved.
+   */
+  recordSessionMerges: (
+    targetId: string,
+    sourceIds: readonly string[],
+  ) => boolean
+  /** Rolls back redirects recorded by a merge that could not be saved locally. */
+  removeSessionMerges: (
+    targetId: string,
+    sourceIds: readonly string[],
+  ) => boolean
   resolveConflict: (
     id: string,
     field: string,
@@ -105,6 +117,12 @@ export interface UseSyncResult {
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
   recordDeletion: (kind: 'solve' | 'session' | 'event', id: string, sessionId?: string) => void
+  /**
+   * Records a session tombstone and a durable solve tombstone for every solve
+   * it currently contains. Used before a confirmed single-session delete so a
+   * stale copy left in another session by a split cannot resurrect it.
+   */
+  recordSessionDeletion: (session: Session) => boolean
   /** Records many solve deletions in one durable sync-storage write. */
   recordDeletions: (
     entries: readonly { id: string; sessionId?: string }[],
@@ -426,6 +444,47 @@ export function useSync({
     [persist],
   )
 
+  const recordSessionDeletion = useCallback(
+    (session: Session): boolean => {
+      if (!session.id) return true
+      const deviceId = syncRef.current.runtime.deviceId
+      const solveIds = new Set(session.solves.map((solve) => solve.id))
+      const tombstones = syncRef.current.runtime.tombstones.filter(
+        (tombstone) =>
+          !(tombstone.kind === 'session' && tombstone.id === session.id) &&
+          !(tombstone.kind === 'solve' && solveIds.has(tombstone.id)),
+      )
+      tombstones.push(
+        createTombstone(
+          'session',
+          session.id,
+          undefined,
+          deviceId,
+          undefined,
+          [...solveIds],
+        ),
+      )
+      for (const solve of session.solves) {
+        tombstones.push(
+          createTombstone('solve', solve.id, session.id, deviceId),
+        )
+      }
+      const next = {
+        ...syncRef.current,
+        runtime: {
+          ...syncRef.current.runtime,
+          tombstones,
+        },
+      }
+      if (!storageOk) return false
+      if (!saveSyncStorage(next)) return false
+      setSync(next)
+      syncRef.current = next
+      return true
+    },
+    [storageOk],
+  )
+
   const recordDeletions = useCallback(
     (entries: readonly { id: string; sessionId?: string }[]): boolean => {
       if (entries.length === 0) return true
@@ -571,42 +630,85 @@ export function useSync({
     [persist],
   )
 
-  const approveSessionMerge = useCallback(
-    (sourceId: string, targetId: string) => {
-      const now = Date.now()
-      const combined = normalizeSessionRedirects([
-        ...(syncRef.current.runtime.sessionRedirects ?? []),
-        {
-          fromId: sourceId,
-          toId: targetId,
-          approvedAt: now,
-          byDeviceId: syncRef.current.runtime.deviceId,
-        },
-      ])
-      const redirectedSessions = applySessionRedirects(sessionsRef.current, combined)
-      knownSessionsRef.current = redirectedSessions
-      sessionsRef.current = redirectedSessions
-      onReplaceSessions(redirectedSessions)
+  const recordSessionMerges = useCallback(
+    (targetId: string, sourceIds: readonly string[]): boolean => {
+      const current = syncRef.current
+      const currentSessions = sessionsRef.current
+      const targetExists = currentSessions.sessions.some(
+        (session) => session.id === targetId,
+      )
+      const sourceIdSet = new Set(
+        sourceIds.filter(
+          (id) =>
+            id !== targetId &&
+            currentSessions.sessions.some((session) => session.id === id),
+        ),
+      )
+      if (!targetExists || sourceIdSet.size === 0 || !storageOk) return false
 
-      persist({
-        ...syncRef.current,
+      const existing = current.runtime.sessionRedirects ?? []
+      const approvedAt = Math.max(
+        Date.now(),
+        ...existing.map((redirect) => redirect.approvedAt + 1),
+      )
+      const combined = normalizeSessionRedirects([
+        ...existing,
+        ...[...sourceIdSet].map((fromId) => ({
+          fromId,
+          toId: targetId,
+          approvedAt,
+          byDeviceId: current.runtime.deviceId,
+        })),
+      ])
+      const next = {
+        ...current,
         runtime: {
-          ...syncRef.current.runtime,
+          ...current.runtime,
           sessionRedirects: combined,
-          // Recompute against the post-merge collection. Merging one pair must
-          // not hide a third session that still shares the same name.
+          // The source sessions are about to disappear. Recompute against that
+          // collection so a duplicate warning does not outlive its merge.
           pendingDuplicateNames: findDuplicateSessionNames(
-            redirectedSessions.sessions,
+            currentSessions.sessions.filter(
+              (session) => !sourceIdSet.has(session.id),
+            ),
           ),
         },
-      })
-
-      window.setTimeout(() => {
-        if (cancelledRef.current) return
-        void syncNowRef.current?.('merge')
-      }, 0)
+      }
+      if (!saveSyncStorage(next)) return false
+      setSync(next)
+      syncRef.current = next
+      return true
     },
-    [onReplaceSessions, persist],
+    [storageOk],
+  )
+
+  const removeSessionMerges = useCallback(
+    (targetId: string, sourceIds: readonly string[]): boolean => {
+      const sourceIdSet = new Set(sourceIds)
+      const current = syncRef.current
+      const redirects = (current.runtime.sessionRedirects ?? []).filter(
+        (redirect) =>
+          !(redirect.toId === targetId && sourceIdSet.has(redirect.fromId)),
+      )
+      if (redirects.length === (current.runtime.sessionRedirects ?? []).length) {
+        return true
+      }
+      const next = {
+        ...current,
+        runtime: {
+          ...current.runtime,
+          sessionRedirects: normalizeSessionRedirects(redirects),
+          pendingDuplicateNames: findDuplicateSessionNames(
+            sessionsRef.current.sessions,
+          ),
+        },
+      }
+      if (!saveSyncStorage(next)) return false
+      setSync(next)
+      syncRef.current = next
+      return true
+    },
+    [],
   )
 
   const resolveConflict = useCallback(
@@ -1927,11 +2029,13 @@ export function useSync({
       }
     },
     recordDeletion,
+    recordSessionDeletion,
     recordDeletions,
     recordAllSessionDeletions,
     restoreDeletion,
     resetBase,
-    approveSessionMerge,
+    recordSessionMerges,
+    removeSessionMerges,
     resolveConflict,
     undoConflictResolution,
     repairSyncState,

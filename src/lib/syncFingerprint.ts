@@ -40,6 +40,7 @@ export function syncStateFingerprint(
         sessions: sessions.sessions,
         customEvents: sessions.customEvents ?? [],
         sessionOrder: sessions.sessionOrder ?? null,
+        sessionTransfers: sessions.sessionTransfers ?? [],
         settings,
       }),
     ),

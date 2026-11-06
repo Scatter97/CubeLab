@@ -7,6 +7,7 @@ import type {
   SessionPreferenceKey,
   SessionPreferences,
   SessionsData,
+  SessionTransfer,
   Solve,
 } from '../types'
 import { createId } from './id'
@@ -14,6 +15,7 @@ import { mergeSolveFields } from './solveMerge'
 import { effectiveTimeMs } from './stats'
 import { unionCustomEvents } from './customEvents'
 import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
+import { mergeSessionTransfers } from './sessionTransfers'
 
 export const MAX_SESSION_NAME_LENGTH = 40
 export const MAX_SOLVE_COMMENT_LENGTH = 500
@@ -607,6 +609,7 @@ export function deleteAllSessions(
     activeSessionId: id,
     sessions: [session],
     sessionOrder: { ids: [id], updatedAt: now, editorId },
+    sessionTransfers: [],
   }
 }
 
@@ -692,7 +695,20 @@ export function reconcileExternalSessions(input: {
     if (added.length > 0) addedBySession.set(session.id, added)
   }
 
-  if (addedBySession.size === 0) return input.external
+  const sessionTransfers = mergeSessionTransfers(
+    input.external.sessionTransfers ?? [],
+    input.local.sessionTransfers ?? [],
+  )
+  if (addedBySession.size === 0) {
+    if (sessionTransfers.length === 0) return input.external
+    if (
+      JSON.stringify(sessionTransfers) ===
+      JSON.stringify(input.external.sessionTransfers ?? [])
+    ) {
+      return input.external
+    }
+    return { ...input.external, sessionTransfers }
+  }
 
   const sessions = input.external.sessions.map((session) => ({
     ...session,
@@ -754,6 +770,7 @@ export function reconcileExternalSessions(input: {
       : sessions,
     ...(customEvents.length > 0 ? { customEvents } : {}),
     ...(sessionOrder ? { sessionOrder } : {}),
+    ...(sessionTransfers.length > 0 ? { sessionTransfers } : {}),
   }
 }
 
@@ -1044,45 +1061,213 @@ export function clearAllSolves(
   }
 }
 
+/**
+ * Explains why a proposed merge cannot run. The caller can show this before
+ * writing any redirect or session data, so a rejected merge changes nothing.
+ */
+export function getSessionMergeError(
+  data: SessionsData,
+  targetId: string,
+  sourceIds: readonly string[],
+): string | null {
+  const target = data.sessions.find((session) => session.id === targetId)
+  if (!target) return 'Choose an existing destination session.'
+  const uniqueSources = [...new Set(sourceIds)]
+  if (uniqueSources.length === 0) return 'Choose at least one source session.'
+  if (uniqueSources.includes(targetId)) {
+    return 'The destination session cannot also be a source.'
+  }
+
+  const targetEvent = target.event ?? '333'
+  for (const sourceId of uniqueSources) {
+    const source = data.sessions.find((session) => session.id === sourceId)
+    if (!source) return 'One of the selected source sessions no longer exists.'
+    if ((source.event ?? '333') !== targetEvent) {
+      return 'Merge only sessions with the same event. Different events keep separate statistics and personal bests.'
+    }
+    if (
+      [...target.solves, ...source.solves].some(
+        (solve) => solve.event !== targetEvent,
+      )
+    ) {
+      return 'Merge only sessions whose solves all match the destination event.'
+    }
+  }
+  return null
+}
+
+/**
+ * Merges one or more same-event source sessions into a destination. Solve
+ * identities and every stored field are retained; duplicate IDs are folded with
+ * the shared field-merge rules. Solves keep newest-first chronological order
+ * with a stable ID tiebreak for equal timestamps. Sources are removed only
+ * after their solves have been placed in the destination.
+ */
+export function mergeSessions(
+  data: SessionsData,
+  targetId: string,
+  sourceIds: readonly string[],
+  now = Date.now(),
+): SessionsData | null {
+  if (getSessionMergeError(data, targetId, sourceIds)) return null
+  const target = data.sessions.find((session) => session.id === targetId)
+  if (!target) return null
+  const uniqueSources = [...new Set(sourceIds)]
+  const sourceIdSet = new Set(uniqueSources)
+  const sources = data.sessions.filter((session) =>
+    sourceIdSet.has(session.id),
+  )
+
+  const solvesById = new Map<string, Solve>()
+  for (const solve of target.solves) solvesById.set(solve.id, solve)
+  for (const source of sources) {
+    for (const solve of source.solves) {
+      const existing = solvesById.get(solve.id)
+      solvesById.set(
+        solve.id,
+        existing ? mergeSolveFields(existing, solve, false, []) : solve,
+      )
+    }
+  }
+
+  const mergedSolves = [...solvesById.values()].sort((left, right) => {
+    if (right.createdAt !== left.createdAt) {
+      return right.createdAt - left.createdAt
+    }
+    return right.id.localeCompare(left.id)
+  })
+
+  let next: SessionsData = {
+    ...data,
+    activeSessionId: targetId,
+    sessions: data.sessions
+      .map((session) =>
+        session.id === targetId
+          ? { ...session, solves: mergedSolves, updatedAt: now }
+          : session,
+      )
+      .filter((session) => !sourceIdSet.has(session.id)),
+  }
+  for (const sourceId of uniqueSources) {
+    next = removeSessionFromOrder(next, sourceId)
+  }
+  return next
+}
+
 export function mergeSessionsById(
   data: SessionsData,
   targetId: string,
   sourceId: string,
   now = Date.now(),
 ): SessionsData | null {
-  if (targetId === sourceId) return null
-  const target = data.sessions.find((session) => session.id === targetId)
-  const source = data.sessions.find((session) => session.id === sourceId)
-  if (!target || !source) return null
-  if ((target.event ?? '333') !== (source.event ?? '333')) return null
-  if ([...target.solves, ...source.solves].some((solve) => solve.event !== (target.event ?? '333'))) return null
+  return mergeSessions(data, targetId, [sourceId], now)
+}
 
-  const solvesById = new Map<string, Solve>()
-  for (const solve of target.solves) solvesById.set(solve.id, solve)
-  for (const solve of source.solves) {
-    const existing = solvesById.get(solve.id)
-    solvesById.set(solve.id, existing ? mergeSolveFields(existing, solve, false, []) : solve)
+export interface SplitSessionResult {
+  data: SessionsData
+  sessionId: string
+}
+
+/**
+ * Moves selected solves into a new session while keeping the source session,
+ * even when every solve moves. The new session copies the source event and
+ * per-session settings, receives a new stable ID, and is inserted directly
+ * after the source in the persisted order. A durable transfer record lets
+ * synchronization distinguish this partial move from a whole-session redirect.
+ */
+export function splitSession(
+  data: SessionsData,
+  sessionId: string,
+  name: string,
+  solveIds: readonly string[],
+  options: {
+    id?: string
+    now?: number
+    editorId?: string
+  } = {},
+): SplitSessionResult | null {
+  const source = data.sessions.find((session) => session.id === sessionId)
+  if (!source || source.solves.length === 0) return null
+  const uniqueSolveIds = [...new Set(solveIds)]
+  if (uniqueSolveIds.length === 0 || uniqueSolveIds.length !== solveIds.length) {
+    return null
+  }
+  const selectedIds = new Set(uniqueSolveIds)
+  const sourceSolveIds = new Set(source.solves.map((solve) => solve.id))
+  if (uniqueSolveIds.some((id) => !sourceSolveIds.has(id))) return null
+
+  const normalizedName = normalizeSessionName(name)
+  if (getSessionNameError(normalizedName, data.sessions)) return null
+
+  const id = options.id ?? createId()
+  if (data.sessions.some((session) => session.id === id)) return null
+  const now = options.now ?? Date.now()
+  const editorId = options.editorId ?? 'legacy'
+
+  const movedSolves = source.solves.filter((solve) => selectedIds.has(solve.id))
+  const remainingSolves = source.solves.filter(
+    (solve) => !selectedIds.has(solve.id),
+  )
+  if (movedSolves.length !== uniqueSolveIds.length) return null
+
+  const nextSource: Session = {
+    ...source,
+    solves: remainingSolves,
+    updatedAt: now,
+  }
+  const newSession: Session = {
+    id,
+    name: normalizedName,
+    event: source.event ?? '333',
+    createdAt: now,
+    updatedAt: now,
+    solves: movedSolves,
+    ...(source.inspectionEnabled !== undefined
+      ? { inspectionEnabled: source.inspectionEnabled }
+      : {}),
+    ...(source.preferences && Object.keys(source.preferences).length > 0
+      ? { preferences: { ...source.preferences } }
+      : {}),
   }
 
-  const mergedSolves = [...solvesById.values()].sort((a, b) => {
-    if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
-    return b.id.localeCompare(a.id)
-  })
-
-  return removeSessionFromOrder(
-    {
-      ...data,
-      activeSessionId: targetId,
-      sessions: data.sessions
-        .map((session) =>
-          session.id === targetId
-            ? { ...session, solves: mergedSolves, updatedAt: now }
-            : session,
-        )
-        .filter((session) => session.id !== sourceId),
-    },
-    sourceId,
+  const ordered = getOrderedSessions(data).map((session) =>
+    session.id === sessionId ? nextSource : session,
   )
+  const sourceIndex = ordered.findIndex((session) => session.id === sessionId)
+  if (sourceIndex < 0) return null
+  ordered.splice(sourceIndex + 1, 0, newSession)
+
+  const transfer: SessionTransfer = {
+    id: createId(),
+    fromSessionId: sessionId,
+    toSessionId: id,
+    solveIds: [...uniqueSolveIds],
+    transferredAt: now,
+    byDeviceId: editorId,
+  }
+  const sessionTransfers = mergeSessionTransfers(
+    data.sessionTransfers ?? [],
+    [transfer],
+  )
+
+  return {
+    data: {
+      ...data,
+      activeSessionId: id,
+      sessions: ordered,
+      sessionTransfers,
+      ...(data.sessionOrder
+        ? {
+            sessionOrder: {
+              ids: ordered.map((session) => session.id),
+              updatedAt: now,
+              editorId,
+            },
+          }
+        : {}),
+    },
+    sessionId: id,
+  }
 }
 
 

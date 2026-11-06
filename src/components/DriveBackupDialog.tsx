@@ -48,6 +48,7 @@ const FIELD_LABELS: Record<string, string> = {
   accentColor: 'accent color',
   statVisibility: 'statistics visibility',
   customAverages: 'custom averages',
+  statTargetsMs: 'statistics targets',
   statPrecision: 'statistics precision',
   averageTrimBetter: 'average trimming (better side)',
   averageTrimWorse: 'average trimming (worse side)',

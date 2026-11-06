@@ -6,10 +6,11 @@ November 1 documentation consolidation. Paths use the repository root.
 
 Implementation owners: `src/lib/sync.ts`, `src/lib/solveMerge.ts`,
 `src/lib/sessionMetadata.ts`, `src/lib/settingsMerge.ts`,
-`src/lib/sessionRedirects.ts`, `src/lib/remoteBackups.ts`,
-`src/lib/snapshotRetention.ts`, `src/lib/driveTransport.ts`,
-`src/lib/driveCoordination.ts` and `src/hooks/useSync.ts`.
-The regression groups and transport workflow are in the parent `SKILL.md`.
+`src/lib/sessionRedirects.ts`, `src/lib/sessionTransfers.ts`,
+`src/lib/remoteBackups.ts`, `src/lib/snapshotRetention.ts`,
+`src/lib/driveTransport.ts`, `src/lib/driveCoordination.ts` and
+`src/hooks/useSync.ts`. The regression groups and transport workflow are in the
+parent `SKILL.md`.
 
 - **Undo is durable and synchronized.** Solve undo retains the tombstone and
   records `restoredAt`; do not delete the tombstone locally. A later deletion
@@ -82,6 +83,16 @@ The regression groups and transport workflow are in the parent `SKILL.md`.
   (`lastSyncedFingerprint`, `lastRemoteRevision`, status, error) and must preserve
   sessions, tombstones, redirects, pending conflicts, audit history, and settings
   metadata.
+- **Partial splits use durable solve ownership.** A whole-session merge is
+  represented by the existing redirect. A split keeps the source session, so its
+  `sessionTransfers` records live in the session collection and name the exact
+  moved solve IDs, operation time and device. Merges union those records, resolve
+  later operations deterministically, follow redirects for the destination, and
+  force compatible solve ownership even when a stale snapshot still holds the
+  source copy. They never create or resurrect a solve. Deleting a split
+  destination records solve tombstones for its current solves so stale source
+  copies cannot return. There is no Undo for merge or split; do not imply that a
+  published redirect/transfer can be reversed safely.
 - **Sync recovery is ID-based.** Session tombstones record the deleting device's
   `knownSolveIds`; recovery extends an existing `recovered:<sessionId>` session
   by stable solve ID, preserves event and preferences, and uses wall-clock

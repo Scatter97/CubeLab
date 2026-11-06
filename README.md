@@ -23,6 +23,9 @@ solves.
 
 ## Features
 
+See [FEATURES.md](FEATURES.md) for the complete current feature inventory,
+including interaction rules, settings defaults, session overrides and persistence scope.
+
 - **Monotonic timing** with a configurable hold-to-arm gesture (300 ms by
   default) and a display refreshed with browser animation frames.
 - **Large-session stop feedback** captures the input time before audio/focus work.
@@ -38,6 +41,12 @@ solves.
   choose an optional text placeholder shown instead of a scramble, and record
   solves with the normal timer, inspection, sessions, statistics, Analytics, and
   PB tracking. Custom-event solves remain separate from every built-in event.
+- **Merge and split sessions** from **Session settings**. Merge one or more
+  same-event sources into a destination with a counted preview; split selected
+  solves or ranges into a new session that copies the source event/settings and
+  is inserted next to it. Solve IDs and fields are preserved, and durable
+  ownership records keep moved solves correct through reloads, backups,
+  cross-tab adoption, and stale cloud snapshots.
 - **Draw Scramble tool** opened with the scramble panel's **Current tool**
   button. The button toggles a compact panel in the bottom-right of the timer
   area; the panel's footer **Function** dropdown selects the tool. The panel
@@ -101,7 +110,7 @@ solves.
   count-down or count-up display, and independent optional warnings when the
   **8 or 12 seconds have elapsed** (7 or 3 seconds remaining in count-down mode).
 - **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance,
-  Statistics, Scramble, Controls, Data, a collapsed Developer options section,
+  Statistics, Scramble, Data, a collapsed Developer options section,
   and About. It covers inspection direction and warnings, timer updates,
   Space-hold time, an optional any-key stop, visual/sound/haptic solve and DNF
   alerts with adjustable volume, a light/dark/system theme, accent color,
@@ -188,11 +197,10 @@ solves.
 The layout follows the familiar speedcubing-timer structure: a session switcher,
 session statistics, and solve history in the left rail; the scramble above the
 timer; and the clock as the dominant element. When Draw Scramble is active, its
-compact diagram panel is anchored inside the bottom-right of the timer area and
-the readout reserves a right gutter for its default placement. The base timer and
-sidebar stack without overlap at short viewports; moved/resized floating panels
-still need placement verification, and the gutter is a mitigation rather than a
-guarantee for every panel position. The flat light and dark themes
+compact diagram panel floats over the bottom-right of the timer area. It is
+absolutely positioned and never participates in the readout's layout, so opening,
+closing, dragging, resizing, or switching tools leaves the centered timer fixed.
+The base timer and sidebar stack without overlap at short viewports. The flat light and dark themes
 use neutral panels, an accent-tinted timer surface, and a solid accent available
 in green, blue, violet, or amber. The theme follows **Light**, **Dark**, or
 **System** in **Settings → Appearance**; the predefined text/surface and accent pairs in both palettes are
@@ -214,8 +222,10 @@ On desktop, drag the divider between Statistics and Solves to resize the
 statistics area. Arrow keys resize a focused divider; Shift makes the step
 larger, Home/End select the limits, and Enter or a double-click restores the
 default split. The split is saved locally with the display preferences. Only
-complete enabled statistics are shown, with remaining height shared between
-rows; narrow screens show every enabled statistic in the stacked layout.
+complete enabled statistics are shown when every row is collapsed, with remaining
+height shared between rows. Expanding one or more rows switches the statistics
+grid to an internal scroll area so Solves stays usable; narrow screens show every
+enabled statistic in the stacked layout.
 
 ![Resizable Statistics panel](docs/cubelab-statistics-panel.png)
 
@@ -255,8 +265,9 @@ overview promotes the fastest single, current rolling averages, and total volume
 above a dense secondary metric grid. The dashboard shares WCA effective-time,
 +2/DNF, precision, and trimming rules with the timer statistics. The overview
 stays at the top; below it, a flat analysis list selects one of the remaining
-analyses at a time. Narrow screens replace that list with an accessible
-**Analysis** dropdown.
+analyses at a time. The **Analysis** heading stays outside the bounded tab
+scroller, so switching sections never scrolls or shifts the rail. Narrow screens
+replace that list with an accessible **Analysis** dropdown.
 
 ![CubeLab Analytics dashboard](docs/cubelab-analytics.png)
 
@@ -409,14 +420,31 @@ while the timer is armed, running, or in inspection so a solve cannot move
 between sessions mid-timing.
 
 The gear beside the session selector opens **Session settings**. It controls the
-session's name, event, inspection override, clearing all solves, and deleting
-the session. Changing the event is allowed even when the session contains
-solves; CubeLab asks for explicit confirmation that names the session, old
-event, new event, and affected solve count, then moves the session and every
-solve together. Solve IDs, raw times, penalties, original scrambles, comments,
-dates, and csTimer import provenance are preserved. Event changes are never
-inferred from names, durations, or scramble text. Clearing requires typing
+session's name, event, inspection override, merging, splitting, clearing all
+solves, and deleting the session. Changing the event is allowed even when the
+session contains solves; CubeLab asks for explicit confirmation that names the
+session, old event, new event, and affected solve count, then moves the session
+and every solve together. Solve IDs, raw times, penalties, original scrambles,
+comments, dates, and csTimer import provenance are preserved. Event changes are
+never inferred from names, durations, or scramble text. Clearing requires typing
 **CLEAR THIS SESSION**; deleting requires typing **DELETE THIS SESSION**.
+
+**Merge sessions** accepts one or more source sessions and one destination. The
+dialog names both sides, shows each solve count and the resulting unique total,
+and disables sessions whose event differs so statistics, personal bests, and
+scramble histories stay separated. The destination keeps its name, event,
+per-session settings, and becomes the active session. Source solves move into the
+destination in newest-first chronological order; equal timestamps use a stable
+ID tiebreak. Source sessions are removed only after their solves are placed, and
+an empty source is still removed. **Split selected solves** moves chosen solves
+from the current session into a new named session. The dialog supports individual
+checkboxes, Shift-click ranges, position-range entry, Select all/none, and a live
+moved/remaining count; long lists are windowed while selection still covers every
+solve. The new session copies the source event and per-session settings, is
+inserted directly after the source, and becomes active. The source remains even
+when every solve moves. Both actions require a typed confirmation and state that
+they cannot be undone without a previous backup.
+
 Deleting always leaves at least one session. The
 original single-session data from earlier CubeLab versions is migrated
 automatically into **Session 1** the first time the new version loads; only
@@ -430,8 +458,9 @@ icon, and message highlighted in red.
 
 Open **Settings → Data → Backup & restore**. **Backup** exports a readable JSON
 file containing every session, every solve, custom event definitions, the active
-session, the session order, and all settings. The file is created locally with the browser download
-API; CubeLab never uploads it.
+session, the session order, partial-split ownership records, and all settings.
+The file is created locally with the browser download API; CubeLab never uploads
+it.
 
 Import validates the application marker, format version, sessions, solves,
 custom definitions, and settings before changing anything. Valid data replaces
@@ -486,10 +515,12 @@ There is no separate manual **Backup now** button and no
 **Restore from Drive** button. Synchronization is the reconciliation path:
 **Sync now**, startup sync, and automatic scheduling all merge local and cloud
 sessions and solves. Sessions, solves, and tombstones merge by stable ID.
-Session name, event, inspection override, session preferences, and global
-settings merge field by field, with the newest field timestamp winning and a
-stable tiebreak when timestamps match. Equal legacy fields do not acquire
-fabricated history.
+Whole-session merges use the existing approved redirect records, while partial
+splits carry durable solve-ownership records so a stale device that still holds
+the source session cannot duplicate or reclaim the moved solves. Session name,
+event, inspection override, session preferences, and global settings merge field
+by field, with the newest field timestamp winning and a stable tiebreak when
+timestamps match. Equal legacy fields do not acquire fabricated history.
 
 Same-field edits are merged automatically unless manual review is enabled. With
 manual review, CubeLab pauses cloud publication and lists pending conflicts for
@@ -612,9 +643,11 @@ The solve starts from a second hold:
 - **Over 15 s through exactly 17 s:** `+2`
 - **Over 17 s:** `DNF`
 
-Inspection can count down from 15 or count up from 0. After 15 seconds the
-readout changes to `+2`; after 17 seconds it changes to `DNF`. The
-optional **8 seconds** and **12 seconds** warnings are independent and follow the
+Inspection can count down from 15 or count up from 0. Pressing and holding Space
+during inspection arms the timer without hiding or resetting the countdown; the
+solve still starts only on release after the configured hold. The inspection
+display changes to `+2` after 15 seconds and `DNF` after 17 seconds even while
+the key remains held. The optional **8 seconds** and **12 seconds** warnings are independent and follow the
 displayed direction: count-up warns at 8 seconds and 12 seconds elapsed;
 count-down warns at 7 seconds and 3 seconds remaining, matching the same
 elapsed points. The visual warning can pulse the timer surface or the entire
@@ -654,6 +687,14 @@ does not rewrite raw times.
 - **Best** values scan every valid window in the session; a DNF is never reported
   as a personal best. Large averages use a Fenwick-tree sliding-window pass so
   ao1000–ao10000 remain responsive.
+- **Statistics rows:** each enabled row shows its current and best value. Click a
+  row, or focus it and press Enter, to expand that row independently. Expanded
+  rows show the editable target, BPA, WPA, and the maximum next solve that still
+  reaches the target. BPA assumes a best-case 0.00 next solve; WPA assumes a DNF
+  next solve. `Any result`, `Any valid result`, `Not reachable`, and
+  `Not enough solves` are used instead of inventing a value. Targets are stored
+  per event and per average in synchronized settings, included in backups, and
+  validated in timer notation. Expanded rows are remembered locally.
 
 Optional session summaries are enabled independently in **Settings → Display**
 and appear in the slim timer footer beneath the timer, replacing the repeated
@@ -833,7 +874,10 @@ src/
   hooks/useSettings.ts   Persisted preferences
   hooks/useModalDialog.ts Native modal lifecycle and focus containment
   hooks/useDismissablePopover.ts Outside-click, Escape and focus restoration for dropdowns
-  lib/sessions.ts        Pure session, ordering, summary, solve and comment logic
+  lib/sessions.ts        Pure session, merge/split, ordering, summary, solve and comment logic
+  lib/sessionTransfers.ts Durable partial-split ownership and redirect-aware resolution
+  components/MergeSessionsDialog.tsx  Multi-source same-event merge preview and confirmation
+  components/SplitSessionDialog.tsx   Solve/range selection, large-list windowing and split preview
   components/Select.tsx  Shared themed combobox/listbox with keyboard type-ahead
   lib/backup.ts          Versioned JSON backup creation and validation
   lib/sync.ts            Solve/session/tombstone/redirect merge logic
@@ -860,6 +904,9 @@ src/
   components/CustomEventsDialog.tsx  Create/rename/delete events and safe reassignment
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           Recorded singles/mo3 and shared trimmed rolling statistics
+  lib/statInsights.ts    BPA/WPA and target-aware next-solve calculations
+  lib/statTargets.ts     Target parsing, formatting, and validation
+  components/StatsPanel.tsx Expandable statistics rows, targets, and split sizing
   lib/analytics.ts       Pure analytics filtering, rolling series, PB, distribution,
                          consistency, Sub-X, comparison, activity, and percentiles
   lib/analyticsSettings.ts Analytics section layout and per-event Sub-X targets
@@ -876,8 +923,8 @@ src/
   hooks/useDriveBackup.ts Drive connection, snapshot listing/deletion, and cleanup
   components/            Timer, scramble, sessions, stats, history, and dialogs
   components/SettingsDialog.tsx  Timer, Alerts, Display, Appearance, Statistics,
-                                 Scramble, Controls, Data, and About preferences
-  components/SessionSettingsDialog.tsx  Per-session inspection, clear, and delete
+                                 Scramble, Data, and About preferences
+  components/SessionSettingsDialog.tsx  Per-session inspection, merge/split, clear, and delete
   components/SolveHistory.tsx  History rows and the floating solve action menu
   App.tsx                Integration, global input, session/backup orchestration
   hooks/useTheme.ts      System-theme tracking and document/meta application
@@ -898,7 +945,8 @@ in the same frame cannot record the same solve twice.
 Storage keys are versioned:
 
 - `cubelab:sessions:v1` — the active session ID and every named session, each
-  containing its solves.
+  containing its solves, plus optional ordering and partial-split transfer
+  metadata.
 - `cubelab:settings:v1` — local preferences.
 - `cubelab:solves:v1` — the original single-session key, read only to migrate
   existing 3×3 solves into **Session 1**.
@@ -923,9 +971,12 @@ Each session contains `id`, `name`, optional `event` and `preferences`,
 optional `fieldUpdates` metadata for the name, event, inspection override, and
 individual preference fields. The collection optionally carries `customEvents`
 definitions (stable `custom:` ID, name, placeholder, source identifiers, and field
-metadata) and a `sessionOrder` record (`ids`, `updatedAt`, `editorId`) for the
-user's display order; an older record without them remains valid. Ordering
-metadata stores session IDs rather than positions, and any session missing from
+metadata), a `sessionOrder` record (`ids`, `updatedAt`, `editorId`) for the
+user's display order, and `sessionTransfers` records for partial splits. A
+transfer names the source and destination sessions, the exact moved solve IDs,
+its operation time, and the writing device so a stale snapshot cannot put those
+solves back into the source. An older record without these fields remains valid.
+Ordering metadata stores session IDs rather than positions, and any session missing from
 the record is appended deterministically instead of being lost. Each solve contains `id`,
 `event`, `rawMs`, `penalty`, `scramble`, `comment`, and `createdAt`, plus optional
 per-field merge metadata (including a deliberate event reclassification) and
@@ -935,10 +986,11 @@ sessions, solves, duplicate IDs, and malformed metadata are skipped
 individually. Corrupt session JSON falls back to the legacy record and then to a
 fresh empty session; a valid session collection is never silently discarded.
 The active session is normalized to an existing session on load. Sessions are
-stored at schema version 5; version 1–4 records load with defaults for newer
-fields, and the custom-event and import-provenance fields are additive so no
-migration is required. Missing field metadata falls back to `updatedAt` only at
-merge time and is not written back as fabricated history.
+stored at schema version 6; version 1–5 records load with defaults for newer
+fields, and the custom-event, import-provenance, ordering, and split-transfer
+fields are additive so no destructive migration is required. Missing field
+metadata falls back to `updatedAt` only at merge time and is not written back as
+fabricated history.
 
 Settings are stored at schema version 10. Version 1–9 records are upgraded in
 place with field-level defaults for newer settings; invalid individual values

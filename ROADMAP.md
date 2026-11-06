@@ -1,6 +1,6 @@
 # CubeLab roadmap
 
-**Updated:** 2026-11-03. Current delivery/test evidence belongs in
+**Updated:** 2026-11-05. Current delivery/test evidence belongs in
 [STATUS.md](STATUS.md); risks belong in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 The [previous detailed roadmap](docs/archive/ROADMAP.md) preserves completed
 phase checklists and historical acceptance gates.
@@ -21,8 +21,9 @@ performance/platform follow-ups are below.
 
 ## Retained follow-ups
 
-1. **Verify and fix panel/readout overlap**, including moved/resized panels,
-   narrow screens, timing states and layout restored after reload.
+1. **Verify floating-panel occlusion**, including moved/resized panels, narrow
+   screens, timing states and layout restored after reload. Timer placement is
+   now layout-independent; this follow-up covers visual overlap only.
 2. **Profile large-history performance** at 7,000–10,000 solves, with sync on/off,
    charts open/closed, both stop inputs, actual Zen when available and production
    preview. Separate first-result response, chart completion and storage cost.

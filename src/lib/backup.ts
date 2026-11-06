@@ -105,11 +105,25 @@ export function createBackup(
             },
           }
         : {}),
+      ...(sessions.sessionTransfers
+        ? {
+            sessionTransfers: sessions.sessionTransfers.map((transfer) => ({
+              ...transfer,
+              solveIds: [...transfer.solveIds],
+            })),
+          }
+        : {}),
     },
     settings: {
       ...settings,
       statVisibility: { ...settings.statVisibility },
       customAverages: settings.customAverages.map((average) => ({ ...average })),
+      statTargetsMs: Object.fromEntries(
+        Object.entries(settings.statTargetsMs).map(([event, targets]) => [
+          event,
+          { ...targets },
+        ]),
+      ),
       analytics: cloneAnalyticsSettings(settings.analytics),
     },
     ...(sync ? { sync } : {}),

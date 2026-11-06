@@ -9,7 +9,9 @@ import {
   appendSessionsInOrder,
   deleteAllSessions,
   getOrderedSessions,
+  getSessionMergeError,
   getSessionSummary,
+  mergeSessions,
   moveSession,
   moveSessionTo,
   resolveSessionOrdering,
@@ -31,10 +33,16 @@ import {
   setSessionPreferences,
   setSolveComment,
   setSolvePenalty,
+  splitSession,
   MAX_SESSION_NAME_LENGTH,
   MAX_SOLVE_COMMENT_LENGTH,
 } from './sessions'
 import { reassignSessionsEvent } from './customEvents'
+import {
+  createAnalyticsFilters,
+  filterAnalyticsSolves,
+} from './analytics'
+import { buildTrendData } from './timeTrend'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
   return {
@@ -968,5 +976,489 @@ describe('session summary', () => {
       total: 2,
       totalTimeMs: 12_340 + 14_340,
     })
+  })
+})
+
+describe('merging sessions', () => {
+  const imported = solve({
+    id: 'imported',
+    rawMs: 11_111,
+    penalty: '+2',
+    scramble: 'Imported scramble',
+    comment: 'Keep this',
+    createdAt: 1_000,
+    importSource: {
+      provider: 'cstimer',
+      scrType: '333',
+      scrTypeSource: 'explicit',
+      sessionNumber: 4,
+      solveIndex: 7,
+    },
+  })
+
+  function mergeFixture(): SessionsData {
+    return data({
+      activeSessionId: 'source-empty',
+      sessions: [
+        session({
+          id: 'destination',
+          name: 'Destination',
+          event: '333',
+          createdAt: 100,
+          updatedAt: 100,
+          inspectionEnabled: true,
+          preferences: { holdDurationMs: 450, timerUpdateMode: 'tenths' },
+          solves: [
+            solve({ id: 'dest-old', rawMs: 9_000, createdAt: 1_000 }),
+          ],
+        }),
+        session({
+          id: 'source-main',
+          name: 'Source main',
+          event: '333',
+          createdAt: 200,
+          updatedAt: 200,
+          solves: [
+            solve({ id: 'tie-b', rawMs: 12_000, createdAt: 2_000 }),
+            solve({ id: 'tie-a', rawMs: 13_000, createdAt: 2_000 }),
+            imported,
+          ],
+        }),
+        session({
+          id: 'source-empty',
+          name: 'Source empty',
+          event: '333',
+          createdAt: 300,
+          updatedAt: 300,
+          solves: [],
+        }),
+        session({
+          id: 'unrelated',
+          name: 'Unrelated',
+          event: '333',
+          createdAt: 400,
+          updatedAt: 400,
+          solves: [solve({ id: 'unrelated-solve' })],
+        }),
+      ],
+      sessionOrder: {
+        ids: ['destination', 'source-main', 'source-empty', 'unrelated'],
+        updatedAt: 50,
+        editorId: 'seed',
+      },
+    })
+  }
+
+  it('merges multiple sources into the destination without changing destination metadata or solve fields', () => {
+    const current = mergeFixture()
+    const merged = mergeSessions(
+      current,
+      'destination',
+      ['source-main', 'source-empty'],
+      500,
+    )
+    expect(merged).not.toBeNull()
+    if (!merged) return
+
+    expect(merged.activeSessionId).toBe('destination')
+    expect(merged.sessions.map((entry) => entry.id)).toEqual([
+      'destination',
+      'unrelated',
+    ])
+    expect(merged.sessionOrder).toEqual({
+      ids: ['destination', 'unrelated'],
+      updatedAt: 50,
+      editorId: 'seed',
+    })
+    const destination = merged.sessions.find(
+      (entry) => entry.id === 'destination',
+    )
+    expect(destination).toMatchObject({
+      name: 'Destination',
+      event: '333',
+      inspectionEnabled: true,
+      preferences: { holdDurationMs: 450, timerUpdateMode: 'tenths' },
+      updatedAt: 500,
+    })
+    // Newest first; equal timestamps use descending stable IDs.
+    expect(destination?.solves.map((entry) => entry.id)).toEqual([
+      'tie-b',
+      'tie-a',
+      'imported',
+      'dest-old',
+    ])
+    expect(destination?.solves.find((entry) => entry.id === 'imported')).toEqual(
+      imported,
+    )
+    expect(getSessionSummary(destination?.solves ?? []).total).toBe(4)
+    expect(
+      filterAnalyticsSolves(
+        merged.sessions,
+        createAnalyticsFilters('all'),
+        0,
+      ),
+    ).toHaveLength(5)
+    expect(buildTrendData(destination?.solves ?? [], [3])).toHaveLength(4)
+  })
+
+  it('keeps empty sources mergeable and rejects incompatible or missing sessions', () => {
+    const current = mergeFixture()
+    expect(
+      mergeSessions(current, 'destination', ['source-empty'], 500)?.sessions,
+    ).toHaveLength(3)
+    expect(mergeSessions(current, 'destination', [], 500)).toBeNull()
+    expect(mergeSessions(current, 'missing', ['source-main'], 500)).toBeNull()
+    expect(
+      mergeSessions(current, 'destination', ['missing'], 500),
+    ).toBeNull()
+    expect(
+      mergeSessions(current, 'destination', ['destination'], 500),
+    ).toBeNull()
+
+    const incompatible = {
+      ...current,
+      sessions: current.sessions.map((entry) =>
+        entry.id === 'source-main'
+          ? {
+              ...entry,
+              event: '222',
+              solves: entry.solves.map((item) => ({
+                ...item,
+                event: '222',
+              })),
+            }
+          : entry,
+      ),
+    }
+    expect(
+      mergeSessions(incompatible, 'destination', ['source-main'], 500),
+    ).toBeNull()
+    expect(
+      getSessionMergeError(incompatible, 'destination', ['source-main']),
+    ).toMatch(/same event/i)
+  })
+
+  it('merges and then splits a 10,000-solve history without losing or duplicating IDs', () => {
+    const targetSolves = Array.from({ length: 5_000 }, (_, index) =>
+      solve({
+        id: `target-${index}`,
+        createdAt: 1_000_000 - index,
+      }),
+    )
+    const sourceSolves = Array.from({ length: 5_000 }, (_, index) =>
+      solve({
+        id: `source-${index}`,
+        createdAt: 1_000_000 - index - 5_000,
+      }),
+    )
+    const current = data({
+      sessions: [
+        session({
+          id: 'target',
+          name: 'Large target',
+          solves: targetSolves,
+        }),
+        session({
+          id: 'source',
+          name: 'Large source',
+          solves: sourceSolves,
+        }),
+      ],
+      sessionOrder: {
+        ids: ['target', 'source'],
+        updatedAt: 1,
+        editorId: 'bulk',
+      },
+    })
+    const merged = mergeSessions(current, 'target', ['source'], 2_000)
+    expect(merged?.sessions).toHaveLength(1)
+    const mergedSolves = merged?.sessions[0]?.solves ?? []
+    expect(mergedSolves).toHaveLength(10_000)
+    expect(new Set(mergedSolves.map((entry) => entry.id)).size).toBe(10_000)
+
+    const movedIds = mergedSolves.slice(0, 5_000).map((entry) => entry.id)
+    const split = splitSession(
+      merged!,
+      'target',
+      'Large split',
+      movedIds,
+      { id: 'large-split', now: 3_000, editorId: 'bulk' },
+    )
+    expect(split).not.toBeNull()
+    if (!split) return
+    expect(
+      split.data.sessions.find((entry) => entry.id === 'target')?.solves,
+    ).toHaveLength(5_000)
+    expect(
+      split.data.sessions.find((entry) => entry.id === 'large-split')?.solves,
+    ).toHaveLength(5_000)
+    expect(countSolves(split.data.sessions)).toBe(10_000)
+    expect(
+      new Set(
+        split.data.sessions.flatMap((entry) =>
+          entry.solves.map((solveEntry) => solveEntry.id),
+        ),
+      ).size,
+    ).toBe(10_000)
+  })
+
+  it('keeps custom event identities isolated and deduplicates identical solve IDs', () => {
+    const shared = solve({ id: 'shared', event: 'custom:fto', createdAt: 10 })
+    const current = data({
+      activeSessionId: 'custom-a',
+      sessions: [
+        session({
+          id: 'custom-a',
+          name: 'Custom A',
+          event: 'custom:fto',
+          solves: [shared],
+        }),
+        session({
+          id: 'custom-b',
+          name: 'Custom B',
+          event: 'custom:fto',
+          solves: [
+            shared,
+            solve({ id: 'custom-only', event: 'custom:fto', createdAt: 20 }),
+          ],
+        }),
+        session({ id: 'other', name: 'Other custom', event: 'custom:other' }),
+      ],
+    })
+    const merged = mergeSessions(current, 'custom-a', ['custom-b'], 30)
+    expect(merged?.sessions[0]?.solves.map((entry) => entry.id)).toEqual([
+      'custom-only',
+      'shared',
+    ])
+    expect(
+      mergeSessions(current, 'custom-a', ['other'], 30),
+    ).toBeNull()
+  })
+})
+
+describe('splitting sessions', () => {
+  function splitFixture(): SessionsData {
+    return data({
+      activeSessionId: 'source',
+      sessions: [
+        session({
+          id: 'before',
+          name: 'Before',
+          event: '333',
+          createdAt: 1,
+        }),
+        session({
+          id: 'source',
+          name: 'Long source name',
+          event: 'custom:fto',
+          createdAt: 2,
+          updatedAt: 2,
+          inspectionEnabled: false,
+          preferences: {
+            timerUpdateMode: 'tenths',
+            holdDurationMs: 500,
+            inspectionWarning8s: true,
+          },
+          solves: [
+            solve({
+              id: 'newest',
+              event: 'custom:fto',
+              rawMs: 8_000,
+              comment: 'Newest comment',
+              createdAt: 5_000,
+            }),
+            solve({
+              id: 'middle',
+              event: 'custom:fto',
+              rawMs: 9_000,
+              penalty: '+2',
+              scramble: 'Middle scramble',
+              createdAt: 4_000,
+            }),
+            solve({
+              id: 'oldest',
+              event: 'custom:fto',
+              rawMs: 10_000,
+              penalty: 'dnf',
+              createdAt: 3_000,
+            }),
+          ],
+        }),
+        session({
+          id: 'after',
+          name: 'After',
+          event: '333',
+          createdAt: 3,
+        }),
+      ],
+      sessionOrder: {
+        ids: ['before', 'source', 'after'],
+        updatedAt: 10,
+        editorId: 'seed',
+      },
+    })
+  }
+
+  it('moves selected solves into a new ordered session and copies the source settings', () => {
+    const current = splitFixture()
+    const result = splitSession(
+      current,
+      'source',
+      '  Morning split  ',
+      ['middle', 'oldest'],
+      { id: 'split-session', now: 1_000, editorId: 'laptop' },
+    )
+    expect(result).not.toBeNull()
+    if (!result) return
+
+    expect(result.sessionId).toBe('split-session')
+    expect(result.data.activeSessionId).toBe('split-session')
+    expect(getOrderedSessions(result.data).map((entry) => entry.id)).toEqual([
+      'before',
+      'source',
+      'split-session',
+      'after',
+    ])
+    expect(result.data.sessionOrder).toEqual({
+      ids: ['before', 'source', 'split-session', 'after'],
+      updatedAt: 1_000,
+      editorId: 'laptop',
+    })
+    const source = result.data.sessions.find((entry) => entry.id === 'source')
+    const moved = result.data.sessions.find(
+      (entry) => entry.id === 'split-session',
+    )
+    expect(source?.solves.map((entry) => entry.id)).toEqual(['newest'])
+    expect(moved).toMatchObject({
+      id: 'split-session',
+      name: 'Morning split',
+      event: 'custom:fto',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+      inspectionEnabled: false,
+      preferences: {
+        timerUpdateMode: 'tenths',
+        holdDurationMs: 500,
+        inspectionWarning8s: true,
+      },
+    })
+    expect(moved?.solves.map((entry) => entry.id)).toEqual(['middle', 'oldest'])
+    expect(moved?.solves[0]).toMatchObject({
+      rawMs: 9_000,
+      penalty: '+2',
+      scramble: 'Middle scramble',
+      createdAt: 4_000,
+    })
+    expect(result.data.sessionTransfers).toEqual([
+      expect.objectContaining({
+        fromSessionId: 'source',
+        toSessionId: 'split-session',
+        solveIds: ['middle', 'oldest'],
+        transferredAt: 1_000,
+        byDeviceId: 'laptop',
+      }),
+    ])
+    expect(getSessionSummary(moved?.solves ?? []).total).toBe(2)
+    expect(getSessionSummary(source?.solves ?? []).total).toBe(1)
+  })
+
+  it('retains an emptied source and supports splitting every solve without an order record', () => {
+    const current = splitFixture()
+    const { sessionOrder: _order, ...withoutOrder } = current
+    const result = splitSession(
+      withoutOrder,
+      'source',
+      'Everything moved',
+      ['newest', 'middle', 'oldest'],
+      { id: 'all-moved', now: 2_000, editorId: 'phone' },
+    )
+    expect(result).not.toBeNull()
+    if (!result) return
+
+    expect(result.data.sessions.map((entry) => entry.id)).toEqual([
+      'before',
+      'source',
+      'all-moved',
+      'after',
+    ])
+    expect(
+      result.data.sessions.find((entry) => entry.id === 'source')?.solves,
+    ).toEqual([])
+    expect(
+      result.data.sessions.find((entry) => entry.id === 'all-moved')?.solves,
+    ).toHaveLength(3)
+    expect(result.data.sessionOrder).toBeUndefined()
+  })
+
+  it('rejects invalid names, duplicate IDs, empty selections and unknown solves', () => {
+    const current = splitFixture()
+    expect(
+      splitSession(current, 'source', 'Before', ['newest'], {
+        id: 'x',
+        now: 1,
+      }),
+    ).toBeNull()
+    expect(
+      splitSession(current, 'source', 'New', ['newest', 'newest'], {
+        id: 'x',
+        now: 1,
+      }),
+    ).toBeNull()
+    expect(
+      splitSession(current, 'source', 'New', ['newest', 'missing'], {
+        id: 'x',
+        now: 1,
+      }),
+    ).toBeNull()
+    expect(
+      splitSession(current, 'source', 'New', [], { id: 'x', now: 1 }),
+    ).toBeNull()
+    expect(
+      splitSession(current, 'missing', 'New', ['newest'], {
+        id: 'x',
+        now: 1,
+      }),
+    ).toBeNull()
+    expect(
+      splitSession(current, 'source', 'New', ['newest'], {
+        id: 'source',
+        now: 1,
+      }),
+    ).toBeNull()
+  })
+
+  it('preserves transfer metadata when an external collection is adopted', () => {
+    const transfer = {
+      id: 'transfer-1',
+      fromSessionId: 'source',
+      toSessionId: 'split-session',
+      solveIds: ['newest'],
+      transferredAt: 1_000,
+      byDeviceId: 'laptop',
+    }
+    const external = data({
+      sessions: [session({ id: 'source', name: 'Source' })],
+      sessionTransfers: [transfer],
+    })
+    const local = data({
+      sessions: [session({ id: 'source', name: 'Source' })],
+      sessionTransfers: [
+        {
+          ...transfer,
+          id: 'transfer-2',
+          solveIds: ['middle'],
+        },
+      ],
+    })
+
+    const reconciled = reconcileExternalSessions({
+      external,
+      local,
+      baseline: external,
+    })
+    expect(reconciled.sessionTransfers?.map((entry) => entry.id).sort()).toEqual([
+      'transfer-1',
+      'transfer-2',
+    ])
   })
 })

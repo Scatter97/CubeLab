@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { formatSolveCount } from '../lib/format'
 import { CUBELAB_VERSION } from '../lib/version'
-import { AVERAGE_TRIM_OPTIONS, getAverageTrimCounts } from '../lib/averageTrimming'
+import { AVERAGE_TRIM_OPTIONS } from '../lib/averageTrimming'
 import { createId } from '../lib/id'
 import {
   BUILT_IN_STAT_DEFINITIONS,
@@ -76,23 +76,6 @@ const DRAW_SCRAMBLE_OPTIONS = [
   { value: 'net', label: '2D net' },
   { value: '3d', label: '3D puzzle' },
 ] as const
-
-function SettingsHelp({
-  summary,
-  children,
-  testId,
-}: {
-  summary: string
-  children: ReactNode
-  testId?: string
-}) {
-  return (
-    <details className="settings-help" data-testid={testId}>
-      <summary>{summary}</summary>
-      <div className="settings-help-body">{children}</div>
-    </details>
-  )
-}
 
 interface SettingsDialogProps {
   open: boolean
@@ -229,8 +212,6 @@ function SettingsContent({
     ])
   }
 
-  const trimExample = getAverageTrimCounts(1000, { better: settings.averageTrimBetter, worse: settings.averageTrimWorse })
-
   return (
     <div className="dialog-content settings-content">
         <header className="settings-header">
@@ -282,11 +263,6 @@ function SettingsContent({
                 </span>
               </button>
             </div>
-
-            <SettingsHelp summary="Inspection penalties">
-              15 seconds are penalty-free. Starting after 15 seconds and through
-              17 seconds adds +2; starting after 17 seconds is a DNF.
-            </SettingsHelp>
 
             <label className="settings-field">
               <span className="settings-field-label">Inspection timer</span>
@@ -465,14 +441,6 @@ function SettingsContent({
                 ))}
               </div>
             </fieldset>
-
-            <SettingsHelp summary="How warning alerts work">
-              {settings.inspectionCountDirection === 'up'
-                ? 'Count up warns at 8 and 12 seconds elapsed.'
-                : 'Count down warns at 7 and 3 seconds remaining.'}{' '}
-              Warnings follow the selected feedback channel. Haptics depend on
-              browser and device support.
-            </SettingsHelp>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-display-title">
@@ -550,12 +518,6 @@ function SettingsContent({
                 }
               />
             </div>
-
-            <SettingsHelp summary="DNF and +2 in summaries">
-              DNFs stay in the attempt total but are excluded from completed
-              solves and total time. A +2 counts as completed and adds two
-              seconds.
-            </SettingsHelp>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-appearance-title">
@@ -633,21 +595,6 @@ function SettingsContent({
               <p className="settings-note">
                 Removes the fastest and slowest results before averaging.
               </p>
-              <SettingsHelp
-                summary="How averages work"
-                testId="average-trim-help"
-              >
-                <p data-testid="average-trim-example">
-                  ao1000 currently drops {trimExample.better} fastest and{' '}
-                  {trimExample.worse} worst; {trimExample.counted} solves count.
-                </p>
-                <p>
-                  Percentages round up. DNFs fill the worst-side slots first;
-                  more than {trimExample.worse} makes the average DNF. mo3 stays
-                  untrimmed. Changes recalculate rolling averages and average
-                  PBs; recorded solves and single PBs stay intact.
-                </p>
-              </SettingsHelp>
             </fieldset>
 
             <fieldset className="settings-fieldset">
@@ -792,41 +739,6 @@ function SettingsContent({
               />
             </label>
           </section>
-
-          <details
-            className="settings-section settings-shortcuts"
-            data-testid="settings-shortcuts"
-          >
-            <summary className="settings-shortcuts-summary">
-              <span id="settings-controls-title">Keyboard shortcuts</span>
-              <ChevronRightIcon
-                className="settings-shortcuts-chevron"
-                size={16}
-              />
-            </summary>
-            <dl className="settings-controls">
-              <div>
-                <dt><kbd>Space</kbd></dt>
-                <dd>Hold to arm, release to start; press again to stop.</dd>
-              </div>
-              <div>
-                <dt><kbd>Esc</kbd></dt>
-                <dd>Cancel a hold or inspection, or reset the timer stage.</dd>
-              </div>
-              <div>
-                <dt><kbd>Enter</kbd></dt>
-                <dd>Activate the focused button, switch, or scramble action.</dd>
-              </div>
-              <div>
-                <dt><kbd>Tab</kbd></dt>
-                <dd>Move focus through the timer, sessions, and settings.</dd>
-              </div>
-              <div>
-                <dt><kbd>←</kbd> <kbd>→</kbd></dt>
-                <dd>Change the focused session or select value.</dd>
-              </div>
-            </dl>
-          </details>
 
           <section className="settings-section" aria-labelledby="settings-data-title">
             <div className="settings-section-heading">

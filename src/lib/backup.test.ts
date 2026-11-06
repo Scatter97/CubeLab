@@ -63,6 +63,30 @@ describe('backup format', () => {
     expect(backup.version).toBe(BACKUP_VERSION)
   })
 
+  it('round-trips session split transfer metadata', () => {
+    const source = sessions()
+    const withTransfer: SessionsData = {
+      ...source,
+      sessionTransfers: [
+        {
+          id: 'transfer-1',
+          fromSessionId: 'session-1',
+          toSessionId: 'session-2',
+          solveIds: ['solve-1'],
+          transferredAt: 1_700_000_004_000,
+          byDeviceId: 'laptop',
+        },
+      ],
+    }
+    const backup = createBackup(withTransfer, DEFAULT_SETTINGS)
+    const result = parseBackup(serializeBackup(backup))
+
+    expect(result).toEqual({ ok: true, backup })
+    expect(result.ok && result.backup.sessions.sessionTransfers).toEqual(
+      withTransfer.sessionTransfers,
+    )
+  })
+
   it('round-trips a collection containing only empty sessions', () => {
     const empty: SessionsData = {
       activeSessionId: 'empty-2',
@@ -358,14 +382,17 @@ describe('import trust boundaries', () => {
       ...DEFAULT_SETTINGS,
       statVisibility: { ...DEFAULT_SETTINGS.statVisibility },
       customAverages: [{ id: 'custom', size: 7, visible: true }],
+      statTargetsMs: { '333': { ao5: 15_000 } },
     }
     const backup = createBackup(sessions(), live)
 
     live.statVisibility.ao5 = false
     live.customAverages[0]!.visible = false
+    live.statTargetsMs['333']!.ao5 = 12_000
 
     expect(backup.settings.statVisibility.ao5).toBe(true)
     expect(backup.settings.customAverages[0]?.visible).toBe(true)
+    expect(backup.settings.statTargetsMs['333']?.ao5).toBe(15_000)
   })
 })
 

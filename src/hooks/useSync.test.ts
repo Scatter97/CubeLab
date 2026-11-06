@@ -1194,6 +1194,49 @@ describe('useSync deletion tombstones', () => {
     expect(tombstones).toHaveLength(5)
   })
 
+  it('records solve tombstones with a single-session deletion so stale split copies cannot return', () => {
+    enableSync()
+    const target = session({
+      id: 'session-split-destination',
+      name: 'Split target',
+      solves: [solve({ id: 'moved-a' }), solve({ id: 'moved-b' })],
+    })
+    const { result } = renderHook(() =>
+      useSync({
+        transport: createMemoryDriveTransport(),
+        sessions: sessionsData({ sessions: [target] }),
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      expect(result.current.recordSessionDeletion(target)).toBe(true)
+    })
+
+    expect(loadSyncStorage().runtime.tombstones).toEqual([
+      expect.objectContaining({
+        kind: 'session',
+        id: 'session-split-destination',
+        knownSolveIds: ['moved-a', 'moved-b'],
+      }),
+      expect.objectContaining({
+        kind: 'solve',
+        id: 'moved-a',
+        sessionId: 'session-split-destination',
+      }),
+      expect.objectContaining({
+        kind: 'solve',
+        id: 'moved-b',
+        sessionId: 'session-split-destination',
+      }),
+    ])
+  })
+
   it('reports a delete-all tombstone failure when storage is unavailable', async () => {
     enableSync()
     const transport = createMemoryDriveTransport()
@@ -1216,6 +1259,109 @@ describe('useSync deletion tombstones', () => {
       expect(result.current.recordAllSessionDeletions(target.sessions)).toBe(false)
     })
     unmount()
+  })
+})
+
+describe('useSync session merge records', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('persists redirects before a local merge without replacing sessions', () => {
+    const sessions = sessionsData({
+      sessions: [
+        session({ id: 'session-1', name: 'Destination' }),
+        session({ id: 'session-2', name: 'Source' }),
+      ],
+    })
+    const onReplaceSessions = vi.fn()
+    const { result } = renderHook(() =>
+      useSync({
+        transport: createMemoryDriveTransport(),
+        sessions,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions,
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      expect(
+        result.current.recordSessionMerges('session-1', ['session-2']),
+      ).toBe(true)
+    })
+
+    expect(loadSyncStorage().runtime.sessionRedirects).toEqual([
+      expect.objectContaining({
+        fromId: 'session-2',
+        toId: 'session-1',
+      }),
+    ])
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+  })
+
+  it('rolls back redirects when the local collection could not be saved', () => {
+    const sessions = sessionsData({
+      sessions: [
+        session({ id: 'session-1', name: 'Destination' }),
+        session({ id: 'session-2', name: 'Source' }),
+      ],
+    })
+    const { result } = renderHook(() =>
+      useSync({
+        transport: createMemoryDriveTransport(),
+        sessions,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      expect(
+        result.current.recordSessionMerges('session-1', ['session-2']),
+      ).toBe(true)
+      expect(
+        result.current.removeSessionMerges('session-1', ['session-2']),
+      ).toBe(true)
+    })
+
+    expect(loadSyncStorage().runtime.sessionRedirects).toEqual([])
+  })
+
+  it('does not write a merge record when storage is unavailable', () => {
+    const sessions = sessionsData({
+      sessions: [
+        session({ id: 'session-1', name: 'Destination' }),
+        session({ id: 'session-2', name: 'Source' }),
+      ],
+    })
+    const { result } = renderHook(() =>
+      useSync({
+        transport: createMemoryDriveTransport(),
+        sessions,
+        settings: DEFAULT_SETTINGS,
+        storageOk: false,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      expect(
+        result.current.recordSessionMerges('session-1', ['session-2']),
+      ).toBe(false)
+    })
+
+    expect(loadSyncStorage().runtime.sessionRedirects).toEqual([])
   })
 })
 

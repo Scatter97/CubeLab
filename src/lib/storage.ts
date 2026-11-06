@@ -15,9 +15,11 @@ import type {
   SessionPreferences,
   SessionPreferenceKey,
   SessionsData,
+  SessionTransfer,
   Settings,
   Solve,
   StatPrecision,
+  StatTargetsMs,
   StatVisibility,
   ThemePreference,
   TimerUpdateMode,
@@ -42,12 +44,18 @@ import {
   isValidCustomAverageSize,
 } from './statDefinitions'
 import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
+import { normalizeSessionTransfers } from './sessionTransfers'
+import {
+  isValidStatTargetKey,
+  MAX_STAT_TARGET_MS,
+  MIN_STAT_TARGET_MS,
+} from './statTargets'
 
 export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
 export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
-export const SESSIONS_VERSION = 5
+export const SESSIONS_VERSION = 6
 export const SETTINGS_STORAGE_VERSION = 10
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -83,6 +91,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ao10000: false,
   },
   customAverages: [],
+  statTargetsMs: {},
   statPrecision: 'centiseconds',
   averageTrimBetter: DEFAULT_AVERAGE_TRIMMING.better,
   averageTrimWorse: DEFAULT_AVERAGE_TRIMMING.worse,
@@ -98,6 +107,7 @@ function cloneDefaultSettings(): Settings {
     customAverages: DEFAULT_SETTINGS.customAverages.map((average) => ({
       ...average,
     })),
+    statTargetsMs: {},
     analytics: createDefaultAnalyticsSettings(),
   }
 }
@@ -113,6 +123,7 @@ interface StoredSessions {
   sessions: Session[]
   customEvents?: CustomEventDefinition[]
   sessionOrder?: SessionOrdering
+  sessionTransfers?: SessionTransfer[]
 }
 
 interface StoredSettings {
@@ -424,11 +435,15 @@ export function parseSessionsData(value: unknown): SessionsData | null {
         ids: parsedOrder.ids.filter((id) => seen.has(id)),
       }
     : undefined
+  const sessionTransfers = Array.isArray(value.sessionTransfers)
+    ? normalizeSessionTransfers(value.sessionTransfers)
+    : []
   return {
     activeSessionId,
     sessions: sessionOrder ? sortSessionsByOrder(sessions, sessionOrder) : sessions,
     ...(customEvents ? { customEvents } : {}),
     ...(sessionOrder ? { sessionOrder } : {}),
+    ...(sessionTransfers.length > 0 ? { sessionTransfers } : {}),
   }
 }
 
@@ -520,6 +535,31 @@ function parseCustomAverages(value: unknown): CustomAverageSetting[] {
   }
 
   return averages
+}
+
+function parseStatTargets(value: unknown): StatTargetsMs {
+  if (!isRecord(value)) return {}
+  const targets: StatTargetsMs = {}
+  for (const [event, entries] of Object.entries(value)) {
+    if (typeof event !== 'string' || event.length === 0 || !isRecord(entries)) {
+      continue
+    }
+    const eventTargets: Record<string, number> = {}
+    for (const [key, target] of Object.entries(entries)) {
+      if (
+        !isValidStatTargetKey(key) ||
+        typeof target !== 'number' ||
+        !Number.isFinite(target) ||
+        target < MIN_STAT_TARGET_MS ||
+        target > MAX_STAT_TARGET_MS
+      ) {
+        continue
+      }
+      eventTargets[key] = Math.round(target / 10) * 10
+    }
+    if (Object.keys(eventTargets).length > 0) targets[event] = eventTargets
+  }
+  return targets
 }
 
 export function parseSettingsData(value: unknown): Settings | null {
@@ -618,6 +658,7 @@ export function parseSettingsData(value: unknown): Settings | null {
         : DEFAULT_SETTINGS.showSessionTotalTime,
     statVisibility: parseStatVisibility(value.statVisibility),
     customAverages: parseCustomAverages(value.customAverages),
+    statTargetsMs: parseStatTargets(value.statTargetsMs),
     statPrecision: isValidStatPrecision(value.statPrecision)
       ? value.statPrecision
       : DEFAULT_SETTINGS.statPrecision,
@@ -714,6 +755,9 @@ export function saveSessions(
     sessions: [...data.sessions],
     ...(data.customEvents ? { customEvents: data.customEvents } : {}),
     ...(data.sessionOrder ? { sessionOrder: data.sessionOrder } : {}),
+    ...(data.sessionTransfers && data.sessionTransfers.length > 0
+      ? { sessionTransfers: data.sessionTransfers }
+      : {}),
   }
 
   try {

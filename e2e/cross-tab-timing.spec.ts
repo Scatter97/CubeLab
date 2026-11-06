@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { selectSessionByName } from './interactions'
+import { selectSessionByName, sessionNames } from './interactions'
 
 const TIMER = '[data-testid="timer-surface"]'
 
@@ -128,5 +128,101 @@ test('cross-tab timing is not redirected and reconciles when idle', async ({
   expect(morning?.solves).toHaveLength(1)
 
   expect(pageErrors).toEqual([])
+  await context.close()
+})
+
+test('an idle tab adopts split ownership metadata from another tab', async ({
+  browser,
+}) => {
+  const context = await browser.newContext()
+  const pageA = await context.newPage()
+  const pageB = await context.newPage()
+  const seed = () => {
+    const now = Date.now()
+    localStorage.setItem(
+      'cubelab:sessions:v1',
+      JSON.stringify({
+        version: 6,
+        activeSessionId: 'session-1',
+        sessions: [
+          {
+            id: 'session-1',
+            name: 'Morning',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves: [
+              {
+                id: 'solve-1',
+                event: '333',
+                rawMs: 10_000,
+                penalty: 'none',
+                scramble: 'R U',
+                comment: 'Keep me',
+                createdAt: now - 1_000,
+              },
+              {
+                id: 'solve-2',
+                event: '333',
+                rawMs: 11_000,
+                penalty: '+2',
+                scramble: "F R U'",
+                comment: '',
+                createdAt: now - 2_000,
+              },
+            ],
+          },
+          {
+            id: 'session-2',
+            name: 'Evening',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves: [],
+          },
+        ],
+      }),
+    )
+  }
+  await pageA.addInitScript(seed)
+  await pageB.addInitScript(seed)
+  await pageA.goto('/')
+  await pageB.goto('/')
+  await waitForApp(pageA)
+  await waitForApp(pageB)
+
+  await pageA.getByTestId('session-settings').click()
+  const settings = pageA.getByRole('dialog', { name: 'Session settings' })
+  await settings.getByTestId('session-split').click()
+  const split = pageA.getByRole('dialog', {
+    name: 'Move solves to a new session',
+  })
+  await split.getByTestId('split-select-all').click()
+  await split.getByLabel('Typed confirmation').fill('SPLIT SESSION')
+  await split.getByRole('button', { name: 'Confirm split' }).click()
+  await expect(split).toBeHidden()
+
+  await expect
+    .poll(() => sessionNames(pageB))
+    .toEqual(['Morning', 'Morning (split)', 'Evening'])
+  const storedB = await pageB.evaluate(() => {
+    const raw = localStorage.getItem('cubelab:sessions:v1')
+    return raw ? JSON.parse(raw) : null
+  })
+  expect(storedB.sessionTransfers).toEqual([
+    expect.objectContaining({
+      fromSessionId: 'session-1',
+      toSessionId: expect.any(String),
+      solveIds: ['solve-1', 'solve-2'],
+    }),
+  ])
+  expect(
+    storedB.sessions
+      .flatMap((session: { solves: Array<{ id: string }> }) =>
+        session.solves.map((solve) => solve.id),
+      )
+      .sort(),
+  ).toEqual(['solve-1', 'solve-2'])
+
   await context.close()
 })

@@ -23,7 +23,7 @@ The implemented product includes 12 built-in events plus user-defined custom eve
 inspection, named sessions, solve comments/actions, configurable trimmed statistics,
 Time Trend/PB details, the lazy Analytics dashboard, floating scramble/chart tools,
 native JSON backup, additive csTimer import, optional Drive sync, light/dark/system
-themes and an offline-capable PWA. Sessions use schema **v5**; settings use **v10**. Storage-key
+themes and an offline-capable PWA. Sessions use schema **v6**; settings use **v10**. Storage-key
 suffixes remain `v1`; do not confuse key names with payload schema versions.
 
 | Area | Owner |
@@ -31,7 +31,7 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | Application wiring, global keyboard input, completion and modals | `src/App.tsx` |
 | Timer transitions and inspection penalties | `src/timer/machine.ts`, `src/hooks/useTimer.ts` |
 | Live readout and delayed insight presentation | `src/hooks/useRunningElapsed.ts`, `src/hooks/usePostPaintValue.ts` |
-| Sessions, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts` |
+| Sessions, merge/split transfers, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/lib/sessionTransfers.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts` |
 | Custom events, csTimer event mapping and reassignment | `src/lib/events.ts`, `src/lib/customEvents.ts`, `src/components/CustomEventsDialog.tsx` |
 | Backup and csTimer parsing | `src/lib/backup.ts`, `src/lib/csTimerImport.ts` |
 | Sync orchestration and pure merges | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts` |

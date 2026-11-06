@@ -23,6 +23,8 @@ interface SessionSettingsDialogProps {
   onSetInspection: (enabled: boolean | undefined) => void
   onRequestClear: () => void
   onRequestDelete: () => void
+  onRequestMerge: () => void
+  onRequestSplit: () => void
   onClose: () => void
 }
 
@@ -79,6 +81,8 @@ function SessionSettingsContent({
   onSetInspection,
   onRequestClear,
   onRequestDelete,
+  onRequestMerge,
+  onRequestSplit,
   onClose,
 }: SessionSettingsContentProps) {
   const [name, setName] = useState(session.name)
@@ -318,6 +322,43 @@ function SessionSettingsContent({
               <span className="switch-thumb" />
             </span>
           </button>
+        </div>
+
+        <div className="session-settings-transfer">
+          <div
+            className="session-settings-actions"
+            role="group"
+            aria-label="Merge or split solves"
+          >
+            <button
+              type="button"
+              className="button button-secondary"
+              data-testid="session-merge"
+              disabled={allSessions.length <= 1}
+              title={
+                allSessions.length <= 1
+                  ? 'Create another session before merging'
+                  : 'Merge same-event sessions into a destination'
+              }
+              onClick={onRequestMerge}
+            >
+              Merge sessions…
+            </button>
+            <button
+              type="button"
+              className="button button-secondary"
+              data-testid="session-split"
+              disabled={session.solves.length === 0}
+              title={
+                session.solves.length === 0
+                  ? 'Add solves before splitting this session'
+                  : 'Move selected solves into a new session'
+              }
+              onClick={onRequestSplit}
+            >
+              Split selected solves…
+            </button>
+          </div>
         </div>
 
         <div

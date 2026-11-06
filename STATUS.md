@@ -84,6 +84,38 @@ Future feature-phase proposals have been removed at the user's request. The
 retained work is the five follow-ups below; the retired Solve explorer was
 replaced by the filtered solve-list details dialog.
 
+## Timer stability, inspection, statistics and Analytics rail — 2026-11-05
+
+The timer readout no longer reserves the Draw Scramble gutter, so floating tools
+are layout-independent and the timer's coordinates stay fixed through open,
+close, drag, resize, tool switching and multiple viewports. The visible timer
+captions were removed while the phase pill, colors, arm meter and accessible
+timer label retain state feedback. Inspection now uses the preserved
+`inspectionStartedAt` through holding and armed states, so its display keeps
+updating while Space is held; release still starts the solve and penalties are
+still evaluated from the actual solve start.
+
+The Statistics panel keeps its Sessions → Statistics → Solves position. Rows show
+current and best values, expand independently, and reveal an editable per-event
+target, BPA, WPA and target-aware next solve. BPA/WPA and next-solve calculations
+reuse the shared recorded-time, trimming and DNF helpers. Targets persist in the
+existing Settings v10 record through `statTargetsMs`, backups and field-by-field
+sync; expanded-row state is local. Expanded rows scroll inside the resizable
+statistics panel, preserving Solves usability. The Analytics rail now keeps its
+heading outside the bounded tab scroller and prevents section switches from
+focus-scrolling it.
+
+Verification: TypeScript and Oxlint passed (the pre-existing `SessionPanel`
+purity warning remains). Full Vitest **805 passed in 58 files**. Production build
+and PWA generation passed. Chromium focused coverage: timer stability/inspection
+**8/8**, expandable statistics **5/5**, Analytics rail layout **4/4**, existing
+Analytics **13/13**, resizable sidebar **8/8**, average trimming **3/3**,
+Draw Scramble **15/15**, accessibility **3/3** and responsive timer **5/5**.
+`e2e/timer.spec.ts` passed **61/62**; its backup-dialog focus assertion fails in a
+baseline copy with this work reverted as well, so it is pre-existing and was not
+changed. Firefox/WebKit, live Drive and assistive-technology checks were not run
+for this change. No release version changed.
+
 ## Settings debloat, Analytics order and release versioning — 2026-11-05
 
 Analytics now orders filters **Event → Sessions → Date range → Last solves →
@@ -365,12 +397,11 @@ Baseline/after measurements on isolated synthetic 10k-solve histories:
 
 ## Immediate work
 
-1. **Verify and fix tool-panel/readout overlap.** The base timer and sidebar
-   workspace now stacks and scrolls without overlap at short viewports. A gutter
-   mitigation remains for the default open Draw Scramble panel; inspect desktop,
-   320/390 px, landscape and timing states with the panel open, moved, resized
-   and restored after reload. Preserve pointer isolation and refresh affected
-   screenshots after UI changes.
+1. **Verify floating-panel occlusion.** Floating tools no longer influence timer
+   layout and the readout no longer reserves a gutter. Inspect the default,
+   moved and restored panel placements at desktop, 320/390 px and landscape to
+   confirm a deliberately overlapping panel does not hide the digits; preserve
+   pointer isolation and refresh affected screenshots after UI changes.
 2. **Profile large-history performance.** Use the 7,000–10,000-solve matrix
    below, with sync on/off and charts open/closed. Include the Analytics page and
    separate first-result response from chart completion and durability before

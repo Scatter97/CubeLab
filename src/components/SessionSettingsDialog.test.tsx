@@ -70,6 +70,8 @@ function renderDialog(
       onSetInspection={vi.fn()}
       onRequestClear={vi.fn()}
       onRequestDelete={vi.fn()}
+      onRequestMerge={vi.fn()}
+      onRequestSplit={vi.fn()}
       onClose={vi.fn()}
     />,
   )
@@ -85,6 +87,8 @@ describe('SessionSettingsDialog layout', () => {
     )
     expect(dialog).toHaveTextContent('Global default · Off')
     expect(dialog).not.toHaveTextContent('Manage session')
+    expect(within(dialog).getByTestId('session-merge')).toBeVisible()
+    expect(within(dialog).getByTestId('session-split')).toBeVisible()
     expect(within(dialog).getByTestId('session-clear')).toBeVisible()
     expect(within(dialog).getByTestId('session-delete')).toBeVisible()
   })

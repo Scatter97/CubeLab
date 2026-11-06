@@ -89,6 +89,8 @@ const CustomEventsDialog = lazy(() =>
   })),
 )
 
+const EMPTY_STAT_TARGETS: Readonly<Record<string, number>> = {}
+
 function DialogLoadingFallback() {
   return (
     <div className="dialog-loading-overlay" role="status" aria-live="polite">
@@ -567,6 +569,8 @@ export default function App() {
     return sizes
   }, [settings.customAverages, settings.statVisibility])
   const averageTrimming = useMemo(() => ({ better: settings.averageTrimBetter, worse: settings.averageTrimWorse }), [settings.averageTrimBetter, settings.averageTrimWorse])
+  const activeStatTargets =
+    settings.statTargetsMs[activeEvent] ?? EMPTY_STAT_TARGETS
   const stats = useMemo(
     () => getSessionStats(insightSolves, visibleAverageSizes, averageTrimming),
     [insightSolves, visibleAverageSizes, averageTrimming],
@@ -612,6 +616,24 @@ export default function App() {
       setComment(id, comment)
     },
     [setComment],
+  )
+
+  const handleSetStatTarget = useCallback(
+    (key: string, targetMs: number | null) => {
+      const eventTargets = {
+        ...(settings.statTargetsMs[activeEvent] ?? {}),
+      }
+      if (targetMs === null) delete eventTargets[key]
+      else eventTargets[key] = targetMs
+      const nextTargets = { ...settings.statTargetsMs }
+      if (Object.keys(eventTargets).length === 0) {
+        delete nextTargets[activeEvent]
+      } else {
+        nextTargets[activeEvent] = eventTargets
+      }
+      updateSettings({ statTargetsMs: nextTargets })
+    },
+    [activeEvent, settings.statTargetsMs, updateSettings],
   )
 
   const handleSetSessionInspection = useCallback(
@@ -1940,6 +1962,10 @@ export default function App() {
                 visibleStats={settings.statVisibility}
                 customAverages={settings.customAverages}
                 precision={settings.statPrecision}
+                solves={insightSolves}
+                trimming={averageTrimming}
+                targetsMs={activeStatTargets}
+                onSetTarget={handleSetStatTarget}
                 style={{ height: statsPanelHeight ?? undefined }}
               />
 
@@ -2026,6 +2052,10 @@ export default function App() {
                 visibleStats={settings.statVisibility}
                 customAverages={settings.customAverages}
                 precision={settings.statPrecision}
+                solves={insightSolves}
+                trimming={averageTrimming}
+                targetsMs={activeStatTargets}
+                onSetTarget={handleSetStatTarget}
                 showAllRows
               />
               <SolveHistory

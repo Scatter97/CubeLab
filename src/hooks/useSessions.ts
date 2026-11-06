@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CustomEventDefinition, NewSolve, Penalty, PuzzleEvent, Session, SessionOrdering, SessionPreferences, SessionsData, Solve } from '../types'
+import type { CustomEventDefinition, NewSolve, Penalty, PuzzleEvent, Session, SessionOrdering, SessionPreferences, SessionsData, SessionTransfer, Solve } from '../types'
 import { createId } from '../lib/id'
 import { setCustomEventDefinitions } from '../lib/events'
 import {
@@ -20,6 +20,8 @@ import {
   ensureSessionOrdering,
   getActiveSession,
   getOrderedSessions,
+  mergeSessions as mergeSessionsInData,
+  splitSession as splitSessionInData,
   moveSession as moveSessionInData,
   moveSessionTo as moveSessionToInData,
   removeSolve as removeSolveFromData,
@@ -40,6 +42,7 @@ export interface UseSessionsResult {
   sessions: Session[]
   customEvents: CustomEventDefinition[]
   sessionOrder?: SessionOrdering
+  sessionTransfers?: SessionTransfer[]
   activeSession: Session
   activeSessionId: string
   storageOk: boolean
@@ -60,6 +63,12 @@ export interface UseSessionsResult {
   ) => string | null
   renameSession: (id: string, name: string) => boolean
   setSessionEvent: (id: string, event: PuzzleEvent) => boolean
+  mergeSessions: (targetId: string, sourceIds: readonly string[]) => boolean
+  splitSession: (
+    sessionId: string,
+    name: string,
+    solveIds: readonly string[],
+  ) => string | null
   moveSession: (id: string, direction: -1 | 1) => void
   moveSessionTo: (id: string, targetIndex: number) => void
   deleteSession: (id: string) => boolean
@@ -276,6 +285,47 @@ export function useSessions(): UseSessionsResult {
     [applyData, syncDeviceId],
   )
 
+  const mergeSessions = useCallback(
+    (targetId: string, sourceIds: readonly string[]): boolean => {
+      const current = dataRef.current
+      const next = mergeSessionsInData(current, targetId, sourceIds)
+      if (!next || next === current) return false
+      // Persist before publishing so a failed write cannot remove a source
+      // session in the interface while its solves were never saved.
+      if (!saveSessions(next)) {
+        setStorageOk(false)
+        return false
+      }
+      applyData(next)
+      return true
+    },
+    [applyData],
+  )
+
+  const splitSession = useCallback(
+    (
+      sessionId: string,
+      name: string,
+      solveIds: readonly string[],
+    ): string | null => {
+      const result = splitSessionInData(
+        dataRef.current,
+        sessionId,
+        name,
+        solveIds,
+        { editorId: syncDeviceId },
+      )
+      if (!result) return null
+      if (!saveSessions(result.data)) {
+        setStorageOk(false)
+        return null
+      }
+      applyData(result.data)
+      return result.sessionId
+    },
+    [applyData, syncDeviceId],
+  )
+
   const moveSession = useCallback(
     (id: string, direction: -1 | 1) => {
       commit((current) =>
@@ -419,6 +469,9 @@ export function useSessions(): UseSessionsResult {
     sessions: orderedSessions,
     customEvents: data.customEvents ?? [],
     ...(data.sessionOrder ? { sessionOrder: data.sessionOrder } : {}),
+    ...(data.sessionTransfers && data.sessionTransfers.length > 0
+      ? { sessionTransfers: data.sessionTransfers }
+      : {}),
     activeSession,
     activeSessionId: activeSession.id,
     storageOk,
@@ -434,6 +487,8 @@ export function useSessions(): UseSessionsResult {
     createSession,
     renameSession,
     setSessionEvent,
+    mergeSessions,
+    splitSession,
     moveSession,
     moveSessionTo,
     deleteSession,

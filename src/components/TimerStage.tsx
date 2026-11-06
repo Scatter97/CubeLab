@@ -49,7 +49,6 @@ type InspectionTone = 'safe' | 'warning' | 'danger'
 interface InspectionDisplay {
   value: string
   tone: InspectionTone
-  caption: string
 }
 
 function getInspectionDisplay(
@@ -59,19 +58,11 @@ function getInspectionDisplay(
   const elapsed = elapsedMs ?? 0
 
   if (elapsed > INSPECTION_DNF_MS) {
-    return {
-      value: 'DNF',
-      tone: 'danger',
-      caption: 'Inspection exceeded 17 seconds',
-    }
+    return { value: 'DNF', tone: 'danger' }
   }
 
   if (elapsed > INSPECTION_LIMIT_MS) {
-    return {
-      value: '+2',
-      tone: 'warning',
-      caption: 'Start now — over 17 seconds is a DNF',
-    }
+    return { value: '+2', tone: 'warning' }
   }
 
   if (direction === 'up') {
@@ -79,7 +70,6 @@ function getInspectionDisplay(
     return {
       value: String(elapsedSeconds),
       tone: elapsed >= 12_000 ? 'warning' : 'safe',
-      caption: '',
     }
   }
 
@@ -87,7 +77,6 @@ function getInspectionDisplay(
   return {
     value: String(Math.max(0, remaining)),
     tone: remaining <= 3 ? 'warning' : 'safe',
-    caption: '',
   }
 }
 
@@ -127,8 +116,16 @@ export function TimerStage({
 }: TimerStageProps) {
   const activePointer = useRef<number | null>(null)
   const elapsedMs = useRunningElapsed(state.status === 'running' ? state.startedAt : null, timerUpdateMode)
-  const inspection =
+  // Inspection keeps its own display through holding and armed states. The
+  // solve clock only replaces it once the timer is actually running.
+  const inspectionStartedAt =
     state.status === 'inspection'
+      ? state.inspectionStartedAt
+      : state.status === 'holding' || state.status === 'ready'
+        ? state.inspectionStartedAt
+        : null
+  const inspection =
+    inspectionStartedAt !== null
       ? getInspectionDisplay(inspectionElapsedMs, inspectionCountDirection)
       : null
   const isRunning = state.status === 'running'
@@ -139,8 +136,6 @@ export function TimerStage({
 
   let mainValue = '0.00'
   let suffix: string | null = null
-  let caption = inspectionEnabled ? 'Inspection enabled' : 'Ready'
-  let rawCaption: string | null = null
   let toneClass = ''
 
   if (isRunning) {
@@ -150,37 +145,20 @@ export function TimerStage({
       if (penalty === '+2') {
         suffix = '+2'
         toneClass = 'is-penalty'
-        caption = 'Inspection +2 applied'
       } else if (penalty === 'dnf') {
         suffix = 'DNF'
         toneClass = 'is-dnf'
-        caption = 'Inspection DNF — finish or stop to record'
-      } else {
-        caption = ''
       }
-    } else {
-      caption = ''
     }
   } else if (inspection) {
     mainValue = inspection.value
     toneClass = inspection.tone === 'danger' ? 'is-dnf' : inspection.tone === 'warning' ? 'is-penalty' : ''
-    caption = inspection.caption
   } else if (state.status === 'idle' && latestSolve) {
     const last = formatSolveTime(latestSolve.rawMs, latestSolve.penalty)
     mainValue = last.display
     suffix = last.suffix
     toneClass = latestSolve.penalty === 'dnf' ? 'is-dnf' : latestSolve.penalty === '+2' ? 'is-penalty' : ''
-    caption = latestSolve.penalty === 'dnf' ? 'Last solve · DNF' : 'Last solve'
-    if (latestSolve.penalty === 'dnf') {
-      rawCaption = `Raw ${formatTime(latestSolve.rawMs)}`
-    } else if (latestSolve.penalty === '+2') {
-      rawCaption = `Effective ${formatTime(latestSolve.rawMs + 2_000)}`
-    }
-  } else if (state.status === 'holding' || state.status === 'ready') {
-    caption = state.status === 'holding' ? 'Keep holding' : 'Release to start'
   }
-
-  if (disabled) caption = 'Timer unavailable'
 
   const hint = ''
 
@@ -229,6 +207,12 @@ export function TimerStage({
     if (disabled) return `Timer unavailable: ${disabledHint}`
     if (isRunning) return `Timer running at ${mainValue}. Press Space or tap to stop.`
     if (inspection) {
+      if (state.status === 'ready') {
+        return `Inspection, ${inspection.value}. Timer armed. Release Space or the timer to start.`
+      }
+      if (state.status === 'holding') {
+        return `Inspection, ${inspection.value}. Keep holding to arm the timer.`
+      }
       return `Inspection, ${inspection.value}. Hold Space or press and hold the timer to arm.`
     }
     if (state.status === 'ready') return `Timer armed at ${mainValue}. Release to start.`
@@ -256,7 +240,6 @@ export function TimerStage({
     toneClass,
     disabled ? 'is-disabled' : '',
     showReset ? 'has-reset' : '',
-    overlay ? 'has-overlay' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -316,10 +299,6 @@ export function TimerStage({
           >
             {readout}
             {suffix ? <span className="timer-suffix">{suffix}</span> : null}
-          </span>
-          <span className="timer-caption">
-            {caption}
-            {rawCaption ? <span className="raw-caption">{rawCaption}</span> : null}
           </span>
         </span>
 

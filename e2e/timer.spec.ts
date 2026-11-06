@@ -196,7 +196,7 @@ async function runEventScenario(page: Page, event: CubeLabEvent) {
   // solves. This is the same WCA rule for every event.
   await expect(page.getByTestId('best-single')).not.toHaveText('—')
   await expect(
-    page.locator('.stat-tile').filter({ hasText: 'mo3' }).locator('.stat-latest'),
+    page.locator('.stat-tile').filter({ hasText: 'mo3' }).locator('.stat-current'),
   ).toContainText('DNF')
 
   const stored = await storedSessions(page)
@@ -731,18 +731,11 @@ test('effective +2 labels are not clipped in the history rail', async ({
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
-test('alerts, accent, and controls settings apply and persist', async ({
-  page,
-}) => {
+test('alerts and accent settings apply and persist', async ({ page }) => {
   await page.goto('/')
   await waitForApp(page)
 
   const settings = await openSettings(page)
-  await settings.getByText('Keyboard shortcuts').click()
-  await expect(
-    settings.getByText('Hold to arm, release to start; press again to stop.'),
-  ).toBeVisible()
-
   await chooseTestOption(page, 'alert-channel', 'visual')
   const volume = settings.getByTestId('alert-volume')
   await expect(volume).toHaveValue('70')
@@ -1055,12 +1048,6 @@ test('narrow mobile layout keeps settings, session, and solve-menu targets usabl
   const settings = await openSettings(page)
   await expect(settings.getByText('Inspection', { exact: true })).toBeVisible()
 
-  await settings.getByText('Keyboard shortcuts').click()
-  await expect(settings.getByText('Hold to arm, release to start')).toBeVisible()
-  await expect(settings.getByText('Change the focused session')).toBeVisible()
-  await settings.getByText('How averages work').click()
-  await expect(settings.getByTestId('average-trim-example')).toBeVisible()
-
   const inspectionSwitch = settings.getByRole('switch', {
     name: /Inspection/,
   })
@@ -1107,6 +1094,7 @@ test('narrow mobile layout keeps settings, session, and solve-menu targets usabl
   await expect(
     sessionSettings.getByTestId('session-settings-done'),
   ).toBeVisible()
+  await expect(sessionSettings.getByTestId('session-merge')).toBeVisible()
   await expect(sessionSettings.getByTestId('session-clear')).toBeVisible()
   const sessionBody = await sessionSettings
     .locator('.session-settings-body')

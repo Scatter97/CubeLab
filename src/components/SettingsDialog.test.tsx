@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsDialog } from './SettingsDialog'
 import { DEFAULT_SETTINGS } from '../lib/storage'
@@ -143,28 +143,8 @@ describe('Developer settings', () => {
   })
 })
 
-describe('settings guidance', () => {
-  it('keeps detailed statistics and keyboard help available in disclosures', () => {
-    renderSettings()
-
-    const averageHelp = screen.getByTestId('average-trim-help')
-    expect(averageHelp).not.toHaveAttribute('open')
-    fireEvent.click(within(averageHelp).getByText('How averages work'))
-    expect(averageHelp).toHaveAttribute('open')
-    expect(screen.getByTestId('average-trim-example')).toHaveTextContent(
-      'ao1000 currently drops',
-    )
-    expect(averageHelp).toHaveTextContent('DNFs fill the worst-side slots first')
-
-    const shortcuts = screen.getByTestId('settings-shortcuts')
-    expect(shortcuts).not.toHaveAttribute('open')
-    fireEvent.click(within(shortcuts).getByText('Keyboard shortcuts'))
-    expect(shortcuts).toHaveAttribute('open')
-    expect(shortcuts).toHaveTextContent('Hold to arm, release to start')
-    expect(shortcuts).toHaveTextContent('Change the focused session')
-  })
-
-  it('shows the release version in About', () => {
+describe('About settings', () => {
+  it('shows the release version', () => {
     renderSettings()
     expect(screen.getByRole('heading', { name: 'About' })).toBeInTheDocument()
     expect(screen.getByText(/^\d+\.\d{2}\.\d{6}:\d+$/)).toBeInTheDocument()

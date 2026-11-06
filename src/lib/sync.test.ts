@@ -303,6 +303,223 @@ describe('mergeSessionsData', () => {
   })
 })
 
+describe('split session transfers during synchronization', () => {
+  const transfer = {
+    id: 'transfer-1',
+    fromSessionId: 'source',
+    toSessionId: 'split',
+    solveIds: ['moved'],
+    transferredAt: 500,
+    byDeviceId: 'laptop',
+  }
+
+  function splitData(overrides: Partial<SessionsData> = {}): SessionsData {
+    return sessionsData({
+      activeSessionId: 'split',
+      sessions: [
+        session({
+          id: 'source',
+          name: 'Source',
+          solves: [solve({ id: 'remaining', createdAt: 200 })],
+        }),
+        session({
+          id: 'split',
+          name: 'Split',
+          solves: [solve({ id: 'moved', createdAt: 100 })],
+        }),
+      ],
+      sessionTransfers: [transfer],
+      ...overrides,
+    })
+  }
+
+  function staleSourceData(): SessionsData {
+    return sessionsData({
+      activeSessionId: 'source',
+      sessions: [
+        session({
+          id: 'source',
+          name: 'Source',
+          solves: [
+            solve({ id: 'remaining', createdAt: 200 }),
+            solve({ id: 'moved', createdAt: 100 }),
+          ],
+        }),
+      ],
+    })
+  }
+
+  it('moves a solve from a stale source snapshot into the split session without duplicating it', () => {
+    const result = mergeSessionsData({
+      local: splitData(),
+      remote: staleSourceData(),
+      tombstones: [],
+      deviceId: 'laptop',
+      manualConflictReview: false,
+    })
+
+    expect(
+      result.merged.sessions.map((entry) => [
+        entry.id,
+        entry.solves.map((item) => item.id),
+      ]),
+    ).toEqual([
+      ['source', ['remaining']],
+      ['split', ['moved']],
+    ])
+    expect(result.merged.sessionTransfers).toEqual([transfer])
+    expect(totalSolves(result.merged)).toBe(2)
+  })
+
+  it('applies a transfer received from the cloud to a stale local source and keeps offline additions', () => {
+    const result = mergeSessionsData({
+      local: sessionsData({
+        activeSessionId: 'source',
+        sessions: [
+          session({
+            id: 'source',
+            name: 'Source',
+            solves: [
+              solve({ id: 'offline-new', createdAt: 900 }),
+              solve({ id: 'moved', createdAt: 100 }),
+              solve({ id: 'remaining', createdAt: 200 }),
+            ],
+          }),
+        ],
+      }),
+      remote: splitData(),
+      tombstones: [],
+      deviceId: 'phone',
+      manualConflictReview: false,
+    })
+
+    expect(
+      result.merged.sessions.find((entry) => entry.id === 'source')?.solves.map(
+        (item) => item.id,
+      ),
+    ).toEqual(['offline-new', 'remaining'])
+    expect(
+      result.merged.sessions.find((entry) => entry.id === 'split')?.solves.map(
+        (item) => item.id,
+      ),
+    ).toEqual(['moved'])
+    expect(totalSolves(result.merged)).toBe(3)
+  })
+
+  it('keeps newer field edits while the durable transfer decides ownership', () => {
+    const editedSplit = splitData({
+      sessions: [
+        session({
+          id: 'source',
+          name: 'Source',
+          solves: [solve({ id: 'remaining', createdAt: 200 })],
+        }),
+        session({
+          id: 'split',
+          name: 'Split',
+          solves: [
+            solve({
+              id: 'moved',
+              createdAt: 100,
+              comment: 'edited on the split device',
+              updatedAt: 800,
+              fieldUpdates: {
+                comment: { updatedAt: 800, editorId: 'laptop' },
+              },
+            }),
+          ],
+        }),
+      ],
+    })
+    const stale = staleSourceData()
+    stale.sessions[0]!.solves[1] = solve({
+      id: 'moved',
+      createdAt: 100,
+      comment: 'stale comment',
+      updatedAt: 100,
+    })
+
+    const result = mergeSessionsData({
+      local: editedSplit,
+      remote: stale,
+      tombstones: [],
+      deviceId: 'laptop',
+      manualConflictReview: false,
+    })
+
+    const moved = result.merged.sessions
+      .flatMap((entry) => entry.solves)
+      .find((entry) => entry.id === 'moved')
+    expect(moved?.comment).toBe('edited on the split device')
+    expect(
+      result.merged.sessions.find((entry) => entry.id === 'split')?.solves,
+    ).toHaveLength(1)
+  })
+
+  it('follows a later whole-session merge redirect for the split destination', () => {
+    const result = mergeSessionsData({
+      local: splitData(),
+      remote: staleSourceData(),
+      tombstones: [],
+      sessionRedirects: [
+        {
+          fromId: 'split',
+          toId: 'final',
+          approvedAt: 900,
+          byDeviceId: 'laptop',
+        },
+      ],
+      deviceId: 'laptop',
+      manualConflictReview: false,
+    })
+
+    expect(
+      result.merged.sessions
+        .map((entry) => [
+          entry.id,
+          entry.solves.map((item) => item.id),
+        ])
+        .sort((left, right) =>
+          String(left[0]).localeCompare(String(right[0])),
+        ),
+    ).toEqual([
+      ['final', ['moved']],
+      ['source', ['remaining']],
+    ])
+  })
+
+  it('does not resurrect a tombstoned solve or force it into a deleted split destination', () => {
+    const result = mergeSessionsData({
+      local: splitData(),
+      remote: staleSourceData(),
+      tombstones: [
+        {
+          kind: 'solve',
+          id: 'moved',
+          deletedAt: 1_000,
+          deletedByDeviceId: 'laptop',
+        },
+        {
+          kind: 'session',
+          id: 'split',
+          knownSolveIds: ['moved'],
+          deletedAt: 1_000,
+          deletedByDeviceId: 'laptop',
+        },
+      ],
+      deviceId: 'laptop',
+      manualConflictReview: false,
+    })
+
+    expect(
+      result.merged.sessions.flatMap((entry) =>
+        entry.solves.map((item) => item.id),
+      ),
+    ).not.toContain('moved')
+    expect(totalSolves(result.merged)).toBe(1)
+  })
+})
+
 describe('resolveRedirectConflicts', () => {
   const localRedirect = {
     fromId: 'source',

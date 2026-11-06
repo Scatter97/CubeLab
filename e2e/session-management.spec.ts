@@ -27,6 +27,8 @@ interface SeedSession {
   createdAt: number
   updatedAt: number
   solves: SeedSolve[]
+  inspectionEnabled?: boolean
+  preferences?: Record<string, unknown>
 }
 
 interface SeedData {
@@ -40,6 +42,14 @@ interface SeedData {
     placeholder: string
     createdAt: number
     updatedAt: number
+  }>
+  sessionTransfers?: Array<{
+    id: string
+    fromSessionId: string
+    toSessionId: string
+    solveIds: string[]
+    transferredAt: number
+    byDeviceId: string
   }>
 }
 
@@ -875,6 +885,332 @@ test.describe('session management', () => {
     await expect(page.getByTestId('session-total-time-setting')).toBeChecked()
   })
 
+  test('merges multiple same-event sessions into the active destination and preserves every solve field', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    await page.getByTestId('session-settings').click()
+    const settingsDialog = page.getByRole('dialog', { name: 'Session settings' })
+    await expect(settingsDialog).toBeVisible()
+    await settingsDialog.getByTestId('session-merge').click()
+    await expect(settingsDialog).toBeHidden()
+
+    const merge = page.getByRole('dialog', { name: 'Merge sessions' })
+    await expect(merge).toBeVisible()
+    await expect(merge.getByTestId('merge-destination')).toContainText(
+      'Morning',
+    )
+    await merge.getByTestId('merge-source-b').check()
+    await merge.getByTestId('merge-source-c').check()
+    await expect(merge.getByTestId('merge-preview')).toContainText(
+      'After merge4',
+    )
+    await expect(merge.getByTestId('merge-preview')).toContainText(
+      'Sources removed2',
+    )
+    await merge.getByLabel('Typed confirmation').fill('MERGE SESSIONS')
+    await merge.getByRole('button', { name: 'Confirm merge' }).click()
+    await expect(merge).toBeHidden()
+    await expect(page.getByTestId('session-select')).toBeFocused()
+
+    expect(await sessionNames(page)).toEqual(['Morning'])
+    await expect(page.getByTestId('session-select')).toContainText('Morning')
+    await expect(page.getByTestId('solve-count')).toHaveText('4')
+
+    const merged = await stored(page)
+    expect(merged?.activeSessionId).toBe('a')
+    expect(merged?.sessionOrder?.ids).toEqual(['a'])
+    expect(merged?.sessions).toHaveLength(1)
+    expect(merged?.sessions[0]?.solves.map((entry) => entry.id)).toEqual([
+      's1',
+      's2',
+      's3',
+      'b1',
+    ])
+    expect(merged?.sessions[0]?.solves[0]).toMatchObject({
+      id: 's1',
+      rawMs: 10_000,
+      penalty: 'none',
+      comment: 'Preserve this comment',
+      createdAt: NOW - 1_000,
+      importSource: {
+        provider: 'cstimer',
+        scrType: '333',
+        sessionNumber: 1,
+        solveIndex: 1,
+      },
+    })
+    expect(merged?.sessions[0]?.solves[3]).toMatchObject({
+      id: 'b1',
+      rawMs: 5_000,
+      penalty: '+2',
+      createdAt: NOW - 4_000,
+    })
+
+    await page.reload()
+    await waitForApp(page)
+    expect(await sessionNames(page)).toEqual(['Morning'])
+    await expect(page.getByTestId('solve-count')).toHaveText('4')
+  })
+
+  test('splits a selected range into a new custom-event session with copied settings', async ({
+    page,
+  }) => {
+    const custom = (id: string, createdAt: number): SeedSolve => ({
+      ...solve(id, 12_000, 'none', createdAt - NOW),
+      event: 'custom:fto',
+      comment: id === 'c2' ? 'Keep split comment' : '',
+      importSource:
+        id === 'c2'
+          ? {
+              provider: 'cstimer',
+              scrType: 'fto-unsupported',
+              sessionNumber: 3,
+              solveIndex: 2,
+            }
+          : undefined,
+    })
+    const splitSeed = seedData({
+      activeSessionId: 'a',
+      sessions: [
+        {
+          id: 'a',
+          name: 'FTO Practice',
+          event: 'custom:fto',
+          createdAt: NOW - 90_000,
+          updatedAt: NOW,
+          inspectionEnabled: false,
+          preferences: {
+            timerUpdateMode: 'tenths',
+            holdDurationMs: 500,
+          },
+          solves: [
+            custom('c4', NOW - 4_000),
+            custom('c3', NOW - 3_000),
+            custom('c2', NOW - 2_000),
+            custom('c1', NOW - 1_000),
+          ],
+        },
+        {
+          id: 'b',
+          name: 'Evening',
+          event: '333',
+          createdAt: NOW - 80_000,
+          updatedAt: NOW,
+          solves: [solve('b1', 5_000, '+2', -4_000)],
+        },
+        {
+          id: 'c',
+          name: 'Empty',
+          event: '333',
+          createdAt: NOW - 70_000,
+          updatedAt: NOW,
+          solves: [],
+        },
+      ],
+      sessionOrder: {
+        ids: ['a', 'b', 'c'],
+        updatedAt: NOW - 60_000,
+        editorId: 'seed',
+      },
+    })
+    await seed(page, splitSeed)
+    await page.goto('/')
+    await waitForApp(page)
+
+    await page.getByTestId('session-settings').click()
+    const settingsDialog = page.getByRole('dialog', { name: 'Session settings' })
+    await settingsDialog.getByTestId('session-split').click()
+    await expect(settingsDialog).toBeHidden()
+
+    const split = page.getByRole('dialog', {
+      name: 'Move solves to a new session',
+    })
+    await expect(split).toBeVisible()
+    await expect(split.getByLabel('New session name')).toHaveValue(
+      'FTO Practice (split)',
+    )
+    await expect(split.getByTestId('split-selection-count')).toContainText(
+      '0 of 4 selected',
+    )
+    await split.getByTestId('split-range-start').fill('2')
+    await split.getByTestId('split-range-end').fill('3')
+    await split.getByTestId('split-select-range').click()
+    await expect(split.getByTestId('split-selection-count')).toContainText(
+      '2 of 4 selected · 2 remaining',
+    )
+    await expect(split.getByTestId('split-preview')).toContainText('Moving2')
+    await split.getByLabel('Typed confirmation').fill('SPLIT SESSION')
+    await split.getByRole('button', { name: 'Confirm split' }).click()
+    await expect(split).toBeHidden()
+    await expect(page.getByTestId('session-select')).toBeFocused()
+
+    expect(await sessionNames(page)).toEqual([
+      'FTO Practice',
+      'FTO Practice (split)',
+      'Evening',
+      'Empty',
+    ])
+    await expect(page.getByTestId('session-select')).toContainText(
+      'FTO Practice (split)',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('2')
+
+    const afterSplit = await stored(page)
+    const source = afterSplit?.sessions.find((entry) => entry.id === 'a')
+    const created = afterSplit?.sessions.find(
+      (entry) => entry.name === 'FTO Practice (split)',
+    )
+    expect(source?.solves.map((entry) => entry.id)).toEqual(['c4', 'c1'])
+    expect(created?.solves.map((entry) => entry.id)).toEqual(['c3', 'c2'])
+    expect(created).toMatchObject({
+      event: 'custom:fto',
+      inspectionEnabled: false,
+      preferences: {
+        timerUpdateMode: 'tenths',
+        holdDurationMs: 500,
+      },
+    })
+    expect(created?.solves[1]).toMatchObject({
+      id: 'c2',
+      rawMs: 12_000,
+      comment: 'Keep split comment',
+      importSource: {
+        provider: 'cstimer',
+        scrType: 'fto-unsupported',
+        sessionNumber: 3,
+        solveIndex: 2,
+      },
+    })
+    expect(afterSplit?.activeSessionId).toBe(created?.id)
+    expect(afterSplit?.sessionOrder?.ids).toEqual([
+      'a',
+      created?.id,
+      'b',
+      'c',
+    ])
+    expect(afterSplit?.sessionTransfers).toEqual([
+      expect.objectContaining({
+        fromSessionId: 'a',
+        toSessionId: created?.id,
+        transferredAt: expect.any(Number),
+        byDeviceId: expect.any(String),
+      }),
+    ])
+    expect(
+      new Set(afterSplit?.sessionTransfers?.[0]?.solveIds),
+    ).toEqual(new Set(['c2', 'c3']))
+
+    await page.reload()
+    await waitForApp(page)
+    expect(await sessionNames(page)).toEqual([
+      'FTO Practice',
+      'FTO Practice (split)',
+      'Evening',
+      'Empty',
+    ])
+    await expect(page.getByTestId('session-select')).toContainText(
+      'FTO Practice (split)',
+    )
+
+    const settings = await openSettings(page)
+    await settings.getByTestId('settings-backup-button').click()
+    const dataDialog = page.getByRole('dialog', { name: 'Your local data' })
+    const downloadPromise = page.waitForEvent('download')
+    await dataDialog.getByTestId('export-backup').click()
+    const download = await downloadPromise
+    const path = await download.path()
+    expect(path).not.toBeNull()
+    const backup = JSON.parse(readFileSync(path!, 'utf8')) as {
+      sessions: SeedData
+    }
+    expect(backup.sessions.sessionTransfers).toHaveLength(1)
+    expect(
+      backup.sessions.sessions.find(
+        (entry) => entry.name === 'FTO Practice (split)',
+      )?.solves.map((entry) => entry.id),
+    ).toEqual(['c3', 'c2'])
+  })
+
+  test('keeps sessions unchanged when merge or split storage writes fail', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem
+      const target = window as typeof window & {
+        __restoreSessionStorage?: () => void
+        __failSessionStorage?: boolean
+      }
+      target.__failSessionStorage = true
+      target.__restoreSessionStorage = () => {
+        Storage.prototype.setItem = original
+        target.__failSessionStorage = false
+      }
+      Storage.prototype.setItem = function setItem(key, value) {
+        if (target.__failSessionStorage && key === 'cubelab:sessions:v1') {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      }
+    })
+
+    await page.getByTestId('session-settings').click()
+    let dialog = page.getByRole('dialog', { name: 'Session settings' })
+    await dialog.getByTestId('session-merge').click()
+    const merge = page.getByRole('dialog', { name: 'Merge sessions' })
+    await merge.getByTestId('merge-source-b').check()
+    await merge.getByLabel('Typed confirmation').fill('MERGE SESSIONS')
+    await merge.getByRole('button', { name: 'Confirm merge' }).click()
+    await expect(merge.getByTestId('merge-error')).toContainText(
+      'Could not merge these sessions',
+    )
+    expect((await stored(page))?.sessions).toHaveLength(3)
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:sync:v1')
+        return raw
+          ? (JSON.parse(raw) as { runtime: { sessionRedirects: unknown[] } })
+              .runtime.sessionRedirects
+          : []
+      }),
+    ).toEqual([])
+    await merge.getByRole('button', { name: 'Cancel merge' }).click()
+
+    await page.getByTestId('session-settings').click()
+    dialog = page.getByRole('dialog', { name: 'Session settings' })
+    await dialog.getByTestId('session-split').click()
+    const split = page.getByRole('dialog', {
+      name: 'Move solves to a new session',
+    })
+    await split.getByTestId('split-select-all').click()
+    await split.getByLabel('Typed confirmation').fill('SPLIT SESSION')
+    await split.getByRole('button', { name: 'Confirm split' }).click()
+    await expect(split.getByTestId('split-error')).toContainText(
+      'Could not split this session',
+    )
+
+    const unchanged = await stored(page)
+    expect(unchanged?.sessions).toHaveLength(3)
+    expect(unchanged?.sessionTransfers).toBeUndefined()
+    expect(unchanged?.activeSessionId).toBe('a')
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+
+    await page.evaluate(() => {
+      ;(
+        window as typeof window & { __restoreSessionStorage?: () => void }
+      ).__restoreSessionStorage?.()
+    })
+    await split.getByRole('button', { name: 'Cancel split' }).click()
+    expect(await sessionNames(page)).toHaveLength(3)
+  })
+
   test('keeps destructive and reorder controls locked while timing', async ({
     page,
   }) => {
@@ -936,6 +1272,157 @@ test.describe('session management', () => {
     await expect(timer).toHaveAttribute('data-phase', 'running')
     await page.keyboard.press('Space')
     await expect(timer).toHaveAttribute('data-phase', 'idle')
+  })
+})
+
+test.describe('split synchronization', () => {
+  test('keeps moved solves in the split session when a stale device publishes an older source snapshot', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    const original = seedData()
+    await seed(page, original)
+    await page.goto('/')
+    await waitForApp(page)
+
+    let settings = await openSettings(page)
+    await settings.getByTestId('settings-drive-button').click()
+    let drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+    await drive.getByTestId('drive-connect').click()
+    await expect(drive.getByTestId('drive-status')).toContainText('Connected')
+    await drive.getByTestId('sync-now').click()
+    await expect(drive.getByTestId('sync-status')).toContainText('synced', {
+      timeout: 15_000,
+    })
+    await drive.getByTestId('drive-done').click()
+
+    await page.getByTestId('session-settings').click()
+    const settingsDialog = page.getByRole('dialog', { name: 'Session settings' })
+    await settingsDialog.getByTestId('session-split').click()
+    const split = page.getByRole('dialog', {
+      name: 'Move solves to a new session',
+    })
+    await split.getByTestId('split-range-start').fill('1')
+    await split.getByTestId('split-range-end').fill('2')
+    await split.getByTestId('split-select-range').click()
+    await split.getByLabel('Typed confirmation').fill('SPLIT SESSION')
+    await split.getByRole('button', { name: 'Confirm split' }).click()
+    await expect(split).toBeHidden()
+
+    const afterSplit = await stored(page)
+    const created = afterSplit?.sessions.find(
+      (entry) => entry.name === 'Morning (split)',
+    )
+    expect(created?.solves.map((entry) => entry.id)).toEqual(['s1', 's2'])
+    expect(
+      afterSplit?.sessions.find((entry) => entry.id === 'a')?.solves.map(
+        (entry) => entry.id,
+      ),
+    ).toEqual(['s3'])
+
+    settings = await openSettings(page)
+    await settings.getByTestId('settings-drive-button').click()
+    drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+    await drive.getByTestId('sync-now').click()
+    await expect(drive.getByTestId('sync-status')).toContainText('synced', {
+      timeout: 15_000,
+    })
+    await drive.getByTestId('drive-done').click()
+
+    const stale = JSON.parse(JSON.stringify(original)) as SeedData
+    stale.activeSessionId = 'a'
+    const staleMorning = stale.sessions.find((entry) => entry.id === 'a')
+    staleMorning?.solves.unshift({
+      id: 'offline-new',
+      event: '333',
+      rawMs: 7_000,
+      penalty: 'none',
+      scramble: "F R U' R'",
+      comment: 'Added by the offline device',
+      createdAt: NOW + 5_000,
+    })
+    await page.evaluate(async (staleData) => {
+      const settingsRaw = localStorage.getItem('cubelab:settings:v1')
+      const cloud = {
+        app: 'CubeLab',
+        format: 'cubelab-backup',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        sessions: staleData,
+        settings: settingsRaw ? JSON.parse(settingsRaw).settings : {},
+        sync: {
+          protocolVersion: 1,
+          revision: 999,
+          deviceId: 'offline-device',
+          updatedAt: Date.now() + 60_000,
+          tombstones: [],
+          conflicts: [],
+          sessionRedirects: [],
+        },
+      }
+      const mock = (
+        window as typeof window & {
+          __cubeLabMockDrive?: {
+            uploadDeviceBackup: (
+              content: string,
+              deviceId: string,
+            ) => Promise<unknown>
+          }
+        }
+      ).__cubeLabMockDrive
+      if (!mock) throw new Error('Mock Drive is unavailable')
+      await mock.uploadDeviceBackup(
+        JSON.stringify(cloud),
+        'offline-device',
+      )
+    }, stale)
+
+    settings = await openSettings(page)
+    await settings.getByTestId('settings-drive-button').click()
+    drive = page.getByRole('dialog', { name: 'Google Drive backup' })
+    await drive.getByTestId('sync-now').click()
+    await expect(drive.getByTestId('sync-status')).toContainText('synced', {
+      timeout: 15_000,
+    })
+    await drive.getByTestId('drive-done').click()
+
+    const merged = await stored(page)
+    const source = merged?.sessions.find((entry) => entry.id === 'a')
+    const splitSession = merged?.sessions.find(
+      (entry) => entry.id === created?.id,
+    )
+    expect(source?.solves.map((entry) => entry.id)).toEqual([
+      'offline-new',
+      's3',
+    ])
+    expect(splitSession?.solves.map((entry) => entry.id)).toEqual([
+      's1',
+      's2',
+    ])
+    const allSolveIds = merged?.sessions.flatMap((entry) =>
+      entry.solves.map((solve) => solve.id),
+    )
+    expect(allSolveIds).toHaveLength(new Set(allSolveIds).size)
+    expect(allSolveIds).toHaveLength(5)
+    expect(merged?.sessionTransfers).toHaveLength(1)
+    expect(merged?.sessionTransfers?.[0]?.solveIds.sort()).toEqual([
+      's1',
+      's2',
+    ])
+
+    await page.reload()
+    await waitForApp(page)
+    const reloaded = await stored(page)
+    expect(
+      reloaded?.sessions.find((entry) => entry.id === created?.id)?.solves.map(
+        (entry) => entry.id,
+      ),
+    ).toEqual(['s1', 's2'])
+    expect(
+      reloaded?.sessions.find((entry) => entry.id === 'a')?.solves.map(
+        (entry) => entry.id,
+      ),
+    ).toEqual(['offline-new', 's3'])
   })
 })
 

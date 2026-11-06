@@ -1005,6 +1005,63 @@ describe('session ordering persistence', () => {
   })
 })
 
+describe('session transfer persistence', () => {
+  const transfer = {
+    id: 'transfer-1',
+    fromSessionId: 'session-1',
+    toSessionId: 'session-2',
+    solveIds: ['solve-1'],
+    transferredAt: 1_700_000_100_000,
+    byDeviceId: 'laptop',
+  }
+
+  it('round-trips split transfer metadata and accepts a v5 collection without it', () => {
+    const storage = new MemoryStorage()
+    const data = sessionsData({
+      sessions: [
+        session({ id: 'session-1', solves: [solve()] }),
+        session({ id: 'session-2', name: 'Split' }),
+      ],
+      sessionTransfers: [transfer],
+    })
+    expect(saveSessions(data, storage)).toBe(true)
+    expect(loadSessions(storage).sessionTransfers).toEqual([transfer])
+
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 5,
+        activeSessionId: 'session-1',
+        sessions: [session({ id: 'session-1', solves: [solve()] })],
+      }),
+    )
+    expect(loadSessions(storage).sessionTransfers).toBeUndefined()
+  })
+
+  it('drops malformed transfer records without discarding sessions', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 6,
+        activeSessionId: 'session-1',
+        sessions: [session({ id: 'session-1', solves: [solve()] })],
+        sessionTransfers: [
+          transfer,
+          { ...transfer, id: '', solveIds: [] },
+          { ...transfer, id: 'self', toSessionId: 'session-1' },
+          null,
+        ],
+      }),
+    )
+
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions).toHaveLength(1)
+    expect(loaded.sessions[0]?.solves).toHaveLength(1)
+    expect(loaded.sessionTransfers).toEqual([transfer])
+  })
+})
+
 describe('session summary settings migration', () => {
   it('defaults both new summaries to off for older settings', () => {
     const parsed = parseSettingsData({ inspectionEnabled: false })
@@ -1024,5 +1081,46 @@ describe('session summary settings migration', () => {
       showSessionSolveProgress: true,
       showSessionTotalTime: false,
     })
+  })
+})
+
+describe('statistics target persistence', () => {
+  it('round-trips independent per-event targets', () => {
+    const storage = new MemoryStorage()
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      statTargetsMs: {
+        '333': { single: 10_000, ao5: 15_000, 'custom:custom-id': 25_500 },
+        '222': { ao5: 5_000 },
+      },
+    }
+    expect(saveSettings(settings, storage)).toBe(true)
+    expect(loadSettings(storage)).toEqual(settings)
+  })
+
+  it('filters malformed and out-of-range targets without losing valid ones', () => {
+    const parsed = parseSettingsData({
+      inspectionEnabled: true,
+      statTargetsMs: {
+        '333': {
+          ao5: 15_000,
+          ao12: 14_999.6,
+          single: 5,
+          bogus: 15_000,
+          mo3: 'fast',
+        },
+        '222': { ao5: 500_000_000 },
+        broken: 'nope',
+      },
+    })
+    expect(parsed?.statTargetsMs).toEqual({
+      '333': { ao5: 15_000, ao12: 15_000 },
+    })
+  })
+
+  it('defaults older settings records to no targets', () => {
+    expect(parseSettingsData({ inspectionEnabled: false })?.statTargetsMs).toEqual(
+      {},
+    )
   })
 })

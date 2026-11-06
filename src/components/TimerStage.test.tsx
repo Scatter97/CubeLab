@@ -65,6 +65,95 @@ describe('timer display and input isolation', () => {
     expect(frames.size).toBe(0)
   })
 
+  it('keeps the inspection readout visible through holding and armed states', () => {
+    const holding: TimerState = {
+      status: 'holding',
+      holdStartedAt: 9_100,
+      inspectionStartedAt: 0,
+      input: 'keyboard',
+      holdDurationMs: 300,
+    }
+    const ready: TimerState = {
+      status: 'ready',
+      inspectionStartedAt: 0,
+      input: 'keyboard',
+    }
+    const { rerender } = render(
+      <TimerStage
+        {...props}
+        state={holding}
+        inspectionEnabled
+        inspectionElapsedMs={9_000}
+      />,
+    )
+    expect(screen.getByTestId('timer-display')).toHaveTextContent('6')
+    expect(screen.getByTestId('timer-surface')).toHaveAttribute(
+      'data-phase',
+      'holding',
+    )
+
+    rerender(
+      <TimerStage
+        {...props}
+        state={ready}
+        inspectionEnabled
+        inspectionElapsedMs={12_000}
+      />,
+    )
+    expect(screen.getByTestId('timer-display')).toHaveTextContent('3')
+    expect(screen.getByTestId('timer-surface')).toHaveAttribute(
+      'data-phase',
+      'ready',
+    )
+    expect(screen.getByTestId('timer-surface')).toHaveAccessibleName(
+      /Inspection, 3\. Timer armed/,
+    )
+
+    rerender(
+      <TimerStage
+        {...props}
+        state={{
+          status: 'running',
+          startedAt: 12_700,
+          inspectionStartedAt: 0,
+          input: 'keyboard',
+        }}
+        inspectionEnabled
+        inspectionElapsedMs={12_700}
+      />,
+    )
+    expect(screen.getByTestId('timer-display')).toHaveTextContent('0.00')
+  })
+
+  it('does not render instructional captions beneath the timer', () => {
+    const { rerender } = render(<TimerStage {...props} state={{ status: 'idle' }} />)
+    const readout = () => document.querySelector('.readout-zone')
+    expect(readout()).not.toHaveTextContent('Ready')
+    expect(readout()).not.toHaveTextContent('Inspection enabled')
+
+    rerender(
+      <TimerStage
+        {...props}
+        state={{
+          status: 'holding',
+          holdStartedAt: 1_000,
+          inspectionStartedAt: null,
+          input: 'keyboard',
+          holdDurationMs: 300,
+        }}
+      />,
+    )
+    expect(readout()).not.toHaveTextContent('Keep holding')
+
+    rerender(
+      <TimerStage
+        {...props}
+        state={{ status: 'ready', inspectionStartedAt: null, input: 'keyboard' }}
+      />,
+    )
+    expect(readout()).not.toHaveTextContent('Release to start')
+  })
+
   it.each([
     ['live', '1.23'], ['tenths', '1.20'], ['seconds', '1.00'],
   ] as const)('retains %s display precision and resets a new run', (timerUpdateMode, expected) => {

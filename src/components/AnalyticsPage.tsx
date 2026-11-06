@@ -2525,7 +2525,13 @@ export default function AnalyticsPage({
                     tabIndex={selected ? 0 : -1}
                     className={`analytics-analysis-tab${selected ? ' is-selected' : ''}`}
                     data-testid={`analytics-analysis-tab-${section.id}`}
-                    onClick={() => setActiveAnalysis(section.id)}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      setActiveAnalysis(section.id)
+                      // Keep a section switch from auto-scrolling the bounded
+                      // analysis rail and moving the heading or tab items.
+                      event.currentTarget.focus({ preventScroll: true })
+                    }}
                     onKeyDown={(event) => {
                       const index = visibleAnalysisSections.findIndex(
                         (candidate) => candidate.id === section.id,
@@ -2552,7 +2558,7 @@ export default function AnalyticsPage({
                       setActiveAnalysis(next.id)
                       document
                         .getElementById(`analytics-analysis-tab-${next.id}`)
-                        ?.focus()
+                        ?.focus({ preventScroll: true })
                     }}
                   >
                     {ANALYTICS_SECTION_LABELS[section.id]}

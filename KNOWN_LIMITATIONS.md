@@ -1,16 +1,16 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-04 against the implementation and the latest recorded
+**Reviewed:** 2026-11-05 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
 
 ## Layout and performance
 
-- **Panel overlap is not fully closed.** The default open panel reserves a right
-  gutter, but moved/resized panels, 320 px, landscape and all timing/chart states
-  still need visual verification. Existing layout tests do not establish that
-  every placement keeps the readout clear.
+- **Floating tools overlay the timer.** Tool panels no longer participate in the
+  readout's layout, so opening, dragging, resizing, or switching tools cannot move
+  the timer. A panel deliberately dragged over the digits can still cover them;
+  the layout tests verify position stability, not every possible occlusion.
 - **3D viewer lifecycle is fixed for the shared-renderer path.** The player is
   retained across navigation, tool switching and event changes, so repeated
   Timer/Analytics round trips no longer create additional vantages or enter the
@@ -26,6 +26,10 @@ These are current boundaries; dated repair details are in the
   hours to two decimals in the timer footer; a short session can therefore read
   `0.00 h` even when it contains valid solves. The underlying millisecond sum
   remains precise and the completed/total count stays exact.
+- **Statistics targets are training aids.** Targets, BPA, WPA, and next-solve
+  needed follow the current event, trimming, and DNF rules, but they are not WCA
+  results or predictions. BPA assumes a 0.00 next solve and WPA assumes a DNF;
+  expanded-row preferences are local UI state and are not synchronized.
 - **Saving still writes the full collection.** Browser storage serialization and
   writes are synchronous. Enabled sync still calculates full fingerprints;
   statistics/chart data rebuild after changes. Future caching or incremental

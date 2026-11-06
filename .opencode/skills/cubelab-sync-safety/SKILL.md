@@ -27,7 +27,7 @@ Run the groups affected by the change; extend the existing test that best reprod
 
 ```bash
 # Merge identities, approvals, recovery and field provenance
-npm test -- src/lib/sync.test.ts src/lib/sessionMetadata.test.ts src/lib/settingsMerge.test.ts src/lib/sessionRedirects.test.ts
+npm test -- src/lib/sync.test.ts src/lib/sessionTransfers.test.ts src/lib/sessionMetadata.test.ts src/lib/settingsMerge.test.ts src/lib/sessionRedirects.test.ts
 # Scheduling, in-flight edits, disabled tracking, repair, manual restore
 npm test -- src/hooks/useSync.test.ts src/hooks/useDriveBackup.test.ts
 # Pagination, transport preconditions, locking, ownership and cleanup failures

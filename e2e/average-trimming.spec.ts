@@ -59,7 +59,6 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   let settings = await openSettings(page)
   await expect(settings.getByTestId('average-trim-better')).toContainText('5%')
   await expect(settings.getByTestId('average-trim-worse')).toContainText('Auto')
-  await expect(settings.getByTestId('average-trim-example')).toContainText('50 fastest and 50 worst; 900 solves count')
   await settings.getByTestId('settings-done').click()
 
   let trend = await openTrend(page)
@@ -76,7 +75,9 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
 
   settings = await openSettings(page)
   await chooseTestOption(page, 'average-trim-better', '1')
-  await expect(settings.getByTestId('average-trim-example')).toContainText('1 fastest and 1 worst; 998 solves count')
+  await expect(settings.getByTestId('average-trim-better')).toContainText(
+    '1 solve',
+  )
   await settings.getByTestId('settings-done').click()
   const _divider2 = page.getByTestId('stats-solves-divider')
   if (await _divider2.count()) {
@@ -85,8 +86,8 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
     await page.waitForTimeout(250)
   }
   await expect(page.getByTestId('best-ao1000')).toHaveText('—')
-  await expect(page.getByTestId('best-ao1000').locator('..').locator('.stat-latest')).toContainText('DNF')
-  await expect(page.getByTestId('best-ao50').locator('..').locator('.stat-latest')).toContainText('DNF')
+  await expect(page.getByTestId('current-ao1000')).toHaveText('DNF')
+  await expect(page.getByTestId('current-ao50')).toHaveText('DNF')
   await expect(page.getByTestId('best-mo3')).toHaveText('9.67')
   trend = await openTrend(page)
   await expect(trend.locator('[data-series="ao1000"]')).toHaveAttribute('d', '')
@@ -113,12 +114,18 @@ test('independent and median trimming controls fit 320px and remain accessible',
   const settings = await openSettings(page)
   await chooseTestOption(page, 'average-trim-better', 'p1')
   await chooseTestOption(page, 'average-trim-worse', 'p10')
-  await expect(settings.getByTestId('average-trim-example')).toContainText('10 fastest and 100 worst; 890 solves count')
+  await expect(settings.getByTestId('average-trim-better')).toContainText('1%')
+  await expect(settings.getByTestId('average-trim-worse')).toContainText('10%')
   await chooseTestOption(page, 'average-trim-better', 'median')
   await chooseTestOption(page, 'average-trim-worse', 'auto')
-  await expect(settings.getByTestId('average-trim-example')).toContainText('499 fastest and 499 worst; 2 solves count')
+  await expect(settings.getByTestId('average-trim-better')).toContainText(
+    '50% / median',
+  )
+  await expect(settings.getByTestId('average-trim-worse')).toContainText('Auto')
   await chooseTestOption(page, 'average-trim-better', '0')
-  await expect(settings.getByTestId('average-trim-example')).toContainText('0 fastest and 0 worst; 1000 solves count')
+  await expect(settings.getByTestId('average-trim-better')).toContainText(
+    '0 solves',
+  )
   await settings.getByTestId('average-trimming-settings').scrollIntoViewIfNeeded()
   expect(await settings.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true)
   const result = await new AxeBuilder({ page }).include('.settings-dialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()

@@ -27,6 +27,7 @@ export const SETTINGS_FIELD_KEYS: readonly SettingsFieldKey[] = [
   'accentColor',
   'statVisibility',
   'customAverages',
+  'statTargetsMs',
   'statPrecision',
   'averageTrimBetter',
   'averageTrimWorse',
