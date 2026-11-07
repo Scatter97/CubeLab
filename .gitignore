@@ -28,3 +28,6 @@ blob-report
 *.njsproj
 *.sln
 *.sw?
+
+# Generated workflow-map output
+docs/workflow-map/
