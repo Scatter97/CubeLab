@@ -649,6 +649,51 @@ export function addSolve(
   })
 }
 
+function sessionEventValue(session: Session): PuzzleEvent {
+  return session.event ?? '333'
+}
+
+function recoverySessionBaseId(sessionId: string): string {
+  return sessionId.startsWith('recovered:')
+    ? sessionId
+    : `recovered:${sessionId}`
+}
+
+function resolveReconciliationTarget(input: {
+  byId: Map<string, Session>
+  sessions: Session[]
+  usedNames: Set<string>
+  source: Session | undefined
+  sessionId: string
+  event: PuzzleEvent
+}): Session | null {
+  const direct = input.byId.get(input.sessionId)
+  if (direct && sessionEventValue(direct) === input.event) return direct
+
+  const baseId = recoverySessionBaseId(input.sessionId)
+  let candidateId = baseId
+  let counter = 2
+  while (true) {
+    const existing = input.byId.get(candidateId)
+    if (!existing) {
+      if (!input.source) return null
+      const target: Session = {
+        ...input.source,
+        id: candidateId,
+        name: recoveredExternalSessionName(input.source.name, input.usedNames),
+        event: input.event,
+        solves: [],
+      }
+      input.sessions.push(target)
+      input.byId.set(candidateId, target)
+      return target
+    }
+    if (sessionEventValue(existing) === input.event) return existing
+    candidateId = `${baseId}:${counter}`
+    counter += 1
+  }
+}
+
 function recoveredExternalSessionName(
   baseName: string,
   usedNames: Set<string>,
@@ -721,32 +766,39 @@ export function reconcileExternalSessions(input: {
 
   for (const [sessionId, added] of addedBySession) {
     const source = input.local.sessions.find((session) => session.id === sessionId)
-    let target =
-      byId.get(sessionId) ?? byId.get(`recovered:${sessionId}`)
-    if (!target) {
-      if (!source) continue
-      const recoveredId = `recovered:${sessionId}`
-      target = {
-        ...source,
-        id: recoveredId,
-        name: recoveredExternalSessionName(source.name, usedNames),
-        solves: [],
-      }
-      sessions.push(target)
-      byId.set(recoveredId, target)
+    const addedByEvent = new Map<PuzzleEvent, Solve[]>()
+    for (const solve of added) {
+      const event = solve.event ?? '333'
+      const solves = addedByEvent.get(event) ?? []
+      solves.push(solve)
+      addedByEvent.set(event, solves)
     }
 
-    const existingIds = new Set(target.solves.map((solve) => solve.id))
-    const newSolves = added.filter((solve) => !existingIds.has(solve.id))
-    if (newSolves.length === 0) continue
-    target.solves = [...target.solves, ...newSolves].sort(
-      (left, right) =>
-        right.createdAt - left.createdAt || left.id.localeCompare(right.id),
-    )
-    target.updatedAt = Math.max(
-      target.updatedAt,
-      ...newSolves.map((solve) => solve.updatedAt ?? solve.createdAt),
-    )
+    for (const [event, eventSolves] of addedByEvent) {
+      const target = resolveReconciliationTarget({
+        byId,
+        sessions,
+        usedNames,
+        source,
+        sessionId,
+        event,
+      })
+      if (!target) continue
+
+      const existingIds = new Set(target.solves.map((solve) => solve.id))
+      const newSolves = eventSolves.filter(
+        (solve) => !existingIds.has(solve.id),
+      )
+      if (newSolves.length === 0) continue
+      target.solves = [...target.solves, ...newSolves].sort(
+        (left, right) =>
+          right.createdAt - left.createdAt || left.id.localeCompare(right.id),
+      )
+      target.updatedAt = Math.max(
+        target.updatedAt,
+        ...newSolves.map((solve) => solve.updatedAt ?? solve.createdAt),
+      )
+    }
   }
 
   const activeSessionId = sessions.some(
@@ -1002,6 +1054,7 @@ export function restoreSolve(
 ): SessionsData | null {
   const session = data.sessions.find((candidate) => candidate.id === sessionId)
   if (!session) return null
+  if ((session.event ?? '333') !== solve.event) return null
   if (session.solves.some((candidate) => candidate.id === solve.id)) return null
 
   const solves = [...session.solves]

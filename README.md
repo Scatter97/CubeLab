@@ -21,6 +21,16 @@ The header switches between the timer and the read-only Analytics dashboard.
 Timer state and session data are shared; opening Analytics never changes stored
 solves.
 
+## One active tab
+
+CubeLab opens one editable tab or window per origin in the same browser profile.
+Additional tabs show **CubeLab is already open** and wait automatically until the
+owner closes. Waiting tabs do not mount recovery, timing, settings or sync hooks,
+and do not write session data. Backgrounding the owner does not transfer control.
+Ownership uses a browser Web Lock; if coordination is unavailable or fails,
+CubeLab keeps the editable app closed and offers a retry. Separate browser
+profiles, browsers, devices and different origins do not share this lock.
+
 ## Features
 
 See [FEATURES.md](FEATURES.md) for the complete current feature inventory,
@@ -146,7 +156,15 @@ including interaction rules, settings defaults, session overrides and persistenc
 - **Solve actions**: add/remove `+2`, mark/clear DNF, delete with a durable
   synchronized undo, copy the scramble, solve time, or full solve text, and add
   or edit a persisted comment.
-  Session clearing and deletion live in the session settings gear.
+  Session clearing and deletion live in the session settings gear. Deletion
+  intent is persisted before solves disappear: **Clear Session** blocks if its
+  deletion record cannot be saved, and an Undo that cannot restore the solve
+  immediately keeps a local recovery record that completes after reload or
+  storage recovery. An Undo interrupted before its deletion revocation commits
+  aborts and leaves the solve deleted; after that commit point, recovery finishes
+  the restoration. If the original session was removed or changed event,
+  recovery uses a clearly labelled compatible session instead of mixing events,
+  and native/manual backups include the pending solve.
 - **JSON backup and restore** covering every session, solve, and setting. Imports
   are validated and replace local data only after explicit confirmation.
 - **Developer options** in Settings are collapsed by default. **Danger Zone**
@@ -299,12 +317,15 @@ with up to three decimals, offers event-specific presets such as Sub-15/20/30 fo
 breakdown keeps sticky column headings, every session row, and a keyboard-
 resizable chart/table split.
 
-Practice activity uses the earliest-to-latest filtered solve range instead of a
-fixed 52-week window. Empty calendar days remain visible, month labels repeat the
-year at the start and each January, and the weekly solve-volume axis includes the
-year whenever the filtered history spans multiple years. Long ranges scroll
-horizontally inside the heatmap. Chart date labels stay compact for single-year
-histories.
+Practice activity keeps totals, streaks and weekly/monthly volume for the
+complete filtered range, but the heatmap renders only one bounded calendar
+window at a time. **Earliest**, **Earlier**, **Later** and **Latest** navigate
+the full history without allocating or laying out one cell per elapsed day;
+month labels repeat the year at the start and each January, and the weekly
+solve-volume axis includes the year whenever the filtered history spans multiple
+years. Chart date labels stay compact for single-year histories. Relative date
+presets and the current streak re-evaluate at local midnight and when the page
+returns to view, even if no solve or filter changed.
 
 The compact chart zoom group uses accessible icon buttons for zoom in, zoom out,
 and reset, with disabled, hover, active, and focus states in both themes. The
@@ -332,7 +353,7 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Action | Input |
 | --- | --- |
 | Arm the timer | Hold <kbd>Space</kbd>, or press and hold the timer surface, for the configured hold time (300 ms by default) |
-| Start timing | Release <kbd>Space</kbd> or the pointer |
+| Start timing | Release <kbd>Space</kbd> or the pointer; an eligible hold starts from the release timestamp even if no animation frame arrived first |
 | Stop timing | Press <kbd>Space</kbd>, click, or tap once; if **Stop with any key** is enabled in **Settings → Timer**, any non-modifier key also stops the running timer |
 | Cancel a hold or inspection | <kbd>Esc</kbd> |
 | Regenerate the scramble | Use the regenerate button in the scramble panel |
@@ -465,16 +486,62 @@ session, the session order, partial-split ownership records, and all settings.
 The file is created locally with the browser download API; CubeLab never uploads
 it.
 
+Export keeps readable JSON when it fits the 10 MB reader limit and otherwise
+uses compact JSON. If the complete payload still exceeds the cap, CubeLab
+reports the measured size and creates no file instead of producing a backup its
+own reader would reject. Manual Drive backups and automatic snapshots use the
+same checked serializer; an oversized snapshot is not uploaded.
+
 Import validates the application marker, format version, sessions, solves,
 custom definitions, and settings before changing anything. Valid data replaces
 the local sessions and settings only after a confirmation dialog explains the
 current and incoming counts. Backups containing only empty sessions are valid.
 csTimer imports instead add new sessions and custom event definitions while
 leaving existing sessions and settings intact, after preview and confirmation.
-Cancelling the confirmation leaves local data untouched. Imports are limited to
-10 MB; invalid files produce an inline error and are not applied. Imports also
-reject sessions whose solves belong to a different puzzle event instead of
-storing data that would later block synchronization.
+Additive imports preserve existing deletion records, session redirects, pending
+reviews, approvals and field metadata while marking the expanded collection for
+synchronization. Cancelling the confirmation leaves local data untouched.
+Imports are limited to 10 MB; invalid files produce an inline error and are not
+applied. Imports also reject sessions whose solves belong to a different puzzle
+event instead of storing data that would later block synchronization.
+
+Native backup imports and downloaded snapshots reject provided session/solve
+dates outside JavaScript's representable range before changing local data.
+History rendering also has an **Unknown date** fallback for invalid in-memory
+values. Startup performs a checked session read before mounting editable hooks:
+an unreadable current or legacy record shows **Recovery required** and retains
+the original bytes instead of saving an empty fallback. Retry opens the saved
+history after storage recovers. Unsupported, malformed or invalid-date stored
+collections remain protected until the underlying data is corrected; retry does
+not invent dates or repair damaged records automatically.
+
+A replacement is staged through a local recovery journal before any committed
+key is overwritten. CubeLab writes the sessions, settings, sync base and restore
+status, records a durable commit marker, and only then updates the visible data
+and announces success. Startup recovery runs before the normal session and
+settings hooks mount. A prepared journal is rolled back only while holding the
+same origin-wide Web Lock used by the replacement coordinator; without Web Locks
+it stays pending rather than assuming another writer is gone. A committed journal
+only needs cleanup and may open normally. If rollback or journal cleanup fails,
+or the record is malformed or unreadable, CubeLab shows a retry-only recovery
+state with no editable collection, autosave or timing controls.
+
+Other tabs ignore a prepared replacement. A committed replacement is adopted as
+one sessions/settings/sync/selection outcome; while the timer is armed, inspecting
+or running, adoption waits until idle so the current solve keeps its original
+session, event and scramble. Solves completed before that reconciliation, or
+while the candidate is still staged, are kept in a local-only completion buffer
+and replayed by stable solve ID. Replay reuses the original owner only when its
+event still matches; a removed or reclassified owner receives a labelled
+same-event recovery session, and replacement and buffered custom-event
+definitions are both retained. The buffer stores each solve under its own local
+key so competing appends do not overwrite each other, and acknowledgement removes
+only the exact solve versions that became durable (or were superseded by a
+deliberate deletion). Newer appends remain for idempotent replay. The buffer is
+applied and saved before normal hooks mount after reload. The journal and
+completion buffer are local-only and the individual local-storage keys are not an
+atomic transaction. A native import or Drive restore is blocked while an Undo
+recovery is still pending.
 
 ### Google Drive synchronization
 
@@ -501,7 +568,9 @@ snapshot of every device is always kept, and the legacy mutable file is never
 removed by cleanup. **Remote snapshots** in the Drive dialog lists each device's
 files with size and modification time, supports selective deletion, and offers
 **Clean up now** for this device's superseded snapshots. Invalid or unsupported
-snapshots are rejected before local mutation. Deleting remote backups removes
+snapshots are rejected before local mutation. A generated snapshot that would
+exceed the 10 MB reader limit is blocked before upload and reported as a
+persistent size limit, not a transient network retry. Deleting remote backups removes
 every CubeLab snapshot, including legacy files, and reports partial failures
 instead of claiming complete success.
 
@@ -789,11 +858,12 @@ precaches the application shell, fonts, scramble assets, and worker code.
 ## Verification
 
 ```bash
+export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
 npm run typecheck   # strict TypeScript project build
 npm run lint        # Oxlint
 npm test -- <file>  # focused Vitest case; npm test runs all
 npm run build       # production build + PWA generation
-npm run test:e2e -- <spec> --project=chromium --workers=1
+npm run test:e2e -- <spec> --project=chromium --workers=4
 ```
 
 Verification is tiered to keep routine development resource-conscious:
@@ -803,8 +873,8 @@ Verification is tiered to keep routine development resource-conscious:
 - Logic changes need `npm run typecheck`, `npm run lint`, and the affected Vitest
   files, including a new regression at the owning layer.
 - Major cross-layer work needs the focused Playwright specs for the affected
-  flows, normally one browser and `--workers=1`.
-- `VITE_DRIVE_MOCK=true npm run check` (the full browser matrix) is reserved for
+  flows, normally one browser and `--workers=4`.
+- `PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run check` (the full browser matrix) is reserved for
   significant releases, broad refactors, or an explicit request. Run
   `npm run build` afterward to restore normal production output.
 
@@ -859,8 +929,13 @@ practice heatmap and year-aware axes, Sub-X precise entry/presets, sticky sessio
 breakdown headings with keyboard-resizable split, filtered solve-list drill-down,
 compact chart zoom controls, the integrated session selector with reordering and
 narrow viewport containment, optional footer summaries, the display version, and
-histogram extreme-value scaling. Axe scans cover the main view, Settings, and
-the dark theme. The nine existing browser skips are offline,
+histogram extreme-value scaling, midnight relative-date/streak refresh without
+data changes, bounded heatmap navigation across a multi-decade range, eligible
+hold release with animation frames withheld, oversized export rejection, durable
+native/additive import staging and rollback, staged cross-tab replacement,
+active/prepared/rolled-back replacement ownership with reload, failed-startup
+recovery gating, committed-cleanup safety, malformed records, live-writer write
+lock coordination, and reload recovery. Axe scans cover the main view, Settings, and the dark theme. The nine existing browser skips are offline,
 touch hold-to-time and two CDP canvas/PG3D probes in Firefox/WebKit, plus cross-tab
 timing in WebKit. Non-cube player tests verify puzzle IDs and initialization
 status; they do not establish rendered-pixel correctness for every puzzle.

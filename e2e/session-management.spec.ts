@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { chooseTestOption, selectSession, sessionNames } from './interactions'
 
+import { simulateLegacyConcurrentTabs } from './legacy-tabs'
+
 const NOW = Date.now()
 
 interface SeedSolve {
@@ -164,11 +166,69 @@ async function stored(page: Page): Promise<SeedData | null> {
   })
 }
 
+async function failStorageKeys(page: Page, keys: string[]) {
+  await page.evaluate((failingKeys) => {
+    const original = Storage.prototype.setItem
+    const target = window as typeof window & {
+      __cubelabFailKeys?: string[]
+      __cubelabRestoreStorage?: () => void
+    }
+    target.__cubelabFailKeys = failingKeys
+    target.__cubelabRestoreStorage = () => {
+      Storage.prototype.setItem = original
+      delete target.__cubelabFailKeys
+    }
+    Storage.prototype.setItem = function setItem(key, value) {
+      if (target.__cubelabFailKeys?.includes(key)) {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError')
+      }
+      return original.call(this, key, value)
+    }
+  }, keys)
+}
+
+async function restoreStorage(page: Page) {
+  await page.evaluate(() => {
+    ;(
+      window as typeof window & { __cubelabRestoreStorage?: () => void }
+    ).__cubelabRestoreStorage?.()
+  })
+}
+
 async function openSettings(page: Page) {
   await page.getByTestId('settings-button').click()
   const dialog = page.getByRole('dialog', { name: 'Settings' })
   await expect(dialog).toBeVisible()
   return dialog
+}
+
+async function openBackup(page: Page) {
+  const settings = await openSettings(page)
+  await settings.getByTestId('settings-backup-button').click()
+  const dialog = page.getByRole('dialog', { name: 'Your local data' })
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function currentNativeBackup(page: Page) {
+  return page.evaluate(() => {
+    const sessions = JSON.parse(
+      localStorage.getItem('cubelab:sessions:v1')!,
+    ) as Record<string, unknown>
+    const settingsRaw = localStorage.getItem('cubelab:settings:v1')
+    if (!settingsRaw) throw new Error('Settings were not initialized')
+    const settings = (
+      JSON.parse(settingsRaw) as { settings: Record<string, unknown> }
+    ).settings
+    return {
+      app: 'CubeLab',
+      format: 'cubelab-backup',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      sessions,
+      settings,
+    }
+  })
 }
 
 async function openDeveloper(page: Page) {
@@ -737,6 +797,1372 @@ test.describe('session management', () => {
       ).__restoreSessionStorage?.()
     })
     expect(await sessionNames(page)).toHaveLength(3)
+  })
+
+  test('keeps a solve when its deletion record or collection cannot be saved', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const deleteFirstSolve = async () => {
+      const firstRow = page.locator('[data-testid="history-row"]').first()
+      await firstRow.locator('[data-testid="history-main"]').click()
+      await page
+        .getByRole('menu')
+        .getByRole('menuitem', { name: 'Delete solve' })
+        .click()
+    }
+
+    await failStorageKeys(page, ['cubelab:sync:v1'])
+    await deleteFirstSolve()
+    await expect(page.locator('.toast')).toContainText(
+      'Solve deletion blocked: deletion records could not be saved',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+    expect(
+      (await stored(page))?.sessions
+        .find((session) => session.id === 'a')
+        ?.solves.map((entry) => entry.id),
+    ).toEqual(expect.arrayContaining(['s1', 's2', 's3']))
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:sync:v1')
+        return raw
+          ? (JSON.parse(raw) as {
+              runtime: { tombstones: Array<{ kind: string; id: string }> }
+            }).runtime.tombstones
+          : []
+      }),
+    ).not.toContainEqual(
+      expect.objectContaining({ kind: 'solve', id: 's1' }),
+    )
+    await restoreStorage(page)
+
+    await failStorageKeys(page, ['cubelab:sessions:v1'])
+    await deleteFirstSolve()
+    await expect(page.locator('.toast')).toContainText(
+      'Solve deletion could not be saved',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+    expect(
+      (await stored(page))?.sessions
+        .find((session) => session.id === 'a')
+        ?.solves.map((entry) => entry.id),
+    ).toEqual(expect.arrayContaining(['s1', 's2', 's3']))
+    const revoked = await page.evaluate(() => {
+      const raw = localStorage.getItem('cubelab:sync:v1')
+      const tombstones = raw
+        ? (JSON.parse(raw) as {
+            runtime: {
+              tombstones: Array<{
+                kind: string
+                id: string
+                deletedAt: number
+                restoredAt?: number
+              }>
+            }
+          }).runtime.tombstones
+        : []
+      return tombstones.find(
+        (tombstone) => tombstone.kind === 'solve' && tombstone.id === 's1',
+      )
+    })
+    expect(revoked?.restoredAt).toBeGreaterThan(revoked?.deletedAt ?? 0)
+    await restoreStorage(page)
+
+    await failStorageKeys(page, ['cubelab:sync:v1', 'cubelab:sessions:v1'])
+    await deleteFirstSolve()
+    await expect(page.locator('.toast')).toContainText(
+      'Solve deletion blocked: deletion records could not be saved',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+    await restoreStorage(page)
+
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+  })
+
+  test('blocks Clear Session when deletion intent cannot be saved', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const requestClear = async () => {
+      await page.getByTestId('session-settings').click()
+      const sessionDialog = page.getByRole('dialog', {
+        name: 'Session settings',
+      })
+      await sessionDialog.getByTestId('session-clear').click()
+      const confirm = page.getByRole('dialog', { name: 'Delete every solve?' })
+      await confirm.getByTestId('confirm-text').fill('CLEAR THIS SESSION')
+      return { sessionDialog, confirm }
+    }
+
+    const { confirm } = await requestClear()
+    await failStorageKeys(page, ['cubelab:sync:v1'])
+    await confirm.getByRole('button', { name: 'Clear session' }).click()
+    await expect(page.locator('.toast')).toContainText(
+      'Session clear blocked: deletion records could not be saved',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+    expect(
+      (await stored(page))?.sessions
+        .find((session) => session.id === 'a')
+        ?.solves.map((entry) => entry.id),
+    ).toEqual(expect.arrayContaining(['s1', 's2', 's3']))
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:sync:v1')
+        return raw
+          ? (JSON.parse(raw) as {
+              runtime: {
+                tombstones: Array<{
+                  kind: string
+                  id: string
+                  restoredAt?: number
+                  deletedAt: number
+                }>
+              }
+            }).runtime.tombstones
+          : []
+      }),
+    ).not.toContainEqual(
+      expect.objectContaining({ kind: 'solve', id: 's1' }),
+    )
+    await restoreStorage(page)
+  })
+
+  test('keeps clear intent when the empty collection cannot be saved and completes after recovery', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const requestClear = async () => {
+      await page.getByTestId('session-settings').click()
+      const sessionDialog = page.getByRole('dialog', {
+        name: 'Session settings',
+      })
+      await sessionDialog.getByTestId('session-clear').click()
+      const confirm = page.getByRole('dialog', { name: 'Delete every solve?' })
+      await confirm.getByTestId('confirm-text').fill('CLEAR THIS SESSION')
+      return confirm
+    }
+
+    let confirm = await requestClear()
+    await failStorageKeys(page, ['cubelab:sessions:v1'])
+    await confirm.getByRole('button', { name: 'Clear session' }).click()
+    await expect(page.locator('.toast')).toContainText(
+      'Session clear could not be saved',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+    expect(
+      (await stored(page))?.sessions
+        .find((session) => session.id === 'a')
+        ?.solves.map((entry) => entry.id),
+    ).toEqual(expect.arrayContaining(['s1', 's2', 's3']))
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:sync:v1')
+        const tombstones = raw
+          ? (JSON.parse(raw) as {
+              runtime: {
+                tombstones: Array<{
+                  kind: string
+                  id: string
+                  restoredAt?: number
+                  deletedAt: number
+                }>
+              }
+            }).runtime.tombstones
+          : []
+        return tombstones.filter(
+          (entry) =>
+            entry.kind === 'solve' &&
+            (entry.restoredAt === undefined || entry.restoredAt <= entry.deletedAt),
+        )
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 's1' }),
+        expect.objectContaining({ id: 's2' }),
+        expect.objectContaining({ id: 's3' }),
+      ]),
+    )
+
+    await restoreStorage(page)
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+
+    confirm = await requestClear()
+    await confirm.getByRole('button', { name: 'Clear session' }).click()
+    await expect(page.locator('.toast')).toContainText('Session cleared')
+    await expect(page.getByTestId('solve-count')).toHaveText('0')
+    const cleared = await stored(page)
+    expect(
+      cleared?.sessions.find((session) => session.id === 'a')?.solves,
+    ).toEqual([])
+    expect(
+      cleared?.sessions
+        .find((session) => session.id === 'b')
+        ?.solves.map((entry) => entry.id),
+    ).toEqual(['b1'])
+    expect(
+      cleared?.sessions.find((session) => session.id === 'c')?.solves,
+    ).toEqual([])
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('solve-count')).toHaveText('0')
+  })
+
+  test('keeps an Undo failure notification visible after the action toast is dismissed', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const firstRow = page.locator('[data-testid="history-row"]').first()
+    await firstRow.locator('[data-testid="history-main"]').click()
+    await page
+      .getByRole('menu')
+      .getByRole('menuitem', { name: 'Delete solve' })
+      .click()
+    await expect(page.getByTestId('solve-count')).toHaveText('2')
+
+    await failStorageKeys(page, ['cubelab:sync:v1'])
+    await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    await expect(page.getByTestId('solve-count')).toHaveText('2')
+    await expect(page.locator('.toast')).toContainText('Undo blocked')
+    await expect(page.locator('.toast')).toBeVisible()
+    await restoreStorage(page)
+  })
+
+  test('blocks Undo before changing deletion intent when its recovery journal cannot be saved', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const firstRow = page.locator('[data-testid="history-row"]').first()
+    await firstRow.locator('[data-testid="history-main"]').click()
+    await page
+      .getByRole('menu')
+      .getByRole('menuitem', { name: 'Delete solve' })
+      .click()
+    await expect(page.getByTestId('solve-count')).toHaveText('2')
+
+    await failStorageKeys(page, ['cubelab:recovery:v1'])
+    await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    await expect(page.getByTestId('solve-count')).toHaveText('2')
+    await expect(page.locator('.toast')).toContainText(
+      'Undo blocked: the recovery record could not be saved',
+    )
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:recovery:v1')
+        return raw
+          ? (JSON.parse(raw) as { operations: unknown[] }).operations
+          : []
+      }),
+    ).toEqual([])
+    const tombstone = await page.evaluate(() => {
+      const raw = localStorage.getItem('cubelab:sync:v1')
+      const tombstones = raw
+        ? (JSON.parse(raw) as {
+            runtime: {
+              tombstones: Array<{
+                kind: string
+                id: string
+                deletedAt: number
+                restoredAt?: number
+              }>
+            }
+          }).runtime.tombstones
+        : []
+      return tombstones.find(
+        (entry) => entry.kind === 'solve' && entry.id === 's1',
+      )
+    })
+    expect(
+      tombstone?.restoredAt === undefined ||
+        (tombstone?.restoredAt ?? 0) <= (tombstone?.deletedAt ?? 0),
+    ).toBe(true)
+    await restoreStorage(page)
+  })
+
+  test('bounds recovery notifications when journal cleanup keeps failing', async ({
+    page,
+  }) => {
+    test.setTimeout(20_000)
+    await page.addInitScript(() => {
+      const target = window as typeof window & { __recoveryToasts?: number }
+      if (sessionStorage.getItem('journal-cleanup-seeded')) return
+      sessionStorage.setItem('journal-cleanup-seeded', '1')
+      const now = Date.now()
+      const pendingSolve = {
+        id: 'journal-cleanup-solve',
+        event: '333',
+        rawMs: 12_000,
+        penalty: 'none',
+        comment: '',
+        scramble: 'R U',
+        createdAt: now - 10_000,
+      }
+      localStorage.clear()
+      localStorage.setItem(
+        'cubelab:sessions:v1',
+        JSON.stringify({
+          version: 6,
+          activeSessionId: 'main',
+          sessions: [
+            {
+              id: 'main',
+              name: 'Main',
+              event: '333',
+              createdAt: now - 10_000,
+              updatedAt: now,
+              solves: [],
+            },
+          ],
+        }),
+      )
+      localStorage.setItem(
+        'cubelab:recovery:v1',
+        JSON.stringify({
+          version: 1,
+          operations: [
+            {
+              operationId: 'journal-cleanup-operation',
+              sessionId: 'main',
+              sessionName: 'Main',
+              index: 0,
+              solve: pendingSolve,
+              createdAt: now,
+            },
+          ],
+        }),
+      )
+      localStorage.setItem(
+        'cubelab:sync:v1',
+        JSON.stringify({
+          version: 1,
+          preferences: { enabled: false },
+          runtime: {
+            deviceId: 'journal-cleanup-device',
+            tombstones: [
+              {
+                kind: 'solve',
+                id: pendingSolve.id,
+                sessionId: 'main',
+                deletedAt: now - 1_000,
+                restoredAt: now,
+                deletedByDeviceId: 'journal-cleanup-device',
+              },
+            ],
+          },
+        }),
+      )
+      target.__recoveryToasts = 0
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node instanceof Element && node.classList.contains('toast')) {
+              target.__recoveryToasts = (target.__recoveryToasts ?? 0) + 1
+            }
+          }
+        }
+      }).observe(document, { subtree: true, childList: true })
+      const original = Storage.prototype.setItem
+      Storage.prototype.setItem = function setItem(key, value) {
+        if (key === 'cubelab:recovery:v1') {
+          throw new DOMException(
+            'Synthetic journal cleanup failure',
+            'QuotaExceededError',
+          )
+        }
+        return original.call(this, key, value)
+      }
+    })
+
+    const warnings: string[] = []
+    page.on('console', (message) => {
+      if (message.text().includes('Maximum update depth')) {
+        warnings.push(message.text())
+      }
+    })
+    page.on('pageerror', (error) => {
+      if (error.message.includes('Maximum update depth')) {
+        warnings.push(error.message)
+      }
+    })
+
+    await page.goto('/')
+    await waitForApp(page)
+    await page.waitForTimeout(1_500)
+    const recoveryToasts = await page.evaluate(
+      () =>
+        (window as typeof window & { __recoveryToasts?: number })
+          .__recoveryToasts ?? 0,
+    )
+    expect(recoveryToasts).toBeLessThanOrEqual(5)
+    expect(warnings).toEqual([])
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:recovery:v1')
+        return raw
+          ? (JSON.parse(raw) as { operations: unknown[] }).operations
+          : []
+      }),
+    ).toHaveLength(1)
+
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:recovery:v1')
+        return raw
+          ? (JSON.parse(raw) as { operations: unknown[] }).operations
+          : []
+      }),
+    ).toEqual([])
+    expect(
+      (await stored(page))?.sessions
+        .flatMap((session) => session.solves)
+        .filter((entry) => entry.id === 'journal-cleanup-solve'),
+    ).toHaveLength(1)
+  })
+
+  test('keeps a failed Undo recoverable across reload instead of leaving a durable restoration', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const firstRow = page.locator('[data-testid="history-row"]').first()
+    await firstRow.locator('[data-testid="history-main"]').click()
+    await page
+      .getByRole('menu')
+      .getByRole('menuitem', { name: 'Delete solve' })
+      .click()
+    await expect(page.getByTestId('solve-count')).toHaveText('2')
+
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem
+      let syncWrites = 0
+      const target = window as typeof window & {
+        __restoreUndoFailure?: () => void
+      }
+      target.__restoreUndoFailure = () => {
+        Storage.prototype.setItem = original
+      }
+      Storage.prototype.setItem = function setItem(key, value) {
+        if (key === 'cubelab:sessions:v1') {
+          throw new DOMException('Synthetic session quota', 'QuotaExceededError')
+        }
+        if (key === 'cubelab:sync:v1' && ++syncWrites > 1) {
+          throw new DOMException(
+            'Synthetic rollback failure',
+            'QuotaExceededError',
+          )
+        }
+        return original.call(this, key, value)
+      }
+    })
+
+    await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    await expect(page.getByTestId('solve-count')).toHaveText('2')
+    await expect(page.locator('.toast')).toContainText('Undo is pending recovery')
+
+    const pending = await page.evaluate(() => {
+      const raw = localStorage.getItem('cubelab:recovery:v1')
+      return raw ? JSON.parse(raw) : null
+    })
+    expect(pending?.operations).toContainEqual(
+      expect.objectContaining({
+        solve: expect.objectContaining({ id: 's1' }),
+        sessionId: 'a',
+      }),
+    )
+    const tombstone = await page.evaluate(() => {
+      const raw = localStorage.getItem('cubelab:sync:v1')
+      const tombstones = raw
+        ? (JSON.parse(raw) as {
+            runtime: {
+              tombstones: Array<{
+                kind: string
+                id: string
+                deletedAt: number
+                restoredAt?: number
+              }>
+            }
+          }).runtime.tombstones
+        : []
+      return tombstones.find(
+        (entry) => entry.kind === 'solve' && entry.id === 's1',
+      )
+    })
+    expect(tombstone?.restoredAt).toBeGreaterThan(tombstone?.deletedAt ?? 0)
+
+    const settings = await openSettings(page)
+    await settings.getByTestId('settings-backup-button').click()
+    const dataDialog = page.getByRole('dialog', { name: 'Your local data' })
+    const downloadPromise = page.waitForEvent('download')
+    await dataDialog.getByTestId('export-backup').click()
+    const download = await downloadPromise
+    const downloadPath = await download.path()
+    expect(downloadPath).not.toBeNull()
+    if (!downloadPath) throw new Error('Backup download has no path')
+    const exported = JSON.parse(readFileSync(downloadPath, 'utf8')) as {
+      sessions: SeedData
+    }
+    expect(
+      exported.sessions.sessions.flatMap((session) =>
+        session.solves.map((entry) => entry.id),
+      ),
+    ).toContain('s1')
+
+    await page.evaluate(() => {
+      ;(
+        window as typeof window & { __restoreUndoFailure?: () => void }
+      ).__restoreUndoFailure?.()
+    })
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
+    expect(
+      (await stored(page))?.sessions
+        .find((session) => session.id === 'a')
+        ?.solves.map((entry) => entry.id),
+    ).toContain('s1')
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:recovery:v1')
+        return raw
+          ? (JSON.parse(raw) as { operations: Array<{ solve: { id: string } }> })
+              .operations
+          : []
+      }),
+    ).not.toContainEqual(
+      expect.objectContaining({ solve: expect.objectContaining({ id: 's1' }) }),
+    )
+  })
+
+  test('commits native imports only after durable staging and rolls back every failure boundary', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+    const original = await stored(page)
+    const backup = await currentNativeBackup(page)
+    ;(
+      backup.sessions.sessions as Array<{ name: string; solves: unknown[] }>
+    )[0]!.name = 'Durable imported replacement'
+    ;(
+      backup.sessions.sessions as Array<{ name: string; solves: unknown[] }>
+    )[0]!.solves = [
+      (
+        backup.sessions.sessions as Array<{
+          solves: Array<{ id: string; comment: string }>
+        }>
+      )[0]!.solves[0]!,
+    ]
+
+    await openBackup(page)
+    const importBackup = async () => {
+      await page.getByTestId('backup-file-input').setInputFiles({
+        name: 'durable-import.json',
+        mimeType: 'application/json',
+        buffer: Buffer.from(JSON.stringify(backup)),
+      })
+      const confirmation = page.getByRole('dialog', {
+        name: 'Replace local sessions?',
+      })
+      await expect(confirmation).toBeVisible()
+      return confirmation
+    }
+
+    let confirmation = await importBackup()
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+    await failStorageKeys(page, ['cubelab:sessions:v1'])
+    await confirmation
+      .getByRole('button', { name: 'Import backup', exact: true })
+      .click()
+    await expect(page.locator('.toast')).toContainText(
+      'sessions could not be saved',
+    )
+    expect(await stored(page)).toEqual(original)
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:replacement:v1')
+        return raw
+          ? (JSON.parse(raw) as { phase: string }).phase
+          : null
+      }),
+    ).toBe('prepared')
+    await restoreStorage(page)
+    await page.reload()
+    await waitForApp(page)
+    expect(await stored(page)).toEqual(original)
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+
+    await openBackup(page)
+    confirmation = await importBackup()
+    await page.evaluate(() => {
+      const originalSetItem = Storage.prototype.setItem
+      const target = window as typeof window & {
+        __restoreReplacementMarker?: () => void
+      }
+      target.__restoreReplacementMarker = () => {
+        Storage.prototype.setItem = originalSetItem
+      }
+      Storage.prototype.setItem = function setItem(key, value) {
+        if (
+          key === 'cubelab:replacement:v1' &&
+          value.includes('"phase":"committed"')
+        ) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        }
+        return originalSetItem.call(this, key, value)
+      }
+    })
+    await confirmation
+      .getByRole('button', { name: 'Import backup', exact: true })
+      .click()
+    await expect(page.locator('.toast')).toContainText(
+      'durable commit marker could not be saved',
+    )
+    expect(await stored(page)).toEqual(original)
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+    await page.evaluate(() => {
+      ;(
+        window as typeof window & { __restoreReplacementMarker?: () => void }
+      ).__restoreReplacementMarker?.()
+    })
+
+    await confirmation
+      .getByRole('button', { name: 'Import backup', exact: true })
+      .click()
+    await expect(page.locator('.toast')).toContainText('Backup imported')
+    await expect(confirmation).toBeHidden()
+    await expect
+      .poll(async () => (await stored(page))?.sessions[0]?.name)
+      .toBe('Durable imported replacement')
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+
+    await page.reload()
+    await waitForApp(page)
+    expect((await stored(page))?.sessions[0]?.name).toBe(
+      'Durable imported replacement',
+    )
+  })
+
+  test('merges a buffered follower completion into a native import before acknowledging it', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const bufferedSolve = {
+      id: 'follower-buffered',
+      event: '333',
+      rawMs: 9_876,
+      penalty: 'none',
+      scramble: "F R U'",
+      comment: 'Follower completion',
+      createdAt: NOW + 5_000,
+    }
+    await page.evaluate((solve) => {
+      const sessions = JSON.parse(
+        localStorage.getItem('cubelab:sessions:v1')!,
+      ) as {
+        sessions: Array<Record<string, unknown> & { id: string }>
+      }
+      const source = sessions.sessions.find((session) => session.id === 'a')!
+      localStorage.setItem(
+        'cubelab:replacement-completion:v1',
+        JSON.stringify({
+          version: 1,
+          operationId: 'follower-completion',
+          createdAt: Date.now(),
+          entries: [
+            {
+              session: { ...source, solves: [] },
+              solves: [solve],
+            },
+          ],
+        }),
+      )
+    }, bufferedSolve)
+
+    const backup = await currentNativeBackup(page)
+    const candidate = backup.sessions.sessions as Array<{
+      id: string
+      name: string
+      solves: unknown[]
+    }>
+    candidate[0]!.name = 'Coordinated import'
+    candidate[0]!.solves = []
+
+    await openBackup(page)
+    await page.getByTestId('backup-file-input').setInputFiles({
+      name: 'coordinated-import.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(backup)),
+    })
+    const confirmation = page.getByRole('dialog', {
+      name: 'Replace local sessions?',
+    })
+    await expect(confirmation).toBeVisible()
+    await confirmation
+      .getByRole('button', { name: 'Import backup', exact: true })
+      .click()
+    await expect(page.locator('.toast')).toContainText('Backup imported')
+
+    const imported = await stored(page)
+    expect(imported?.sessions.find((session) => session.id === 'a')).toMatchObject({
+      name: 'Coordinated import',
+      solves: [
+        expect.objectContaining({
+          id: 'follower-buffered',
+          event: '333',
+          rawMs: 9_876,
+          comment: 'Follower completion',
+          scramble: "F R U'",
+        }),
+      ],
+    })
+    expect(
+      await page.evaluate(() => {
+        const prefix = 'cubelab:replacement-completion:v1'
+        return Object.keys(localStorage).filter((key) =>
+          key.startsWith(prefix),
+        )
+      }),
+    ).toEqual([])
+
+    await page.reload()
+    await waitForApp(page)
+    const reloaded = await stored(page)
+    expect(
+      reloaded?.sessions.find((session) => session.id === 'a')?.solves,
+    ).toEqual([
+      expect.objectContaining({
+        id: 'follower-buffered',
+        event: '333',
+        rawMs: 9_876,
+      }),
+    ])
+  })
+
+  test('ignores another tab\'s staged replacement until its commit marker', async ({
+    page,
+  }) => {
+    // Exercise the protocol against a simulated older concurrent client.
+    await simulateLegacyConcurrentTabs(page.context())
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+    const follower = await page.context().newPage()
+    await follower.goto('/')
+    await expect(follower.locator('.scramble-text')).toBeVisible({
+      timeout: 30_000,
+    })
+    await expect(follower.getByTestId('solve-count')).toHaveText('3')
+
+    const staged = await page.evaluate(() => {
+      const sessionsRaw = localStorage.getItem('cubelab:sessions:v1')!
+      const settingsRaw = localStorage.getItem('cubelab:settings:v1')!
+      const syncRaw = localStorage.getItem('cubelab:sync:v1')!
+      const sessions = JSON.parse(sessionsRaw) as {
+        activeSessionId: string
+        sessions: Array<{
+          id: string
+          name: string
+          solves: unknown[]
+        }>
+      }
+      sessions.sessions[0]!.name = 'Cross-tab committed'
+      sessions.sessions[0]!.solves = []
+      localStorage.setItem(
+        'cubelab:replacement:v1',
+        JSON.stringify({
+          version: 1,
+          operationId: 'cross-tab-operation',
+          kind: 'native-import',
+          phase: 'prepared',
+          createdAt: Date.now(),
+          before: {
+            sessions: sessionsRaw,
+            settings: settingsRaw,
+            sync: syncRaw,
+          },
+        }),
+      )
+      localStorage.setItem('cubelab:sessions:v1', JSON.stringify(sessions))
+      return sessions
+    })
+
+    await expect(follower.getByTestId('solve-count')).toHaveText('3')
+    await expect(follower.getByTestId('session-select')).not.toContainText(
+      staged.sessions[0]!.name,
+    )
+
+    await page.evaluate(() => {
+      const raw = localStorage.getItem('cubelab:replacement:v1')!
+      const journal = JSON.parse(raw) as Record<string, unknown>
+      localStorage.setItem(
+        'cubelab:replacement:v1',
+        JSON.stringify({ ...journal, phase: 'committed', before: {} }),
+      )
+    })
+
+    await expect(follower.getByTestId('solve-count')).toHaveText('0')
+    await expect(follower.getByTestId('session-select')).toContainText(
+      'Cross-tab committed',
+    )
+    await expect
+      .poll(() =>
+        follower.evaluate(() =>
+          localStorage.getItem('cubelab:replacement:v1'),
+        ),
+      )
+      .toBeNull()
+    await follower.close()
+  })
+
+  test('blocks editable startup until a failed prepared rollback can be completed', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('d5-v2-failed-rollback-seed')) return
+      sessionStorage.setItem('d5-v2-failed-rollback-seed', '1')
+      const now = Date.now()
+      const old = {
+        version: 6,
+        activeSessionId: 'v2-old',
+        sessions: [
+          {
+            id: 'v2-old',
+            name: 'Old committed',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves: [],
+          },
+        ],
+      }
+      const candidate = {
+        ...old,
+        activeSessionId: 'v2-new',
+        sessions: [
+          {
+            ...old.sessions[0]!,
+            id: 'v2-new',
+            name: 'Uncommitted candidate',
+          },
+        ],
+      }
+      localStorage.clear()
+      localStorage.setItem('cubelab:sessions:v1', JSON.stringify(candidate))
+      localStorage.setItem(
+        'cubelab:replacement:v1',
+        JSON.stringify({
+          version: 1,
+          operationId: 'v2-failed-rollback',
+          kind: 'native-import',
+          phase: 'prepared',
+          createdAt: now,
+          before: { sessions: JSON.stringify(old) },
+        }),
+      )
+      const originalSetItem = Storage.prototype.setItem
+      const target = window as typeof window & {
+        __restoreV2Storage?: () => void
+      }
+      target.__restoreV2Storage = () => {
+        Storage.prototype.setItem = originalSetItem
+      }
+      Storage.prototype.setItem = function setItem(key, value) {
+        if (key === 'cubelab:sessions:v1') {
+          throw new DOMException('Synthetic rollback failure', 'QuotaExceededError')
+        }
+        return originalSetItem.call(this, key, value)
+      }
+    })
+    await page.goto('/')
+
+    const recovery = page.getByTestId('startup-recovery')
+    await expect(recovery).toBeVisible({ timeout: 5_000 })
+    await expect(page.locator('.scramble-text')).toHaveCount(0)
+    await expect(page.getByTestId('session-select')).toHaveCount(0)
+    await expect(recovery).not.toContainText('Uncommitted candidate')
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:replacement:v1')
+        return raw
+          ? (JSON.parse(raw) as { phase: string }).phase
+          : null
+      }),
+    ).toBe('prepared')
+
+    await page.evaluate(() => {
+      ;(
+        window as typeof window & { __restoreV2Storage?: () => void }
+      ).__restoreV2Storage?.()
+    })
+    // Recovery is an explicit retry, not a render/event loop.
+    await expect(recovery).toBeVisible()
+    await page.getByTestId('startup-recovery-retry').click()
+    await waitForApp(page)
+    await expect(page.getByTestId('session-select')).toContainText(
+      'Old committed',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('0')
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+    })
+    const timer = page.locator('[data-testid="timer-surface"]')
+    await page.keyboard.down('Space')
+    await expect(timer).toHaveAttribute('data-phase', 'ready', {
+      timeout: 3_000,
+    })
+    await page.keyboard.up('Space')
+    await expect(timer).toHaveAttribute('data-phase', 'running')
+    await page.keyboard.press('Space')
+    await expect(timer).toHaveAttribute('data-phase', 'idle')
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('session-select')).toContainText(
+      'Old committed',
+    )
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
+  })
+
+  test('keeps startup gated when rollback succeeds but journal cleanup fails', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('d5-v2-cleanup-seed')) return
+      sessionStorage.setItem('d5-v2-cleanup-seed', '1')
+      const now = Date.now()
+      const old = {
+        version: 6,
+        activeSessionId: 'v2-cleanup-old',
+        sessions: [
+          {
+            id: 'v2-cleanup-old',
+            name: 'Cleanup old committed',
+            event: '333',
+            createdAt: now,
+            updatedAt: now,
+            solves: [],
+          },
+        ],
+      }
+      const candidate = {
+        ...old,
+        sessions: [
+          { ...old.sessions[0]!, name: 'Cleanup uncommitted candidate' },
+        ],
+      }
+      localStorage.clear()
+      localStorage.setItem('cubelab:sessions:v1', JSON.stringify(candidate))
+      localStorage.setItem(
+        'cubelab:replacement:v1',
+        JSON.stringify({
+          version: 1,
+          operationId: 'v2-cleanup-failure',
+          kind: 'native-import',
+          phase: 'prepared',
+          createdAt: now,
+          before: { sessions: JSON.stringify(old) },
+        }),
+      )
+      const originalRemoveItem = Storage.prototype.removeItem
+      const target = window as typeof window & {
+        __restoreV2Cleanup?: () => void
+      }
+      target.__restoreV2Cleanup = () => {
+        Storage.prototype.removeItem = originalRemoveItem
+      }
+      Storage.prototype.removeItem = function removeItem(key) {
+        if (key === 'cubelab:replacement:v1') {
+          throw new DOMException('Synthetic cleanup failure', 'QuotaExceededError')
+        }
+        return originalRemoveItem.call(this, key)
+      }
+    })
+    await page.goto('/')
+
+    const recovery = page.getByTestId('startup-recovery')
+    await expect(recovery).toBeVisible({ timeout: 5_000 })
+    await expect(recovery).not.toContainText('Cleanup uncommitted candidate')
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:sessions:v1')
+        return raw ? (JSON.parse(raw) as { activeSessionId: string }).activeSessionId : null
+      }),
+    ).toBe('v2-cleanup-old')
+    expect(
+      await page.evaluate(() => localStorage.getItem('cubelab:replacement:v1')),
+    ).not.toBeNull()
+
+    await page.evaluate(() => {
+      ;(
+        window as typeof window & { __restoreV2Cleanup?: () => void }
+      ).__restoreV2Cleanup?.()
+    })
+    await page.getByTestId('startup-recovery-retry').click()
+    await waitForApp(page)
+    await expect(page.getByTestId('session-select')).toContainText(
+      'Cleanup old committed',
+    )
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+  })
+
+  test('allows normal use after committed-marker cleanup fails without reverting later work', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('d5-v2-committed-seed')) {
+        sessionStorage.setItem('d5-v2-committed-seed', '1')
+        const now = Date.now()
+        const candidate = {
+          version: 6,
+          activeSessionId: 'v2-committed',
+          sessions: [
+            {
+              id: 'v2-committed',
+              name: 'Committed replacement',
+              event: '333',
+              createdAt: now,
+              updatedAt: now,
+              solves: [],
+            },
+          ],
+        }
+        localStorage.clear()
+        localStorage.setItem('cubelab:sessions:v1', JSON.stringify(candidate))
+        localStorage.setItem(
+          'cubelab:replacement:v1',
+          JSON.stringify({
+            version: 1,
+            operationId: 'v2-committed-cleanup',
+            kind: 'native-import',
+            phase: 'committed',
+            createdAt: now,
+            before: {},
+          }),
+        )
+      }
+      if (sessionStorage.getItem('d5-v2-committed-restored') === '1') return
+      const originalRemoveItem = Storage.prototype.removeItem
+      const target = window as typeof window & {
+        __restoreV2CommittedCleanup?: () => void
+      }
+      target.__restoreV2CommittedCleanup = () => {
+        Storage.prototype.removeItem = originalRemoveItem
+      }
+      Storage.prototype.removeItem = function removeItem(key) {
+        if (key === 'cubelab:replacement:v1') {
+          throw new DOMException('Synthetic cleanup failure', 'QuotaExceededError')
+        }
+        return originalRemoveItem.call(this, key)
+      }
+    })
+    await page.goto('/')
+    await waitForApp(page)
+    await expect(page.getByTestId('session-select')).toContainText(
+      'Committed replacement',
+    )
+
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+    })
+    const timer = page.locator('[data-testid="timer-surface"]')
+    await page.keyboard.down('Space')
+    await expect(timer).toHaveAttribute('data-phase', 'ready', {
+      timeout: 3_000,
+    })
+    await page.keyboard.up('Space')
+    await expect(timer).toHaveAttribute('data-phase', 'running')
+    await page.keyboard.press('Space')
+    await expect(timer).toHaveAttribute('data-phase', 'idle')
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
+
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).not.toBeNull()
+
+    await page.evaluate(() => {
+      sessionStorage.setItem('d5-v2-committed-restored', '1')
+      ;(
+        window as typeof window & {
+          __restoreV2CommittedCleanup?: () => void
+        }
+      ).__restoreV2CommittedCleanup?.()
+    })
+    await page.reload()
+    await waitForApp(page)
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+  })
+
+  test('does not roll back a prepared transaction while another tab holds the write boundary', async ({
+    page,
+  }) => {
+    // Exercise the protocol against a simulated older concurrent client.
+    await simulateLegacyConcurrentTabs(page.context())
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+
+    await page.evaluate(() => {
+      const target = window as typeof window & {
+        __releaseWriterLock?: () => void
+      }
+      void navigator.locks.request(
+        'cubelab-drive-write',
+        { mode: 'exclusive' },
+        async () => {
+          const sessionsKey = 'cubelab:sessions:v1'
+          const journalKey = 'cubelab:replacement:v1'
+          const before = localStorage.getItem(sessionsKey)!
+          const candidate = JSON.parse(before) as {
+            activeSessionId: string
+            sessions: Array<{ id: string; name: string }>
+          }
+          candidate.sessions[0]!.name = 'Writer candidate'
+          localStorage.setItem(
+            journalKey,
+            JSON.stringify({
+              version: 1,
+              operationId: 'live-writer-transaction',
+              kind: 'native-import',
+              phase: 'prepared',
+              createdAt: Date.now(),
+              before: { sessions: before },
+            }),
+          )
+          localStorage.setItem(sessionsKey, JSON.stringify(candidate))
+          await new Promise<void>((resolve) => {
+            target.__releaseWriterLock = () => {
+              localStorage.setItem(
+                journalKey,
+                JSON.stringify({
+                  version: 1,
+                  operationId: 'live-writer-transaction',
+                  kind: 'native-import',
+                  phase: 'committed',
+                  createdAt: Date.now(),
+                  before: {},
+                }),
+              )
+              resolve()
+            }
+          })
+        },
+      )
+    })
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (window as typeof window & { __releaseWriterLock?: () => void })
+            .__releaseWriterLock
+            ? 'held'
+            : 'waiting',
+        ),
+      )
+      .toBe('held')
+
+    const recoveryPage = await page.context().newPage()
+    await recoveryPage.goto('/')
+    const gate = recoveryPage.getByTestId('startup-recovery')
+    await expect(gate).toBeVisible({ timeout: 5_000 })
+    await expect(gate).not.toContainText('Writer candidate')
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:replacement:v1')
+        return raw ? (JSON.parse(raw) as { phase: string }).phase : null
+      }),
+    ).toBe('prepared')
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:sessions:v1'),
+      ),
+    ).toContain('Writer candidate')
+
+    await page.evaluate(() => {
+      ;(
+        window as typeof window & { __releaseWriterLock?: () => void }
+      ).__releaseWriterLock?.()
+    })
+    await waitForApp(recoveryPage)
+    await expect(recoveryPage.getByTestId('session-select')).toContainText(
+      'Writer candidate',
+    )
+    expect(
+      await recoveryPage.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+    await recoveryPage.close()
+  })
+
+  test('retains a malformed recovery record instead of opening staged data', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('d5-v2-invalid-seed')) return
+      sessionStorage.setItem('d5-v2-invalid-seed', '1')
+      const now = Date.now()
+      localStorage.clear()
+      localStorage.setItem(
+        'cubelab:sessions:v1',
+        JSON.stringify({
+          version: 6,
+          activeSessionId: 'invalid-old',
+          sessions: [
+            {
+              id: 'invalid-old',
+              name: 'Invalid-journal committed',
+              event: '333',
+              createdAt: now,
+              updatedAt: now,
+              solves: [],
+            },
+          ],
+        }),
+      )
+      localStorage.setItem('cubelab:replacement:v1', '{broken')
+    })
+    await page.goto('/')
+
+    const recovery = page.getByTestId('startup-recovery')
+    await expect(recovery).toBeVisible({ timeout: 5_000 })
+    await expect(page.locator('.scramble-text')).toHaveCount(0)
+    await expect(recovery).not.toContainText('Invalid-journal committed')
+    await page.getByTestId('startup-recovery-retry').click()
+    await expect(recovery).toBeVisible()
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBe('{broken')
+  })
+
+  test('does not announce an additive csTimer import before its sessions are durable', async ({
+    page,
+  }) => {
+    await seed(page)
+    await page.goto('/')
+    await waitForApp(page)
+    const original = await stored(page)
+    const originalSettings = await page.evaluate(() =>
+      localStorage.getItem('cubelab:settings:v1'),
+    )
+
+    await openBackup(page)
+    await page.getByTestId('backup-file-input').setInputFiles({
+      name: 'additive-failure.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(
+        JSON.stringify({
+          session1: [[[0, 12345], 'R U', 'additive failure', 1700000000]],
+        }),
+      ),
+    })
+    await page.getByTestId('cs-preview-import').click()
+    const confirmation = page.getByRole('dialog', {
+      name: 'Add imported sessions?',
+    })
+    await expect(confirmation).toBeVisible()
+
+    await failStorageKeys(page, ['cubelab:sessions:v1'])
+    await confirmation
+      .getByRole('button', { name: 'Import sessions', exact: true })
+      .click()
+    await expect(page.locator('.toast')).toContainText(
+      'sessions could not be saved',
+    )
+    expect(await stored(page)).toEqual(original)
+    expect(
+      await page.evaluate(() => localStorage.getItem('cubelab:settings:v1')),
+    ).toBe(originalSettings)
+    expect(
+      await page.evaluate(() => {
+        const raw = localStorage.getItem('cubelab:replacement:v1')
+        return raw
+          ? (JSON.parse(raw) as { phase: string }).phase
+          : null
+      }),
+    ).toBe('prepared')
+    await restoreStorage(page)
+
+    await page.reload()
+    await waitForApp(page)
+    expect(await stored(page)).toEqual(original)
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
+    await expect(page.getByTestId('solve-count')).toHaveText('3')
   })
 
   test('shows optional session summaries and recalculates after edits, deletion and switching', async ({

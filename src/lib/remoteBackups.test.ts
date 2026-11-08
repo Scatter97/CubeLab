@@ -127,6 +127,142 @@ describe('remote backup snapshots', () => {
     expect(merged.settings.accentColor).toBe('amber')
   })
 
+  it('uses the newest active-session selection provenance during manual restore', () => {
+    const sessions = [
+      session({ id: 'session-a', name: 'A' }),
+      session({ id: 'session-b', name: 'B' }),
+    ]
+    const snapshot = (
+      id: string,
+      activeSessionId: string,
+      updatedAt: number,
+      editorId: string,
+    ) => ({
+      file: {
+        id: `file-${id}`,
+        name: `snapshot-${id}.json`,
+        modifiedTime: new Date(updatedAt).toISOString(),
+      },
+      backup: createBackup(
+        { activeSessionId, sessions },
+        DEFAULT_SETTINGS,
+        new Date(updatedAt),
+        {
+          ...createSyncEnvelope(
+            editorId,
+            1,
+            [],
+            [],
+            [],
+            {},
+            { updatedAt, editorId },
+          ),
+          updatedAt,
+        },
+      ),
+      updatedAt,
+    })
+
+    const merged = mergeRemoteBackupSnapshots([
+      snapshot('older', 'session-a', 100, 'device-a'),
+      snapshot('newer', 'session-b', 200, 'device-b'),
+    ])
+    expect(merged.sessions.activeSessionId).toBe('session-b')
+  })
+
+  it('falls back when the newest selected session is tombstoned and keeps legacy selections', () => {
+    const sessions = [
+      session({ id: 'session-a', name: 'A' }),
+      session({ id: 'session-b', name: 'B' }),
+    ]
+    const older = {
+      file: {
+        id: 'file-older',
+        name: 'snapshot-older.json',
+        modifiedTime: new Date(100).toISOString(),
+      },
+      backup: createBackup(
+        { activeSessionId: 'session-a', sessions },
+        DEFAULT_SETTINGS,
+        new Date(100),
+        {
+          ...createSyncEnvelope(
+            'device-a',
+            1,
+            [],
+            [],
+            [],
+            {},
+            { updatedAt: 100, editorId: 'device-a' },
+          ),
+          updatedAt: 100,
+        },
+      ),
+      updatedAt: 100,
+    }
+    const newer = {
+      file: {
+        id: 'file-newer',
+        name: 'snapshot-newer.json',
+        modifiedTime: new Date(200).toISOString(),
+      },
+      backup: createBackup(
+        { activeSessionId: 'session-b', sessions },
+        DEFAULT_SETTINGS,
+        new Date(200),
+        {
+          ...createSyncEnvelope(
+            'device-b',
+            2,
+            [
+              {
+                kind: 'session' as const,
+                id: 'session-b',
+                deletedAt: 150,
+                deletedByDeviceId: 'device-b',
+                knownSolveIds: [],
+              },
+            ],
+            [],
+            [],
+            {},
+            { updatedAt: 200, editorId: 'device-b' },
+          ),
+          updatedAt: 200,
+        },
+      ),
+      updatedAt: 200,
+    }
+
+    const merged = mergeRemoteBackupSnapshots([older, newer])
+    expect(merged.sessions.sessions.map((item) => item.id)).toEqual([
+      'session-a',
+    ])
+    expect(merged.sessions.activeSessionId).toBe('session-a')
+
+    const legacy = mergeRemoteBackupSnapshots([
+      {
+        ...older,
+        backup: createBackup(
+          { activeSessionId: 'session-a', sessions },
+          DEFAULT_SETTINGS,
+          new Date(100),
+          { ...createSyncEnvelope('device-a', 1, [], []), updatedAt: 100 },
+        ),
+      },
+      {
+        ...newer,
+        backup: createBackup(
+          { activeSessionId: 'session-b', sessions },
+          DEFAULT_SETTINGS,
+          new Date(200),
+          { ...createSyncEnvelope('device-b', 2, [], []), updatedAt: 200 },
+        ),
+      },
+    ])
+    expect(legacy.sessions.activeSessionId).toBe('session-a')
+  })
+
   it('applies tombstones while merging snapshots', async () => {
     const transport = createMemoryDriveTransport()
     await transport.connect()

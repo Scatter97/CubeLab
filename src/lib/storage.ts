@@ -31,6 +31,7 @@ import {
   parseAnalyticsSettings,
 } from './analyticsSettings'
 import { createId } from './id'
+import { isDateTimestamp } from './dates'
 import { isStoredEventValue } from './events'
 import { parseCustomEvents } from './customEvents'
 import {
@@ -124,6 +125,7 @@ function cloneDefaultSettings(): Settings {
 export interface StorageLike {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
+  removeItem?(key: string): void
 }
 
 interface StoredSessions {
@@ -149,7 +151,7 @@ function isPenalty(value: unknown): value is Penalty {
 }
 
 function isPositiveTimestamp(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
+  return isDateTimestamp(value) && value > 0
 }
 
 function parseFieldUpdate(value: unknown): FieldUpdate | null {
@@ -197,7 +199,7 @@ function parseImportSource(value: unknown): CsTimerSolveSource | undefined {
   }
 }
 
-function parseSolve(value: unknown): Solve | null {
+export function parseSolve(value: unknown): Solve | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
   const rawEvent = value.event === undefined ? '333' : value.event
@@ -381,6 +383,23 @@ export function findSessionEventMismatches(value: unknown): string[] {
     }
   }
   return errors
+}
+
+/** Reject unrepresentable provided dates before tolerant parsers can drop records. */
+export function findSessionDateErrors(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.sessions)) return []
+  for (const [index, session] of value.sessions.entries()) {
+    if (!isRecord(session)) continue
+    const name = typeof session.name === 'string' ? session.name : `Session ${index + 1}`
+    const invalid = (record: Record<string, unknown>) =>
+      ['createdAt', 'updatedAt'].some((key) => typeof record[key] === 'number' && !isDateTimestamp(record[key]))
+    if (invalid(session)) return [`Session "${name}" has an invalid date.`]
+    if (!Array.isArray(session.solves)) continue
+    for (const solve of session.solves) {
+      if (isRecord(solve) && invalid(solve)) return [`A solve in session "${name}" has an invalid date.`]
+    }
+  }
+  return []
 }
 
 function parseSessionOrdering(value: unknown): SessionOrdering | undefined {
@@ -766,12 +785,56 @@ export function loadSessions(storage = getDefaultStorage()): SessionsData {
   return createEmptySessions()
 }
 
-export function saveSessions(
-  data: SessionsData,
-  storage = getDefaultStorage(),
-): boolean {
-  if (!storage) return false
+class SessionLoadError extends Error {}
 
+export interface SessionsSnapshot {
+  data: SessionsData
+  /** Raw bytes from the same checked read; undefined denotes memory-only mode. */
+  raw: string | null | undefined
+}
+
+/**
+ * Read once before mounting editable hooks. Unlike the tolerant read-only loader,
+ * startup never turns an unreadable or unsupported stored collection into an
+ * empty writable one. The original bytes are retained for explicit recovery.
+ */
+export function loadSessionsForStartup(storage = getDefaultStorage()): SessionsSnapshot {
+  if (!storage) return { data: createEmptySessions(), raw: undefined }
+  try {
+    const raw = storage.getItem(SESSIONS_STORAGE_KEY)
+    if (raw !== null) {
+      const parsed: unknown = JSON.parse(raw)
+      if (!isRecord(parsed) || typeof parsed.version !== 'number' || parsed.version < 1 || parsed.version > SESSIONS_VERSION) {
+        throw new SessionLoadError('Saved session data has an unsupported format. The original data has been kept.')
+      }
+      const dateErrors = findSessionDateErrors(parsed)
+      if (dateErrors.length > 0) throw new SessionLoadError(`${dateErrors[0]} The original data has been kept for recovery.`)
+      const data = parseSessionsData(parsed)
+      if (!data) throw new SessionLoadError('Saved session data could not be validated. The original data has been kept.')
+      return { data, raw }
+    }
+
+    // Only an absent current key permits legacy migration. Cache the legacy read
+    // so even a transient failure cannot be mistaken for an empty history.
+    const legacyRaw = storage.getItem(SOLVES_STORAGE_KEY)
+    if (legacyRaw !== null) {
+      const legacy: unknown = JSON.parse(legacyRaw)
+      if (!isRecord(legacy) || legacy.version !== STORAGE_VERSION || !Array.isArray(legacy.solves)) {
+        throw new SessionLoadError('Saved legacy history could not be validated. The original data has been kept.')
+      }
+      const dateErrors = findSessionDateErrors({ sessions: [{ name: 'Legacy history', solves: legacy.solves }] })
+      if (dateErrors.length > 0) throw new SessionLoadError(`${dateErrors[0]} The original data has been kept for recovery.`)
+      const solves = loadSolves({ getItem: () => legacyRaw, setItem: () => {} })
+      if (solves.length > 0) return { data: createSessionsFromLegacy(solves), raw }
+    }
+    return { data: createEmptySessions(), raw }
+  } catch (error) {
+    if (error instanceof SessionLoadError) throw error
+    throw new SessionLoadError('Saved history could not be read safely. The original data has been kept. Retry after browser storage recovers.')
+  }
+}
+
+export function serializeSessionsData(data: SessionsData): string {
   const payload: StoredSessions = {
     version: SESSIONS_VERSION,
     activeSessionId: data.activeSessionId,
@@ -782,12 +845,36 @@ export function saveSessions(
       ? { sessionTransfers: data.sessionTransfers }
       : {}),
   }
+  return JSON.stringify(payload)
+}
+
+export function saveSessions(
+  data: SessionsData,
+  storage = getDefaultStorage(),
+): boolean {
+  if (!storage) return false
 
   try {
-    storage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(payload))
+    storage.setItem(SESSIONS_STORAGE_KEY, serializeSessionsData(data))
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * Returns the current raw collection so a writer can detect an external
+ * replacement candidate before overwriting it. `undefined` means the read
+ * itself failed, which callers must treat conservatively.
+ */
+export function readSessionsRaw(
+  storage = getDefaultStorage(),
+): string | null | undefined {
+  if (!storage) return undefined
+  try {
+    return storage.getItem(SESSIONS_STORAGE_KEY)
+  } catch {
+    return undefined
   }
 }
 
@@ -848,19 +935,22 @@ export function loadSettings(storage = getDefaultStorage()): Settings {
   }
 }
 
+export function serializeSettingsData(settings: Settings): string {
+  const payload: StoredSettings = {
+    version: SETTINGS_STORAGE_VERSION,
+    settings: { ...settings },
+  }
+  return JSON.stringify(payload)
+}
+
 export function saveSettings(
   settings: Settings,
   storage = getDefaultStorage(),
 ): boolean {
   if (!storage) return false
 
-  const payload: StoredSettings = {
-    version: SETTINGS_STORAGE_VERSION,
-    settings: { ...settings },
-  }
-
   try {
-    storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload))
+    storage.setItem(SETTINGS_STORAGE_KEY, serializeSettingsData(settings))
     return true
   } catch {
     return false

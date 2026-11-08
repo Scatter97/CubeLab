@@ -66,6 +66,38 @@ describe('useTimer inspection and arming', () => {
     })
   })
 
+  it('starts an eligible hold on release when no readiness animation frame arrives', () => {
+    let clock = 0
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 1)
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {})
+    const onSolve = vi.fn()
+    const { result } = renderHook(() =>
+      useTimer({
+        inspectionEnabled: false,
+        holdDurationMs: 300,
+        onSolve,
+        now: () => clock,
+      }),
+    )
+
+    act(() => result.current.press('pointer'))
+    expect(result.current.state.status).toBe('holding')
+    clock = 300
+    act(() => result.current.release('pointer'))
+    expect(result.current.state).toMatchObject({
+      status: 'running',
+      startedAt: 300,
+      input: 'pointer',
+    })
+
+    clock = 1_300
+    act(() => result.current.press('pointer', 1_300))
+    expect(onSolve).toHaveBeenCalledExactlyOnceWith({
+      rawMs: 1_000,
+      penalty: 'none',
+    })
+  })
+
   it('returns to the running inspection when released before arming', () => {
     const timer = setup()
     act(() => timer.result.current.press('keyboard'))

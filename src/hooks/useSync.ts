@@ -2,10 +2,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MutableRefObject } from 'react'
 import type { Session, SessionsData, Settings } from '../types'
 import { countSolves, reconcileExternalSessions } from '../lib/sessions'
-import { loadSessions } from '../lib/storage'
-import { createBackup } from '../lib/backup'
+import { loadSessions, loadSettings, saveSessions } from '../lib/storage'
+import { createBackup, serializeBackupChecked } from '../lib/backup'
 import type { DriveTransport } from '../lib/driveTransport'
 import { isDrivePreconditionError } from '../lib/driveTransport'
+import {
+  applyPendingSolveRestores,
+  loadSolveRecovery,
+  saveSolveRecovery,
+} from '../lib/solveRecovery'
 import {
   loadDriveBackupState,
   saveDriveBackupState,
@@ -34,7 +39,22 @@ import {
 } from '../lib/sync'
 import { normalizeSessionRedirects } from '../lib/sessionRedirects'
 import { mergeSettingsData, SETTINGS_FIELD_KEYS } from '../lib/settingsMerge'
+import {
+  createAdditiveImportSyncStorage,
+  createResetBaseSyncStorage,
+} from '../lib/syncBase'
+import {
+  loadReplacementJournal,
+  pendingReplacementMessage,
+  recoverPendingReplacement,
+  replacementBlocksSync,
+  REPLACEMENT_STORAGE_KEY,
+} from '../lib/replacement'
 import { syncStateFingerprint } from '../lib/syncFingerprint'
+import {
+  applyPendingCompletion,
+  loadPendingCompletion,
+} from '../lib/pendingCompletion'
 import {
   findOwnSnapshots,
   listRemoteBackups,
@@ -116,7 +136,7 @@ export interface UseSyncResult {
   preferences: SyncPreferences
   updatePreferences: (next: Partial<SyncPreferences>) => void
   syncNow: (reason?: string) => Promise<void>
-  recordDeletion: (kind: 'solve' | 'session' | 'event', id: string, sessionId?: string) => void
+  recordDeletion: (kind: 'solve' | 'session' | 'event', id: string, sessionId?: string) => boolean
   /**
    * Records a session tombstone and a durable solve tombstone for every solve
    * it currently contains. Used before a confirmed single-session delete so a
@@ -132,8 +152,24 @@ export interface UseSyncResult {
    * write. Used by the destructive "delete all sessions" action.
    */
   recordAllSessionDeletions: (sessions: readonly Session[]) => boolean
-  restoreDeletion: (kind: 'solve' | 'session' | 'event', id: string) => void
+  restoreDeletion: (kind: 'solve' | 'session' | 'event', id: string) => boolean
+  /**
+   * Marks an additive import as a local change without clearing tombstones,
+   * redirects, approvals, field metadata or other review state.
+   */
+  recordAdditiveImport: (data: SessionsData) => void
   resetBase: (data: SessionsData) => void
+  /** True while a sync run is active in this tab. */
+  isSyncRunning: () => boolean
+  /**
+   * Publishes a replacement sync record and its data after the durable
+   * replacement commit marker has already been written.
+   */
+  adoptCommittedReplacement: (
+    next: SyncStorageData,
+    data: SessionsData,
+    settings: Settings,
+  ) => void
 }
 
 const MAX_BACKOFF_MS = 30_000
@@ -237,6 +273,15 @@ export function useSync({
   const previousSettingsRef = useRef<Settings | null>(null)
   const replacementSettingsFingerprintRef = useRef<string | null>(null)
   const previousActiveSessionIdRef = useRef<string | null>(null)
+  const onNotifyRef = useRef(onNotify)
+  const recoveryNoticeRef = useRef<string | null>(null)
+  const pendingReplacementRef = useRef<{
+    sessions: SessionsData
+    settings: Settings
+    sync: SyncStorageData
+    baseline: SessionsData
+  } | null>(null)
+  const replacementBaselineRef = useRef<SessionsData | null>(null)
   /**
    * A full solve reset must not let the immediately following publication prune
    * historical snapshots. Existing retention settings resume after that publish.
@@ -251,6 +296,10 @@ export function useSync({
     settingsRef.current = settings
     timerActiveRef.current = timerActive
   }, [sessions, settings, timerActive])
+
+  useLayoutEffect(() => {
+    onNotifyRef.current = onNotify
+  }, [onNotify])
 
   // Keep the latest sync storage available to the settings metadata effect
   // before paint. An external settings write and its metadata can arrive in
@@ -411,11 +460,11 @@ export function useSync({
   }, [sessions, persist])
 
   const recordDeletion = useCallback(
-    (kind: 'solve' | 'session' | 'event', id: string, sessionId?: string) => {
+    (kind: 'solve' | 'session' | 'event', id: string, sessionId?: string): boolean => {
       const existing = syncRef.current.runtime.tombstones.find(
         (tombstone) => tombstone.kind === kind && tombstone.id === id,
       )
-      if (existing && isActiveTombstone(existing)) return
+      if (existing && isActiveTombstone(existing)) return true
       const deletedSession =
         kind === 'session'
           ? sessionsRef.current.sessions.find((session) => session.id === id)
@@ -439,9 +488,15 @@ export function useSync({
           ],
         },
       }
-      persist(next)
+      // Deletion intent is the durability boundary. Do not publish it in memory
+      // or let a caller claim success unless it reached storage.
+      if (!storageOk) return false
+      if (!saveSyncStorage(next)) return false
+      setSync(next)
+      syncRef.current = next
+      return true
     },
-    [persist],
+    [storageOk],
   )
 
   const recordSessionDeletion = useCallback(
@@ -507,12 +562,14 @@ export function useSync({
           tombstones,
         },
       }
+      // A rejected batch must not publish tombstones into memory: a later sync
+      // would otherwise execute an operation the user was told was blocked.
+      if (!storageOk) return false
+      if (!saveSyncStorage(next)) return false
       setSync(next)
       syncRef.current = next
-      if (!storageOk) return false
-      const saved = saveSyncStorage(next)
-      if (saved) preserveSnapshotsForResetRef.current = true
-      return saved
+      preserveSnapshotsForResetRef.current = true
+      return true
     },
     [storageOk],
   )
@@ -553,12 +610,12 @@ export function useSync({
           lastSyncedFingerprint: null,
         },
       }
+      if (!storageOk) return false
+      if (!saveSyncStorage(next)) return false
       setSync(next)
       syncRef.current = next
-      if (!storageOk) return false
-      const saved = saveSyncStorage(next)
-      if (saved) preserveSnapshotsForResetRef.current = true
-      return saved
+      preserveSnapshotsForResetRef.current = true
+      return true
     },
     [storageOk],
   )
@@ -570,7 +627,7 @@ export function useSync({
    * deletion gets a newer `deletedAt` and wins deterministically.
    */
   const restoreDeletion = useCallback(
-    (kind: 'solve' | 'session' | 'event', id: string) => {
+    (kind: 'solve' | 'session' | 'event', id: string): boolean => {
       const now = Date.now()
       let changed = false
       const tombstones = syncRef.current.runtime.tombstones.map((tombstone) => {
@@ -584,50 +641,55 @@ export function useSync({
           restoredAt: Math.max(now, tombstone.deletedAt + 1),
         }
       })
-      if (!changed) return
-      persist({
+      if (!changed) return true
+      const next = {
         ...syncRef.current,
         runtime: {
           ...syncRef.current.runtime,
           tombstones,
         },
-      })
+      }
+      // The revocation is provenance too: publish it only after it is durable.
+      if (!storageOk) return false
+      if (!saveSyncStorage(next)) return false
+      setSync(next)
+      syncRef.current = next
+      return true
+    },
+    [storageOk],
+  )
+
+  const recordAdditiveImport = useCallback(
+    (data: SessionsData) => {
+      persist(createAdditiveImportSyncStorage(syncRef.current, data))
+      knownSessionsRef.current = data
     },
     [persist],
   )
 
   const resetBase = useCallback(
     (data: SessionsData) => {
-      // A local import or Drive restore is an explicit local edit. Stamp every
-      // global setting so the next merge cannot silently replace imported
-      // values with an older cloud field.
-      const now = Date.now()
-      const editorId = syncRef.current.runtime.deviceId
-      const settingsFieldUpdates: SettingsFieldUpdates = {}
-      for (const key of SETTINGS_FIELD_KEYS) {
-        settingsFieldUpdates[key] = { updatedAt: now, editorId }
-      }
-      const next = {
-        ...syncRef.current,
-        runtime: {
-          ...syncRef.current.runtime,
-          tombstones: [],
-          conflicts: [],
-          sessionRedirects: [],
-          pendingDuplicateNames: [],
-          settingsFieldUpdates,
-          // Force the next run to publish the explicit replacement instead of
-          // treating it as already confirmed.
-          lastSyncedFingerprint: null,
-          solveCountAtLastSync: countSolvesInData(data),
-          lastSyncStatus:
-            syncRef.current.preferences.enabled ? 'pending' as SyncStatus : syncRef.current.runtime.lastSyncStatus,
-        },
-      }
-      persist(next)
+      persist(createResetBaseSyncStorage(syncRef.current, data))
       knownSessionsRef.current = data
     },
     [persist],
+  )
+
+  const isSyncRunning = useCallback((): boolean => runningRef.current !== null, [])
+
+  const adoptCommittedReplacement = useCallback(
+    (next: SyncStorageData, data: SessionsData, nextSettings: Settings) => {
+      setSync(next)
+      syncRef.current = next
+      knownSessionsRef.current = data
+      sessionsRef.current = data
+      settingsRef.current = nextSettings
+      replacementSettingsFingerprintRef.current =
+        settingsStateFingerprint(nextSettings)
+      previousActiveSessionIdRef.current = data.activeSessionId
+      recoveryNoticeRef.current = null
+    },
+    [],
   )
 
   const recordSessionMerges = useCallback(
@@ -902,6 +964,7 @@ export function useSync({
         lastRemoteRevision: null,
         lastSyncStatus: enabled ? 'pending' : 'disabled',
         lastError: null,
+        blockedOutputFingerprint: null,
       },
     })
     if (enabled) {
@@ -929,6 +992,49 @@ export function useSync({
     },
     [persist],
   )
+
+  const recoverPendingSolveRestores = useCallback((): {
+    ok: boolean
+    recovered: number
+    discarded: number
+    aborted: number
+  } => {
+    const recovery = loadSolveRecovery()
+    if (recovery.operations.length === 0) {
+      return { ok: true, recovered: 0, discarded: 0, aborted: 0 }
+    }
+    const result = applyPendingSolveRestores({
+      data: sessionsRef.current,
+      tombstones: syncRef.current.runtime.tombstones,
+      operations: recovery.operations,
+    })
+    if (result.data !== sessionsRef.current) {
+      if (!saveSessions(result.data)) {
+        return { ok: false, recovered: 0, discarded: 0, aborted: 0 }
+      }
+      sessionsRef.current = result.data
+      onReplaceSessions(result.data)
+    }
+    if (
+      !saveSolveRecovery({
+        ...recovery,
+        operations: result.remaining,
+      })
+    ) {
+      return {
+        ok: false,
+        recovered: result.recovered.length,
+        discarded: result.discarded.length,
+        aborted: result.aborted.length,
+      }
+    }
+    return {
+      ok: result.remaining.length === 0,
+      recovered: result.recovered.length,
+      discarded: result.discarded.length,
+      aborted: result.aborted.length,
+    }
+  }, [onReplaceSessions])
 
   // Retries are bounded so a broken transport or a constantly edited timer
   // cannot spin forever. Any external trigger (manual, startup, interval,
@@ -986,6 +1092,48 @@ export function useSync({
         await runningRef.current
         return
       }
+      const pendingJournal = loadReplacementJournal()
+      let replacementMessage: string | null = null
+      if (pendingJournal.status === 'invalid') {
+        replacementMessage = pendingJournal.message
+      } else if (
+        pendingJournal.status === 'ok' &&
+        pendingJournal.journal.phase === 'prepared'
+      ) {
+        // Another tab may still be staging its replacement. Never roll that
+        // transaction back from a sync run; startup/main recovery handles an
+        // abandoned prepared record.
+        replacementMessage =
+          'Synchronization paused while a backup replacement is being committed.'
+      } else if (pendingJournal.status === 'ok') {
+        const replacementRecovery = recoverPendingReplacement()
+        replacementMessage = pendingReplacementMessage(replacementRecovery)
+      }
+      if (replacementMessage) {
+        persist({
+          ...syncRef.current,
+          runtime: {
+            ...syncRef.current.runtime,
+            lastSyncStatus: 'failed',
+            lastError: replacementMessage,
+          },
+        })
+        if (reason === 'manual') onNotify(replacementMessage)
+        return
+      }
+      const blockedFingerprint =
+        syncRef.current.runtime.blockedOutputFingerprint ?? null
+      if (
+        reason !== 'manual' &&
+        blockedFingerprint !== null &&
+        blockedFingerprint ===
+          syncStateFingerprint(sessionsRef.current, settingsRef.current)
+      ) {
+        // The complete payload is still the same known-oversized state. Do not
+        // repeat downloads, serialization or notifications until data changes;
+        // a manual retry remains available after the user reduces the data.
+        return
+      }
 
       const promise = (async () => {
         if (timerActiveRef.current) {
@@ -1002,6 +1150,31 @@ export function useSync({
             },
           })
           return
+        }
+
+        const recovery = recoverPendingSolveRestores()
+        if (!recovery.ok) {
+          if (reason === 'manual') {
+            onNotify(
+              'Synchronization paused: an Undo recovery is still pending. Retry after browser storage is available.',
+            )
+          }
+          return
+        }
+        if (recovery.recovered > 0) {
+          onNotify(
+            recovery.recovered === 1
+              ? 'Recovered a pending Undo before synchronizing.'
+              : `Recovered ${recovery.recovered} pending Undo operations before synchronizing.`,
+          )
+        } else if (recovery.discarded > 0 && reason === 'manual') {
+          onNotify(
+            'A pending Undo was discarded because the solve has a newer deletion.',
+          )
+        } else if (recovery.aborted > 0 && reason === 'manual') {
+          onNotify(
+            'An interrupted Undo had not committed and was not applied. The solve remains deleted.',
+          )
         }
 
         persist({ ...syncRef.current, runtime: { ...syncRef.current.runtime, lastSyncStatus: 'syncing', lastError: null } })
@@ -1320,6 +1493,26 @@ export function useSync({
               new Date(),
               envelope,
             )
+            const serialized = serializeBackupChecked(backup, {
+              preferCompact: true,
+            })
+            if (!serialized.ok) {
+              const message = `Synchronization blocked: ${serialized.error} No cloud snapshot was written.`
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'failed',
+                  lastError: message,
+                  blockedOutputFingerprint: syncStateFingerprint(
+                    sessionsRef.current,
+                    settingsRef.current,
+                  ),
+                },
+              })
+              if (reason === 'manual') onNotify(message)
+              return
+            }
 
             // Re-check immediately before the remote write. The upload itself
             // cannot be atomic, but local data is never replaced by a stale
@@ -1349,8 +1542,22 @@ export function useSync({
               return
             }
 
+            if (replacementBlocksSync()) {
+              const message =
+                'Synchronization paused while a replacement recovery record is pending.'
+              persist({
+                ...syncRef.current,
+                runtime: {
+                  ...syncRef.current.runtime,
+                  lastSyncStatus: 'failed',
+                  lastError: message,
+                },
+              })
+              if (reason === 'manual') onNotify(message)
+              return
+            }
             const expectedLegacyFile = remoteFiles[0]
-            const content = JSON.stringify(backup)
+            const content = serialized.raw
             const write = await runWithDriveWriteLock(async () => {
               // Re-check timer activity after acquiring the shared write lock;
               // a timer may have started while waiting for the lock.
@@ -1484,6 +1691,20 @@ export function useSync({
             queueRetry(500)
             return
           }
+          if (replacementBlocksSync()) {
+            const message =
+              'Synchronization paused before applying data because a replacement recovery record is pending.'
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                lastSyncStatus: 'failed',
+                lastError: message,
+              },
+            })
+            if (reason === 'manual') onNotify(message)
+            return
+          }
 
           knownSessionsRef.current = mergedSessions
           sessionsRef.current = mergedSessions
@@ -1519,6 +1740,7 @@ export function useSync({
               settingsFieldUpdates: mergedSettingsUpdates,
               activeSessionFieldUpdate: mergedActiveSessionUpdate,
               lastSyncedFingerprint: mergedFingerprint,
+              blockedOutputFingerprint: null,
             },
           }
           persist(next)
@@ -1702,12 +1924,54 @@ export function useSync({
       onReplaceSettings,
       onNotify,
       onDuplicateSessionDetected,
+      recoverPendingSolveRestores,
     ],
   )
 
   useEffect(() => {
     syncNowRef.current = syncNow
   }, [syncNow])
+
+  // Recover an interrupted Undo before startup/scheduled synchronization. The
+  // journal is local-only, so a reload can complete it after storage recovers.
+  // Retries follow mount/storage-health/timer-idle transitions, never unrelated
+  // renders; notifications are deduplicated by the journal operation set.
+  useEffect(() => {
+    if (!storageOk || timerActive) return
+    const recovery = loadSolveRecovery()
+    if (recovery.operations.length === 0) return
+    const operationIds = recovery.operations
+      .map((operation) => operation.operationId)
+      .join(',')
+    const result = recoverPendingSolveRestores()
+    let noticeKey: string | null = null
+    let notice: string | null = null
+    if (result.ok) {
+      if (result.recovered > 0) {
+        noticeKey = `recovered:${operationIds}`
+        notice =
+          result.recovered === 1
+            ? 'Recovered a pending Undo after browser storage became available.'
+            : `Recovered ${result.recovered} pending Undo operations after browser storage became available.`
+      } else if (result.discarded > 0) {
+        noticeKey = `discarded:${operationIds}`
+        notice =
+          'A pending Undo was discarded because the solve has a newer deletion.'
+      } else if (result.aborted > 0) {
+        noticeKey = `aborted:${operationIds}`
+        notice =
+          'An interrupted Undo was not applied because it had not committed. The solve remains deleted.'
+      }
+    } else {
+      noticeKey = `pending:${operationIds}`
+      notice =
+        'An Undo recovery is pending. It will retry after browser storage is available; synchronization is paused until then.'
+    }
+    if (noticeKey && notice && recoveryNoticeRef.current !== noticeKey) {
+      recoveryNoticeRef.current = noticeKey
+      onNotifyRef.current(notice)
+    }
+  }, [recoverPendingSolveRestores, storageOk, timerActive])
 
   // Resume a sync that was deferred by an active timer exactly once, when the
   // timer returns to idle.
@@ -1777,10 +2041,94 @@ export function useSync({
 
   useEffect(() => {
     const handler = (event: StorageEvent) => {
-      if (event.key === SYNC_STORAGE_KEY && syncRef.current?.preferences) {
-        setSync(loadSyncStorage())
+      if (event.key === REPLACEMENT_STORAGE_KEY) {
+        const journal = loadReplacementJournal()
+        if (journal.status === 'invalid') {
+          onNotifyRef.current(journal.message)
+          return
+        }
+        // A prepared transaction belongs to the writing tab. Followers must
+        // ignore its intermediate keys until the commit marker or removal
+        // arrives instead of rolling it back underneath the writer. Keep the
+        // pre-deferral baseline so completions recorded after this point can
+        // be reconciled with the final outcome.
+        if (journal.status === 'ok' && journal.journal.phase === 'prepared') {
+          if (!replacementBaselineRef.current) {
+            replacementBaselineRef.current = sessionsRef.current
+          }
+          return
+        }
+        const recovery = recoverPendingReplacement()
+        const committedCleanupPending =
+          recovery.status === 'cleanup-pending' &&
+          recovery.journal.phase === 'committed'
+        const message = pendingReplacementMessage(recovery)
+        if (message && !committedCleanupPending) {
+          onNotifyRef.current(message)
+          return
+        }
+        try {
+          const nextSessions = loadSessions()
+          const nextSettings = loadSettings()
+          const nextSync = loadSyncStorage()
+          if (timerActiveRef.current) {
+            const previous = pendingReplacementRef.current
+            pendingReplacementRef.current = {
+              sessions: nextSessions,
+              settings: nextSettings,
+              sync: nextSync,
+              // Retain the collection from before the first deferral. A later
+              // event only updates the external outcome.
+              baseline:
+                previous?.baseline ??
+                replacementBaselineRef.current ??
+                sessionsRef.current,
+            }
+            return
+          }
+          const completion = loadPendingCompletion()
+          const external =
+            completion.status === 'ok'
+              ? applyPendingCompletion(
+                  nextSessions,
+                  completion.completion,
+                  nextSync.runtime.tombstones,
+                )
+              : nextSessions
+          const reconciled = reconcileExternalSessions({
+            external,
+            local: sessionsRef.current,
+            baseline:
+              pendingReplacementRef.current?.baseline ??
+              replacementBaselineRef.current ??
+              sessionsRef.current,
+          })
+          pendingReplacementRef.current = null
+          pendingExternalSessionsRef.current = null
+          replacementBaselineRef.current = null
+          // Publish collection, selection, settings and sync provenance as one
+          // adopted outcome rather than letting pieces update independently.
+          adoptCommittedReplacement(nextSync, reconciled, nextSettings)
+          onReplaceSessions(reconciled)
+          onReplaceSettings(nextSettings)
+        } catch {
+          // A follow-up reload will recover the durable outcome.
+        }
+        return
       }
       if (event.key === 'cubelab:sessions:v1') {
+        // Replacement events own a prepared collection until their outcome has
+        // been adopted. A committed outcome is safe for the ordinary follower
+        // path even if only journal cleanup is still pending.
+        const journal = loadReplacementJournal()
+        if (
+          replacementBaselineRef.current ||
+          pendingReplacementRef.current ||
+          journal.status === 'invalid' ||
+          (journal.status === 'ok' && journal.journal.phase === 'prepared')
+        ) {
+          return
+        }
         try {
           const loaded = loadSessions()
           if (timerActiveRef.current) {
@@ -1797,11 +2145,20 @@ export function useSync({
         } catch {
           // ignore follower parse failures
         }
+        return
+      }
+      if (replacementBlocksSync()) return
+      if (event.key === SYNC_STORAGE_KEY && syncRef.current?.preferences) {
+        setSync(loadSyncStorage())
       }
     }
     window.addEventListener('storage', handler)
     return () => window.removeEventListener('storage', handler)
-  }, [onReplaceSessions])
+  }, [
+    adoptCommittedReplacement,
+    onReplaceSessions,
+    onReplaceSettings,
+  ])
 
   // Apply any deferred external session collection change once the timer is
   // idle. Local solves recorded during the deferral are merged by stable ID so
@@ -1818,6 +2175,39 @@ export function useSync({
     })
     onReplaceSessions(reconciled)
   }, [timerActive, onReplaceSessions])
+
+  // Apply a deferred replacement only after the timer is idle, preserving any
+  // solves recorded since the pre-deferral baseline and any buffered completion.
+  useEffect(() => {
+    if (timerActive) return
+    const pending = pendingReplacementRef.current
+    if (!pending) return
+    pendingReplacementRef.current = null
+    const completion = loadPendingCompletion()
+    const external =
+      completion.status === 'ok'
+        ? applyPendingCompletion(
+            pending.sessions,
+            completion.completion,
+            pending.sync.runtime.tombstones,
+          )
+        : pending.sessions
+    const reconciled = reconcileExternalSessions({
+      external,
+      local: sessionsRef.current,
+      baseline: pending.baseline,
+    })
+    pendingExternalSessionsRef.current = null
+    replacementBaselineRef.current = null
+    adoptCommittedReplacement(pending.sync, reconciled, pending.settings)
+    onReplaceSessions(reconciled)
+    onReplaceSettings(pending.settings)
+  }, [
+    adoptCommittedReplacement,
+    timerActive,
+    onReplaceSessions,
+    onReplaceSettings,
+  ])
 
   // Track active session selection changes so they can be field-merged across
   // devices instead of being silently overwritten.
@@ -2033,7 +2423,10 @@ export function useSync({
     recordDeletions,
     recordAllSessionDeletions,
     restoreDeletion,
+    recordAdditiveImport,
     resetBase,
+    isSyncRunning,
+    adoptCommittedReplacement,
     recordSessionMerges,
     removeSessionMerges,
     resolveConflict,

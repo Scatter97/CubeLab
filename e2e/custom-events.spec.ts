@@ -142,6 +142,51 @@ test('creates, uses, renames, reassigns and deletes a custom event', async ({
   expect(stored?.sessions[0]?.solves).toHaveLength(2)
 })
 
+test('blocks custom event deletion when its deletion record cannot be saved', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  let manager = await openEventManager(page)
+  await manager.getByTestId('custom-event-name').fill('FTO')
+  await manager.getByTestId('custom-event-placeholder').fill('No FTO scramble')
+  await manager.getByTestId('create-custom-event').click()
+  await expect(manager.getByTestId('custom-event-row')).toHaveCount(1)
+  await manager.getByRole('button', { name: 'Done' }).click()
+
+  manager = await openEventManager(page)
+  const row = manager.getByTestId('custom-event-row').first()
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem
+    const target = window as typeof window & {
+      __restoreEventDeletionStorage?: () => void
+    }
+    target.__restoreEventDeletionStorage = () => {
+      Storage.prototype.setItem = original
+    }
+    Storage.prototype.setItem = function setItem(key, value) {
+      if (key === 'cubelab:sync:v1') {
+        throw new DOMException('Synthetic quota', 'QuotaExceededError')
+      }
+      return original.call(this, key, value)
+    }
+  })
+  await row.getByRole('button', { name: 'Delete' }).click()
+  await expect(row.getByRole('alert')).toContainText(
+    'deletion record could not be saved',
+  )
+  await expect(manager.getByTestId('custom-event-row')).toHaveCount(1)
+  expect((await storedSessions(page))?.customEvents).toHaveLength(1)
+  await page.evaluate(() => {
+    ;(
+      window as typeof window & {
+        __restoreEventDeletionStorage?: () => void
+      }
+    ).__restoreEventDeletionStorage?.()
+  })
+})
+
 test('implements unknown csTimer types as separate custom events', async ({
   page,
 }) => {

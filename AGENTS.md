@@ -28,13 +28,13 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 
 | Area | Owner |
 | --- | --- |
-| Application wiring, global keyboard input, completion and modals | `src/App.tsx` |
+| Application wiring, single-tab ownership, startup, input and modals | `src/App.tsx`, `src/components/SingleTabGate.tsx`, `src/bootstrap.tsx`, `src/main.tsx` |
 | Timer transitions and inspection penalties | `src/timer/machine.ts`, `src/hooks/useTimer.ts` |
 | Live readout and delayed insight presentation | `src/hooks/useRunningElapsed.ts`, `src/hooks/usePostPaintValue.ts` |
-| Sessions, merge/split transfers, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/lib/sessionTransfers.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts` |
+| Sessions, merge/split transfers, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/lib/sessionTransfers.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts`, `src/lib/dates.ts` |
 | Custom events, csTimer event mapping and reassignment | `src/lib/events.ts`, `src/lib/customEvents.ts`, `src/components/CustomEventsDialog.tsx` |
 | Backup and csTimer parsing | `src/lib/backup.ts`, `src/lib/csTimerImport.ts` |
-| Sync orchestration and pure merges | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts` |
+| Sync orchestration, replacement recovery and pure merges | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts`, `src/lib/replacement.ts`, `src/lib/startupRecovery.ts`, `src/lib/pendingCompletion.ts` |
 | Display release version and release commands | `src/release.json`, `src/lib/version.ts`, `scripts/release.mjs` |
 | Statistics, trimming, session summaries and trend data | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts`, `src/lib/sessions.ts` |
 | Analytics dashboard, filters and reporting | `src/lib/analytics.ts`, `src/lib/analyticsSettings.ts`, `src/components/AnalyticsPage.tsx`, `src/components/AnalyticsCharts.tsx` |
@@ -57,6 +57,7 @@ adaptation/rendering in components. The architecture skill gives the fuller map.
   deletion metadata and scheduling receive current data. Keep the session-ID
   guard on delayed insights. Do not debounce saves or weaken sync guards to
   improve responsiveness; track deletions even while sync is disabled.
+- **Preserve single-tab ownership.** Acquire the dedicated `cubelab-active-tab` Web Lock before startup recovery or application hooks mount. Waiting tabs must not edit, autosave, recover or sync. Never steal ownership on focus or a heartbeat timeout. Keep this lifetime lock separate from the short-lived Drive/replacement lock. Production has no bypass; explicit legacy-client simulations retain lower-level protocol coverage.
 - **Respect input boundaries.** Reserve global Space for timing outside text
   entry; preserve Enter/arrow access to focused controls, repeat suppression,
   optional any-key stop, modal locks and tool pointer isolation. Settings/session
@@ -67,7 +68,7 @@ adaptation/rendering in components. The architecture skill gives the fuller map.
   across cards, charts and historical PB windows. mo3 is untrimmed. Inspection
   is penalty-free through 15,000 ms, +2 through 17,000 ms, then DNF; warnings
   occur at 8/12 seconds elapsed, with direction-aware labels.
-- **Maintain persistence compatibility.** Validate before mutation. Schema changes
+- **Maintain persistence compatibility.** Validate before mutation. Editable startup must use the checked session snapshot; never autosave a fallback after a failed read. Preserve unreadable bytes and use the recovery gate. Native session/solve dates must fit JavaScript Date before import/restore. Schema changes
   need migrations and tests; older settings migrate with documented defaults.
   Native backup imports replace only after confirmation; csTimer imports add
   sessions and preserve existing settings. Invalid supported csTimer rows fail
@@ -111,15 +112,19 @@ is tracked in this repository.
 
 ## Verification
 
-Commands are run from the repository root with existing dependencies:
+Commands are run from the repository root with existing dependencies. Initialize
+the existing Node 22.23.2 runtime for this checkout first. Playwright runs use
+**four workers** by default in agent commands; this user preference supersedes
+older one-worker examples in dated documents. Keep separate suites sequential:
 
 ```bash
+export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
 npm run dev              # Vite development server
 npm run typecheck        # TypeScript
 npm run lint             # Oxlint
 npm test -- <test-file>  # focused Vitest coverage; npm test runs all
 npm run build            # production build and PWA
-npm run test:e2e -- <spec-file> --project=chromium --workers=1
+npm run test:e2e -- <spec-file> --project=chromium --workers=4
 ```
 
 Use a tiered workflow so routine work does not saturate the CPU:
@@ -128,12 +133,12 @@ Use a tiered workflow so routine work does not saturate the CPU:
 | --- | --- |
 | Documentation, copy, or minor CSS/visual-only UI | Inspect the affected view manually. Run a focused Vitest/Playwright case only when the change can affect behavior. |
 | Logic, storage, statistics, import, sync, or another non-visual behavior | `npm run typecheck`, `npm run lint`, and the affected Vitest files. Add the owning regression before editing. |
-| Major cross-layer feature or refactor | Focused Vitest plus the Playwright specs covering the affected flow, normally Chromium and `--workers=1`. Add other engines only when the change is engine-sensitive. |
-| Significant release or explicitly requested full browser pass | `VITE_DRIVE_MOCK=true npm run check` once, after the focused checks pass. |
+| Major cross-layer feature or refactor | Focused Vitest plus the Playwright specs covering the affected flow, normally Chromium and `--workers=4`. Add other engines only when the change is engine-sensitive. |
+| Significant release or explicitly requested full browser pass | `PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run check` once, after the focused checks pass. |
 
 Do not run the entire Playwright suite after every change. Reserve the full
 suite for significant releases, broad refactors, or an explicit request. During
-normal development, target one spec and one browser with `--workers=1`; never
+normal development, target the relevant specs in one browser with `--workers=4`; never
 run multiple browsers or test suites concurrently. Do not rerun a passing test
 unless relevant code or configuration changed.
 

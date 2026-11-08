@@ -45,6 +45,7 @@ function session(id: string, name: string): Session {
 function renderDataDialog(input: {
   sessions?: readonly Session[]
   onImport?: (backup: Backup) => void
+  onExport?: () => { ok: true } | { ok: false; error: string }
 } = {}) {
   return render(
     <DataDialog
@@ -54,7 +55,7 @@ function renderDataDialog(input: {
       solveCount={0}
       customEvents={[]}
       onClose={vi.fn()}
-      onExport={() => true}
+      onExport={input.onExport ?? (() => ({ ok: true }))}
       onImport={input.onImport ?? vi.fn()}
     />,
   )
@@ -77,6 +78,26 @@ async function chooseFile(raw: string) {
   })
   return screen.findByTestId('cs-preview')
 }
+
+describe('backup export feedback', () => {
+  it('shows an accurate output-limit error and keeps the dialog open', () => {
+    renderDataDialog({
+      onExport: () => ({
+        ok: false,
+        error:
+          'Backup not exported: The complete backup is 10.5 MB; CubeLab\'s 10.00 MB backup limit was exceeded.',
+      }),
+    })
+
+    fireEvent.click(screen.getByTestId('export-backup'))
+    expect(screen.getByTestId('backup-error')).toHaveTextContent(
+      'Backup not exported',
+    )
+    expect(screen.getByTestId('backup-error')).toHaveTextContent(
+      'backup limit was exceeded',
+    )
+  })
+})
 
 describe('csTimer import preview', () => {
   it('shows only final session names and solve counts, including empty sessions', async () => {
@@ -142,7 +163,7 @@ describe('csTimer import preview', () => {
         solveCount={0}
         customEvents={[]}
         onClose={vi.fn()}
-        onExport={() => true}
+        onExport={() => ({ ok: true })}
         onImport={onImport}
       />,
     )

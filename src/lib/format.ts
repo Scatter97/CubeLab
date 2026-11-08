@@ -1,5 +1,6 @@
 import type { Penalty, Solve, StatPrecision } from '../types'
 import type { StatResult } from './stats'
+import { isDateTimestamp } from './dates'
 
 /** Formats a centisecond timer reading. Minutes are shown when needed. */
 export function formatTime(ms: number): string {
@@ -95,6 +96,7 @@ export function formatSessionHours(ms: number): string {
 }
 
 export function formatRelativeTime(timestamp: number, now = Date.now()): string {
+  if (!isDateTimestamp(timestamp)) return 'Unknown date'
   const elapsed = Math.max(0, now - timestamp)
   if (elapsed < 60_000) return 'Just now'
   if (elapsed < 3_600_000) {

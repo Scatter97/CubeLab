@@ -1,6 +1,6 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-06 against the implementation and the latest recorded
+**Reviewed:** 2026-11-07 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
@@ -47,7 +47,13 @@ These are current boundaries; dated repair details are in the
   solve-list dialog is virtualized. A synthetic 100,000-solve correctness case
   passes, but no Web Worker offload, physical-device profiling, memory ceiling or
   100,000-solve browser workflow has been established. Very large histories can
-  still make the first Analytics calculation block noticeably.
+  still make the first Analytics calculation block noticeably. Practice activity
+  keeps full-range aggregates sparse, but the heatmap is a bounded calendar
+  window (about one year) with earlier/later and earliest/latest navigation; it
+  does not display every elapsed day in one view. Relative date filters and the
+  current streak refresh at the next local midnight and after the page becomes
+  visible or focused again. A tab whose timers are fully suspended by the
+  platform catches up when it returns; no background execution is claimed.
 - **Analytics is read-only and tag-free.** There is no solve-tag schema, so tag
   filters are not offered. Session comparison uses each included session's
   matching history rather than the latest-count limit. Statistical target
@@ -78,6 +84,18 @@ These are current boundaries; dated repair details are in the
   collision-free equality proof.
 
 ## Synchronization and recovery
+
+- **One editable tab per origin/profile.** A document-lifetime Web Lock is
+  acquired before startup recovery. Additional current-build tabs wait without
+  mounting the editable app and open automatically when the owner closes.
+  Background tabs keep ownership; focus and elapsed time never steal it.
+  Coordination failure or missing Web Locks blocks editing rather than using
+  a racy storage lease. Separate browsers/profiles/devices/origins and pages
+  already running an older build do not participate in this exclusion. Retain
+  the underlying sync/recovery safeguards; this does not repair ordinary
+  storage-read failures or invalid imported dates. Refresh older tabs after
+  deploying this policy. Legacy-client protocol tests explicitly simulate
+  pre-gate clients; production has no bypass.
 
 - **Drive convergence is eventual.** Each device must merge again to see another
   device's newest snapshot. Unique immutable files prevent overwriting a writer's
@@ -123,6 +141,28 @@ These are current boundaries; dated repair details are in the
   conservative fallback. Cross-tab adopted settings can lack external timestamps
   if the other tab has not yet published metadata. Selection metadata/review is
   implemented and regression-tested; it does not establish multi-device consensus.
+- **Single-solve deletion requires durable sync metadata.** If the sync record
+  cannot be written, CubeLab blocks the deletion instead of hiding the solve. If
+  the solve collection cannot be written after the deletion record is saved, the
+  revocation is persisted so the solve stays visible and its stale copies are not
+  deleted on another device. The deletion still publishes only on a later
+  successful synchronization.
+- **A partial Undo uses a local recovery journal.** Undo first saves a durable
+  local record containing the solve, its session and its position, then records
+  the revocation and restores the collection. If the collection write fails, the
+  journal survives reload and is applied before synchronization; sync stays
+  paused while it remains pending. Recovery retries only on mount, storage-health
+  changes, timer-idle transitions or explicit sync. The journal is local-only, is
+  not included in remote envelopes, and is not an atomic transaction across the
+  two storage keys. A journal whose original deletion is still active is treated
+  as an Undo interrupted before its commit point: it aborts conservatively and
+  the solve stays deleted. Once revocation is committed, recovery completes.
+  A causally later deliberate deletion supersedes the journal, while older
+  records without original-deletion metadata also use the conservative abort.
+  If the recorded session was deleted or its event changed, recovery uses a
+  labelled same-event recovery session instead of mixing events. Native and
+  manual backups include that materialized solve, but clearing this browser's
+  local recovery/sync storage can still discard the only pending copy.
 - **Custom event definitions use the same eventual-merge boundary.** Stable IDs
   and event tombstones prevent duplicates and keep deletion intent, but an older
   client that does not understand `custom:` events or event tombstones may still
@@ -147,9 +187,61 @@ These are current boundaries; dated repair details are in the
 
 ## Import and supported scope
 
+- **Failed startup reads never authorize an empty autosave.** Startup validates
+  current sessions (or legacy history only when the current key is absent) and
+  passes that checked snapshot to the editable hooks. Failed reads, malformed or
+  unsupported records and unrepresentable stored dates keep the app behind the
+  recovery screen with the original bytes intact. Retry handles recovered
+  storage access; it does not automatically repair malformed records. A damaged
+  record still requires correction or recovery from a valid backup before the
+  editable app can open. The gate deliberately does not expose import/editing
+  hooks over an unvalidated collection. Missing storage retains memory-only
+  behavior. Completion-buffer replay uses the same checked read.
+- **Native dates must be representable.** Provided session/solve creation or
+  update timestamps outside JavaScript Date's range reject a native file or
+  downloaded backup before mutation. History rows have a defensive Unknown date
+  display, but this is not a policy of silently dropping invalid stored solves.
+
 - Native CubeLab JSON imports replace local data after confirmation; csTimer
   imports add sessions and retain existing settings. Neither implements a general
-  local-file merge by solve ID. The import cap remains 10 MB.
+  local-file merge by solve ID. The import cap remains 10 MB. Export prefers
+  readable JSON and falls back to compact JSON; if the complete payload still
+  exceeds the cap, the export is blocked with the measured size and no file is
+  created. Manual and automatic Drive uploads apply the same check. A collection
+  that cannot fit the unchanged cap has no full-backup path until it is reduced
+  or a future format is designed; solves and metadata are never silently
+  omitted.
+- **Replacement recovery uses separate local-storage keys, not a transaction.**
+  Native import, additive csTimer import and Drive restore capture previous
+  sessions/settings/sync/drive values in a local journal, write every candidate,
+  then record a commit marker before showing success. A prepared journal is
+  rolled back at startup only while this tab owns the same origin-wide Web Lock
+  used by the writer; a browser without Web Locks keeps the editable app closed
+  rather than guessing that the other writer is dead. A committed journal only
+  needs journal cleanup and
+  can open normally. Failed prepared rollback/cleanup, or a malformed or
+  unreadable record, keeps the editable application closed behind an explicit
+  retry state; no session hooks, autosave, timing controls or imports run in that
+  state. A cross-tab replacement committed during a solve is deferred until idle,
+  then reconciled by stable solve ID so the completion keeps its original
+  session/event/scramble. Replay never appends an event-incompatible solve to the
+  replacement owner; a removed or reclassified owner is recovered into a labelled
+  same-event session, with active solve tombstones preventing resurrection.
+  Solves accepted while a candidate is still staged use a local-only completion
+  buffer, which is applied before hooks mount on reload. New buffers write one
+  local key per solve so competing appends are not overwritten, and cleanup
+  acknowledges only exact durable solve versions; the older single-record buffer
+  remains readable and its cleanup is still a read/check/write sequence. The
+  journal and completion buffer are local-only and are not part of remote
+  envelopes, and the separate keys are not a cross-key transaction. Clearing this
+  browser’s local recovery/sync storage can discard the only pending copy.
+  Cross-tab followers ignore a prepared replacement, but this remains eventual
+  coordination rather than an atomic multi-tab commit.
+- **An oversized unchanged sync payload remains blocked.** Automatic triggers
+  skip the same known-oversized local fingerprint instead of repeatedly
+  downloading and rejecting it. Editing the collection, resetting sync state,
+  or using **Sync now** retries. Reducing the data or exporting after it fits the
+  10 MB limit is the recovery path.
 - Invalid rows, durations, or provided dates in csTimer sessions that contain
   solves reject the file before preview. Valid session metadata that omits
   `opt.scrType` uses csTimer’s `333` default; explicitly supplied unsupported

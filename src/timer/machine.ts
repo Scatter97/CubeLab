@@ -152,6 +152,20 @@ export function transitionTimer(
 
     case 'release': {
       if (state.status === 'holding' && state.input === event.input) {
+        // Readiness is a property of elapsed hold time, not of the last
+        // presentation tick. If the eligible release arrives before a tick,
+        // start directly from the release timestamp so dropped frames or a
+        // suspended animation clock cannot cancel a valid hold.
+        if (event.at - state.holdStartedAt >= state.holdDurationMs) {
+          return {
+            state: {
+              status: 'running',
+              startedAt: event.at,
+              inspectionStartedAt: state.inspectionStartedAt,
+              input: state.input,
+            },
+          }
+        }
         if (state.inspectionStartedAt === null) {
           return { state: initialTimerState }
         }

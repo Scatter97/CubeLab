@@ -21,11 +21,11 @@ Use Node 22+ and existing dependencies:
 
 ```bash
 npm test -- src/timer/machine.test.ts src/hooks/useTimer.test.ts src/components/TimerStage.test.tsx src/hooks/usePostPaintValue.test.ts src/lib/alerts.test.ts
-npm run test:e2e -- e2e/timer.spec.ts e2e/timer-response.spec.ts e2e/cross-tab-timing.spec.ts --project=chromium --workers=1
+npm run test:e2e -- e2e/timer.spec.ts e2e/timer-response.spec.ts e2e/cross-tab-timing.spec.ts --project=chromium --workers=4
 ```
 
 Add the tool/chart suites when that boundary changes. Targeted Playwright runs
-should normally use one browser and `--workers=1`; reserve the full matrix for a
+should normally use one browser and `--workers=4`; reserve the full matrix for a
 significant release or explicit request. Playwright uses `playwright.config.ts`
 with Chromium, Firefox and WebKit against production preview. Its server command
 builds with mock Drive; a reused preview skips that command, so ensure the reused

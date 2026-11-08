@@ -9,6 +9,7 @@ import {
   SETTINGS_STORAGE_KEY,
 } from '../lib/storage'
 import { SETTINGS_FIELD_KEYS } from '../lib/settingsMerge'
+import { replacementBlocksSync } from '../lib/replacement'
 import type { SettingsFieldKey } from '../lib/syncStorage'
 
 function fieldEquals(left: unknown, right: unknown): boolean {
@@ -28,6 +29,8 @@ export interface UseSettingsResult {
   setInspectionEnabled: (enabled: boolean) => void
   updateSettings: (next: Partial<Settings>) => void
   replaceSettings: (settings: Settings) => void
+  /** Saves a replacement settings record without publishing React state. */
+  stageSettings: (settings: Settings) => boolean
   /**
    * Defers external settings adoption while the timer is armed, running, or
    * inspecting so a cross-tab change cannot cancel inspection mid-solve.
@@ -93,6 +96,9 @@ export function useSettings(): UseSettingsResult {
   useEffect(() => {
     const handler = (event: StorageEvent) => {
       if (event.key !== SETTINGS_STORAGE_KEY) return
+      // Do not adopt a settings key written during another tab's staged
+      // replacement. The replacement listener adopts the final outcome.
+      if (replacementBlocksSync()) return
       try {
         const loaded = loadSettings()
         if (timerActiveRef.current) {
@@ -146,12 +152,22 @@ export function useSettings(): UseSettingsResult {
     setSettings(parseSettingsData(next) ?? DEFAULT_SETTINGS)
   }, [])
 
+  const stageSettings = useCallback((next: Settings): boolean => {
+    if (!saveSettings(parseSettingsData(next) ?? DEFAULT_SETTINGS)) {
+      setSettingsStorageOk(false)
+      return false
+    }
+    setSettingsStorageOk(true)
+    return true
+  }, [])
+
   return {
     settings,
     settingsStorageOk,
     setInspectionEnabled,
     updateSettings,
     replaceSettings,
+    stageSettings,
     setTimerActive,
     adoptedFieldsRef,
   }

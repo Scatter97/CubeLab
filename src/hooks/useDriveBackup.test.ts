@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import type { Settings, Solve } from '../types'
-import { createBackup } from '../lib/backup'
+import { createBackup, parseBackup } from '../lib/backup'
 import { DEFAULT_SETTINGS } from '../lib/storage'
 import {
   createMemoryDriveTransport,
@@ -14,6 +14,10 @@ import {
   resetDeviceIdCacheForTests,
   saveSyncStorage,
 } from '../lib/syncStorage'
+import {
+  addPendingSolveRestore,
+  createPendingSolveRestore,
+} from '../lib/solveRecovery'
 import { useDriveBackup } from './useDriveBackup'
 
 function emptySessions() {
@@ -134,6 +138,45 @@ describe('useDriveBackup', () => {
     expect(result.current.metadata.remoteFileId).toBe('drive-file-1')
     expect(result.current.metadata.lastBackupAt).not.toBeNull()
     expect(onNotify).toHaveBeenCalledWith('Google Drive backup saved')
+  })
+
+  it('publishes the active-session selection provenance with a manual backup', async () => {
+    const stored = createDefaultSyncStorage('device-hook')
+    const activeSessionFieldUpdate = {
+      updatedAt: 1_700_000_000_123,
+      editorId: 'device-hook',
+    }
+    saveSyncStorage({
+      ...stored,
+      runtime: { ...stored.runtime, activeSessionFieldUpdate },
+    })
+
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.backupNow()
+    })
+
+    const files = await transport.listBackups!()
+    expect(files).toHaveLength(1)
+    const backup = JSON.parse(
+      await transport.downloadBackup(files[0]!.id),
+    ) as { sync?: { activeSessionFieldUpdate?: unknown } }
+    expect(backup.sync?.activeSessionFieldUpdate).toEqual(
+      activeSessionFieldUpdate,
+    )
   })
 
   it('replaces only its own snapshot and preserves another device backup', async () => {
@@ -300,6 +343,136 @@ describe('useDriveBackup', () => {
         .sort(),
     ).toEqual(['A', 'B'])
     expect(restored.settings.accentColor).toBe('blue')
+  })
+
+  it('includes a pending Undo solve in a manual backup', async () => {
+    const pendingSolve = sessionsWithSolve('pending-undo').sessions[0]!.solves[0]!
+    expect(
+      addPendingSolveRestore(
+        createPendingSolveRestore(
+          pendingSolve,
+          0,
+          'missing-session',
+          'Main',
+        ),
+      ),
+    ).toBe(true)
+
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: emptySessions(),
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.backupNow()
+    })
+
+    const files = await transport.listBackups!()
+    expect(files).toHaveLength(1)
+    const backup = JSON.parse(await transport.downloadBackup(files[0]!.id)) as {
+      sessions: { sessions: Array<{ solves: Array<{ id: string }> }> }
+    }
+    expect(
+      backup.sessions.sessions.flatMap((session) =>
+        session.solves.map((solve) => solve.id),
+      ),
+    ).toContain('pending-undo')
+  })
+
+  it('keeps manual-backup recovery compatible with a reclassified source session', async () => {
+    const pendingSolve = sessionsWithSolve('mixed-event-undo').sessions[0]!
+      .solves[0]!
+    expect(
+      addPendingSolveRestore(
+        createPendingSolveRestore(
+          pendingSolve,
+          0,
+          'session-1',
+          'Session 1',
+        ),
+      ),
+    ).toBe(true)
+    const changedSessions = emptySessions()
+    ;(changedSessions.sessions[0] as { event?: string }).event = '222'
+
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions: changedSessions,
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.backupNow()
+    })
+
+    const files = await transport.listBackups!()
+    expect(files).toHaveLength(1)
+    const raw = await transport.downloadBackup(files[0]!.id)
+    expect(parseBackup(raw).ok).toBe(true)
+    const backup = JSON.parse(raw) as {
+      sessions: {
+        sessions: Array<{
+          id: string
+          event: string
+          solves: Array<{ id: string; event: string }>
+        }>
+      }
+    }
+    expect(backup.sessions.sessions[0]).toMatchObject({
+      id: 'session-1',
+      event: '222',
+      solves: [],
+    })
+    const recovered = backup.sessions.sessions.find(
+      (session) => session.id !== 'session-1',
+    )
+    expect(recovered?.event).toBe('333')
+    expect(recovered?.solves).toEqual([pendingSolve])
+  })
+
+  it('blocks an oversized manual backup before writing any remote file', async () => {
+    saveSyncStorage(createDefaultSyncStorage('device-hook'))
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const sessions = sessionsWithSolve('oversized')
+    sessions.sessions[0]!.solves[0]!.comment = 'é'.repeat(5_500_000)
+    const onNotify = vi.fn()
+    const { result } = renderHook(() =>
+      useDriveBackup({
+        transport,
+        sessions,
+        settings: settings(),
+        storageOk: true,
+        onPendingRestore: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.connect()
+      await result.current.backupNow()
+    })
+
+    expect(result.current.error).toContain('backup limit was exceeded')
+    expect(onNotify).not.toHaveBeenCalledWith('Google Drive backup saved')
+    expect(await transport.listBackups!()).toHaveLength(0)
   })
 
   it('deletes every device snapshot and the legacy file', async () => {

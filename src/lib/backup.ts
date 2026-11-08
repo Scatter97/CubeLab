@@ -1,6 +1,7 @@
 import type { SessionsData, Settings } from '../types'
 import {
   findSessionEventMismatches,
+  findSessionDateErrors,
   parseSessionsData,
   parseSettingsData,
 } from './storage'
@@ -135,6 +136,74 @@ export function serializeBackup(backup: Backup): string {
   return `${JSON.stringify(backup, null, 2)}\n`
 }
 
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength
+}
+
+function formatByteSize(bytes: number): string {
+  const megabytes = bytes / (1024 * 1024)
+  if (megabytes >= 10) return `${megabytes.toFixed(1)} MB`
+  return `${megabytes.toFixed(2)} MB`
+}
+
+export type CheckedBackupSerialization =
+  | {
+      ok: true
+      raw: string
+      bytes: number
+      compact: boolean
+    }
+  | {
+      ok: false
+      bytes: number
+      limit: number
+      error: string
+    }
+
+/**
+ * Serializes a complete backup and proves that the exact payload fits the
+ * reader cap. Readable formatting is preferred when it fits; otherwise the
+ * compact form is used. If neither form fits, no output is produced so callers
+ * cannot create a file or remote snapshot that CubeLab's own readers reject.
+ */
+export function serializeBackupChecked(
+  backup: Backup,
+  options: { limit?: number; validate?: boolean; preferCompact?: boolean } = {},
+): CheckedBackupSerialization {
+  const limit = options.limit ?? MAX_BACKUP_BYTES
+  const pretty = options.preferCompact ? '' : serializeBackup(backup)
+  const prettyBytes = utf8ByteLength(pretty)
+  let raw = pretty
+  let bytes = prettyBytes
+  let compact = options.preferCompact ?? false
+
+  if (prettyBytes > limit || options.preferCompact) {
+    raw = JSON.stringify(backup)
+    bytes = utf8ByteLength(raw)
+    compact = true
+  }
+
+  if (bytes > limit) {
+    return {
+      ok: false,
+      bytes,
+      limit,
+      error: `The complete backup is ${formatByteSize(bytes)}; CubeLab's ${formatByteSize(limit)} backup limit was exceeded.`,
+    }
+  }
+
+  if (options.validate && !parseBackup(raw).ok) {
+    return {
+      ok: false,
+      bytes,
+      limit,
+      error: 'The serialized backup could not be read back safely.',
+    }
+  }
+
+  return { ok: true, raw, bytes, compact }
+}
+
 export function backupFileName(date = new Date()): string {
   return `cubelab-backup-${date.toISOString().slice(0, 10)}.json`
 }
@@ -164,6 +233,11 @@ export function parseBackup(raw: string): BackupParseResult {
   }
   if (typeof parsed.exportedAt !== 'string' || parsed.exportedAt.length === 0) {
     return { ok: false, error: 'The backup is missing its export date.' }
+  }
+
+  const dateErrors = findSessionDateErrors(parsed.sessions)
+  if (dateErrors.length > 0) {
+    return { ok: false, error: `${dateErrors[0]} CubeLab did not change your local data.` }
   }
 
   const mismatches = findSessionEventMismatches(parsed.sessions)

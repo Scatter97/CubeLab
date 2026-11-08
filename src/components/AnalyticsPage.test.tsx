@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -116,6 +117,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -170,6 +172,79 @@ describe('AnalyticsPage', () => {
 
     selectAnalysis('Practice activity')
     expect(activity).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes relative filters and the current streak at local midnight', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(NOW))
+    render(<Harness />)
+
+    chooseOption('analytics-date-range', 'today')
+    expect(screen.getByText('7 matching solves')).toBeVisible()
+
+    selectAnalysis('Practice activity')
+    expect(screen.getByText('Current streak')).toBeVisible()
+    expect(screen.getByText('1 d')).toBeVisible()
+
+    act(() => {
+      vi.setSystemTime(new Date(NOW + 2 * 86_400_000))
+      vi.advanceTimersByTime(2 * 86_400_000)
+    })
+
+    expect(screen.getByText('0 matching solves')).toBeVisible()
+    expect(screen.getByText('0 d')).toBeVisible()
+  })
+
+  it('bounds the activity calendar and keeps the full history navigable', () => {
+    const oldDate = new Date(2026, 0, 1 - 100_000)
+    const longSession: Session = {
+      id: 'long-range',
+      name: 'Long range',
+      event: '333',
+      createdAt: NOW - 10_000,
+      updatedAt: NOW,
+      solves: [
+        solve('new', 10_000, 0),
+        solve('old', 11_000, oldDate.getTime() - NOW),
+      ],
+    }
+    render(<Harness data={[longSession]} />)
+    selectAnalysis('Practice activity')
+
+    const navigation = screen.getByRole('group', {
+      name: 'Activity calendar range',
+    })
+    expect(navigation).toBeVisible()
+    const region = screen.getByRole('region', {
+      name: /Daily solve activity/,
+    })
+    expect(
+      region.querySelectorAll('.analytics-heatmap-cell').length,
+    ).toBeLessThanOrEqual(analytics.ACTIVITY_CALENDAR_WINDOW_DAYS + 12)
+    const initialRange = screen.getByTestId('activity-heatmap-range')
+      .textContent
+
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Earliest' }))
+    expect(screen.getByTestId('activity-heatmap-range').textContent).not.toBe(
+      initialRange,
+    )
+    expect(screen.getByTestId('activity-heatmap-range').textContent).toContain(
+      String(oldDate.getFullYear()),
+    )
+    expect(
+      within(navigation).getByRole('button', { name: 'Earliest' }),
+    ).toBeDisabled()
+
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Latest' }))
+    expect(screen.getByTestId('activity-heatmap-range').textContent).not.toContain(
+      String(oldDate.getFullYear()),
+    )
+    expect(
+      within(navigation).getByRole('button', { name: 'Latest' }),
+    ).toBeDisabled()
+    expect(
+      region.querySelectorAll('.analytics-heatmap-cell').length,
+    ).toBeLessThanOrEqual(analytics.ACTIVITY_CALENDAR_WINDOW_DAYS + 12)
   })
 
   it('orders filters as event, sessions, date, last solves and penalty', () => {

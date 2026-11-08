@@ -1,3 +1,4 @@
+import type { SessionsSnapshot } from './lib/storage'
 import {
   lazy,
   Suspense,
@@ -31,6 +32,7 @@ import { usePostPaintValue } from './hooks/usePostPaintValue'
 import { useToast } from './hooks/useToast'
 import { SessionSetupDialog } from './components/SessionSetupDialog'
 import { useSync } from './hooks/useSync'
+import { useDurableReplacement } from './hooks/useDurableReplacement'
 import {
   inspectionWarningEvents,
   playAlertSound,
@@ -41,16 +43,33 @@ import {
 import {
   backupFileName,
   createBackup,
-  serializeBackup,
+  serializeBackupChecked,
   type Backup,
 } from './lib/backup'
 import { getEventLabel, isCustomEventId } from './lib/events'
-import { unionCustomEvents, findImportedEventCorrections } from './lib/customEvents'
+import { unionCustomEvents, findImportedEventCorrections, getCustomEventDeleteError } from './lib/customEvents'
 import { formatSessionHours, formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves, getSessionMergeError, getSessionSummary, appendSessionsInOrder } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
 import { createDriveTransport } from './lib/driveTransport'
-import { loadDriveBackupState, saveDriveBackupState } from './lib/driveStorage'
+import { loadDriveBackupState } from './lib/driveStorage'
+import { loadSyncStorage } from './lib/syncStorage'
+import {
+  addPendingSolveRestore,
+  applyPendingSolveRestores,
+  createPendingSolveRestore,
+  loadSolveRecovery,
+  removePendingSolveRestore,
+} from './lib/solveRecovery'
+import {
+  loadReplacementJournal,
+  pendingReplacementMessage,
+  recoverPendingReplacement,
+} from './lib/replacement'
+import {
+  createAdditiveImportSyncStorage,
+  createResetBaseSyncStorage,
+} from './lib/syncBase'
 import { BUILT_IN_STAT_DEFINITIONS } from './lib/statDefinitions'
 import { DEFAULT_TOOL, type CurrentTool } from './lib/tools'
 import type {
@@ -160,7 +179,7 @@ function downloadJsonFile(contents: string, fileName: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
-export default function App() {
+export default function App({ initialSessions }: { initialSessions?: SessionsSnapshot } = {}) {
   const {
     sessions,
     customEvents,
@@ -188,13 +207,14 @@ export default function App() {
     moveSessionTo,
     deleteAllSessions,
     replaceSessions,
+    stageSessions,
     createCustomEvent,
     renameCustomEvent,
     setCustomEventPlaceholder,
     deleteCustomEvent,
     reassignSessionsEvent,
     correctImportedEvents,
-  } = useSessions()
+  } = useSessions(initialSessions)
   const solves = activeSession.solves
   const totalSolveCount = useMemo(() => countSolves(sessions), [sessions])
   // Only presentation may lag. Storage, the final readout and sync receive
@@ -210,6 +230,7 @@ export default function App() {
     settingsStorageOk,
     updateSettings,
     replaceSettings,
+    stageSettings,
     setTimerActive: setSettingsTimerActive,
     adoptedFieldsRef: adoptedSettingsFieldsRef,
   } = useSettings()
@@ -421,8 +442,9 @@ export default function App() {
     holdDurationMs: effectiveSettings.holdDurationMs,
     onSolve: handleSolve,
   })
-
+  const timerStatusRef = useRef(timer.state.status)
   useLayoutEffect(() => {
+    timerStatusRef.current = timer.state.status
     setSettingsTimerActive(timer.state.status !== 'idle')
   }, [timer.state.status, setSettingsTimerActive])
 
@@ -437,6 +459,11 @@ export default function App() {
     [activeSessionId, sessions, customEvents, sessionOrder, sessionTransfers],
   )
 
+  const handleNotify = useCallback(
+    (message: string) => showToast({ message }),
+    [showToast],
+  )
+
   const sync = useSync({
     transport: driveTransport,
     sessions: syncSessionsData,
@@ -446,7 +473,7 @@ export default function App() {
     onReplaceSessions: replaceSessions,
     onReplaceSettings: replaceSettings,
     adoptedSettingsFieldsRef,
-    onNotify: (message) => showToast({ message }),
+    onNotify: handleNotify,
     onDuplicateSessionDetected: (names, summary) => {
       showToast({
         message:
@@ -463,6 +490,38 @@ export default function App() {
       })
     },
   })
+
+  const commitDurableReplacement = useDurableReplacement({
+    sync,
+    timerStatusRef,
+    settings,
+    stageSessions,
+    stageSettings,
+    replaceSessions,
+    replaceSettings,
+    onNotify: handleNotify,
+  })
+
+  useEffect(() => {
+    const journal = loadReplacementJournal()
+    if (journal.status === 'invalid') {
+      showToast({ message: journal.message })
+      return
+    }
+    if (journal.status === 'none') return
+    if (journal.journal.phase === 'prepared') {
+      // Another tab may still be writing its recovery record. Do not roll it
+      // back from this tab; startup/main recovery handles abandoned records.
+      showToast({
+        message:
+          'A backup replacement is in progress in another tab. Synchronization and new imports stay paused until it finishes.',
+      })
+      return
+    }
+    const recovery = recoverPendingReplacement()
+    const message = pendingReplacementMessage(recovery)
+    if (message) showToast({ message })
+  }, [showToast])
 
   useEffect(() => {
     const startedAt = activeInspectionStartedAt(timer.state)
@@ -623,23 +682,86 @@ export default function App() {
   )
 
   const { recordDeletion, restoreDeletion } = sync
-  const handleNotify = useCallback((message: string) => showToast({ message }), [showToast])
   const handleDelete = useCallback(
     (id: string) => {
+      const solve = activeSession.solves.find((entry) => entry.id === id)
+      if (!solve) return
+      // Deletion intent must be durable before the solve disappears.
+      if (!recordDeletion('solve', id, activeSession.id)) {
+        showToast({
+          message:
+            'Solve deletion blocked: deletion records could not be saved. Nothing was removed.',
+        })
+        return
+      }
       const removed = deleteSolve(id)
-      if (!removed) return
-      recordDeletion('solve', id, removed.sessionId)
+      if (!removed) {
+        const revoked = restoreDeletion('solve', id)
+        showToast({
+          message: revoked
+            ? 'Solve deletion could not be saved. Nothing was removed.'
+            : 'Solve deletion could not be saved. The deletion record remains and will apply when storage recovers.',
+        })
+        return
+      }
 
       showToast({
         message: 'Solve deleted',
         actionLabel: 'Undo',
         onAction: () => {
-          restoreDeletion('solve', removed.solve.id)
-          restoreSolve(removed.solve, removed.index, removed.sessionId)
+          const deletedTombstone = loadSyncStorage().runtime.tombstones.find(
+            (tombstone) =>
+              tombstone.kind === 'solve' &&
+              tombstone.id === removed.solve.id,
+          )
+          const recovery = createPendingSolveRestore(
+            removed.solve,
+            removed.index,
+            removed.sessionId,
+            activeSession.name,
+            deletedTombstone
+              ? {
+                  deletedAt: deletedTombstone.deletedAt,
+                  deletedByDeviceId: deletedTombstone.deletedByDeviceId,
+                }
+              : undefined,
+          )
+          if (!addPendingSolveRestore(recovery)) {
+            showToast({
+              message:
+                'Undo blocked: the recovery record could not be saved. The solve remains deleted.',
+            })
+            return
+          }
+          if (!restoreDeletion('solve', removed.solve.id)) {
+            removePendingSolveRestore(recovery.operationId)
+            showToast({
+              message:
+                'Undo blocked: the deletion record could not be updated. The solve remains deleted.',
+            })
+            return
+          }
+          if (!restoreSolve(removed.solve, removed.index, removed.sessionId)) {
+            showToast({
+              message:
+                'Undo is pending recovery: the solve could not be restored immediately. It will be retried before synchronization or after reload.',
+            })
+            return
+          }
+          removePendingSolveRestore(recovery.operationId)
         },
       })
     },
-    [deleteSolve, restoreSolve, showToast, recordDeletion, restoreDeletion],
+    [
+      activeSession.id,
+      activeSession.name,
+      activeSession.solves,
+      deleteSolve,
+      recordDeletion,
+      restoreDeletion,
+      restoreSolve,
+      showToast,
+    ],
   )
 
   const requestClear = useCallback(() => {
@@ -649,14 +771,45 @@ export default function App() {
   }, [solves.length, timer.state.status])
 
   const confirmClear = useCallback(() => {
-    for (const solve of activeSession.solves) {
-      sync.recordDeletion('solve', solve.id, activeSession.id)
+    const removed = activeSession.solves.map((solve) => ({
+      id: solve.id,
+      sessionId: activeSession.id,
+    }))
+    if (removed.length === 0) {
+      setClearOpen(false)
+      setSessionSettingsOpen(false)
+      return
     }
-    clearSolves()
+    // One checked batch write is the deletion-intent boundary. If it fails,
+    // leave the collection and every solve untouched.
+    if (!sync.recordDeletions(removed)) {
+      showToast({
+        message:
+          'Session clear blocked: deletion records could not be saved. Nothing was removed.',
+      })
+      return
+    }
+    // The deletion intent is durable now. Do not publish or announce an empty
+    // collection unless that collection also reached storage.
+    if (!clearSolves()) {
+      setClearOpen(false)
+      setSessionSettingsOpen(false)
+      showToast({
+        message:
+          'Session clear could not be saved. Deletion records are saved; retry after storage recovers.',
+      })
+      return
+    }
     setClearOpen(false)
     setSessionSettingsOpen(false)
     showToast({ message: 'Session cleared' })
-  }, [activeSession.id, activeSession.solves, clearSolves, showToast, sync])
+  }, [
+    activeSession.id,
+    activeSession.solves,
+    clearSolves,
+    showToast,
+    sync,
+  ])
 
   const resetAllDisabledReason = useMemo(() => {
     if (!storageHealthy) {
@@ -1019,14 +1172,41 @@ export default function App() {
 
   const handleDeleteCustomEvent = useCallback(
     (id: string): { ok: true } | { ok: false; error: string } => {
-      const result = deleteCustomEvent(id)
-      if (result.ok) {
-        sync.recordDeletion('event', id)
-        showToast({ message: 'Custom event deleted' })
+      const currentData = {
+        activeSessionId,
+        sessions,
+        ...(customEvents.length > 0 ? { customEvents } : {}),
       }
+      const validationError = getCustomEventDeleteError(currentData, id)
+      if (validationError) return { ok: false, error: validationError }
+      if (!sync.recordDeletion('event', id)) {
+        return {
+          ok: false,
+          error:
+            'Custom event deletion blocked: its deletion record could not be saved. Nothing was removed.',
+        }
+      }
+      const result = deleteCustomEvent(id)
+      if (!result.ok) {
+        const rolledBack = sync.restoreDeletion('event', id)
+        return {
+          ok: false,
+          error: rolledBack
+            ? result.error
+            : `${result.error} The deletion record is saved and will apply at the next synchronization.`,
+        }
+      }
+      showToast({ message: 'Custom event deleted' })
       return result
     },
-    [deleteCustomEvent, showToast, sync],
+    [
+      activeSessionId,
+      customEvents,
+      deleteCustomEvent,
+      sessions,
+      showToast,
+      sync,
+    ],
   )
 
   const handleReassignSessionsEvent = useCallback(
@@ -1079,6 +1259,29 @@ export default function App() {
     if (deleted) showToast({ message: 'Session deleted' })
   }, [deleteSession, sessionToDelete, showToast, sync])
 
+  const restoreHeaderSettingsFocus = useCallback(() => {
+    // Wait for the dialog to unmount and close before moving focus back to the
+    // visible header control; an open modal would otherwise keep focus inside
+    // or restore it to a removed element.
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>('[data-testid="settings-button"]')
+          ?.focus()
+      }, 0)
+    })
+  }, [])
+
+  const handleCloseData = useCallback(() => {
+    setDataOpen(false)
+    restoreHeaderSettingsFocus()
+  }, [restoreHeaderSettingsFocus])
+
+  const handleCloseDrive = useCallback(() => {
+    setDriveOpen(false)
+    restoreHeaderSettingsFocus()
+  }, [restoreHeaderSettingsFocus])
+
   const handleOpenBackup = useCallback(() => {
     if (timer.state.status !== 'idle') return
     setSettingsOpen(false)
@@ -1096,53 +1299,105 @@ export default function App() {
     setDriveOpen(false)
   }, [])
 
-  const confirmDriveRestore = useCallback(() => {
+  const confirmDriveRestore = useCallback(async () => {
     if (!pendingDriveRestore) return
-    replaceSessions(pendingDriveRestore.sessions)
-    replaceSettings(pendingDriveRestore.settings)
-    sync.resetBase(pendingDriveRestore.sessions)
-    const current = loadDriveBackupState()
-    saveDriveBackupState(
-      { ...current, lastRestoreAt: Date.now() },
+    const nextSyncStorage = createResetBaseSyncStorage(
+      loadSyncStorage(),
+      pendingDriveRestore.sessions,
     )
-    setPendingDriveRestore(null)
-    setDriveOpen(false)
-    showToast({ message: 'Google Drive backup restored' })
-  }, [pendingDriveRestore, replaceSessions, replaceSettings, showToast, sync])
+    const nextDriveState = {
+      ...loadDriveBackupState(),
+      lastRestoreAt: Date.now(),
+    }
+    const committed = await commitDurableReplacement({
+      kind: 'drive-restore',
+      sessionsData: pendingDriveRestore.sessions,
+      settingsData: pendingDriveRestore.settings,
+      syncStorage: nextSyncStorage,
+      driveState: nextDriveState,
+      successMessage: 'Google Drive backup restored',
+      failurePrefix: 'Google Drive restore blocked',
+      onSuccess: () => {
+        setPendingDriveRestore(null)
+        setDriveOpen(false)
+        restoreHeaderSettingsFocus()
+      },
+    })
+    if (!committed) return
+  }, [
+    commitDurableReplacement,
+    pendingDriveRestore,
+    restoreHeaderSettingsFocus,
+  ])
 
   const cancelDriveRestore = useCallback(() => {
     setPendingDriveRestore(null)
-  }, [])
+    restoreHeaderSettingsFocus()
+  }, [restoreHeaderSettingsFocus])
 
-  const handleExport = useCallback((): boolean => {
-    if (timer.state.status !== 'idle') return false
+  const handleExport = useCallback(():
+    | { ok: true }
+    | { ok: false; error: string } => {
+    if (timer.state.status !== 'idle') {
+      return {
+        ok: false,
+        error: 'Wait for the timer to return to idle before exporting.',
+      }
+    }
 
     try {
-      const backup = createBackup(
-        {
-          activeSessionId,
-          sessions,
-          ...(customEvents.length > 0 ? { customEvents } : {}),
-          ...(sessionOrder ? { sessionOrder } : {}),
-          ...(sessionTransfers ? { sessionTransfers } : {}),
-        },
-        settings,
-      )
-      downloadJsonFile(serializeBackup(backup), backupFileName())
+      const localData = {
+        activeSessionId,
+        sessions,
+        ...(customEvents.length > 0 ? { customEvents } : {}),
+        ...(sessionOrder ? { sessionOrder } : {}),
+        ...(sessionTransfers ? { sessionTransfers } : {}),
+      }
+      const pendingRecovery = loadSolveRecovery()
+      let exportData = localData
+      if (pendingRecovery.operations.length > 0) {
+        const materialized = applyPendingSolveRestores({
+          data: localData,
+          tombstones: loadSyncStorage().runtime.tombstones,
+          operations: pendingRecovery.operations,
+        })
+        if (materialized.remaining.length > 0) {
+          return {
+            ok: false,
+            error:
+              'Backup not exported: a pending Undo could not be materialized safely.',
+          }
+        }
+        exportData = materialized.data
+      }
+      const backup = createBackup(exportData, settings)
+      const serialized = serializeBackupChecked(backup, { validate: true })
+      if (!serialized.ok) {
+        return { ok: false, error: `Backup not exported: ${serialized.error}` }
+      }
+      downloadJsonFile(serialized.raw, backupFileName())
       setDataOpen(false)
-      showToast({ message: 'Backup exported' })
-      return true
+      showToast({
+        message: serialized.compact
+          ? 'Backup exported in compact form to stay under the size limit'
+          : 'Backup exported',
+      })
+      restoreHeaderSettingsFocus()
+      return { ok: true }
     } catch {
-      return false
+      return {
+        ok: false,
+        error: 'Backup not exported: the backup could not be built safely.',
+      }
     }
-  }, [activeSessionId, sessions, customEvents, sessionOrder, sessionTransfers, settings, showToast, timer.state.status])
+  }, [activeSessionId, sessions, customEvents, sessionOrder, sessionTransfers, settings, showToast, timer.state.status, restoreHeaderSettingsFocus])
 
   const handleImportRequested = useCallback((backup: Backup) => {
     setDataOpen(false)
     setPendingImport(backup)
   }, [])
 
-  const confirmImport = useCallback(() => {
+  const confirmImport = useCallback(async () => {
     if (!pendingImport) return
 
     if (pendingImport.importMode === 'add') {
@@ -1169,20 +1424,50 @@ export default function App() {
         undefined,
         'local-import',
       )
-      replaceSessions(merged)
-      // keep existing settings; do not overwrite
-      sync.resetBase(merged)
-      setPendingImport(null)
-      showToast({ message: 'Backup imported' })
+      const nextSyncStorage = createAdditiveImportSyncStorage(
+        loadSyncStorage(),
+        merged,
+      )
+      await commitDurableReplacement({
+        kind: 'additive-import',
+        sessionsData: merged,
+        syncStorage: nextSyncStorage,
+        successMessage: 'Backup imported',
+        failurePrefix: 'Backup import blocked',
+        onSuccess: () => {
+          setPendingImport(null)
+          restoreHeaderSettingsFocus()
+        },
+      })
       return
     }
 
-    replaceSessions(pendingImport.sessions)
-    replaceSettings(pendingImport.settings)
-    sync.resetBase(pendingImport.sessions)
-    setPendingImport(null)
-    showToast({ message: 'Backup imported' })
-  }, [pendingImport, replaceSessions, replaceSettings, showToast, sync, activeSessionId, sessions, customEvents, syncSessionsData.sessionOrder, syncSessionsData.sessionTransfers])
+    const nextSyncStorage = createResetBaseSyncStorage(
+      loadSyncStorage(),
+      pendingImport.sessions,
+    )
+    await commitDurableReplacement({
+      kind: 'native-import',
+      sessionsData: pendingImport.sessions,
+      settingsData: pendingImport.settings,
+      syncStorage: nextSyncStorage,
+      successMessage: 'Backup imported',
+      failurePrefix: 'Backup import blocked',
+      onSuccess: () => {
+        setPendingImport(null)
+        restoreHeaderSettingsFocus()
+      },
+    })
+  }, [
+    commitDurableReplacement,
+    pendingImport,
+    activeSessionId,
+    sessions,
+    customEvents,
+    syncSessionsData.sessionOrder,
+    syncSessionsData.sessionTransfers,
+    restoreHeaderSettingsFocus,
+  ])
 
   const splitFromSettingsRef = useRef(false)
   const restoreSessionSelectorFocus = useCallback(() => {
@@ -1358,12 +1643,14 @@ export default function App() {
   )
 
   const cancelConfirm = useCallback(() => {
+    const cancelledImport = pendingImport !== null
     setClearOpen(false)
     setResetAllOpen(false)
     setDeleteAllOpen(false)
     setSessionToDelete(null)
     setPendingImport(null)
-  }, [])
+    if (cancelledImport) restoreHeaderSettingsFocus()
+  }, [pendingImport, restoreHeaderSettingsFocus])
 
   const confirmContent = useMemo(() => {
     if (deleteAllOpen) {
@@ -1439,7 +1726,9 @@ export default function App() {
           ),
           confirmLabel: 'Import sessions',
           cancelLabel: 'Cancel import',
-          onConfirm: confirmImport,
+          onConfirm: () => {
+            void confirmImport()
+          },
         }
       }
 
@@ -1468,7 +1757,9 @@ export default function App() {
         cancelLabel: 'Cancel import',
         confirmLabel: 'Import backup',
         requireText: undefined,
-        onConfirm: confirmImport,
+        onConfirm: () => {
+          void confirmImport()
+        },
       }
     }
 
@@ -1532,8 +1823,11 @@ export default function App() {
   }, [confirmContent])
 
   const handleToastAction = useCallback(() => {
-    if (toast?.onAction) toast.onAction()
+    const action = toast?.onAction
+    // Dismiss the original action toast first so a replacement notification
+    // created by the callback is not cleared by this handler.
     dismissToast()
+    action?.()
   }, [dismissToast, toast])
 
   // One global keyboard controller keeps Space reliable even if the pointer is
@@ -2161,7 +2455,7 @@ export default function App() {
             sessionCount={sessions.length}
             solveCount={countSolves(sessions)}
             customEvents={customEvents}
-            onClose={() => setDataOpen(false)}
+            onClose={handleCloseData}
             onExport={handleExport}
             onImport={handleImportRequested}
           />
@@ -2183,7 +2477,7 @@ export default function App() {
             settings={settings}
             storageOk={storageHealthy}
             sync={sync}
-            onClose={() => setDriveOpen(false)}
+            onClose={handleCloseDrive}
             onNotify={(message) => showToast({ message })}
             onPendingRestore={handleDriveRestorePending}
             onReviewDuplicateNames={() => setMergeSessionsOpen(true)}

@@ -5,10 +5,12 @@ import {
   BACKUP_APP,
   BACKUP_FORMAT,
   BACKUP_VERSION,
+  MAX_BACKUP_BYTES,
   backupFileName,
   createBackup,
   parseBackup,
   serializeBackup,
+  serializeBackupChecked,
 } from './backup'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
@@ -514,6 +516,81 @@ describe('custom event backups', () => {
       event: '333bf',
       scramble: '',
     })
+  })
+})
+
+describe('checked backup serialization', () => {
+  function fixture(comment = '') {
+    const data = sessions()
+    data.sessions[0]!.solves[0] = solve({ comment })
+    return createBackup(data, DEFAULT_SETTINGS)
+  }
+
+  it('keeps readable formatting when the complete payload is exactly at the limit', () => {
+    const backup = fixture()
+    const pretty = serializeBackup(backup)
+    const limit = new TextEncoder().encode(pretty).byteLength
+    const result = serializeBackupChecked(backup, { limit, validate: true })
+
+    expect(result).toMatchObject({
+      ok: true,
+      raw: pretty,
+      bytes: limit,
+      compact: false,
+    })
+    if (!result.ok) return
+    expect(parseBackup(result.raw).ok).toBe(true)
+  })
+
+  it('falls back to compact JSON only when that makes the full payload readable', () => {
+    const backup = fixture('é'.repeat(120))
+    const pretty = serializeBackup(backup)
+    const compact = JSON.stringify(backup)
+    const prettyBytes = new TextEncoder().encode(pretty).byteLength
+    const compactBytes = new TextEncoder().encode(compact).byteLength
+    expect(compactBytes).toBeLessThan(prettyBytes)
+
+    const result = serializeBackupChecked(backup, {
+      limit: compactBytes,
+      validate: true,
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      raw: compact,
+      bytes: compactBytes,
+      compact: true,
+    })
+    if (!result.ok) return
+    const parsed = parseBackup(result.raw)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.backup.sessions.sessions[0]?.solves[0]?.comment).toBe(
+      'é'.repeat(120),
+    )
+  })
+
+  it('rejects the compact payload when it is still over the limit', () => {
+    const backup = fixture('é'.repeat(120))
+    const compactBytes = new TextEncoder().encode(
+      JSON.stringify(backup),
+    ).byteLength
+    const limit = compactBytes - 1
+    const result = serializeBackupChecked(backup, { limit })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.bytes).toBe(compactBytes)
+    expect(result.limit).toBe(limit)
+    expect(result.error).toContain('backup limit was exceeded')
+    expect(result.error).toContain('MB')
+  })
+
+  it('uses the shared 10 MB reader cap by default', () => {
+    const backup = fixture()
+    const result = serializeBackupChecked(backup, { validate: true })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.bytes).toBeLessThanOrEqual(MAX_BACKUP_BYTES)
   })
 })
 

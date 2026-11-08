@@ -17,11 +17,15 @@ import {
   type AnalyticsSeries,
 } from './AnalyticsCharts'
 import {
+  ACTIVITY_CALENDAR_WINDOW_DAYS,
+  addLocalDays,
   buildActivity,
+  buildActivityCalendar,
   buildAnalyticsAverages,
   buildAnalyticsTrend,
   buildHistogram,
   buildPBHistory,
+  clampActivityCalendarStart,
   compareSessions,
   computeAdvanced,
   computeAnalyticsOverview,
@@ -32,6 +36,7 @@ import {
   filterAnalyticsSolves,
   formatAnalyticsAxisDate,
   analyticsSpansMultipleYears,
+  type ActivityReport,
   type AnalyticsFilters,
   type AnalyticsSolve,
   type AnalyticsTrend,
@@ -45,6 +50,7 @@ import {
   normalizeAnalyticsSections,
 } from '../lib/analyticsSettings'
 import { useDismissablePopover } from '../hooks/useDismissablePopover'
+import { useLocalDayRefresh } from '../hooks/useLocalDayRefresh'
 import { AppVersion } from './AppVersion'
 import { ListIcon, ResetIcon, SlidersIcon } from './Icons'
 import { Select } from './Select'
@@ -1234,15 +1240,17 @@ function SessionsSection({
   filters,
   trimming,
   targetMs,
+  now,
 }: {
   sessions: readonly Session[]
   filters: AnalyticsFilters
   trimming: AverageTrimming
   targetMs: number
+  now: number
 }) {
   const comparison = useMemo(
-    () => compareSessions(sessions, filters, trimming, targetMs),
-    [sessions, filters, trimming, targetMs],
+    () => compareSessions(sessions, filters, trimming, targetMs, now),
+    [sessions, filters, trimming, targetMs, now],
   )
   const comparisonMax = comparison.reduce(
     (max, entry) => Math.max(max, entry.ao5.length),
@@ -1370,15 +1378,99 @@ function SessionsSection({
   )
 }
 
-function ActivitySection({ trend }: SectionCalculationProps) {
+function ActivityCalendar({ report }: { report: ActivityReport }) {
+  const [requestedStart, setRequestedStart] = useState<number | null>(null)
+
+  if (report.heatmapStartMs === null || report.heatmapEndMs === null) {
+    return <ActivityHeatmap days={[]} formatDate={(day) => fullDate(day.dateMs)} />
+  }
+
+  const latestStart = addLocalDays(
+    report.heatmapEndMs,
+    -(ACTIVITY_CALENDAR_WINDOW_DAYS - 1),
+  )
+  const windowStart = clampActivityCalendarStart(
+    report,
+    requestedStart ?? latestStart,
+  )
+  // ActivityCalendar is keyed by the filtered extent, so a new filter range
+  // starts at its latest window instead of retaining an out-of-range anchor.
+  const days = buildActivityCalendar(report.allDays, windowStart)
+  const canGoEarlier = windowStart > report.heatmapStartMs
+  const canGoLater = windowStart < latestStart
+  const fullRange = `${fullDate(report.heatmapStartMs)} – ${fullDate(report.heatmapEndMs)}`
+
+  return (
+    <div className="analytics-heatmap-block">
+      <div
+        className="analytics-heatmap-nav"
+        role="group"
+        aria-label="Activity calendar range"
+      >
+        <button
+          type="button"
+          className="analytics-heatmap-nav-button"
+          onClick={() => setRequestedStart(report.heatmapStartMs)}
+          disabled={!canGoEarlier}
+        >
+          Earliest
+        </button>
+        <button
+          type="button"
+          className="analytics-heatmap-nav-button"
+          onClick={() =>
+            setRequestedStart(
+              addLocalDays(windowStart, -ACTIVITY_CALENDAR_WINDOW_DAYS),
+            )
+          }
+          disabled={!canGoEarlier}
+        >
+          Earlier
+        </button>
+        <span className="analytics-heatmap-nav-range">
+          {fullRange}
+        </span>
+        <button
+          type="button"
+          className="analytics-heatmap-nav-button"
+          onClick={() =>
+            setRequestedStart(
+              addLocalDays(windowStart, ACTIVITY_CALENDAR_WINDOW_DAYS),
+            )
+          }
+          disabled={!canGoLater}
+        >
+          Later
+        </button>
+        <button
+          type="button"
+          className="analytics-heatmap-nav-button"
+          onClick={() => setRequestedStart(latestStart)}
+          disabled={!canGoLater}
+        >
+          Latest
+        </button>
+      </div>
+      <ActivityHeatmap
+        days={days}
+        formatDate={(day) => fullDate(day.dateMs)}
+      />
+    </div>
+  )
+}
+
+function ActivitySection({
+  trend,
+  now,
+}: SectionCalculationProps & { now: number }) {
   const multipleYears = useMultipleYears(trend)
   const { activity, weeklyCounts } = useMemo(() => {
-    const activityReport = buildActivity(trend)
+    const activityReport = buildActivity(trend, now)
     return {
       activity: activityReport,
       weeklyCounts: activityReport.weekly.map((week) => week.count),
     }
-  }, [trend])
+  }, [trend, now])
 
   return (
     <div className="analytics-chart-stack">
@@ -1403,9 +1495,9 @@ function ActivitySection({ trend }: SectionCalculationProps) {
         />
       </div>
       <div className="analytics-activity-split">
-        <ActivityHeatmap
-          days={activity.daily}
-          formatDate={(day) => fullDate(day.dateMs)}
+        <ActivityCalendar
+          key={`${activity.heatmapStartMs ?? 'empty'}:${activity.heatmapEndMs ?? 'empty'}`}
+          report={activity}
         />
         <AnalyticsLineChart
           title="Solve volume"
@@ -1661,6 +1753,7 @@ export default function AnalyticsPage({
   settings,
   onChange,
 }: AnalyticsPageProps) {
+  const localDay = useLocalDayRefresh()
   const analyticsSettings = settings.analytics
   const sectionSettings = useMemo(
     () => normalizeAnalyticsSections(analyticsSettings.sections),
@@ -1716,8 +1809,8 @@ export default function AnalyticsPage({
     [settings.averageTrimBetter, settings.averageTrimWorse],
   )
   const filtered = useMemo(
-    () => filterAnalyticsSolves(sessions, filters),
-    [sessions, filters],
+    () => filterAnalyticsSolves(sessions, filters, localDay),
+    [sessions, filters, localDay],
   )
   // The single and PB preparation is shared by every section. Rolling series
   // are built only by the section that needs them.
@@ -2071,11 +2164,13 @@ export default function AnalyticsPage({
           filters={filters}
           trimming={trimming}
           targetMs={targetMs}
+          now={localDay}
         />
       )
     : selectedAnalysis.id === 'activity' ? (
         <ActivitySection
           trend={trend}
+          now={localDay}
           onSelectSolve={setSelectedSolve}
         />
       )

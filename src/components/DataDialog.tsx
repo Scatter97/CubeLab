@@ -24,7 +24,7 @@ interface DataDialogProps {
   solveCount: number
   customEvents: readonly CustomEventDefinition[]
   onClose: () => void
-  onExport: () => boolean
+  onExport: () => { ok: true } | { ok: false; error: string }
   onImport: (backup: Backup) => void
 }
 
@@ -350,11 +350,8 @@ export function DataDialog({
                   type="button"
                   className="button button-primary"
                   onClick={() => {
-                    if (!onExport()) {
-                      setError('Could not export the backup.')
-                    } else {
-                      setError(null)
-                    }
+                    const result = onExport()
+                    setError(result.ok ? null : result.error)
                   }}
                   disabled={isReading}
                   data-testid="export-backup"

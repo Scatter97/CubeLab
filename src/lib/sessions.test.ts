@@ -463,6 +463,22 @@ describe('solve mutations', () => {
     expect(restoreSolve(current, 'session-1', solve(), 0)).toBeNull()
   })
 
+  it('does not restore a solve into a session with a different event', () => {
+    const current = data({
+      sessions: [
+        session({ id: 'session-1', event: '222' }),
+        session({ id: 'session-2', name: 'Three', event: '333' }),
+      ],
+    })
+
+    expect(
+      restoreSolve(current, 'session-1', solve({ event: '333' }), 0),
+    ).toBeNull()
+    expect(
+      restoreSolve(current, 'session-2', solve({ event: '333' }), 0),
+    ).not.toBeNull()
+  })
+
   it('clears only the active session', () => {
     const current = data({
       sessions: [
@@ -710,6 +726,29 @@ describe('deferred external session reconciliation', () => {
     expect(recovered?.name).toBe('Morning (recovered)')
     expect(recovered?.solves.map((item) => item.id)).toEqual([
       'recorded-while-timing',
+    ])
+  })
+
+  it('does not mix an added solve into an externally reclassified session', () => {
+    const baseline = data()
+    const local = data({
+      sessions: [session({ solves: [solve({ id: 'recorded-before-reclass' })] })],
+    })
+    const external = data({
+      sessions: [session({ event: '222', solves: [] })],
+    })
+
+    const reconciled = reconcileExternalSessions({ external, local, baseline })
+
+    expect(
+      reconciled.sessions.find((item) => item.id === 'session-1'),
+    ).toMatchObject({ event: '222', solves: [] })
+    const recovered = reconciled.sessions.find(
+      (item) => item.id === 'recovered:session-1',
+    )
+    expect(recovered).toMatchObject({ event: '333' })
+    expect(recovered?.solves.map((item) => item.id)).toEqual([
+      'recorded-before-reclass',
     ])
   })
 

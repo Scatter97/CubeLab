@@ -95,6 +95,91 @@ describe('timer state machine', () => {
     expect(released).toEqual(initialTimerState)
   })
 
+  it.each([
+    ['one millisecond below', HOLD_TO_ARM_MS - 1, false],
+    ['exactly at', HOLD_TO_ARM_MS, true],
+    ['one millisecond above', HOLD_TO_ARM_MS + 1, true],
+  ] as const)(
+    'starts directly from holding when released %s the threshold without a readiness tick',
+    (_label, elapsed, starts) => {
+      const holding = send(initialTimerState, {
+        type: 'press',
+        at: 1_000,
+        input: 'keyboard',
+        inspectionEnabled: false,
+      })
+      const released = send(holding, {
+        type: 'release',
+        at: 1_000 + elapsed,
+        input: 'keyboard',
+      })
+
+      if (starts) {
+        expect(released).toEqual({
+          status: 'running',
+          startedAt: 1_000 + elapsed,
+          inspectionStartedAt: null,
+          input: 'keyboard',
+        })
+      } else {
+        expect(released).toEqual(initialTimerState)
+      }
+    },
+  )
+
+  it('honors a configured zero-duration hold', () => {
+    const holding = send(initialTimerState, {
+      type: 'press',
+      at: 5_000,
+      input: 'pointer',
+      inspectionEnabled: false,
+      holdDurationMs: 0,
+    })
+    const released = send(holding, {
+      type: 'release',
+      at: 5_000,
+      input: 'pointer',
+    })
+    expect(released).toMatchObject({
+      status: 'running',
+      startedAt: 5_000,
+      input: 'pointer',
+    })
+  })
+
+  it('starts an eligible hold after inspection without a readiness tick and uses the release time for penalties', () => {
+    const inspection = send(initialTimerState, {
+      type: 'press',
+      at: 1_000,
+      input: 'keyboard',
+      inspectionEnabled: true,
+    })
+    const holding = send(inspection, {
+      type: 'press',
+      at: 2_000,
+      input: 'keyboard',
+      inspectionEnabled: true,
+    })
+    const released = send(holding, {
+      type: 'release',
+      at: 16_500,
+      input: 'keyboard',
+    })
+    expect(released).toMatchObject({
+      status: 'running',
+      startedAt: 16_500,
+      inspectionStartedAt: 1_000,
+    })
+
+    const stopped = transitionTimer(released, {
+      type: 'press',
+      at: 26_500,
+      input: 'keyboard',
+      inspectionEnabled: true,
+    })
+    expect(stopped.completed).toEqual({ rawMs: 10_000, penalty: '+2' })
+  })
+
   it('completes exactly once on a stop press', () => {
     const running = armAndStart(initialTimerState, 1_000, 1_500)
     const completed = transitionTimer(running, {

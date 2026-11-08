@@ -34,8 +34,19 @@ import {
   setSolvePenalty,
   type RemovedSolve,
 } from '../lib/sessions'
-import { loadSessions, saveSessions } from '../lib/storage'
+import {
+  loadSessionsForStartup,
+  readSessionsRaw,
+  type SessionsSnapshot,
+  saveSessions,
+  serializeSessionsData,
+} from '../lib/storage'
 import { getSyncDeviceId } from '../lib/syncStorage'
+import { loadReplacementJournal } from '../lib/replacement'
+import {
+  acknowledgePendingCompletionForData,
+  recordPendingCompletion,
+} from '../lib/pendingCompletion'
 
 
 export interface UseSessionsResult {
@@ -52,8 +63,8 @@ export interface UseSessionsResult {
   setInspection: (id: string, enabled: boolean | undefined) => void
   setPreferences: (id: string, changes: Partial<SessionPreferences>) => void
   deleteSolve: (id: string) => RemovedSolve | null
-  restoreSolve: (solve: Solve, index: number, sessionId: string) => void
-  clearSolves: () => void
+  restoreSolve: (solve: Solve, index: number, sessionId: string) => boolean
+  clearSolves: () => boolean
   resetAllSolveData: () => { ok: boolean; removed: RemovedSolve[] }
   createSession: (
     name: string,
@@ -75,6 +86,8 @@ export interface UseSessionsResult {
   deleteAllSessions: () => boolean
   selectSession: (id: string) => void
   replaceSessions: (data: SessionsData) => void
+  /** Saves a replacement collection without publishing React state. */
+  stageSessions: (data: SessionsData) => boolean
   createCustomEvent: (name: string, placeholder?: string) => string | null
   renameCustomEvent: (id: string, name: string) => boolean
   setCustomEventPlaceholder: (id: string, placeholder: string) => boolean
@@ -91,17 +104,21 @@ function requireActiveSession(data: SessionsData): Session {
   return active
 }
 
-export function useSessions(): UseSessionsResult {
-  const [data, setData] = useState<SessionsData>(() => {
-    const loaded = loadSessions()
+export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResult {
+  const [snapshot] = useState(() => {
+    const loaded = initialSnapshot ?? loadSessionsForStartup()
     // Labels are consumed by deeply nested presentation components. Publish the
     // persisted definitions before the first render that can observe them.
-    setCustomEventDefinitions(loaded.customEvents)
+    setCustomEventDefinitions(loaded.data.customEvents)
     return loaded
   })
+  const [data, setData] = useState<SessionsData>(snapshot.data)
   const dataRef = useRef(data)
   const [storageOk, setStorageOk] = useState(true)
   const initialWrite = useRef(true)
+  const initialRaw = snapshot.raw
+  const lastPersistedRawRef = useRef(initialRaw)
+  const lastPersistedDataRef = useRef(data)
   // Resolved once per mount. Reading sync storage from the render body would
   // re-parse localStorage on every timer frame.
   const [syncDeviceId] = useState(() => getSyncDeviceId())
@@ -110,6 +127,34 @@ export function useSessions(): UseSessionsResult {
     setCustomEventDefinitions(next.customEvents)
     dataRef.current = next
     setData(next)
+  }, [])
+
+  const persistSessions = useCallback((next: SessionsData): boolean => {
+    const journal = loadReplacementJournal()
+    const prepared =
+      journal.status === 'invalid' ||
+      (journal.status === 'ok' && journal.journal.phase === 'prepared')
+    if (prepared) {
+      // Another tab's prepared candidate is still live. Keep this accepted
+      // completion in the local-only buffer instead of overwriting it.
+      return recordPendingCompletion(lastPersistedDataRef.current, next)
+    }
+    if (journal.status === 'ok') {
+      const currentRaw = readSessionsRaw()
+      if (currentRaw !== lastPersistedRawRef.current) {
+        // A committed candidate (or a newer external collection) has not been
+        // adopted yet. Do not publish this tab's older snapshot over it.
+        return recordPendingCompletion(lastPersistedDataRef.current, next)
+      }
+    }
+    if (!saveSessions(next)) return false
+    lastPersistedDataRef.current = next
+    lastPersistedRawRef.current = serializeSessionsData(next)
+    // Acknowledge only buffered solves that this durable collection actually
+    // contains (or that a deliberate deletion superseded). An unrelated save
+    // must leave another tab's completion pending for later replay.
+    acknowledgePendingCompletionForData(next)
+    return true
   }, [])
 
   const commit = useCallback(
@@ -127,7 +172,7 @@ export function useSessions(): UseSessionsResult {
     // Do not report a storage failure before the first user action: some
     // browsers block storage until a gesture, while the session still works in
     // memory. Subsequent writes surface the real status.
-    const success = saveSessions(data)
+    const success = persistSessions(data)
     if (initialWrite.current) {
       initialWrite.current = false
       // Recovery of a previously-saved collection is also worth surfacing.
@@ -144,7 +189,7 @@ export function useSessions(): UseSessionsResult {
     // collection change, so this cannot create a render loop.
     // oxlint-disable-next-line react/set-state-in-effect
     setStorageOk(success)
-  }, [data])
+  }, [data, persistSessions])
 
   const activeSession = requireActiveSession(data)
   const orderedSessions = useMemo(() => getOrderedSessions(data), [data])
@@ -203,26 +248,47 @@ export function useSessions(): UseSessionsResult {
     (id: string): RemovedSolve | null => {
       const result = removeSolveFromData(dataRef.current, id)
       if (!result) return null
-
+      // Persist before publishing so a failed write cannot hide a solve whose
+      // deletion was never saved.
+      if (!persistSessions(result.data)) {
+        setStorageOk(false)
+        return null
+      }
       applyData(result.data)
       return result.removed
     },
-    [applyData],
+    [applyData, persistSessions],
   )
 
   const restoreSolve = useCallback(
-    (solve: Solve, index: number, sessionId: string) => {
-      commit(
-        (current) =>
-          restoreSolveInData(current, sessionId, solve, index) ?? current,
+    (solve: Solve, index: number, sessionId: string): boolean => {
+      const next = restoreSolveInData(
+        dataRef.current,
+        sessionId,
+        solve,
+        index,
       )
+      if (!next) return false
+      if (!persistSessions(next)) {
+        setStorageOk(false)
+        return false
+      }
+      applyData(next)
+      return true
     },
-    [commit],
+    [applyData, persistSessions],
   )
 
-  const clearSolves = useCallback(() => {
-    commit((current) => clearActiveSolves(current))
-  }, [commit])
+  const clearSolves = useCallback((): boolean => {
+    const next = clearActiveSolves(dataRef.current)
+    if (next === dataRef.current) return true
+    if (!persistSessions(next)) {
+      setStorageOk(false)
+      return false
+    }
+    applyData(next)
+    return true
+  }, [applyData, persistSessions])
 
   const resetAllSolveData = useCallback((): {
     ok: boolean
@@ -232,13 +298,13 @@ export function useSessions(): UseSessionsResult {
     if (result.removed.length === 0) return { ok: true, removed: [] }
     // Persist the cleared collection before publishing it so a failed write
     // cannot make the UI claim that every solve was removed.
-    if (!saveSessions(result.data)) {
+    if (!persistSessions(result.data)) {
       setStorageOk(false)
       return { ok: false, removed: [] }
     }
     applyData(result.data)
     return { ok: true, removed: result.removed }
-  }, [applyData])
+  }, [applyData, persistSessions])
 
   const createSession = useCallback(
     (
@@ -292,14 +358,14 @@ export function useSessions(): UseSessionsResult {
       if (!next || next === current) return false
       // Persist before publishing so a failed write cannot remove a source
       // session in the interface while its solves were never saved.
-      if (!saveSessions(next)) {
+      if (!persistSessions(next)) {
         setStorageOk(false)
         return false
       }
       applyData(next)
       return true
     },
-    [applyData],
+    [applyData, persistSessions],
   )
 
   const splitSession = useCallback(
@@ -316,14 +382,14 @@ export function useSessions(): UseSessionsResult {
         { editorId: syncDeviceId },
       )
       if (!result) return null
-      if (!saveSessions(result.data)) {
+      if (!persistSessions(result.data)) {
         setStorageOk(false)
         return null
       }
       applyData(result.data)
       return result.sessionId
     },
-    [applyData, syncDeviceId],
+    [applyData, persistSessions, syncDeviceId],
   )
 
   const moveSession = useCallback(
@@ -366,29 +432,51 @@ export function useSessions(): UseSessionsResult {
     )
     // Persist before publishing: a failed write must not make the interface
     // claim that every session was removed.
-    if (!saveSessions(next)) {
+    if (!persistSessions(next)) {
       setStorageOk(false)
       return false
     }
     applyData(next)
     return true
-  }, [applyData, syncDeviceId])
+  }, [applyData, persistSessions, syncDeviceId])
 
   const selectSession = useCallback((id: string) => {
     commit((current) => setActiveSessionInData(current, id))
   }, [commit])
 
-  const replaceSessions = useCallback((next: SessionsData) => {
-    const activeSessionId = next.sessions.some(
-      (session) => session.id === next.activeSessionId,
-    )
-      ? next.activeSessionId
-      : next.sessions[0]?.id
-    if (!activeSessionId) return
+  const prepareSessionsReplacement = useCallback(
+    (next: SessionsData): SessionsData | null => {
+      const activeSessionId = next.sessions.some(
+        (session) => session.id === next.activeSessionId,
+      )
+        ? next.activeSessionId
+        : next.sessions[0]?.id
+      if (!activeSessionId) return null
+      return ensureSessionOrdering({ ...next, activeSessionId })
+    },
+    [],
+  )
 
-    const normalized = ensureSessionOrdering({ ...next, activeSessionId })
+  const replaceSessions = useCallback((next: SessionsData) => {
+    const normalized = prepareSessionsReplacement(next)
+    if (!normalized) return
+    // This collection is intentionally superseding what is currently stored,
+    // so the next write may replace an external candidate without buffering it.
+    const currentRaw = readSessionsRaw()
+    if (currentRaw !== undefined) lastPersistedRawRef.current = currentRaw
     applyData(normalized)
-  }, [applyData])
+  }, [applyData, prepareSessionsReplacement])
+
+  const stageSessions = useCallback((next: SessionsData): boolean => {
+    const normalized = prepareSessionsReplacement(next)
+    if (!normalized) return false
+    if (!saveSessions(normalized)) {
+      setStorageOk(false)
+      return false
+    }
+    setStorageOk(true)
+    return true
+  }, [prepareSessionsReplacement])
 
   const createCustomEvent = useCallback(
     (name: string, placeholder?: string): string | null => {
@@ -433,10 +521,18 @@ export function useSessions(): UseSessionsResult {
     (id: string): { ok: true } | { ok: false; error: string } => {
       const result = deleteCustomEventInData(dataRef.current, id)
       if ('error' in result) return { ok: false, error: result.error }
+      if (!persistSessions(result.data)) {
+        setStorageOk(false)
+        return {
+          ok: false,
+          error:
+            'The custom event could not be saved. Nothing was removed.',
+        }
+      }
       applyData(result.data)
       return { ok: true }
     },
-    [applyData],
+    [applyData, persistSessions],
   )
 
   const reassignSessionsEvent = useCallback(
@@ -495,6 +591,7 @@ export function useSessions(): UseSessionsResult {
     deleteAllSessions,
     selectSession,
     replaceSessions,
+    stageSessions,
     createCustomEvent,
     renameCustomEvent,
     setCustomEventPlaceholder,

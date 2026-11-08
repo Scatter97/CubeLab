@@ -1647,6 +1647,40 @@ test('session controls lock while the timer is active', async ({ page }) => {
   await expect(page.getByTestId('settings-button')).toBeEnabled()
 })
 
+test('starts an eligible pointer hold on release even when animation frames are withheld', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+  await page.evaluate(() => {
+    window.requestAnimationFrame = () => 0
+  })
+
+  const surface = page.locator('[data-testid="timer-surface"]')
+  const box = await surface.boundingBox()
+  expect(box).not.toBeNull()
+  if (!box) return
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.waitForTimeout(450)
+  await page.mouse.up()
+  await expect(surface).toHaveAttribute('data-phase', 'running')
+
+  await page.waitForTimeout(700)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(surface).toHaveAttribute('data-phase', 'idle')
+  const solves = await storedSolves(page)
+  expect(solves).toHaveLength(1)
+  expect(solves[0]!.rawMs).toBeGreaterThanOrEqual(400)
+  expect(solves[0]!.scramble.length).toBeGreaterThan(0)
+
+  await page.reload()
+  await waitForApp(page)
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+  expect(await storedSolves(page)).toHaveLength(1)
+})
+
 test('backup export and import restore sessions, comments, and settings', async ({
   page,
 }) => {
@@ -1700,10 +1734,17 @@ test('backup export and import restore sessions, comments, and settings', async 
   await expect(dialog).toBeHidden()
   await expect(page.getByTestId('settings-button')).toBeFocused()
 
+  const escapedDialog = await openBackup(page)
+  await page.keyboard.press('Escape')
+  await expect(escapedDialog).toBeHidden()
+  await expect(page.getByTestId('settings-button')).toBeFocused()
+
   const backupDialog = await openBackup(page)
   const downloadPromise = page.waitForEvent('download')
   await backupDialog.getByTestId('export-backup').click()
   const download = await downloadPromise
+  await expect(backupDialog).toBeHidden()
+  await expect(page.getByTestId('settings-button')).toBeFocused()
   expect(download.suggestedFilename()).toMatch(
     /^cubelab-backup-\d{4}-\d{2}-\d{2}\.json$/,
   )
@@ -1829,6 +1870,61 @@ test('backup export and import restore sessions, comments, and settings', async 
   ).toHaveAttribute('aria-checked', 'true')
   await persistedSettings.getByTestId('settings-done').click()
   await expect(persistedSettings).toBeHidden()
+})
+
+test('blocks an oversized export before creating a file and recovers after the limit clears', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+  await recordSolve(page, 100)
+
+  const dialog = await openBackup(page)
+  let downloaded = false
+  page.on('download', () => {
+    downloaded = true
+  })
+
+  await page.evaluate(() => {
+    const Original = window.TextEncoder
+    ;(
+      window as typeof window & { __originalTextEncoder?: typeof TextEncoder }
+    ).__originalTextEncoder = Original
+    class InflatedTextEncoder extends Original {
+      encode(input?: string): Uint8Array {
+        const encoded = super.encode(input)
+        const inflated = new Uint8Array(11 * 1024 * 1024)
+        inflated.set(encoded)
+        return inflated
+      }
+    }
+    window.TextEncoder = InflatedTextEncoder as typeof TextEncoder
+  })
+
+  await dialog.getByTestId('export-backup').click()
+  await expect(page.getByTestId('backup-error')).toContainText(
+    'Backup not exported',
+  )
+  await expect(page.getByTestId('backup-error')).toContainText(
+    'backup limit was exceeded',
+  )
+  expect(downloaded).toBe(false)
+  await expect(dialog).toBeVisible()
+
+  await page.evaluate(() => {
+    const target = window as typeof window & {
+      __originalTextEncoder?: typeof TextEncoder
+    }
+    if (target.__originalTextEncoder) {
+      window.TextEncoder = target.__originalTextEncoder
+    }
+  })
+
+  const downloadPromise = page.waitForEvent('download')
+  await dialog.getByTestId('export-backup').click()
+  const download = await downloadPromise
+  expect(await download.path()).not.toBeNull()
+  await expect(page.getByTestId('backup-error')).toHaveCount(0)
 })
 
 test('scramble failure disables timing and offers retry', async ({ page }) => {

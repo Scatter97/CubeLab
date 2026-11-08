@@ -94,6 +94,7 @@ export function mergeRemoteBackupSnapshots(
   // pipeline so its tombstones and redirects are applied. Apply the shared
   // tombstones/redirects to the first snapshot before folding in the rest.
   let sessions: SessionsData = snapshots[0]!.backup.sessions
+  let activeSessionUpdate = snapshots[0]!.backup.sync?.activeSessionFieldUpdate
   const firstNormalized = mergeSessionsData({
     local: sessions,
     remote: null,
@@ -101,8 +102,10 @@ export function mergeRemoteBackupSnapshots(
     sessionRedirects: redirects,
     deviceId: 'manual-restore',
     manualConflictReview: false,
+    localActiveSessionUpdate: activeSessionUpdate,
   })
   sessions = firstNormalized.merged
+  activeSessionUpdate = firstNormalized.activeSessionFieldUpdate
   if (sessions.sessions.length === 0) {
     // A snapshot may legitimately delete every session it contained. Keep the
     // at-least-one-session invariant with a fresh default instead of restoring
@@ -116,6 +119,7 @@ export function mergeRemoteBackupSnapshots(
       DEFAULT_SESSION_NAME,
     )
     if (fresh) sessions = fresh.data
+    activeSessionUpdate = undefined
   }
   for (const snapshot of snapshots.slice(1)) {
     const merged = mergeSessionsData({
@@ -125,8 +129,11 @@ export function mergeRemoteBackupSnapshots(
       sessionRedirects: redirects,
       deviceId: 'manual-restore',
       manualConflictReview: false,
+      localActiveSessionUpdate: activeSessionUpdate,
+      remoteActiveSessionUpdate: snapshot.backup.sync?.activeSessionFieldUpdate,
     })
     sessions = merged.merged
+    activeSessionUpdate = merged.activeSessionFieldUpdate
   }
 
   let settings = { ...first.backup.settings }

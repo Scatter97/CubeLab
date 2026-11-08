@@ -4,7 +4,7 @@ import { act, renderHook } from '@testing-library/react'
 import type { Session, SessionsData, Settings, Solve } from '../types'
 import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import { createMemoryDriveTransport } from '../lib/driveTransport'
-import { DEFAULT_SETTINGS, saveSessions, saveSettings, SETTINGS_STORAGE_KEY } from '../lib/storage'
+import { DEFAULT_SETTINGS, loadSessions, saveSessions, saveSettings, SESSIONS_STORAGE_KEY, SETTINGS_STORAGE_KEY } from '../lib/storage'
 import { DEFAULT_SESSION_NAME } from '../lib/sessions'
 import {
   createDefaultSyncStorage,
@@ -16,8 +16,22 @@ import {
   type SyncPreferences,
 } from '../lib/syncStorage'
 import { createBackup } from '../lib/backup'
-import { createSyncEnvelope } from '../lib/sync'
+import { recordPendingCompletion } from '../lib/pendingCompletion'
+import { createSyncEnvelope, mergeSessionsData } from '../lib/sync'
+import {
+  addPendingSolveRestore,
+  createPendingSolveRestore,
+  loadSolveRecovery,
+  SOLVE_RECOVERY_STORAGE_KEY,
+} from '../lib/solveRecovery'
 import * as syncFingerprint from '../lib/syncFingerprint'
+import {
+  beginReplacement,
+  clearReplacementJournal,
+  loadReplacementJournal,
+  markReplacementCommitted,
+  REPLACEMENT_STORAGE_KEY,
+} from '../lib/replacement'
 import { useSync } from './useSync'
 import { useSettings } from './useSettings'
 
@@ -107,6 +121,15 @@ function enableSync(preferences: Partial<SyncPreferences> = {}) {
     },
     runtime: { ...sync.runtime, lastSyncStatus: 'pending' },
   })
+}
+
+function dispatchReplacementEvent() {
+  window.dispatchEvent(
+    new StorageEvent('storage', {
+      key: REPLACEMENT_STORAGE_KEY,
+      newValue: localStorage.getItem(REPLACEMENT_STORAGE_KEY),
+    }),
+  )
 }
 
 function renderStatefulSync(options: {
@@ -1100,6 +1123,163 @@ describe('useSync deletion tombstones', () => {
     })
   })
 
+  it('preserves unpublished deletion and review metadata through an additive import', () => {
+    enableSync({ manualConflictReview: true })
+    const deleted = solve({ id: 'offline-deleted' })
+    const initial = sessionsData({
+      sessions: [
+        session({ solves: [solve({ id: 'kept' })] }),
+        session({
+          id: 'imported',
+          name: 'Imported',
+          solves: [solve({ id: 'imported-kept' })],
+        }),
+      ],
+    })
+    const tombstone = {
+      kind: 'solve' as const,
+      id: deleted.id,
+      sessionId: 'session-1',
+      deletedAt: 40,
+      deletedByDeviceId: 'device-test',
+    }
+    const conflict: SyncConflict = {
+      id: 'session-1',
+      kind: 'session',
+      field: 'name',
+      localValue: 'Local name',
+      remoteValue: 'Cloud name',
+      localUpdatedAt: 10,
+      remoteUpdatedAt: 20,
+      resolution: 'manual-pending',
+      updatedAt: 20,
+    }
+    const approval: SyncConflict = {
+      ...conflict,
+      field: 'event',
+      localValue: '333',
+      remoteValue: '222',
+      resolution: 'local',
+      updatedAt: 22,
+    }
+    const redirect = {
+      fromId: 'old-session',
+      toId: 'session-1',
+      approvedAt: 25,
+      byDeviceId: 'device-test',
+    }
+    const settingsFieldUpdates = {
+      accentColor: { updatedAt: 30, editorId: 'device-test' },
+    }
+    const activeSessionFieldUpdate = {
+      updatedAt: 35,
+      editorId: 'device-test',
+    }
+    const stored = loadSyncStorage()
+    saveSyncStorage({
+      ...stored,
+      runtime: {
+        ...stored.runtime,
+        tombstones: [tombstone],
+        conflicts: [conflict, approval],
+        sessionRedirects: [redirect],
+        settingsFieldUpdates,
+        activeSessionFieldUpdate,
+        lastSyncedFingerprint: 'published-before-import',
+        lastSyncStatus: 'conflict',
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useSync({
+        transport: createMemoryDriveTransport(),
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      result.current.recordAdditiveImport(initial)
+    })
+
+    const afterImport = loadSyncStorage()
+    expect(afterImport.runtime.tombstones).toEqual([tombstone])
+    expect(afterImport.runtime.conflicts).toEqual([conflict, approval])
+    expect(afterImport.runtime.sessionRedirects).toEqual([redirect])
+    expect(afterImport.runtime.settingsFieldUpdates).toEqual(
+      settingsFieldUpdates,
+    )
+    expect(afterImport.runtime.activeSessionFieldUpdate).toEqual(
+      activeSessionFieldUpdate,
+    )
+    expect(afterImport.runtime.lastSyncedFingerprint).toBeNull()
+    expect(afterImport.runtime.lastSyncStatus).toBe('conflict')
+    expect(afterImport.runtime.solveCountAtLastSync).toBe(2)
+
+    const merged = mergeSessionsData({
+      local: initial,
+      remote: sessionsData({
+        sessions: [session({ solves: [deleted] })],
+      }),
+      tombstones: afterImport.runtime.tombstones,
+      deviceId: 'device-test',
+      manualConflictReview: false,
+    })
+    expect(
+      merged.merged.sessions.flatMap((entry) =>
+        entry.solves.map((item) => item.id),
+      ),
+    ).not.toContain(deleted.id)
+  })
+
+  it('does not report a durable single deletion when the sync write fails', () => {
+    enableSync()
+    const target = sessionsData({
+      sessions: [session({ solves: [solve({ id: 'solve-a' })] })],
+    })
+    const { result } = renderHook(() =>
+      useSync({
+        transport: createMemoryDriveTransport(),
+        sessions: target,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    const original = Storage.prototype.setItem
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function setItem(this: Storage, key, value) {
+        if (key === SYNC_STORAGE_KEY) {
+          throw new Error('Synthetic sync-key write failure')
+        }
+        return original.call(this, key, value)
+      })
+    try {
+      let saved = true
+      act(() => {
+        saved = result.current.recordDeletion(
+          'solve',
+          'solve-a',
+          'session-1',
+        )
+      })
+      expect(saved).toBe(false)
+      expect(loadSyncStorage().runtime.tombstones).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('records multiple solve tombstones in one durable call', async () => {
     enableSync()
     const transport = createMemoryDriveTransport()
@@ -1194,6 +1374,120 @@ describe('useSync deletion tombstones', () => {
     expect(tombstones).toHaveLength(5)
   })
 
+  it.each(['solves', 'sessions'] as const)(
+    'keeps data after a rejected %s tombstone batch is followed by a real sync and reload',
+    async (kind) => {
+      enableSync({ solveThreshold: 100 })
+      const transport = createMemoryDriveTransport()
+      await transport.connect()
+      const initial = sessionsData({
+        sessions: [session({ solves: [solve({ id: 'blocked-batch-solve' })] })],
+      })
+      saveSessions(initial)
+      const rendered = renderStatefulSync({
+        transport,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+      })
+      const latestSessions = () =>
+        (rendered.onReplaceSessions.mock.calls.at(-1)?.[0] as
+          | SessionsData
+          | undefined) ?? initial
+
+      await act(async () => {
+        await rendered.result.current.syncNow('manual')
+      })
+
+      const original = Storage.prototype.setItem
+      const spy = vi
+        .spyOn(Storage.prototype, 'setItem')
+        .mockImplementation(function setItem(this: Storage, key, value) {
+          if (key === SYNC_STORAGE_KEY) {
+            throw new Error('Synthetic sync-key write failure')
+          }
+          return original.call(this, key, value)
+        })
+      try {
+        let saved = true
+        act(() => {
+          saved =
+            kind === 'solves'
+              ? rendered.result.current.recordDeletions([
+                  { id: 'blocked-batch-solve', sessionId: 'session-1' },
+                ])
+              : rendered.result.current.recordAllSessionDeletions(
+                  initial.sessions,
+                )
+        })
+        expect(saved).toBe(false)
+      } finally {
+        spy.mockRestore()
+      }
+
+      expect(loadSyncStorage().runtime.tombstones).toEqual([])
+      expect(
+        latestSessions().sessions.flatMap((entry) =>
+          entry.solves.map((item) => item.id),
+        ),
+      ).toContain('blocked-batch-solve')
+
+      await act(async () => {
+        await rendered.result.current.syncNow('manual')
+      })
+      expect(
+        latestSessions().sessions.flatMap((entry) =>
+          entry.solves.map((item) => item.id),
+        ),
+      ).toContain('blocked-batch-solve')
+
+      const files = await transport.listBackups!()
+      const contents = await Promise.all(
+        files.map((file) => transport.downloadBackup(file.id)),
+      )
+      const activeBatchTombstones = contents.flatMap((content) => {
+        const backup = JSON.parse(content) as {
+          sync?: {
+            tombstones?: Array<{
+              kind: string
+              id: string
+              deletedAt: number
+              restoredAt?: number
+            }>
+          }
+        }
+        return (backup.sync?.tombstones ?? []).filter(
+          (tombstone) =>
+            tombstone.kind === 'solve' &&
+            tombstone.id === 'blocked-batch-solve' &&
+            (tombstone.restoredAt === undefined ||
+              tombstone.restoredAt <= tombstone.deletedAt),
+        )
+      })
+      expect(activeBatchTombstones).toEqual([])
+
+      saveSessions(latestSessions())
+      rendered.unmount()
+      const reloaded = renderStatefulSync({
+        transport,
+        sessions: loadSessions(),
+        settings: DEFAULT_SETTINGS,
+      })
+      await act(async () => {
+        await reloaded.result.current.syncNow('manual')
+      })
+      const reloadedSessions =
+        (reloaded.onReplaceSessions.mock.calls.at(-1)?.[0] as
+          | SessionsData
+          | undefined) ?? loadSessions()
+      expect(
+        reloadedSessions.sessions.flatMap((entry) =>
+          entry.solves.map((item) => item.id),
+        ),
+      ).toContain('blocked-batch-solve')
+      reloaded.unmount()
+    },
+  )
+
   it('records solve tombstones with a single-session deletion so stale split copies cannot return', () => {
     enableSync()
     const target = session({
@@ -1237,7 +1531,7 @@ describe('useSync deletion tombstones', () => {
     ])
   })
 
-  it('reports a delete-all tombstone failure when storage is unavailable', async () => {
+  it('reports batch tombstone failures when storage is unavailable without publishing intent', async () => {
     enableSync()
     const transport = createMemoryDriveTransport()
     const target = sessionsData({
@@ -1256,14 +1550,390 @@ describe('useSync deletion tombstones', () => {
       }),
     )
     act(() => {
+      expect(
+        result.current.recordDeletions([
+          { id: 'solve-1', sessionId: 'session-1' },
+        ]),
+      ).toBe(false)
       expect(result.current.recordAllSessionDeletions(target.sessions)).toBe(false)
     })
+    expect(loadSyncStorage().runtime.tombstones).toEqual([])
     unmount()
+  })
+  it('recovers a pending Undo before syncing and keeps the journal when session storage fails', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const stored = loadSyncStorage()
+    const pending = createPendingSolveRestore(
+      solve({ id: 'pending-undo' }),
+      0,
+      'session-1',
+      'Main',
+    )
+    saveSyncStorage({
+      ...stored,
+      runtime: {
+        ...stored.runtime,
+        tombstones: [
+          {
+            kind: 'solve',
+            id: pending.solve.id,
+            deletedAt: 100,
+            deletedByDeviceId: 'device-test',
+            restoredAt: 101,
+          },
+        ],
+      },
+    })
+    expect(addPendingSolveRestore(pending)).toBe(true)
+    const initial = sessionsData({
+      sessions: [session({ solves: [] })],
+    })
+    saveSessions(initial)
+
+    const original = Storage.prototype.setItem
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function setItem(this: Storage, key, value) {
+        if (key === 'cubelab:sessions:v1') {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      })
+    const rendered = renderStatefulSync({
+      transport,
+      sessions: initial,
+      settings: DEFAULT_SETTINGS,
+    })
+    try {
+      expect(loadSolveRecovery().operations).toHaveLength(1)
+      rendered.onNotify.mockClear()
+      await act(async () => {
+        await rendered.result.current.syncNow('manual')
+      })
+      expect(rendered.onNotify).toHaveBeenCalledWith(
+        expect.stringContaining('Synchronization paused'),
+      )
+      expect(loadSolveRecovery().operations).toHaveLength(1)
+      expect(await transport.listBackups!()).toHaveLength(0)
+
+      rendered.unmount()
+      const failedReload = renderStatefulSync({
+        transport,
+        sessions: loadSessions(),
+        settings: DEFAULT_SETTINGS,
+      })
+      expect(loadSolveRecovery().operations).toHaveLength(1)
+      expect(loadSessions().sessions[0]?.solves).toHaveLength(0)
+      failedReload.unmount()
+    } finally {
+      spy.mockRestore()
+    }
+
+    const recoveredHook = renderStatefulSync({
+      transport,
+      sessions: loadSessions(),
+      settings: DEFAULT_SETTINGS,
+    })
+    await act(async () => {
+      await recoveredHook.result.current.syncNow('manual')
+    })
+    const recovered =
+      (recoveredHook.onReplaceSessions.mock.calls.at(-1)?.[0] as
+        | SessionsData
+        | undefined) ?? loadSessions()
+    expect(
+      recovered.sessions.flatMap((entry) =>
+        entry.solves.map((item) => item.id),
+      ),
+    ).toContain('pending-undo')
+    expect(loadSessions().sessions[0]?.solves.map((item) => item.id)).toContain(
+      'pending-undo',
+    )
+    expect(loadSolveRecovery().operations).toEqual([])
+    recoveredHook.unmount()
+  })
+
+  it.each(['sessions', 'recovery'] as const)(
+    'bounds recovery attempts and notifications when %s writes keep failing',
+    (failure) => {
+      const storage = createDefaultSyncStorage('device-test')
+      const pending = createPendingSolveRestore(
+        solve({ id: 'bounded-recovery' }),
+        0,
+        'session-1',
+        'Main',
+      )
+      saveSyncStorage({
+        ...storage,
+        runtime: {
+          ...storage.runtime,
+          tombstones: [
+            {
+              kind: 'solve',
+              id: pending.solve.id,
+              deletedAt: 100,
+              deletedByDeviceId: 'device-test',
+              restoredAt: 101,
+            },
+          ],
+        },
+      })
+      expect(addPendingSolveRestore(pending)).toBe(true)
+      const initial = sessionsData({ sessions: [session({ solves: [] })] })
+      saveSessions(initial)
+
+      const targetKey =
+        failure === 'sessions' ? SESSIONS_STORAGE_KEY : SOLVE_RECOVERY_STORAGE_KEY
+      const original = Storage.prototype.setItem
+      let attempts = 0
+      let failWrites = true
+      const spy = vi
+        .spyOn(Storage.prototype, 'setItem')
+        .mockImplementation(function setItem(this: Storage, key, value) {
+          if (key === targetKey) {
+            attempts += 1
+            if (failWrites) {
+              throw new DOMException('Synthetic quota', 'QuotaExceededError')
+            }
+          }
+          return original.call(this, key, value)
+        })
+      const onReplaceSessions = vi.fn()
+      let latestNotify = vi.fn()
+      const { rerender } = renderHook(
+        (props: { onNotify: (message: string) => void; storageOk: boolean }) =>
+          useSync({
+            transport: null,
+            sessions: initial,
+            settings: DEFAULT_SETTINGS,
+            storageOk: props.storageOk,
+            timerActive: false,
+            onReplaceSessions,
+            onReplaceSettings: vi.fn(),
+            onNotify: props.onNotify,
+          }),
+        { initialProps: { onNotify: latestNotify, storageOk: true } },
+      )
+      try {
+        expect(attempts).toBe(1)
+        expect(latestNotify).toHaveBeenCalledTimes(1)
+        for (let index = 0; index < 5; index += 1) {
+          latestNotify = vi.fn()
+          rerender({ onNotify: latestNotify, storageOk: true })
+        }
+        expect(attempts).toBe(1)
+        expect(latestNotify).not.toHaveBeenCalled()
+        if (failure === 'recovery') {
+          expect(
+            loadSessions().sessions[0]?.solves.map((item) => item.id),
+          ).toContain(pending.solve.id)
+        } else {
+          expect(loadSessions().sessions[0]?.solves).toEqual([])
+        }
+        expect(loadSolveRecovery().operations).toHaveLength(1)
+
+        failWrites = false
+        rerender({ onNotify: latestNotify, storageOk: false })
+        rerender({ onNotify: latestNotify, storageOk: true })
+        expect(attempts).toBe(2)
+        expect(loadSolveRecovery().operations).toEqual([])
+        expect(
+          loadSessions().sessions[0]?.solves.map((item) => item.id),
+        ).toContain(pending.solve.id)
+        expect(latestNotify).toHaveBeenCalledTimes(1)
+        expect(latestNotify).toHaveBeenCalledWith(
+          expect.stringContaining('Recovered'),
+        )
+      } finally {
+        spy.mockRestore()
+      }
+    },
+  )
+
+  it('defers pending Undo recovery while the timer is active', () => {
+    const storage = createDefaultSyncStorage('device-test')
+    const pending = createPendingSolveRestore(
+      solve({ id: 'deferred-recovery' }),
+      0,
+      'session-1',
+      'Main',
+    )
+    saveSyncStorage({
+      ...storage,
+      runtime: {
+        ...storage.runtime,
+        tombstones: [
+          {
+            kind: 'solve',
+            id: pending.solve.id,
+            deletedAt: 100,
+            deletedByDeviceId: 'device-test',
+            restoredAt: 101,
+          },
+        ],
+      },
+    })
+    expect(addPendingSolveRestore(pending)).toBe(true)
+    const initial = sessionsData({ sessions: [session({ solves: [] })] })
+    saveSessions(initial)
+
+    const onReplaceSessions = vi.fn()
+    const { rerender } = renderHook(
+      (props: { timerActive: boolean }) =>
+        useSync({
+          transport: null,
+          sessions: initial,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: props.timerActive,
+          onReplaceSessions,
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: true } },
+    )
+
+    expect(loadSessions().sessions[0]?.solves).toEqual([])
+    expect(loadSolveRecovery().operations).toHaveLength(1)
+
+    rerender({ timerActive: false })
+    expect(
+      loadSessions().sessions[0]?.solves.map((item) => item.id),
+    ).toContain(pending.solve.id)
+    expect(loadSolveRecovery().operations).toEqual([])
+  })
+
+  it('aborts an Undo interrupted before revocation and reports it distinctly', () => {
+    const storage = createDefaultSyncStorage('device-test')
+    const originalDeletion = {
+      deletedAt: 100,
+      deletedByDeviceId: 'device-test',
+    }
+    const pending = createPendingSolveRestore(
+      solve({ id: 'precommit-abort' }),
+      0,
+      'session-1',
+      'Main',
+      originalDeletion,
+    )
+    saveSyncStorage({
+      ...storage,
+      runtime: {
+        ...storage.runtime,
+        tombstones: [
+          {
+            kind: 'solve',
+            id: pending.solve.id,
+            deletedAt: originalDeletion.deletedAt,
+            deletedByDeviceId: originalDeletion.deletedByDeviceId,
+          },
+        ],
+      },
+    })
+    expect(addPendingSolveRestore(pending)).toBe(true)
+    const initial = sessionsData({ sessions: [session({ solves: [] })] })
+    saveSessions(initial)
+    const onNotify = vi.fn()
+    renderHook(() =>
+      useSync({
+        transport: null,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    expect(loadSessions().sessions[0]?.solves).toEqual([])
+    expect(loadSolveRecovery().operations).toEqual([])
+    expect(onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('had not committed'),
+    )
+    expect(onNotify).not.toHaveBeenCalledWith(
+      expect.stringContaining('newer deletion'),
+    )
+  })
+
+  it('reconciles a stale snapshot after recovering a pending Undo without duplicating the solve', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const stale = sessionsData({
+      sessions: [session({ solves: [solve({ id: 'pending-undo' })] })],
+    })
+    await transport.uploadDeviceBackup!(
+      JSON.stringify(
+        createBackup(stale, DEFAULT_SETTINGS, new Date('2026-01-01'), {
+          ...createSyncEnvelope('old-device', 1, [], []),
+          updatedAt: 1,
+        }),
+      ),
+      'old-device',
+    )
+
+    const stored = loadSyncStorage()
+    const pending = createPendingSolveRestore(
+      solve({ id: 'pending-undo' }),
+      0,
+      'session-1',
+      'Main',
+    )
+    saveSyncStorage({
+      ...stored,
+      runtime: {
+        ...stored.runtime,
+        tombstones: [
+          {
+            kind: 'solve',
+            id: pending.solve.id,
+            deletedAt: 100,
+            deletedByDeviceId: 'device-test',
+            restoredAt: 101,
+          },
+        ],
+      },
+    })
+    expect(addPendingSolveRestore(pending)).toBe(true)
+    const initial = sessionsData({ sessions: [session({ solves: [] })] })
+    saveSessions(initial)
+    const rendered = renderStatefulSync({
+      transport,
+      sessions: initial,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await rendered.result.current.syncNow('manual')
+    })
+
+    const latest =
+      (rendered.onReplaceSessions.mock.calls.at(-1)?.[0] as
+        | SessionsData
+        | undefined) ?? loadSessions()
+    const recoveredSolves = latest.sessions.flatMap((entry) =>
+      entry.solves.filter((item) => item.id === 'pending-undo'),
+    )
+    expect(recoveredSolves).toHaveLength(1)
+    expect(loadSolveRecovery().operations).toEqual([])
+    expect(
+      loadSyncStorage().runtime.tombstones.filter(
+        (tombstone) =>
+          tombstone.kind === 'solve' &&
+          tombstone.id === 'pending-undo' &&
+          (tombstone.restoredAt === undefined ||
+            tombstone.restoredAt <= tombstone.deletedAt),
+      ),
+    ).toEqual([])
+    rendered.unmount()
   })
 })
 
-describe('useSync session merge records', () => {
-  beforeEach(() => {
+describe('useSync session merge records', () => {  beforeEach(() => {
     localStorage.clear()
   })
 
@@ -2517,6 +3187,332 @@ describe('useSync timer-active in-flight guards', () => {
       activeSessionId: 'session-2',
     })
   })
+
+  it('defers a committed replacement and reconciles a solve recorded while timing', async () => {
+    enableSync()
+    const initial = sessionsData({
+      sessions: [
+        session({ id: 'session-1', name: 'Morning' }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    saveSessions(initial)
+    saveSettings(DEFAULT_SETTINGS)
+    saveSyncStorage(createDefaultSyncStorage('device-local'))
+    const onReplaceSessions = vi.fn()
+    const onReplaceSettings = vi.fn()
+    const rendered = renderHook(
+      ({
+        timerActive,
+        sessions,
+      }: {
+        timerActive: boolean
+        sessions: SessionsData
+      }) =>
+        useSync({
+          transport: createMemoryDriveTransport(),
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive,
+          onReplaceSessions,
+          onReplaceSettings,
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: true, sessions: initial } },
+    )
+
+    const begun = beginReplacement('native-import', [
+      'sessions',
+      'settings',
+      'sync',
+    ])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    await act(async () => dispatchReplacementEvent())
+
+    const recorded = {
+      ...initial,
+      sessions: initial.sessions.map((entry) =>
+        entry.id === 'session-1'
+          ? { ...entry, solves: [solve({ id: 'recorded-while-timing' })] }
+          : entry,
+      ),
+    }
+    await act(async () => {
+      rendered.rerender({ timerActive: true, sessions: recorded })
+    })
+
+    const external = { ...initial, activeSessionId: 'session-2' }
+    const externalSettings = { ...DEFAULT_SETTINGS, theme: 'dark' as const }
+    const externalSync = {
+      ...createDefaultSyncStorage('device-external'),
+      preferences: {
+        ...createDefaultSyncStorage('device-external').preferences,
+        enabled: true,
+      },
+    }
+    saveSessions(external)
+    saveSettings(externalSettings)
+    saveSyncStorage(externalSync)
+    expect(markReplacementCommitted(begun.journal)).toBe(true)
+    await act(async () => dispatchReplacementEvent())
+
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+    expect(onReplaceSettings).not.toHaveBeenCalled()
+    expect(loadReplacementJournal().status).toBe('none')
+
+    await act(async () => {
+      rendered.rerender({ timerActive: false, sessions: recorded })
+    })
+    await vi.waitFor(() => expect(onReplaceSessions).toHaveBeenCalledTimes(1))
+    const reconciled = onReplaceSessions.mock.calls[0]?.[0] as SessionsData
+    expect(reconciled.activeSessionId).toBe('session-2')
+    expect(
+      reconciled.sessions
+        .find((entry) => entry.id === 'session-1')
+        ?.solves.map((entry) => entry.id),
+    ).toEqual(['recorded-while-timing'])
+    expect(onReplaceSettings).toHaveBeenCalledWith(externalSettings)
+    expect(rendered.result.current.preferences.enabled).toBe(true)
+  })
+
+  it('routes an idle cross-tab completion into a compatible recovery session', async () => {
+    enableSync()
+    const initial = sessionsData({
+      sessions: [
+        session({ id: 'session-1', name: 'Morning' }),
+        session({ id: 'session-2', name: 'Evening', event: '222' }),
+      ],
+    })
+    saveSessions(initial)
+    saveSettings(DEFAULT_SETTINGS)
+    saveSyncStorage(createDefaultSyncStorage('device-local'))
+    const onReplaceSessions = vi.fn()
+    const onReplaceSettings = vi.fn()
+    const rendered = renderHook(
+      ({
+        timerActive,
+        sessions,
+      }: {
+        timerActive: boolean
+        sessions: SessionsData
+      }) =>
+        useSync({
+          transport: createMemoryDriveTransport(),
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive,
+          onReplaceSessions,
+          onReplaceSettings,
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: true, sessions: initial } },
+    )
+
+    const begun = beginReplacement('native-import', [
+      'sessions',
+      'settings',
+      'sync',
+    ])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    await act(async () => dispatchReplacementEvent())
+
+    expect(
+      recordPendingCompletion(initial, {
+        ...initial,
+        sessions: initial.sessions.map((entry) =>
+          entry.id === 'session-1'
+            ? { ...entry, solves: [solve({ id: 'buffered-A' })] }
+            : entry,
+        ),
+      }),
+    ).toBe(true)
+
+    const external = {
+      ...initial,
+      activeSessionId: 'session-2',
+      sessions: initial.sessions.map((entry) =>
+        entry.id === 'session-1' ? { ...entry, event: '222' } : entry,
+      ),
+    }
+    saveSessions(external)
+    saveSettings(DEFAULT_SETTINGS)
+    saveSyncStorage(createDefaultSyncStorage('device-external'))
+    expect(markReplacementCommitted(begun.journal)).toBe(true)
+    await act(async () => dispatchReplacementEvent())
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rendered.rerender({ timerActive: false, sessions: initial })
+    })
+    await vi.waitFor(() => expect(onReplaceSessions).toHaveBeenCalledTimes(1))
+    const reconciled = onReplaceSessions.mock.calls[0]?.[0] as SessionsData
+    expect(
+      reconciled.sessions.find((entry) => entry.id === 'session-1'),
+    ).toMatchObject({ event: '222', solves: [] })
+    const recovered = reconciled.sessions.find(
+      (entry) => entry.id === 'recovered:session-1',
+    )
+    expect(recovered).toMatchObject({ event: '333' })
+    expect(recovered?.solves.map((entry) => entry.id)).toEqual(['buffered-A'])
+    expect(onReplaceSettings).toHaveBeenCalledWith(DEFAULT_SETTINGS)
+  })
+
+  it('defers a replacement removal while timing and still reconciles the completed solve', async () => {
+    enableSync()
+    const initial = sessionsData({
+      sessions: [
+        session({ id: 'session-1', name: 'Morning' }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    saveSessions(initial)
+    const onReplaceSessions = vi.fn()
+    const rendered = renderHook(
+      ({
+        timerActive,
+        sessions,
+      }: {
+        timerActive: boolean
+        sessions: SessionsData
+      }) =>
+        useSync({
+          transport: createMemoryDriveTransport(),
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive,
+          onReplaceSessions,
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: true, sessions: initial } },
+    )
+
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    await act(async () => dispatchReplacementEvent())
+
+    const recorded = {
+      ...initial,
+      sessions: initial.sessions.map((entry) =>
+        entry.id === 'session-1'
+          ? { ...entry, solves: [solve({ id: 'recorded-before-rollback' })] }
+          : entry,
+      ),
+    }
+    await act(async () => {
+      rendered.rerender({ timerActive: true, sessions: recorded })
+    })
+
+    saveSessions(initial)
+    expect(clearReplacementJournal()).toBe(true)
+    await act(async () => dispatchReplacementEvent())
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rendered.rerender({ timerActive: false, sessions: recorded })
+    })
+    await vi.waitFor(() => expect(onReplaceSessions).toHaveBeenCalledTimes(1))
+    const reconciled = onReplaceSessions.mock.calls[0]?.[0] as SessionsData
+    expect(reconciled.activeSessionId).toBe('session-1')
+    expect(
+      reconciled.sessions[0]?.solves.map((entry) => entry.id),
+    ).toEqual(['recorded-before-rollback'])
+  })
+
+  it('retains the first baseline and adopts the latest replacement during one active solve', async () => {
+    enableSync()
+    const initial = sessionsData({
+      sessions: [
+        session({ id: 'session-1', name: 'Morning' }),
+        session({ id: 'session-2', name: 'Evening' }),
+      ],
+    })
+    saveSessions(initial)
+    const onReplaceSessions = vi.fn()
+    const onReplaceSettings = vi.fn()
+    const rendered = renderHook(
+      ({
+        timerActive,
+        sessions,
+      }: {
+        timerActive: boolean
+        sessions: SessionsData
+      }) =>
+        useSync({
+          transport: createMemoryDriveTransport(),
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive,
+          onReplaceSessions,
+          onReplaceSettings,
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { timerActive: true, sessions: initial } },
+    )
+
+    const first = beginReplacement('native-import', ['sessions'])
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    await act(async () => dispatchReplacementEvent())
+    const recorded = {
+      ...initial,
+      sessions: initial.sessions.map((entry) =>
+        entry.id === 'session-1'
+          ? { ...entry, solves: [solve({ id: 'recorded-during-two-outcomes' })] }
+          : entry,
+      ),
+    }
+    await act(async () => {
+      rendered.rerender({ timerActive: true, sessions: recorded })
+    })
+
+    const firstExternal = {
+      ...initial,
+      activeSessionId: 'session-2',
+      sessions: initial.sessions.map((entry) =>
+        entry.id === 'session-2' ? { ...entry, name: 'First outcome' } : entry,
+      ),
+    }
+    saveSessions(firstExternal)
+    expect(markReplacementCommitted(first.journal)).toBe(true)
+    await act(async () => dispatchReplacementEvent())
+
+    const second = beginReplacement('native-import', ['sessions'])
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    const latestExternal = {
+      ...firstExternal,
+      sessions: firstExternal.sessions.map((entry) =>
+        entry.id === 'session-2' ? { ...entry, name: 'Latest outcome' } : entry,
+      ),
+    }
+    saveSessions(latestExternal)
+    expect(markReplacementCommitted(second.journal)).toBe(true)
+    await act(async () => dispatchReplacementEvent())
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rendered.rerender({ timerActive: false, sessions: recorded })
+    })
+    await vi.waitFor(() => expect(onReplaceSessions).toHaveBeenCalledTimes(1))
+    const reconciled = onReplaceSessions.mock.calls[0]?.[0] as SessionsData
+    expect(reconciled.activeSessionId).toBe('session-2')
+    expect(
+      reconciled.sessions.find((entry) => entry.id === 'session-2')?.name,
+    ).toBe('Latest outcome')
+    expect(
+      reconciled.sessions.find((entry) => entry.id === 'session-1')?.solves.map(
+        (entry) => entry.id,
+      ),
+    ).toEqual(['recorded-during-two-outcomes'])
+  })
 })
 
 describe('cross-tab settings metadata', () => {
@@ -2666,5 +3662,76 @@ describe('useSync active-session conflict publication', () => {
     expect(result.current.phase).toBe('synced')
     expect(result.current.pendingConflicts).toHaveLength(0)
     expect(upload).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useSync output limits', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('does not upload or announce an oversized complete snapshot', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const oversized = sessionsData({
+      sessions: [
+        session({
+          solves: [solve({ comment: 'é'.repeat(5_500_000) })],
+        }),
+      ],
+    })
+    const upload = vi.spyOn(transport, 'uploadDeviceBackup')
+    const download = vi.spyOn(transport, 'downloadBackup')
+    const { result, onNotify } = renderStatefulSync({
+      transport,
+      sessions: oversized,
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('failed')
+    expect(result.current.error).toContain('backup limit was exceeded')
+    expect(onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Synchronization blocked'),
+    )
+    expect(upload).not.toHaveBeenCalled()
+    expect(await transport.listBackups!()).toHaveLength(0)
+
+    const downloadsBefore = download.mock.calls.length
+    await act(async () => {
+      await result.current.syncNow('scheduled')
+    })
+    expect(download).toHaveBeenCalledTimes(downloadsBefore)
+    expect(upload).not.toHaveBeenCalled()
+  })
+
+  it('pauses synchronization while another tab has a prepared replacement', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const upload = vi.spyOn(transport, 'uploadDeviceBackup')
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    const { result, onNotify } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+
+    expect(result.current.phase).toBe('failed')
+    expect(result.current.error).toContain('replacement is being committed')
+    expect(onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('replacement is being committed'),
+    )
+    expect(upload).not.toHaveBeenCalled()
+    clearReplacementJournal()
   })
 })

@@ -164,6 +164,12 @@ export interface SyncStorageData {
     activeSessionFieldUpdate?: { updatedAt: number; editorId: string }
     /** Fingerprint of the last successfully published local state. */
     lastSyncedFingerprint: string | null
+    /**
+     * Local fingerprint whose complete upload payload exceeded the reader
+     * limit. Automatic triggers skip unchanged data until the local state (or
+     * an explicit manual retry) changes; no remote snapshot is written.
+     */
+    blockedOutputFingerprint?: string | null
   }
 }
 
@@ -481,6 +487,11 @@ export function parseSyncStorageData(value: unknown): SyncStorageData | null {
         typeof sourceRuntime.lastSyncedFingerprint === 'string' &&
         sourceRuntime.lastSyncedFingerprint.length > 0
           ? sourceRuntime.lastSyncedFingerprint
+          : null,
+      blockedOutputFingerprint:
+        typeof sourceRuntime.blockedOutputFingerprint === 'string' &&
+        sourceRuntime.blockedOutputFingerprint.length > 0
+          ? sourceRuntime.blockedOutputFingerprint
           : null,
     },
   }

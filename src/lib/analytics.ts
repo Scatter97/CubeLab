@@ -54,6 +54,15 @@ function startOfLocalDay(timestamp: number): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 
+function startOfLocalDayBefore(timestamp: number, days: number): number {
+  const date = new Date(timestamp)
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() - days,
+  ).getTime()
+}
+
 function endOfLocalDay(timestamp: number): number {
   const date = new Date(timestamp)
   return (
@@ -88,13 +97,13 @@ export function analyticsDateBounds(
     case 'today':
       return { start: today, end: endOfLocalDay(now) }
     case '7d':
-      return { start: startOfLocalDay(today - 6 * DAY_MS), end: endOfLocalDay(now) }
+      return { start: startOfLocalDayBefore(now, 6), end: endOfLocalDay(now) }
     case '30d':
-      return { start: startOfLocalDay(today - 29 * DAY_MS), end: endOfLocalDay(now) }
+      return { start: startOfLocalDayBefore(now, 29), end: endOfLocalDay(now) }
     case '90d':
-      return { start: startOfLocalDay(today - 89 * DAY_MS), end: endOfLocalDay(now) }
+      return { start: startOfLocalDayBefore(now, 89), end: endOfLocalDay(now) }
     case 'year':
-      return { start: startOfLocalDay(today - 364 * DAY_MS), end: endOfLocalDay(now) }
+      return { start: startOfLocalDayBefore(now, 364), end: endOfLocalDay(now) }
     case 'custom':
       return {
         start: parseDateInput(filters.customStart, false),
@@ -123,7 +132,10 @@ export function filterAnalyticsSolves(
   let order = 0
 
   for (const session of sessions) {
-    for (const solve of session.solves) {
+    // Stored solves are newest-first. Walk backward so the fallback order for
+    // equal timestamps inside one session is the original chronological order.
+    for (let solveIndex = session.solves.length - 1; solveIndex >= 0; solveIndex -= 1) {
+      const solve = session.solves[solveIndex]!
       const recordOrder = order++
       if (filters.event !== 'all' && solve.event !== filters.event) continue
       if (sessionIds !== null && !sessionIds.has(session.id)) continue
@@ -233,16 +245,15 @@ export function buildAnalyticsAverages(
 
     rolling.forEach((result, start) => {
       const index = count - 1 - start
-      const value = result.status === 'value' ? result.ms : null
-      values[index] = value
-      if (value !== null) best = Math.min(best, value)
-      runningBest[index] = best === Infinity ? null : best
+      values[index] = result.status === 'value' ? result.ms : null
     })
 
-    // Before the first complete window no average existed yet.
-    for (let index = 0; index < Math.min(size - 1, count); index += 1) {
-      const value = runningBest[index] ?? null
-      runningBest[index] = value
+    // Scan forward so each entry is the best complete window seen up to that
+    // point. A DNF window keeps the earlier best instead of erasing it.
+    for (let index = 0; index < count; index += 1) {
+      const value = values[index] ?? null
+      if (value !== null) best = Math.min(best, value)
+      runningBest[index] = best === Infinity ? null : best
     }
 
     averages.set(size, values)
@@ -919,7 +930,7 @@ export interface PracticeDayPerformance {
 }
 
 export interface ActivityReport {
-  readonly daily: readonly ActivityDay[]
+  /** Sparse active dates across the complete filtered range. */
   readonly allDays: readonly ActivityDay[]
   readonly heatmapStartMs: number | null
   readonly heatmapEndMs: number | null
@@ -1042,35 +1053,6 @@ export function buildActivity(
     }
   }
 
-  // The heatmap covers the complete filtered activity range instead of a
-  // rolling one-year window. Empty calendar days are included so gaps remain
-  // visible and multi-year histories never silently lose earlier months.
-  const daily: ActivityDay[] = []
-  const firstDay = allDays[0]
-  const lastDay = allDays[allDays.length - 1]
-  if (firstDay && lastDay) {
-    const firstDate = new Date(firstDay.dateMs)
-    const dayCount = lastDay.dayNumber - firstDay.dayNumber
-    for (let offset = 0; offset <= dayCount; offset += 1) {
-      const dateMs = new Date(
-        firstDate.getFullYear(),
-        firstDate.getMonth(),
-        firstDate.getDate() + offset,
-      ).getTime()
-      const number = dayNumber(dateMs)
-      const key = dateKey(dateMs)
-      daily.push(
-        days.get(key) ?? {
-          key,
-          dayNumber: number,
-          dateMs,
-          count: 0,
-          timeMs: 0,
-        },
-      )
-    }
-  }
-
   const weeklyMap = new Map<string, ActivityBucket>()
   const monthlyMap = new Map<string, ActivityBucket>()
   for (const day of allDays) {
@@ -1108,10 +1090,9 @@ export function buildActivity(
   performances.sort((left, right) => left.meanMs - right.meanMs)
 
   return {
-    daily,
     allDays,
-    heatmapStartMs: daily[0]?.dateMs ?? null,
-    heatmapEndMs: daily[daily.length - 1]?.dateMs ?? null,
+    heatmapStartMs: allDays[0]?.dateMs ?? null,
+    heatmapEndMs: allDays[allDays.length - 1]?.dateMs ?? null,
     totalTimeMs,
     activeDays,
     averagePerActiveDay,
@@ -1124,6 +1105,69 @@ export function buildActivity(
     bestPerformanceDay: performances[0] ?? null,
     worstPerformanceDay: performances[performances.length - 1] ?? null,
   }
+}
+
+/** Days materialized by the activity calendar at once (about one year). */
+export const ACTIVITY_CALENDAR_WINDOW_DAYS = 371
+
+/** Add calendar days in local time, preserving local date semantics across DST. */
+export function addLocalDays(timestamp: number, days: number): number {
+  const date = new Date(timestamp)
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + days,
+  ).getTime()
+}
+
+/**
+ * Materializes only the requested bounded calendar window. `allDays` remains
+ * sparse, so a huge date span never creates an array proportional to elapsed
+ * days. Active dates outside the window stay available for navigation.
+ */
+export function buildActivityCalendar(
+  days: readonly ActivityDay[],
+  startMs: number,
+  dayCount = ACTIVITY_CALENDAR_WINDOW_DAYS,
+): ActivityDay[] {
+  if (!Number.isFinite(startMs) || !Number.isInteger(dayCount) || dayCount <= 0) {
+    return []
+  }
+  const active = new Map(days.map((day) => [day.key, day]))
+  const startDate = new Date(startMs)
+  const result: ActivityDay[] = []
+  for (let offset = 0; offset < dayCount; offset += 1) {
+    const dateMs = new Date(
+      startDate.getFullYear(),
+      startDate.getMonth(),
+      startDate.getDate() + offset,
+    ).getTime()
+    const key = dateKey(dateMs)
+    result.push(
+      active.get(key) ?? {
+        key,
+        dayNumber: dayNumber(dateMs),
+        dateMs,
+        count: 0,
+        timeMs: 0,
+      },
+    )
+  }
+  return result
+}
+
+/** Clamp a requested calendar start to the filtered full-history extent. */
+export function clampActivityCalendarStart(
+  report: Pick<ActivityReport, 'heatmapStartMs' | 'heatmapEndMs'>,
+  requestedStartMs: number,
+  dayCount = ACTIVITY_CALENDAR_WINDOW_DAYS,
+): number {
+  const first = report.heatmapStartMs
+  const last = report.heatmapEndMs
+  if (first === null || last === null) return startOfLocalDay(requestedStartMs)
+  const latestStart = addLocalDays(last, -(dayCount - 1))
+  const maxStart = Math.max(startOfLocalDay(first), latestStart)
+  return Math.min(Math.max(startOfLocalDay(requestedStartMs), first), maxStart)
 }
 
 export interface AdvancedReport {
@@ -1192,9 +1236,12 @@ export function computeAdvanced(
     attempts.push(trend.singles[index] ?? null)
     if (attempts.length > movingWindow) attempts.shift()
     // DNFs occupy a slot in the rolling attempt window. Older solves must not
-    // remain eligible merely because the newest attempt was a DNF.
+    // remain eligible merely because the newest attempt was a DNF. Sort the
+    // detached valid window so this is a true median of the attempts.
     movingMedian[index] = medianSorted(
-      attempts.filter((value): value is number => value !== null),
+      attempts
+        .filter((value): value is number => value !== null)
+        .sort((left, right) => left - right),
     )
   }
 

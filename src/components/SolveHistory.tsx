@@ -18,6 +18,7 @@ import {
   formatTime,
 } from '../lib/format'
 import { copyText } from '../lib/clipboard'
+import { dateTimeAttribute, isDateTimestamp } from '../lib/dates'
 import {
   averageMeasuredHeight,
   buildRowOffsets,
@@ -74,6 +75,7 @@ const WINDOW_OVERSCAN_PX = 320
 const WINDOW_NOTE_ID = 'history-window-note'
 
 function fullTimestamp(timestamp: number): string {
+  if (!isDateTimestamp(timestamp)) return 'Unknown date'
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -162,7 +164,7 @@ const SolveRow = memo(function SolveRow({
             <span>#{number}</span>
             <span aria-hidden="true">·</span>
             <time
-              dateTime={new Date(solve.createdAt).toISOString()}
+              dateTime={dateTimeAttribute(solve.createdAt)}
               title={fullTimestamp(solve.createdAt)}
             >
               {formatRelativeTime(solve.createdAt)}

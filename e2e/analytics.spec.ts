@@ -204,6 +204,107 @@ test.describe('analytics dashboard', () => {
     ).toBeVisible()
   })
 
+  test('refreshes relative dates and streaks across local midnight without data changes', async ({
+    page,
+  }) => {
+    const now = new Date()
+    const dayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    ).getTime()
+    const midnightData = {
+      version: 4,
+      activeSessionId: 'midnight',
+      sessions: [
+        session('midnight', 'Midnight', '333', [
+          solve('midnight-2', 11_000, dayStart + 12 * 60 * 60 * 1000 - NOW),
+          solve('midnight-1', 10_000, dayStart + 11 * 60 * 60 * 1000 - NOW),
+        ]),
+      ],
+    }
+    await seed(page, midnightData)
+    await openAnalytics(page)
+    await page.clock.install({
+      time: new Date(dayStart + 23 * 60 * 60 * 1000 + 59 * 60 * 1000 + 50_000),
+    })
+    await chooseTestOption(page, 'analytics-date-range', 'today')
+    await expect(page.getByText('2 matching solves')).toBeVisible()
+    await page.getByRole('tab', { name: 'Practice activity' }).click()
+    await expect(page.getByText('Current streak')).toBeVisible()
+    await expect(page.getByTestId('analytics-section-activity')).toContainText(
+      '1 d',
+    )
+
+    await page.clock.fastForward(2 * DAY + 20_000)
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByText('0 matching solves')).toBeVisible()
+    await expect(page.getByTestId('analytics-section-activity')).toContainText(
+      '0 d',
+    )
+  })
+
+  test('bounds the activity calendar for a multi-decade span and keeps both ends reachable', async ({
+    page,
+  }) => {
+    const latest = new Date()
+    latest.setHours(12, 0, 0, 0)
+    // Negative Unix timestamps (pre-1970) are outside the stored solve
+    // contract; use the earliest supported positive date for the rendering
+    // bound. The 100,000-day allocation case is covered by the pure unit test.
+    const earliest = new Date(1970, 0, 2, 12)
+    await seed(page, {
+      version: 4,
+      activeSessionId: 'huge-span',
+      sessions: [
+        session('huge-span', 'Huge span', '333', [
+          solve('huge-new', 10_000, latest.getTime() - NOW),
+          solve('huge-old', 11_000, earliest.getTime() - NOW),
+        ]),
+      ],
+    })
+    await openAnalytics(page)
+    await page.getByRole('tab', { name: 'Practice activity' }).click()
+    await expect(
+      page.getByRole('group', { name: 'Activity calendar range' }),
+    ).toBeVisible()
+    const region = page.getByRole('region', { name: /Daily solve activity/ })
+    expect(
+      await region.locator('.analytics-heatmap-cell').count(),
+    ).toBeLessThanOrEqual(383)
+    await page
+      .getByRole('group', { name: 'Activity calendar range' })
+      .getByRole('button', { name: 'Earliest' })
+      .click()
+    await expect(page.getByTestId('activity-heatmap-range')).toContainText(
+      String(earliest.getFullYear()),
+    )
+    await expect(
+      page
+        .getByRole('group', { name: 'Activity calendar range' })
+        .getByRole('button', { name: 'Earliest' }),
+    ).toBeDisabled()
+    expect(
+      await region.locator('.analytics-heatmap-cell').count(),
+    ).toBeLessThanOrEqual(383)
+    const earliestRange = await page
+      .getByTestId('activity-heatmap-range')
+      .innerText()
+
+    await page
+      .getByRole('group', { name: 'Activity calendar range' })
+      .getByRole('button', { name: 'Latest' })
+      .click()
+    expect(
+      await page.getByTestId('activity-heatmap-range').innerText(),
+    ).not.toBe(earliestRange)
+    await expect(
+      page
+        .getByRole('group', { name: 'Activity calendar range' })
+        .getByRole('button', { name: 'Latest' }),
+    ).toBeDisabled()
+  })
+
   test('does not route timer keys while analytics is open', async ({ page }) => {
     await seed(page)
     await openAnalytics(page)
@@ -500,6 +601,10 @@ test.describe('analytics controls', () => {
     await expect(
       page.locator('.analytics-heatmap tbody tr'),
     ).toHaveCount(7)
+    await page
+      .getByRole('group', { name: 'Activity calendar range' })
+      .getByRole('button', { name: 'Earliest' })
+      .click()
     await expect(
       page.getByRole('img', { name: /2025.*1 solve/ }).first(),
     ).toBeVisible()

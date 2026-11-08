@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import {
   DEFAULT_SETTINGS,
@@ -122,4 +122,54 @@ it('defers cross-tab trimming changes during timing, then adopts both sides', ()
   expect(result.current.settings).toMatchObject({ averageTrimBetter: '1', averageTrimWorse: 'p10' })
   act(() => result.current.updateSettings({ theme: 'dark' }))
   expect(loadSettings()).toMatchObject({ averageTrimBetter: '1', averageTrimWorse: 'p10', theme: 'dark' })
+})
+
+describe('useSettings staged replacements', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    saveSettings(DEFAULT_SETTINGS)
+  })
+
+  it('saves a replacement without publishing React state', () => {
+    const { result } = renderHook(() => useSettings())
+    let staged = false
+    act(() => {
+      staged = result.current.stageSettings({
+        ...DEFAULT_SETTINGS,
+        theme: 'dark',
+        accentColor: 'blue',
+      })
+    })
+
+    expect(staged).toBe(true)
+    expect(result.current.settings.theme).toBe('light')
+    expect(loadSettings()).toMatchObject({ theme: 'dark', accentColor: 'blue' })
+  })
+
+  it('reports a failed stage without changing visible settings', () => {
+    const { result } = renderHook(() => useSettings())
+    const original = Storage.prototype.setItem
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function setItem(this: Storage, key, value) {
+        if (key === SETTINGS_STORAGE_KEY) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      })
+    try {
+      let staged = true
+      act(() => {
+        staged = result.current.stageSettings({
+          ...DEFAULT_SETTINGS,
+          theme: 'dark',
+        })
+      })
+      expect(staged).toBe(false)
+      expect(result.current.settings.theme).toBe('light')
+      expect(loadSettings().theme).toBe('light')
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })

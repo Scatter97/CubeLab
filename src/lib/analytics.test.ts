@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  ACTIVITY_CALENDAR_WINDOW_DAYS,
+  addLocalDays,
+  analyticsDateBounds,
   buildActivity,
+  buildActivityCalendar,
   buildAnalyticsTrend,
   buildHistogram,
   buildPBHistory,
+  clampActivityCalendarStart,
   compareSessions,
   computeAdvanced,
   computeAnalyticsOverview,
@@ -14,9 +19,11 @@ import {
   formatAnalyticsAxisDate,
   analyticsSpansMultipleYears,
   standardDeviation,
+  type AnalyticsDatePreset,
   type AnalyticsFilters,
 } from './analytics'
 import { DEFAULT_AVERAGE_TRIMMING } from './averageTrimming'
+import { calculateAverage } from './stats'
 import type { Penalty, PuzzleEvent, Session, Solve } from '../types'
 
 const NOW = new Date(2026, 10, 3, 12, 0, 0).getTime()
@@ -134,6 +141,33 @@ describe('analytics filtering', () => {
     expect(latestTwo.map((solve) => solve.id)).toEqual(['a4', 'a1'])
   })
 
+  it('restores within-session chronology for tied imported timestamps', () => {
+    const chronological = [
+      makeSolve('oldest', 10_000, NOW),
+      makeSolve('middle', 20_000, NOW),
+      makeSolve('newest', 30_000, NOW),
+    ]
+    const stored = makeSession('tied', 'Tied', [...chronological].reverse())
+
+    const filtered = filterAnalyticsSolves(
+      [stored],
+      createAnalyticsFilters('333'),
+      NOW,
+    )
+    expect(filtered.map((solve) => solve.id)).toEqual([
+      'oldest',
+      'middle',
+      'newest',
+    ])
+
+    const latestTwo = filterAnalyticsSolves(
+      [stored],
+      { ...createAnalyticsFilters('333'), solveLimit: 2 },
+      NOW,
+    )
+    expect(latestTwo.map((solve) => solve.id)).toEqual(['middle', 'newest'])
+  })
+
   it('handles custom dates, empty session selections and invalid ranges safely', () => {
     const custom: AnalyticsFilters = {
       ...createAnalyticsFilters('333'),
@@ -165,6 +199,59 @@ describe('analytics filtering', () => {
         NOW,
       ),
     ).toHaveLength(4)
+  })
+})
+
+describe('calendar date bounds', () => {
+  function withTimeZone(zone: string, run: () => void) {
+    vi.stubEnv('TZ', zone)
+    try {
+      run()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  }
+
+  it('uses inclusive local calendar days across daylight-saving changes', () => {
+    withTimeZone('America/Toronto', () => {
+      const springNow = new Date(2026, 2, 10, 12).getTime()
+      const springCases: [AnalyticsDatePreset, Date][] = [
+        ['7d', new Date(2026, 2, 4)],
+        ['30d', new Date(2026, 1, 9)],
+        ['90d', new Date(2025, 11, 11)],
+        ['year', new Date(2025, 2, 11)],
+      ]
+      for (const [datePreset, expected] of springCases) {
+        expect(
+          analyticsDateBounds(
+            { ...createAnalyticsFilters('333'), datePreset },
+            springNow,
+          ).start,
+        ).toBe(expected.getTime())
+      }
+
+      const fallNow = new Date(2026, 10, 3, 12).getTime()
+      expect(
+        analyticsDateBounds(
+          { ...createAnalyticsFilters('333'), datePreset: '7d' },
+          fallNow,
+        ).start,
+      ).toBe(new Date(2026, 9, 28).getTime())
+    })
+  })
+
+  it('keeps the same local-calendar semantics in UTC and a non-DST zone', () => {
+    for (const zone of ['UTC', 'Asia/Kolkata']) {
+      withTimeZone(zone, () => {
+        const now = new Date(2026, 2, 10, 12).getTime()
+        expect(
+          analyticsDateBounds(
+            { ...createAnalyticsFilters('333'), datePreset: '7d' },
+            now,
+          ).start,
+        ).toBe(new Date(2026, 2, 4).getTime())
+      })
+    }
   })
 })
 
@@ -211,6 +298,98 @@ describe('overview and rolling averages', () => {
     })
     expect(trend.personalBests).toEqual([true, false, false, false, false])
     expect(trend.averages.get(5)).toEqual([null, null, null, null, 12_670])
+  })
+
+  it('keeps the historical best average when later windows slow down', () => {
+    const trend = trendFor([
+      ...Array<number>(5).fill(10_000),
+      ...Array<number>(5).fill(20_000),
+    ])
+    const overview = computeAnalyticsOverview(
+      trend,
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+
+    expect(overview.averages[0]?.current).toEqual({
+      status: 'value',
+      ms: 20_000,
+    })
+    expect(overview.averages[0]?.best).toBe(10_000)
+    expect(trend.bestAverages.get(5)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      10_000,
+      10_000,
+      10_000,
+      10_000,
+      10_000,
+      10_000,
+    ])
+  })
+
+  it('does not borrow a faster future window into an earlier running best', () => {
+    const trend = trendFor([
+      ...Array<number>(5).fill(20_000),
+      ...Array<number>(5).fill(10_000),
+    ])
+
+    const best = trend.bestAverages.get(5)
+    expect(best?.[4]).toBe(20_000)
+    expect(best?.at(-1)).toBe(10_000)
+    expect(best?.[5]).toBe(20_000)
+  })
+
+  it('carries the earlier best through trailing DNF windows', () => {
+    const session = makeSession('s', 'Main', [
+      ...Array.from({ length: 5 }, (_, index) =>
+        makeSolve(`fast-${index}`, 10_000, NOW - (9 - index) * 1_000),
+      ),
+      ...Array.from({ length: 5 }, (_, index) =>
+        makeSolve(`dnf-${index}`, 20_000, NOW - (4 - index) * 1_000, {
+          penalty: 'dnf',
+        }),
+      ),
+    ])
+    const trend = buildAnalyticsTrend(
+      filterAnalyticsSolves([session], createAnalyticsFilters('333'), NOW),
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+    const overview = computeAnalyticsOverview(
+      trend,
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+
+    expect(overview.averages[0]?.current).toEqual({ status: 'dnf' })
+    expect(overview.averages[0]?.best).toBe(10_000)
+  })
+
+  it('matches a direct chronological best-average oracle with custom trimming', () => {
+    const times = [12_000, 15_000, 11_000, 20_000, 14_000, 13_000, 18_000, 10_000, 16_000, 17_000]
+    const trimming = { better: '1' as const, worse: '1' as const }
+    const trend = trendFor(times, [3])
+    let expectedBest: number | null = null
+    for (let end = 3; end <= trend.solves.length; end += 1) {
+      const window = calculateAverage(
+        [...trend.solves.slice(0, end)].reverse(),
+        3,
+        trimming,
+      )
+      if (
+        window?.status === 'value' &&
+        (expectedBest === null || window.ms < expectedBest)
+      ) {
+        expectedBest = window.ms
+      }
+    }
+
+    expect(
+      computeAnalyticsOverview(trend, [3], trimming).averages[0]?.best,
+    ).toBe(expectedBest)
   })
 
   it('returns safe empty values and supports small custom averages', () => {
@@ -355,9 +534,14 @@ describe('practice activity', () => {
     expect(activity.currentStreak).toBe(3)
     expect(activity.longestStreak).toBe(3)
     expect(activity.frequency).toBe(100)
-    expect(activity.daily).toHaveLength(3)
-    expect(activity.daily[0]?.key).toBe('2026-11-01')
-    expect(activity.daily.at(-1)?.count).toBe(3)
+    const calendar = buildActivityCalendar(
+      activity.allDays,
+      activity.heatmapStartMs!,
+      3,
+    )
+    expect(calendar).toHaveLength(3)
+    expect(calendar[0]?.key).toBe('2026-11-01')
+    expect(calendar.at(-1)?.count).toBe(3)
     expect(activity.heatmapStartMs).toBe(new Date(2026, 10, 1).getTime())
     expect(activity.heatmapEndMs).toBe(new Date(2026, 10, 3).getTime())
     expect(activity.mostActive[0]?.count).toBe(3)
@@ -378,10 +562,21 @@ describe('practice activity', () => {
       DEFAULT_AVERAGE_TRIMMING,
     )
     const activity = buildActivity(trend, NOW)
-    expect(activity.daily[0]?.key).toBe('2025-09-18')
-    expect(activity.daily.at(-1)?.key).toBe('2026-11-03')
-    expect(activity.daily.length).toBeGreaterThan(365)
-    expect(activity.daily.filter((day) => day.count > 0)).toHaveLength(3)
+    expect(activity.allDays).toHaveLength(3)
+    expect(activity.allDays[0]?.key).toBe('2025-09-18')
+    expect(activity.allDays.at(-1)?.key).toBe('2026-11-03')
+    const earliestWindow = buildActivityCalendar(
+      activity.allDays,
+      activity.heatmapStartMs!,
+    )
+    const latestWindow = buildActivityCalendar(
+      activity.allDays,
+      addLocalDays(activity.heatmapEndMs!, -370),
+    )
+    expect(earliestWindow).toHaveLength(371)
+    expect(latestWindow).toHaveLength(371)
+    expect(earliestWindow.filter((day) => day.count > 0).length).toBeGreaterThan(0)
+    expect(latestWindow.filter((day) => day.count > 0).length).toBeGreaterThan(0)
     expect(activity.heatmapStartMs).toBe(new Date(2025, 8, 18).getTime())
     expect(activity.heatmapEndMs).toBe(new Date(2026, 10, 3).getTime())
     expect(
@@ -395,6 +590,51 @@ describe('practice activity', () => {
     expect(
       formatAnalyticsAxisDate(new Date(2026, 10, 3).getTime(), false),
     ).not.toMatch(/2026/)
+  })
+
+  it('keeps a 100,000-day span sparse and materializes only bounded windows', () => {
+    const latest = new Date(2026, 0, 1, 12).getTime()
+    const earliest = addLocalDays(latest, -100_000)
+    const session = makeSession('huge-span', 'Huge span', [
+      makeSolve('new', 10_000, latest),
+      makeSolve('old', 11_000, earliest),
+    ])
+    const trend = buildAnalyticsTrend(
+      filterAnalyticsSolves([session], createAnalyticsFilters('333'), NOW),
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+    const activity = buildActivity(trend, NOW)
+
+    expect(activity.allDays).toHaveLength(2)
+    expect(activity.activeDays).toBe(2)
+    expect(activity.heatmapStartMs).toBe(new Date(2026, 0, 1 - 100_000).getTime())
+    expect(activity.heatmapEndMs).toBe(new Date(2026, 0, 1).getTime())
+    expect(activity.frequency).toBeCloseTo((2 / 100_001) * 100, 6)
+
+    const earliestWindow = buildActivityCalendar(
+      activity.allDays,
+      clampActivityCalendarStart(activity, activity.heatmapStartMs!),
+    )
+    const latestWindow = buildActivityCalendar(
+      activity.allDays,
+      clampActivityCalendarStart(activity, activity.heatmapEndMs!),
+    )
+    expect(earliestWindow).toHaveLength(ACTIVITY_CALENDAR_WINDOW_DAYS)
+    expect(latestWindow).toHaveLength(ACTIVITY_CALENDAR_WINDOW_DAYS)
+    expect(earliestWindow.filter((day) => day.count > 0)).toHaveLength(1)
+    expect(latestWindow.filter((day) => day.count > 0)).toHaveLength(1)
+    expect(clampActivityCalendarStart(activity, activity.heatmapStartMs! - 100)).toBe(
+      activity.heatmapStartMs,
+    )
+    expect(
+      clampActivityCalendarStart(activity, activity.heatmapEndMs!),
+    ).toBe(
+      addLocalDays(
+        activity.heatmapEndMs!,
+        -(ACTIVITY_CALENDAR_WINDOW_DAYS - 1),
+      ),
+    )
   })
 })
 
@@ -426,6 +666,39 @@ describe('advanced analytics', () => {
     )
     const advanced = computeAdvanced(trend, 11_000, 3)
     expect(advanced.movingMedian).toEqual([10_000, 10_000, 15_000, 25_000])
+  })
+
+  it('sorts each moving-median window instead of using the middle attempt', () => {
+    const unsorted = trendFor([10_000, 30_000, 20_000])
+    expect(computeAdvanced(unsorted, 25_000, 3).movingMedian).toEqual([
+      10_000,
+      20_000,
+      20_000,
+    ])
+
+    const session = makeSession('s1', 'Main', [
+      makeSolve('s0', 30_000, NOW - 3_000),
+      makeSolve('s1', 10_000, NOW - 2_000, { penalty: 'dnf' }),
+      makeSolve('s2', 20_000, NOW - 1_000),
+      makeSolve('s3', 20_000, NOW),
+    ])
+    const trend = buildAnalyticsTrend(
+      filterAnalyticsSolves([session], createAnalyticsFilters('333'), NOW),
+      [5],
+      DEFAULT_AVERAGE_TRIMMING,
+    )
+    expect(computeAdvanced(trend, 25_000, 3).movingMedian).toEqual([
+      30_000,
+      30_000,
+      25_000,
+      20_000,
+    ])
+    expect(computeAdvanced(trend, 25_000, 25).movingMedian).toEqual([
+      30_000,
+      30_000,
+      25_000,
+      20_000,
+    ])
   })
 
   it('keeps chronological order for tied fastest and slowest solves', () => {

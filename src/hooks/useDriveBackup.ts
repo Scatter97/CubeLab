@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { SessionsData, Settings } from '../types'
-import { createBackup } from '../lib/backup'
+import { createBackup, serializeBackupChecked } from '../lib/backup'
 import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import { isDrivePreconditionError } from '../lib/driveTransport'
 import { countSolves } from '../lib/sessions'
@@ -11,6 +11,10 @@ import {
 } from '../lib/driveStorage'
 import { getSyncDeviceId, loadSyncStorage } from '../lib/syncStorage'
 import { createSyncEnvelope } from '../lib/sync'
+import {
+  applyPendingSolveRestores,
+  loadSolveRecovery,
+} from '../lib/solveRecovery'
 import {
   deleteAllRemoteBackups,
   findOwnSnapshots,
@@ -146,6 +150,21 @@ export function useDriveBackup({
     try {
       const syncStorage = loadSyncStorage()
       const deviceId = syncStorage.runtime.deviceId
+      const pendingRecovery = loadSolveRecovery()
+      let backupSessions = sessions
+      if (pendingRecovery.operations.length > 0) {
+        const materialized = applyPendingSolveRestores({
+          data: sessions,
+          tombstones: syncStorage.runtime.tombstones,
+          operations: pendingRecovery.operations,
+        })
+        if (materialized.remaining.length > 0) {
+          throw new Error(
+            'Google Drive backup blocked: a pending Undo could not be materialized safely.',
+          )
+        }
+        backupSessions = materialized.data
+      }
       const envelope = createSyncEnvelope(
         deviceId,
         Math.max(syncStorage.runtime.lastRemoteRevision ?? 0, 0) + 1,
@@ -153,9 +172,16 @@ export function useDriveBackup({
         syncStorage.runtime.conflicts,
         syncStorage.runtime.sessionRedirects,
         syncStorage.runtime.settingsFieldUpdates,
+        syncStorage.runtime.activeSessionFieldUpdate,
       )
-      const backup = createBackup(sessions, settings, new Date(), envelope)
-      const content = JSON.stringify(backup)
+      const backup = createBackup(backupSessions, settings, new Date(), envelope)
+      const serialized = serializeBackupChecked(backup, {
+        preferCompact: true,
+      })
+      if (!serialized.ok) {
+        throw new Error(`Google Drive backup blocked: ${serialized.error}`)
+      }
+      const content = serialized.raw
       // Legacy transports discover the mutable fixed-name file before the lock
       // so the locked re-list can detect a same-origin change.
       const discoveredLegacyFile = transport.uploadDeviceBackup

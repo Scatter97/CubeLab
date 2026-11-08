@@ -176,6 +176,45 @@ body {
   min-height: 100%;
 }
 
+.startup-recovery {
+  display: grid;
+  min-height: 100%;
+  padding: 24px;
+  background: var(--bg);
+  place-items: center;
+}
+
+.startup-recovery-card {
+  width: min(440px, 100%);
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.startup-recovery-card h1 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.startup-recovery-card p {
+  margin: 0;
+  font-size: var(--type-body-lg);
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+.startup-recovery-note {
+  margin-top: 10px !important;
+  color: var(--text-muted) !important;
+}
+
+.startup-recovery-card button {
+  margin-top: 18px;
+}
+
 button,
 input,
 select,
@@ -5931,6 +5970,51 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
   min-width: 0;
 }
 
+.analytics-heatmap-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  font-size: var(--type-sm);
+  color: var(--text-muted);
+}
+
+.analytics-heatmap-nav-button {
+  padding: 2px 7px;
+  font: inherit;
+  color: var(--text-soft);
+  background: var(--surface-muted);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.analytics-heatmap-nav-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.analytics-heatmap-nav-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.analytics-heatmap-nav-button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.analytics-heatmap-nav-range {
+  flex: 1 1 180px;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .analytics-heatmap-caption {
   display: flex;
   flex-wrap: wrap;
@@ -7938,6 +8022,9 @@ select option {
   }
 
   .analytics-analysis-nav {
+    /* The bounded desktop grid already fixes the rail. Sticky offsets here
+       shift the heading when an empty analysis changes the grid alignment. */
+    position: static;
     min-height: 0;
     max-height: 100%;
     overflow: visible;

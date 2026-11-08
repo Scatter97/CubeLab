@@ -25,11 +25,11 @@ Read the presentation/durability and statistics rules in `AGENTS.md`, then the m
 
 ```bash
 npm test -- src/lib/stats.test.ts src/lib/statDefinitions.test.ts src/lib/averageTrimming.test.ts src/lib/format.test.ts src/lib/timeTrend.test.ts src/components/TimeTrend.test.tsx src/lib/historyWindow.test.ts src/hooks/usePostPaintValue.test.ts src/lib/analytics.test.ts src/lib/analyticsSettings.test.ts src/components/AnalyticsPage.test.tsx
-npm run test:e2e -- e2e/time-trend.spec.ts e2e/average-trimming.spec.ts e2e/analytics.spec.ts e2e/timer-response.spec.ts --project=chromium --workers=1
+npm run test:e2e -- e2e/time-trend.spec.ts e2e/average-trimming.spec.ts e2e/analytics.spec.ts e2e/timer-response.spec.ts --project=chromium --workers=4
 ```
 
 For history changes also run the large-history scenarios in `e2e/timer.spec.ts`.
-Use one browser and `--workers=1` for normal targeted runs; reserve the full
+Use one browser and `--workers=4` for normal targeted runs; reserve the full
 browser matrix for a significant release or explicit request. Follow
 production/mock-preview handling in `STATUS.md` and finish behavior changes with
 the tiered `AGENTS.md` checks. If optimization touches persistence, sync

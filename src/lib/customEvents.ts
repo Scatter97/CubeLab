@@ -205,24 +205,30 @@ export function isCustomEventReferenced(
   )
 }
 
+export function getCustomEventDeleteError(
+  data: SessionsData,
+  eventId: string,
+): string | null {
+  const definitions = data.customEvents ?? []
+  if (!definitions.some((definition) => definition.id === eventId)) {
+    return 'That custom event no longer exists.'
+  }
+  if (isCustomEventReferenced(data.sessions, eventId)) {
+    return 'This custom event still has sessions or solves. Reassign them to another event before deleting it.'
+  }
+  return null
+}
+
 export function deleteCustomEvent(
   data: SessionsData,
   eventId: string,
 ): { data: SessionsData } | { error: string } {
-  const definitions = data.customEvents ?? []
-  if (!definitions.some((definition) => definition.id === eventId)) {
-    return { error: 'That custom event no longer exists.' }
-  }
-  if (isCustomEventReferenced(data.sessions, eventId)) {
-    return {
-      error:
-        'This custom event still has sessions or solves. Reassign them to another event before deleting it.',
-    }
-  }
+  const error = getCustomEventDeleteError(data, eventId)
+  if (error) return { error }
   return {
     data: {
       ...data,
-      customEvents: definitions.filter(
+      customEvents: (data.customEvents ?? []).filter(
         (definition) => definition.id !== eventId,
       ),
     },

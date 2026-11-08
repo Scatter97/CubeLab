@@ -1,9 +1,95 @@
 # CubeLab status
 
-**Updated:** 2026-11-06. This is the current implementation/verification record
+**Updated:** 2026-11-07. This is the current implementation/verification record
 and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
+
+## N1/N3 startup read and native-date safety — 2026-11-07
+
+The remaining two scoped single-tab findings are repaired:
+
+- **N1:** Bootstrap obtains a checked session snapshot before mounting editable
+  hooks. Current and legacy read failures, malformed/unsupported records and
+  invalid stored dates retain their original bytes behind the retry gate.
+  Only an absent current key permits legacy migration. The same snapshot and
+  raw value feed `useSessions`, so normal startup reads the collection once;
+  the single-read invariant is tested. Completion-buffer startup replay uses
+  the checked loader too and retains its buffer on read failure. No fallback
+  empty collection is autosaved after a failed read.
+- **N3:** Shared date bounds reject unrepresentable provided creation/update
+  timestamps in native session/solve records before local mutation. The remote
+  backup reader uses that validation too. Existing invalid stored dates are
+  preserved behind recovery rather than silently discarded; Retry does not
+  automatically correct malformed data. History ISO attributes, full labels and
+  relative labels have a defensive Unknown date path for invalid in-memory data.
+
+Node 22.23.2 verification, with separate suites sequential and Chromium
+`--workers=4`:
+
+- Before implementation, six owning unit regressions and all four new browser
+  regressions failed; the exact representable-date boundary test already passed.
+- `npm run typecheck`: passed. `npm run lint`: passed with only the pre-existing
+  SessionPanel purity warning.
+- Focused storage/backup/format/session/completion group: **133 passed**.
+- Final `npm test -- --maxWorkers=2`: **952 passed in 68 files**.
+- `e2e/storage-safety.spec.ts`, `e2e/single-tab.spec.ts`, and
+  `e2e/session-management.spec.ts`: **42/42 passed**. Includes failed current and
+  legacy reads with successful retry, native invalid-date file rejection,
+  invalid stored-record preservation, single-tab ownership and replacement/
+  deletion/Undo/session regressions.
+- Selected native backup round trip, mock Drive backup/restore and production
+  offline bootstrap in `e2e/timer.spec.ts`: **3/3 passed**.
+- Final normal `npm run build`: passed, including PWA generation; non-mock output
+  restored. Existing chunk-size advisory remains. `git diff --check`: passed.
+
+No dependencies installed, live Drive calls, commits or pushes. Firefox/WebKit,
+physical devices and assistive technology were not run. Existing unrelated
+changes remain intact. These changes do not claim to repair the separate N2
+legacy-client deferred-adoption path; the single-tab policy prevents normal
+current-build same-profile concurrent editing.
+
+## Single-tab ownership — 2026-11-07
+
+A dedicated `cubelab-active-tab` Web Lock now gates `Bootstrap` in `main.tsx`.
+Only its owner mounts recovery and application hooks. Other current-build tabs
+show a waiting screen and queue automatically until the owner closes; focus and
+background suspension do not steal ownership. The lifetime lock is separate
+from the existing Drive/replacement write lock. Missing or rejected coordination
+keeps editing closed, with retry after request failure. Scope and older-client
+boundaries are documented in `README.md` and `KNOWN_LIMITATIONS.md`.
+
+Verification used Node 22.23.2 and sequential Chromium suites with
+`--workers=4`:
+
+- Five new browser cases failed against the pre-feature implementation.
+- `npm run typecheck` and `npm run lint` passed; lint retains only the existing
+  SessionPanel purity warning.
+- `npm test -- --maxWorkers=2`: **938 passed in 67 files**. Focused ownership,
+  startup and replacement coverage passed **21/21**, including StrictMode,
+  pending request cancellation, release, blocked children and retry.
+- `e2e/single-tab.spec.ts`: all **5** cases passed. Covers simultaneous opens,
+  reload, saved-history takeover, running-timer focus safety, unsupported
+  coordination and retry after rejection. Waiting-screen visual review passed.
+- Session management, cross-tab timing and timer response: **39 passed and one
+  failed** on the first corrected-gate regression run. The failure exposed a
+  test-only shim dropping the native two-argument lock-request overload; the
+  shim was corrected. The affected original case plus two session protocol
+  cases and the five strengthened ownership cases then passed **8/8**.
+- Selected native backup/import, mock Drive backup/restore and production
+  offline bootstrap: **3/3 passed**. Across runs, **48 distinct Chromium cases**
+  reached a passing result. The old protocol cases explicitly simulate older
+  concurrent clients; production has no gate bypass.
+- An earlier integration run was stopped after identifying an invalid browser
+  lock-option combination; this was corrected before the passing runs above.
+- Final `npm run build` passed, including PWA generation, and restored normal
+  non-mock output; the existing chunk-size advisory remains. `git diff --check`
+  passed. No dependencies, live Drive requests, commits or pushes.
+
+Firefox/WebKit, crash/BFCache-specific scenarios, physical devices and assistive
+technology were not tested in this batch. Existing storage-read and malformed
+native-date findings are not repaired by tab exclusion. Existing sync/recovery
+safeguards remain in place for older clients and other browsers/devices.
 
 ## Implemented checkpoint
 
@@ -85,6 +171,262 @@ Core phases 2A–4, theme polish, Phase 5 remediation and Phase 6a are delivered
 Future feature-phase proposals have been removed at the user's request. The
 retained work is the five follow-ups below; the retired Solve explorer was
 replaced by the filtered solve-list details dialog.
+
+## D1–D5 outstanding fixes — 2026-11-07
+
+The five deferred findings in
+[docs/CubeLab-outstanding-five-fix-plan-2026-11-07.md](docs/CubeLab-outstanding-five-fix-plan-2026-11-07.md)
+are implemented.
+
+- **D1:** Analytics now uses one local-calendar-day invalidation source. It
+  schedules the next local midnight from wall-clock date arithmetic, recomputes
+  after visibility/focus return, and feeds the same day token into relative-date
+  filtering, session comparison and activity/streak calculations. DST, month and
+  year boundaries use local calendar arithmetic rather than fixed 24-hour
+  periods.
+- **D2:** A matching release from `holding` starts directly when
+  `release.at - holdStartedAt >= holdDurationMs`, using the release timestamp as
+  `startedAt`. A readiness tick is presentation-only and no longer required.
+  Early releases, wrong input sources, repeats, inspection penalties, cancel and
+  exactly-once recording retain their previous behavior; zero-duration holds are
+  handled explicitly.
+- **D3:** Native export, manual Drive backup and automatic upload share a checked
+  serializer. It measures the UTF-8 payload including formatting, prefers
+  readable JSON, falls back to compact JSON, and blocks output whose complete
+  form still exceeds `MAX_BACKUP_BYTES` (10 MB). Oversized automatic syncs store a
+  blocked fingerprint to avoid repeated download/serialization loops; manual
+  retry and local edits re-evaluate. No oversized file or snapshot is emitted.
+- **D4:** Practice activity aggregates remain sparse across the full filtered
+  range, while the heatmap materializes only a 371-day window with
+  Earliest/Earlier/Later/Latest navigation. Totals, streaks, weekly/monthly
+  volume, best/worst days and drill-down cover the complete range; a 100,000-day
+  span creates two active-day records and a bounded cell set rather than 100,001
+  daily rows.
+- **D5:** Native import, additive csTimer import and Drive restore use a durable
+  replacement coordinator. It captures every affected committed key in a local
+  journal, stages sessions/settings/sync/drive values, writes a commit marker,
+  then publishes React state and success metadata. A pre-marker failure rolls
+  back; a post-marker failure rolls forward; failed rollback/cleanup keeps the
+  journal and pauses sync/new imports. Startup recovery runs before React reads
+  storage. Other tabs ignore prepared intermediate keys and adopt the committed
+  result. Pending Undo recovery blocks replacement rather than being discarded.
+  The replacement record is local-only and the separate storage keys are not an
+  atomic transaction.
+
+Verification: TypeScript passed. Oxlint passed with only the pre-existing
+`SessionPanel` purity warning. Full Vitest **897 passed in 64 files**, including
+new local-day, hold-release, checked-serialization, sparse-calendar,
+replacement-journal, durable-replacement hook, staged hook, sync-base and
+cross-tab/reload regressions.
+Chromium passed Analytics **15/15**, session management **27/27**, custom events
+**4/4**, and timer/timer-response/cross-tab timing **67/67**. The normal
+production build and PWA generation passed after the mock-Drive browser runs.
+Firefox/WebKit, live Drive, physical devices and assistive technology were not
+run for this batch. No release version changed.
+
+## D5 replacement-safety V1/V2 — 2026-11-07
+
+The two remaining confirmed D5 defects are repaired without changing the
+D1–D4 or earlier B/F/J work.
+
+- **V1:** Committed/removed replacement notifications now use the same
+  timer-safe adoption boundary as ordinary cross-tab session changes. The first
+  prepared event records a pre-deferral collection baseline; the latest complete
+  sessions/settings/sync outcome is retained until the timer is idle. Idle
+  adoption reconciles solves added after the baseline by stable ID, creates a
+  labelled same-event recovery session when the original owner disappeared, and
+  carries the external selection with its sync provenance. Completions accepted
+  while a candidate is prepared or not yet adopted go to the local-only
+  `cubelab:replacement-completion:v1` buffer instead of overwriting the staged
+  collection; the buffer is replayed and cleared after the outcome is adopted or
+  before normal hooks mount on reload.
+- **V2:** The normal application no longer mounts after an unresolved replacement
+  recovery. Startup recovery runs before the session/settings hooks, and a
+  prepared journal is rolled back only while holding the same
+  `cubelab-drive-write` Web Lock used by the replacement coordinator. A committed
+  journal is cleanup-only and may open normally. Failed prepared rollback/cleanup
+  and malformed or unreadable records render a minimal retry-only recovery state
+  with no editable collection, autosave, timing controls, imports or timing
+  listeners. Without Web Locks a prepared record stays pending conservatively.
+  Buffered completions are applied and saved before the application mounts.
+
+Verification: TypeScript passed. Oxlint passed with only the pre-existing
+`SessionPanel` purity warning. The V1/V2 probes failed before the repair (active
+session changed to the committed replacement; prepared-phase completion
+overwrote its candidate; failed startup rollback exposed the candidate and
+accepted later work was lost). After the repair, full Vitest **917 passed in 66
+files**; the focused replacement/session/sync/recovery group passed **163/163**.
+Chromium passed `cross-tab-timing` **5/5** and `session-management` **32/32**
+together **37/37**, including active/prepared/rolled-back ownership plus reload,
+failed rollback, rollback-cleanup failure, committed-cleanup failure, malformed
+journal and live-writer lock coordination. `timer` plus `timer-response` passed
+**65/65**, including native import/export, delete/Undo, mock-Drive restore,
+csTimer import and the production offline case. The normal production build and
+PWA generation passed after the mock-Drive browser runs. Firefox/WebKit, live
+Drive, physical-device and assistive-technology checks were not run for this
+batch. No release version changed.
+
+## C1–C3 completion replay and Analytics rail — 2026-11-07
+
+The three findings in
+[docs/CubeLab-C1-C3-repair-plan-2026-11-07.md](docs/CubeLab-C1-C3-repair-plan-2026-11-07.md)
+are repaired without changing the earlier B/F/J/D/V work.
+
+- **C1:** Completion replay now routes through event-aware cross-tab
+  reconciliation. The original owner is reused only when its event matches the
+  buffered solve; a missing or reclassified owner receives a stable labelled
+  same-event recovery session. Replacement and buffered custom-event definitions
+  are unioned rather than one side discarding the other. Active solve tombstones
+  suppress replay, so a deliberate later deletion cannot be resurrected.
+  Replaying the same buffer is idempotent, and the resulting collection passes
+  the real native-backup parser.
+- **C2:** Generic collection persistence no longer erases the completion buffer.
+  New buffers write one local key per solve, so two competing appends survive and
+  an append between a replay snapshot and acknowledgement is preserved.
+  Acknowledgement removes only exact solve versions now present in the durable
+  collection or superseded by an active deletion tombstone; failed removal keeps
+  the durable buffer for an idempotent retry. The replacement coordinator applies
+  the pending buffer before staging its candidate, updates the sync solve count,
+  and acknowledges only after the commit marker succeeds. A failed collection
+  stage leaves the buffer untouched. The older single-record buffer is still
+  readable; its cleanup remains a non-atomic read/check/write sequence.
+- **C3:** The bounded desktop Analytics rail is `position: static`; the sticky
+  offset that moved the heading/tabs by four pixels between empty Practice
+  activity and Advanced analytics is gone. Empty sessions, empty filtered
+  results, populated history, short desktop viewports, keyboard focus and the
+  mobile selector keep stable geometry.
+
+Verification: TypeScript passed. Oxlint passed with only the pre-existing
+`SessionPanel` purity warning. Full Vitest **933 passed in 66 files**, including
+new event-compatible replay, custom-event union, tombstone suppression,
+per-solve competing append, exact acknowledgement, failed cleanup/stage,
+coordinator commit, startup replay and idle cross-tab adoption regressions.
+Before the repairs, the focused C1/C2 regressions failed **7/7** and the four new
+empty-scope Analytics geometry cases failed with the reported 283→287 px shift.
+After the repairs, Chromium passed `session-management`, `cross-tab-timing` and
+`analytics-layout` **47/47** together, including the new prepared-phase
+reclassification/reload browser case and the native-import coordinator case with
+a buffered follower completion. Selected `timer` native backup/import,
+mock-Drive backup/restore and production offline cases passed **3/3**. The normal
+production build and PWA generation passed after the mock-Drive browser runs.
+Firefox/WebKit, live Drive, physical-device and assistive-technology checks were
+not run for this batch. No release version changed.
+
+## November 7 audit repairs — 2026-11-07
+
+The eight confirmed findings in
+[docs/CubeLab-audit-2026-11-07.md](docs/CubeLab-audit-2026-11-07.md) are
+repaired. The five hypotheses investigated separately with temporary synthetic
+fixtures were subsequently repaired in the D1–D5 batch above. The earlier
+confirmed-defect patches remain independently reviewable in the working history.
+
+- Additive csTimer imports now use a dedicated sync update instead of
+  `resetBase`. Existing solve/session/event tombstones, session redirects,
+  pending conflicts, exact approvals, settings field timestamps and
+  active-session selection metadata survive the import; only the published
+  fingerprint/count and pending status are refreshed. An unpublished deletion
+  is therefore not erased by adding sessions.
+- Individual solve deletion records its tombstone before removing the solve and
+  blocks with no mutation if that sync write fails. Session persistence now also
+  completes before the solve disappears; a failed session write revokes the
+  just-written deletion intent so the visible collection and journal agree.
+  Undo persists the revocation and restored solve before reporting success.
+- Analytics now computes best averages as a forward prefix minimum, so a later
+  slowdown or DNF window cannot replace an earlier best. The advanced moving
+  median sorts each valid attempt window.
+- Rolling Analytics date presets subtract local calendar dates instead of fixed
+  24-hour periods, preserving inclusive day counts across DST. Equal timestamps
+  inside one stored (newest-first) session are reversed back to their original
+  chronology, so latest-N selection keeps the newest attempts.
+- Manual Drive restore passes each snapshot's active-session metadata through
+  the accumulator, and manual backup creation publishes the local selection
+  metadata. The restore result now follows the same provenance as automatic
+  synchronization.
+- Closing the lazy Backup/Drive dialogs restores focus to the visible header
+  Settings button, including after failed-file, Escape, export, cancel-import
+  and completed-import paths.
+
+Verification: TypeScript passed. Oxlint passed with the pre-existing
+`SessionPanel` purity warning. Full Vitest **837 passed in 59 files**, including
+new durable-deletion, additive-import metadata, Analytics chronology/calendar,
+manual-restore provenance and focus regressions. Focused Chromium passed the
+completed native backup round trip with focus checks, solve-menu delete/Undo,
+the new sync/session-write failure cases, both csTimer import cases, mock-Drive
+restore plus active-session review, and Analytics **13/13**. The mock build was
+followed by a normal production/PWA build. Firefox/WebKit, live Drive and
+physical accessibility checks were not run for this repair batch; the external
+audit's A6/A7 fixtures still call the superseded additive/reset and
+delete-then-record sequences directly and are not used as current-path tests.
+
+## Deletion-safety follow-up — 2026-11-07
+
+The four follow-up findings in
+[docs/CubeLab-repair-plan-2026-11-07.md](docs/CubeLab-repair-plan-2026-11-07.md)
+are repaired without changing the B1–B8 work.
+
+- **F1:** `recordDeletions` and `recordAllSessionDeletions` now persist a
+  detached candidate before publishing React state/refs or retention flags. A
+  rejected bulk reset/delete-all leaves no active intent for a later sync.
+- **F2:** Clear Session uses one checked batch tombstone write and publishes the
+  empty collection only after the session write succeeds. Intent failure keeps
+  every solve; collection failure leaves durable intent and a truthful retry
+  message. Custom-event deletion now validates first, records its event
+  tombstone first, and rolls that intent back if the collection cannot be saved.
+- **F4:** Toast actions dismiss the original action toast before invoking the
+  callback, so replacement failure/recovery notifications remain visible.
+- **F3:** Undo now writes a local-only recovery journal before changing deletion
+  intent. If revocation succeeds but the collection restore fails, the journal
+  survives reload and is applied before synchronization; sync pauses while it
+  remains pending. Native and manual backups include the pending solve, and a
+  later deliberate deletion supersedes the journal. No unchecked rollback is
+  used after the revocation has been accepted.
+
+Verification: TypeScript passed. Oxlint passed with the pre-existing
+`SessionPanel` purity warning. Full Vitest **849 passed in 60 files**; the
+focused deletion/session/sync/recovery group **239 passed**. Chromium passed
+`session-management` plus `cross-tab-timing` **25/25**, `custom-events` **4/4**,
+the selected timer/solve/backup/csTimer/Drive cases **6/6**, and the new
+failure-path probes for blocked bulk reset, Clear Session, Undo notification and
+cross-reload Undo recovery. The external bulk probe now passes **2/2**. Firefox/WebKit, live
+Drive, physical-device and assistive-technology checks were not run.
+
+## Recovery-journal follow-up — 2026-11-07
+
+The two confirmed journal defects in
+[docs/CubeLab-journal-fix-plan-2026-11-07.md](docs/CubeLab-journal-fix-plan-2026-11-07.md)
+are repaired, and the interrupted-Undo checkpoint is now explicit.
+
+- **J3:** Recovery scheduling no longer depends on a notification callback that
+  changes every render. The hook keeps the latest notifier in a ref, retries only
+  on mount, storage-health changes, timer-idle transitions or explicit sync, and
+  deduplicates unchanged journal outcomes. Recovery is deferred while the timer
+  is active. A failed collection or journal-cleanup write leaves one pending
+  notice, preserves the journal, and does not start a render/notification loop.
+- **J2:** Recovery and backup materialization compare the normalized destination
+  session event with the solve event. Incompatible or missing targets use a
+  stable labelled recovery session with the original event, while the source
+  session remains unchanged. Shared `restoreSolve` now rejects mismatched events,
+  so direct Undo cannot bypass the same invariant. Native export and manual Drive
+  backup use the same materialization and fail explicitly if a pending solve
+  cannot be resolved.
+- **J1 commit point:** A journal is written before the tombstone revocation. If
+  the original deletion remains active, the interrupted Undo is treated as
+  prepared-but-not-committed and aborts conservatively; the solve stays deleted.
+  Once the revocation is durably committed, incomplete collection restoration is
+  finished after reload/storage recovery. A causally later deliberate deletion
+  supersedes the prepared restoration and is reported separately. Older journal
+  records without original-deletion metadata use the conservative abort when an
+  active tombstone is present.
+
+Verification: TypeScript passed. Oxlint passed with the pre-existing
+`SessionPanel` purity warning. Full Vitest **861 passed in 60 files**; the focused
+recovery/session/sync/backup group **168 passed**. Chromium
+`session-management` + `custom-events` + `cross-tab-timing` passed **30/30**,
+including the cleanup-failure loop regression, which observed 13,227 toast
+replacements before the fix and passed the bounded-notification assertion after
+it. The selected timer/backup/csTimer/Drive cases passed **6/6**; the external
+bulk probes passed **2/2**. Firefox/WebKit, live Drive, physical-device and
+assistive-technology checks were not run.
 
 ## Statistics metrics and content-aware split — 2026-11-06
 
@@ -404,7 +746,7 @@ mock-based browser runs.
 
 Routine development uses the tiered workflow in [AGENTS.md](AGENTS.md): manual
 inspection for trivial visual work, affected Vitest plus TypeScript/lint for
-logic, one-browser Playwright with `--workers=1` for major flows, and the full
+logic, one-browser Playwright with `--workers=4` for major flows, and the full
 browser matrix only for significant releases or explicit requests. Destructive
 save/import/restore/Drive paths keep their focused browser coverage.
 
