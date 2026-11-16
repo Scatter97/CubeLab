@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsDialog } from './SettingsDialog'
 import { DEFAULT_SETTINGS } from '../lib/storage'
@@ -30,6 +36,8 @@ function renderSettings(overrides: {
   deleteAllSessionsDisabledReason?: string | null
   onRequestResetAllSolveData?: () => void
   onRequestDeleteAllSessions?: () => void
+  onRequestResetAllSiteData?: () => void
+  onOpenOnboarding?: () => void
   onChange?: (next: Partial<Settings>) => void
 } = {}) {
   return render(
@@ -44,6 +52,7 @@ function renderSettings(overrides: {
       onChange={overrides.onChange ?? vi.fn()}
       onOpenBackup={vi.fn()}
       onOpenDriveBackup={vi.fn()}
+      onOpenOnboarding={overrides.onOpenOnboarding ?? vi.fn()}
       onRequestResetAllSolveData={
         overrides.onRequestResetAllSolveData ?? vi.fn()
       }
@@ -53,6 +62,9 @@ function renderSettings(overrides: {
       }
       deleteAllSessionsDisabledReason={
         overrides.deleteAllSessionsDisabledReason ?? null
+      }
+      onRequestResetAllSiteData={
+        overrides.onRequestResetAllSiteData ?? vi.fn()
       }
       developerSyncStatus="Synchronization is off; deletion records are stored locally."
       onClose={vi.fn()}
@@ -107,17 +119,35 @@ describe('Developer settings', () => {
         onChange={vi.fn()}
         onOpenBackup={vi.fn()}
         onOpenDriveBackup={vi.fn()}
+        onOpenOnboarding={vi.fn()}
         onRequestResetAllSolveData={vi.fn()}
         resetAllDisabledReason="Reset is blocked because browser storage is unavailable."
         onRequestDeleteAllSessions={vi.fn()}
+        onRequestResetAllSiteData={vi.fn()}
         developerSyncStatus="Synchronization is off; deletion records are stored locally."
         onClose={vi.fn()}
       />,
     )
     expect(screen.getByTestId('settings-reset-all-solves')).toBeDisabled()
-    expect(screen.getByRole('alert')).toHaveTextContent(
+    expect(screen.getByTestId('settings-reset-all-site-data')).toBeDisabled()
+    expect(
+      within(screen.getByTestId('settings-danger-zone')).getByRole('alert'),
+    ).toHaveTextContent(
       'Reset is blocked because browser storage is unavailable.',
     )
+  })
+
+  it('offers the full site reset separately from solve-data deletion', () => {
+    const onResetSite = vi.fn()
+    renderSettings({ onRequestResetAllSiteData: onResetSite })
+    openDeveloper()
+    const button = screen.getByTestId('settings-reset-all-site-data')
+    expect(button).toHaveTextContent('Reset All Site Data')
+    expect(screen.getByTestId('settings-reset-site-zone')).toHaveTextContent(
+      'Permanently delete all local CubeLab data, caches, settings, and authentication state. Restart as a new user.',
+    )
+    fireEvent.click(button)
+    expect(onResetSite).toHaveBeenCalledOnce()
   })
 
   it('offers delete-all-sessions and explains its guards', () => {
@@ -148,6 +178,15 @@ describe('About settings', () => {
     renderSettings()
     expect(screen.getByRole('heading', { name: 'About' })).toBeInTheDocument()
     expect(screen.getByText(/^\d+\.\d{2}\.\d{6}:\d+$/)).toBeInTheDocument()
+  })
+})
+
+describe('Data settings', () => {
+  it('opens the setup assistant from the Data section', () => {
+    const onOpenOnboarding = vi.fn()
+    renderSettings({ onOpenOnboarding })
+    fireEvent.click(screen.getByTestId('settings-onboarding-button'))
+    expect(onOpenOnboarding).toHaveBeenCalledOnce()
   })
 })
 

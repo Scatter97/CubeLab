@@ -1,4 +1,13 @@
 import type { SessionsSnapshot } from './lib/storage'
+import type {
+  OnboardingBootstrap,
+  OnboardingDraft,
+  OnboardingMode,
+} from './lib/onboarding'
+import {
+  clearOnboardingDraft,
+  markOnboardingDecision,
+} from './lib/onboarding'
 import {
   lazy,
   Suspense,
@@ -8,7 +17,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { AppHeader, type AppView } from './components/AppHeader'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ScramblePanel } from './components/ScramblePanel'
@@ -20,6 +31,7 @@ import { SessionSettingsDialog } from './components/SessionSettingsDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SolveHistory } from './components/SolveHistory'
 import { StatsPanel } from './components/StatsPanel'
+import { DEFAULT_STATS_SPLIT, SidebarSplit } from './components/SidebarSplit'
 import { TimerStage } from './components/TimerStage'
 import { Toast } from './components/Toast'
 import { useScramble } from './hooks/useScramble'
@@ -27,6 +39,11 @@ import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
 import { useTheme } from './hooks/useTheme'
 import { useToolPanelOpen } from './hooks/useToolPanelOpen'
+import { useTraining } from './hooks/useTraining'
+import { activeTrainingSession } from './lib/training/visits'
+import { TrainingEndConfirmation } from './components/training/TrainingEndConfirmation'
+import { downloadTrainingRecovery } from './components/training/downloadTrainingRecovery'
+import type { TrainingArchiveRequest } from './components/training/TrainingArchive'
 import { useTimer } from './hooks/useTimer'
 import { usePostPaintValue } from './hooks/usePostPaintValue'
 import { useToast } from './hooks/useToast'
@@ -49,9 +66,21 @@ import {
 import { getEventLabel, isCustomEventId } from './lib/events'
 import { unionCustomEvents, findImportedEventCorrections, getCustomEventDeleteError } from './lib/customEvents'
 import { formatSessionHours, formatSolveCount, formatStatValue, formatTime } from './lib/format'
-import { countSolves, getSessionMergeError, getSessionSummary, appendSessionsInOrder } from './lib/sessions'
+import { countSolves, getSessionMergeError, getSessionSummary, appendSessionsInOrder, isUntouchedDefaultSession } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
 import { createDriveTransport } from './lib/driveTransport'
+import {
+  beginSiteResetGate,
+  createFailedSiteResetResult,
+  createSiteResetRunId,
+  isSiteResetInProgress,
+  publishSiteResetSignal,
+  resetSiteStorage,
+  subscribeToSiteReset,
+  waitForSyncIdle,
+  type SiteResetSignal,
+  type SiteResetStorageResult,
+} from './lib/siteReset'
 import { loadDriveBackupState } from './lib/driveStorage'
 import { loadSyncStorage } from './lib/syncStorage'
 import {
@@ -78,10 +107,28 @@ import type {
   PuzzleEvent,
   SessionPreferences,
   Session,
+  SessionsData,
+  Settings,
 } from './types'
 import type { TimerInput, TimerState } from './timer/machine'
 
+interface ConfirmContent {
+  eyebrow: string
+  title: string
+  description: ReactNode
+  details?: ReactNode
+  cancelLabel: string
+  confirmLabel: string
+  requireText?: string
+  onConfirm: () => void
+}
+
+const TrainingPage = lazy(() => import('./components/TrainingPage'))
+const TrainingHub = lazy(() => import('./components/training/TrainingHub'))
+const TrainingLifecycleDialog = lazy(() => import('./components/training/TrainingLifecycleDialog'))
+const TrainingArchive = lazy(() => import('./components/training/TrainingArchive'))
 const AnalyticsPage = lazy(() => import('./components/AnalyticsPage'))
+const AlgorithmsAnalytics = lazy(() => import('./components/training/AlgorithmsAnalytics'))
 const DataDialog = lazy(() =>
   import('./components/DataDialog').then((module) => ({
     default: module.DataDialog,
@@ -105,6 +152,11 @@ const SplitSessionDialog = lazy(() =>
 const CustomEventsDialog = lazy(() =>
   import('./components/CustomEventsDialog').then((module) => ({
     default: module.CustomEventsDialog,
+  })),
+)
+const Onboarding = lazy(() =>
+  import('./components/Onboarding').then((module) => ({
+    default: module.Onboarding,
   })),
 )
 
@@ -179,7 +231,22 @@ function downloadJsonFile(contents: string, fileName: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
-export default function App({ initialSessions }: { initialSessions?: SessionsSnapshot } = {}) {
+export default function App({ initialSessions, initialOnboarding }: { initialSessions?: SessionsSnapshot; initialOnboarding?: OnboardingBootstrap } = {}) {
+  const [onboarding, setOnboarding] = useState<{
+    mode: OnboardingMode
+    draft?: OnboardingDraft
+  } | null>(() =>
+    initialOnboarding?.show
+      ? {
+          mode: initialOnboarding.mode,
+          ...(initialOnboarding.draft ? { draft: initialOnboarding.draft } : {}),
+        }
+      : null,
+  )
+  const onboardingRef = useRef(onboarding)
+  useLayoutEffect(() => {
+    onboardingRef.current = onboarding
+  }, [onboarding])
   const {
     sessions,
     customEvents,
@@ -236,14 +303,29 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
   } = useSettings()
   const storageHealthy = storageOk && settingsStorageOk
   const resolvedTheme = useTheme(settings.theme)
+  const training = useTraining()
+  const [view, setView] = useState<AppView>(() => {
+    try {
+      const previous = sessionStorage.getItem('cubelab:view:v1')
+      if (previous === 'training' || (previous === 'analytics' && activeTrainingSession(training.controller.getSavedData()))) return previous
+    } catch { /* use the default view */ }
+    return 'timer'
+  })
+  const [analyticsMode, setAnalyticsMode] = useState<'solves' | 'algorithms'>('solves')
+  const [analyticsOpened, setAnalyticsOpened] = useState(() => ({ solves: view === 'analytics', algorithms: false }))
+  const showAnalyticsMode = useCallback((mode: 'solves' | 'algorithms') => {
+    setAnalyticsMode(mode)
+    setAnalyticsOpened(previous => previous[mode] ? previous : { ...previous, [mode]: true })
+  }, [])
   const {
     scramble,
     isLoading: scrambleLoading,
     error: scrambleError,
     advance: advanceScramble,
     retry: retryScramble,
-  } = useScramble(activeEvent)
+  } = useScramble(activeEvent, view === 'timer')
   const { toast, showToast, dismissToast } = useToast()
+  const [trainingToastHost, setTrainingToastHost] = useState<HTMLDivElement | null>(null)
   const driveTransport = useMemo(() => createDriveTransport(), [])
 
   const [clearOpen, setClearOpen] = useState(false)
@@ -256,8 +338,26 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [siteResetOpen, setSiteResetOpen] = useState(false)
+  const [siteResetPhase, setSiteResetPhase] = useState<
+    'idle' | 'resetting' | 'failed'
+  >('idle')
+  const [siteResetResult, setSiteResetResult] =
+    useState<SiteResetStorageResult | null>(null)
+  const [remoteSiteReset, setRemoteSiteReset] = useState<
+    'begin' | 'failed' | null
+  >(null)
+  const siteResetRunIdRef = useRef<string | null>(null)
   const [currentTool, setCurrentTool] = useState<CurrentTool>(DEFAULT_TOOL)
-  const [view, setView] = useState<AppView>('timer')
+  const savedTrainingData = training.controller.getSavedData()
+  const savedTrainingSession = activeTrainingSession(savedTrainingData)
+  const trainingWorkspace = Boolean(training.state.category)
+  const requiredReport = !savedTrainingData?.activeVisitId ? savedTrainingData?.visits.findLast(visit => visit.session && visit.lifecycle?.reportPending) : undefined
+  const [trainingEndRequest, setTrainingEndRequest] = useState<{ anchor: HTMLButtonElement; destination: AppView } | null>(null)
+  const trainingIdle = training.state.idlePrompt !== null
+  const trainingLifecycleLocked = Boolean(requiredReport || trainingIdle || trainingEndRequest)
+  const [trainingArchive, setTrainingArchive] = useState<TrainingArchiveRequest | null>(null)
+  const [trainingModalOpen, setTrainingModalOpen] = useState(false)
   const [toolPanelOpen, setToolPanelOpen] = useToolPanelOpen()
   const [drawScrambleMode, setDrawScrambleMode] = useDrawScrambleMode()
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
@@ -273,38 +373,6 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
   const [createSessionOpen, setCreateSessionOpen] = useState(false)
   const createSessionOpenPrev = useRef(false)
 
-  const [isDesktopLayout, setIsDesktopLayout] = useState(
-    () =>
-      typeof window !== 'undefined' &&
-      window.matchMedia('(min-width: 901px)').matches,
-  )
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return
-    const media = window.matchMedia('(min-width: 901px)')
-    const update = () => setIsDesktopLayout(media.matches)
-    update()
-    if (media.addEventListener) media.addEventListener('change', update)
-    else media.addListener(update)
-    return () => {
-      if (media.removeEventListener) media.removeEventListener('change', update)
-      else media.removeListener(update)
-    }
-  }, [])
-
-  const sidebarSplitRef = useRef<HTMLDivElement>(null)
-  const [statsPanelHeight, setStatsPanelHeight] = useState<number | null>(null)
-  const [sidebarHeight, setSidebarHeight] = useState(0)
-  const sidebarDragRef = useRef<{
-    pointerId: number
-    startY: number
-    startHeight: number
-    containerHeight: number
-    scale: number
-  } | null>(null)
-  const [sidebarDragging, setSidebarDragging] = useState(false)
-
-  const minSolvesHeight = 120
-  const [statsMinimumHeight, setStatsMinimumHeight] = useState(0)
   const [dataOpen, setDataOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [timerAlert, setTimerAlert] = useState<TimerAlert | null>(null)
@@ -438,15 +506,45 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
   }
 
   const timer = useTimer({
-    inspectionEnabled: activeInspectionEnabled,
-    holdDurationMs: effectiveSettings.holdDurationMs,
-    onSolve: handleSolve,
+    inspectionEnabled: view === 'training' ? false : activeInspectionEnabled,
+    holdDurationMs: view === 'training' ? settings.holdDurationMs : effectiveSettings.holdDurationMs,
+    onStart: view === 'training' ? training.controller.beginAttempt : undefined,
+    onSolve: (completion) => {
+      if (view === 'training') {
+        const outcome = training.controller.completeAttempt(completion.rawMs)
+        setAnnouncement(outcome === 'sample' ? `Sample ${formatTime(completion.rawMs)}. Review to keep or retry.`
+          : outcome === 'saved' ? `Attempt recorded. ${formatTime(completion.rawMs)}.` : '')
+      } else handleSolve(completion)
+    },
   })
   const timerStatusRef = useRef(timer.state.status)
   useLayoutEffect(() => {
     timerStatusRef.current = timer.state.status
+    training.controller.setTimerActive(timer.state.status !== 'idle')
     setSettingsTimerActive(timer.state.status !== 'idle')
-  }, [timer.state.status, setSettingsTimerActive])
+  }, [timer.state.status, setSettingsTimerActive, training.controller])
+
+  const handleDeleteTrainingAttempt = useCallback((id: string) => {
+    if (timerStatusRef.current !== 'idle') return false
+    const controller = training.controller
+    const saved = controller.deleteAttempt(id, deleted => {
+      const undo = () => {
+        const { pendingSave, needsContinuity } = controller.getSnapshot()
+        const blocked = timerStatusRef.current !== 'idle' ? 'Finish timing to undo'
+          : pendingSave ? 'Retry the pending Training save before undoing'
+            : needsContinuity ? 'Resolve the Training visit before undoing' : null
+        if (blocked) {
+          showToast({ message: blocked, actionLabel: 'Undo', onAction: undo })
+          return
+        }
+        const restored = controller.undoDeleteAttempt(deleted, () => showToast({ message: 'Attempt restored' }))
+        if (!restored && !controller.getSnapshot().pendingSave) showToast({ message: 'Could not restore attempt' })
+      }
+      showToast({ message: 'Attempt deleted', actionLabel: 'Undo', onAction: undo })
+    })
+    if (!saved && !controller.getSnapshot().pendingSave) showToast({ message: 'Could not delete attempt' })
+    return Boolean(saved)
+  }, [showToast, training.controller])
 
   const syncSessionsData = useMemo(
     () => ({
@@ -460,7 +558,10 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
   )
 
   const handleNotify = useCallback(
-    (message: string) => showToast({ message }),
+    (message: string) => {
+      if (onboardingRef.current) return
+      showToast({ message })
+    },
     [showToast],
   )
 
@@ -491,6 +592,41 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     },
   })
 
+  const syncRef = useRef(sync)
+  useLayoutEffect(() => {
+    syncRef.current = sync
+  }, [sync])
+
+  useEffect(() => {
+    return subscribeToSiteReset((signal) => {
+      // Ignore our own broadcast; the initiating tab handles its phases
+      // directly and must be able to show retry/failure UI.
+      if (signal.runId === siteResetRunIdRef.current) return
+      if (signal.phase === 'begin') {
+        // Another tab owns the reset. Stop this tab's writes and Drive access
+        // before that tab clears shared storage. Gate first: persisting the
+        // disabled preference must not recreate a CubeLab key after the owner
+        // has already cleared storage.
+        beginSiteResetGate()
+        syncRef.current.updatePreferences({ enabled: false })
+        driveTransport?.blockForReset?.()
+        setRemoteSiteReset('begin')
+        return
+      }
+      if (signal.phase === 'failed') {
+        // Keep this tab gated and hold its stale in-memory collections. The
+        // initiating tab retains the retry UI; reloading here would clear the
+        // gate and risk writing a partial state back over the reset.
+        setRemoteSiteReset('failed')
+        return
+      }
+      // Complete or explicitly abandoned: reload so this document cannot
+      // retain stale in-memory collections and write them back over the
+      // reset storage.
+      window.location.reload()
+    })
+  }, [driveTransport])
+
   const commitDurableReplacement = useDurableReplacement({
     sync,
     timerStatusRef,
@@ -501,6 +637,167 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     replaceSettings,
     onNotify: handleNotify,
   })
+
+  const finishOnboardingOverlay = useCallback(
+    (mode: OnboardingMode) => {
+      setOnboarding(null)
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => {
+          const target =
+            mode === 'reopen'
+              ? document.querySelector<HTMLElement>(
+                  '[data-testid="settings-button"]',
+                )
+              : document.querySelector<HTMLElement>(
+                  '[data-testid="timer-surface"]',
+                )
+          ;(target ??
+            document.querySelector<HTMLElement>(
+              '[data-testid="settings-button"]',
+            ))?.focus()
+        }, 0)
+      })
+    },
+    [],
+  )
+
+  const handleOnboardingSkip = useCallback(() => {
+    const mode = onboardingRef.current?.mode ?? 'first-run'
+    if (mode === 'first-run') {
+      markOnboardingDecision('skipped')
+    } else {
+      clearOnboardingDraft()
+    }
+    finishOnboardingOverlay(mode)
+  }, [finishOnboardingOverlay])
+
+  const handleOnboardingClose = useCallback(() => {
+    const mode = onboardingRef.current?.mode ?? 'reopen'
+    if (mode === 'reopen') clearOnboardingDraft()
+    finishOnboardingOverlay(mode)
+  }, [finishOnboardingOverlay])
+
+  const handleOnboardingFinish = useCallback(() => {
+    finishOnboardingOverlay(onboardingRef.current?.mode ?? 'first-run')
+  }, [finishOnboardingOverlay])
+
+  const handleOnboardingMarkComplete = useCallback(() => {
+    markOnboardingDecision('completed')
+  }, [])
+
+  const handleOpenOnboardingFromSettings = useCallback(() => {
+    if (timerStatusRef.current !== 'idle') return
+    setSettingsOpen(false)
+    setOnboarding({ mode: 'reopen' })
+  }, [])
+
+  const handleOnboardingCommitSetup = useCallback(
+    async (nextSessions: SessionsData, nextSettings: Settings) => {
+      const currentSync = loadSyncStorage()
+      const baseSyncStorage = createAdditiveImportSyncStorage(
+        currentSync,
+        nextSessions,
+      )
+      const now = Date.now()
+      const syncStorage = {
+        ...baseSyncStorage,
+        runtime: {
+          ...baseSyncStorage.runtime,
+          // The onboarding Main Event is an explicit local choice. Stamp the
+          // existing selection metadata so a first cloud merge cannot silently
+          // replace the session the user just chose.
+          activeSessionFieldUpdate: {
+            updatedAt: now,
+            editorId: currentSync.runtime.deviceId,
+          },
+        },
+      }
+      return commitDurableReplacement({
+        kind: 'additive-import',
+        sessionsData: nextSessions,
+        settingsData: nextSettings,
+        syncStorage,
+        successMessage: 'Setup saved',
+        failurePrefix: 'Setup could not be saved',
+        onSuccess: () => {},
+      })
+    },
+    [commitDurableReplacement],
+  )
+
+  const handleOnboardingImportBackup = useCallback(
+    async (
+      backup: Backup,
+    ): Promise<
+      { ok: true; importedSessionIds: string[] } | { ok: false; error: string }
+    > => {
+      const imported = backup.sessions.sessions
+      if (imported.length === 0) {
+        return { ok: false, error: 'No csTimer sessions were found.' }
+      }
+      const keptSessions = syncSessionsData.sessions.filter(
+        (session) => !isUntouchedDefaultSession(session),
+      )
+      const mergedCustomEvents = unionCustomEvents(
+        syncSessionsData.customEvents ?? [],
+        backup.sessions.customEvents ?? [],
+      )
+      const base: SessionsData = {
+        activeSessionId: imported[0]!.id,
+        sessions: [...keptSessions],
+        ...(mergedCustomEvents.length > 0
+          ? { customEvents: mergedCustomEvents }
+          : {}),
+        ...(syncSessionsData.sessionOrder
+          ? { sessionOrder: syncSessionsData.sessionOrder }
+          : {}),
+        ...(syncSessionsData.sessionTransfers
+          ? { sessionTransfers: syncSessionsData.sessionTransfers }
+          : {}),
+      }
+      const merged = appendSessionsInOrder(
+        base,
+        imported,
+        undefined,
+        'onboarding-import',
+      )
+      const activeSessionId = merged.sessions.some(
+        (session) => session.id === imported[0]!.id,
+      )
+        ? imported[0]!.id
+        : merged.sessions[0]?.id
+      if (!activeSessionId) {
+        return {
+          ok: false,
+          error: 'The csTimer import could not determine an active session.',
+        }
+      }
+      const nextSessions = { ...merged, activeSessionId }
+      const syncStorage = createAdditiveImportSyncStorage(
+        loadSyncStorage(),
+        nextSessions,
+      )
+      const committed = await commitDurableReplacement({
+        kind: 'additive-import',
+        sessionsData: nextSessions,
+        syncStorage,
+        successMessage: 'csTimer sessions imported',
+        failurePrefix: 'csTimer import blocked',
+        onSuccess: () => {},
+      })
+      if (!committed) {
+        return {
+          ok: false,
+          error: 'The csTimer import could not be saved. Nothing was imported.',
+        }
+      }
+      return {
+        ok: true,
+        importedSessionIds: imported.map((session) => session.id),
+      }
+    },
+    [commitDurableReplacement, syncSessionsData],
+  )
 
   useEffect(() => {
     const journal = loadReplacementJournal()
@@ -582,6 +879,10 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     ? sessions.find((session) => session.id === splitSessionId) ?? null
     : null
   const modalOpen =
+    trainingArchive !== null ||
+    trainingLifecycleLocked ||
+    trainingModalOpen ||
+    onboarding !== null ||
     settingsOpen ||
     sessionSettingsOpen ||
     dataOpen ||
@@ -596,7 +897,8 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     createSessionOpen ||
     eventManagerOpen ||
     pendingDriveRestore !== null
-  const timerCancel = timer.cancel
+  const cancelTimerBase = timer.cancel
+  const timerCancel = useCallback(() => { cancelTimerBase(); training.controller.cancelAttempt() }, [cancelTimerBase, training.controller])
   const timerPressBase = timer.press
   const timerPress = useCallback(
     (input: TimerInput) => {
@@ -607,7 +909,10 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     [settings.alertChannel, timerPressBase],
   )
   const timerRelease = timer.release
-  const canStart = scramble !== null
+  const canStart = view === 'training'
+    ? trainingWorkspace && !!training.state.data && !training.state.pendingSave && !training.state.needsContinuity && !modalOpen &&
+      (training.state.calibration ? training.state.calibration.status === 'collecting' && training.state.sample === null : Boolean(training.state.setup && training.state.data.activeVisitId))
+    : !trainingLifecycleLocked && scramble !== null
   const visibleAverageSizes = useMemo(() => {
     const sizes: number[] = []
     for (const definition of BUILT_IN_STAT_DEFINITIONS) {
@@ -642,12 +947,38 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     setSettingsOpen(true)
   }, [timer.state.status])
 
+  const routeTo = useCallback((next: AppView, analyticsTarget: 'solves' | 'algorithms' = 'solves') => {
+    setTrainingArchive(null)
+    if (next === 'analytics') showAnalyticsMode(analyticsTarget)
+    try {
+      if (!isSiteResetInProgress()) {
+        sessionStorage.setItem('cubelab:view:v1', next)
+      }
+    } catch { /* device-local presentation only */ }
+    setView(next)
+  }, [showAnalyticsMode])
+
+  const endTrainingSession = (destination: AppView) => {
+    if (timerActive) return
+    setTrainingEndRequest(null)
+    training.controller.endSession({ destination, onEmpty: () => routeTo(destination) })
+  }
+
   const handleNavigate = useCallback(
-    (next: AppView) => {
-      if (next === 'analytics' && timer.state.status !== 'idle') return
-      setView(next)
+    (next: AppView, anchor?: HTMLButtonElement) => {
+      if (timer.state.status !== 'idle') return
+      if (requiredReport || trainingIdle) return
+      if (view === 'training' && next !== 'training' && trainingWorkspace) {
+        if (savedTrainingSession || training.state.pendingSave) {
+          if (anchor && !training.state.pendingSave) setTrainingEndRequest({ anchor, destination: next })
+          return
+        }
+        training.controller.cancelCalibration()
+      }
+      setTrainingEndRequest(null)
+      routeTo(next)
     },
-    [timer.state.status],
+    [timer.state.status, view, training.controller, training.state.pendingSave, trainingWorkspace, savedTrainingSession, requiredReport, trainingIdle, routeTo],
   )
 
   const handleRegenerate = useCallback(() => {
@@ -952,6 +1283,95 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     sync,
     timer.state.status,
   ])
+
+  const siteResetRunningRef = useRef(false)
+
+  const handleOpenSiteReset = useCallback(() => {
+    if (timer.state.status !== 'idle') return
+    setSettingsOpen(false)
+    setSiteResetOpen(true)
+  }, [timer.state.status])
+
+  const runSiteReset = useCallback(async () => {
+    if (siteResetRunningRef.current) return
+    siteResetRunningRef.current = true
+    setSiteResetOpen(false)
+    setSiteResetResult(null)
+    setSiteResetPhase('resetting')
+
+    const runId = createSiteResetRunId()
+    siteResetRunIdRef.current = runId
+    const signal = (
+      phase: SiteResetSignal['phase'],
+    ): SiteResetSignal => ({
+      type: 'cubelab-site-reset',
+      phase,
+      runId,
+      at: Date.now(),
+    })
+
+    // Persist the disabled preference before the write gate starts rejecting
+    // every CubeLab save. This stops scheduled syncs from starting again.
+    sync.updatePreferences({ enabled: false })
+    beginSiteResetGate()
+    publishSiteResetSignal(signal('begin'))
+    driveTransport?.blockForReset?.()
+
+    // Give other tabs a turn to receive the begin signal, gate their writes,
+    // and block Drive access before shared storage is cleared. Production
+    // normally has a single running tab, but a tab that was already waiting or
+    // a legacy client must not write stale data between the clear and reload.
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 100))
+
+    // Let any run that was already in flight abort and settle before local
+    // storage is cleared. If it cannot stop, keep the data and fail closed.
+    const syncStopped = await waitForSyncIdle(() => sync.isSyncRunning())
+    if (!syncStopped) {
+      siteResetRunningRef.current = false
+      publishSiteResetSignal(signal('failed'))
+      setSiteResetResult(
+        createFailedSiteResetResult(
+          'Google Drive synchronization did not stop. Nothing was cleared. Wait for the current sync to finish, then retry.',
+        ),
+      )
+      setSiteResetPhase('failed')
+      return
+    }
+
+    const result = await resetSiteStorage()
+    if (!result.ok) {
+      siteResetRunningRef.current = false
+      publishSiteResetSignal(signal('failed'))
+      setSiteResetResult(result)
+      setSiteResetPhase('failed')
+      return
+    }
+
+    publishSiteResetSignal(signal('complete'))
+    // Give BroadcastChannel a turn to notify other tabs before this document
+    // reloads. The write gate remains active for every intervening task.
+    window.setTimeout(() => window.location.reload(), 50)
+  }, [driveTransport, sync])
+
+  const confirmSiteReset = useCallback(() => {
+    void runSiteReset()
+  }, [runSiteReset])
+
+  const retrySiteReset = useCallback(() => {
+    void runSiteReset()
+  }, [runSiteReset])
+
+  const abandonSiteReset = useCallback(() => {
+    // The user explicitly chose to leave a partial reset. Tell gated tabs to
+    // reload too, otherwise they would stay locked with no retry UI.
+    publishSiteResetSignal({
+      type: 'cubelab-site-reset',
+      phase: 'abandoned',
+      runId: siteResetRunIdRef.current ?? createSiteResetRunId(),
+      at: Date.now(),
+    })
+    window.setTimeout(() => window.location.reload(), 50)
+  }, [])
 
   useEffect(() => {
     if (!resetAwaitingSync) return
@@ -1647,12 +2067,52 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     setClearOpen(false)
     setResetAllOpen(false)
     setDeleteAllOpen(false)
+    setSiteResetOpen(false)
     setSessionToDelete(null)
     setPendingImport(null)
     if (cancelledImport) restoreHeaderSettingsFocus()
   }, [pendingImport, restoreHeaderSettingsFocus])
 
-  const confirmContent = useMemo(() => {
+  const confirmContent = useMemo<ConfirmContent | null>(() => {
+    if (siteResetOpen) {
+      return {
+        eyebrow: 'Developer · Danger zone',
+        title: 'Reset all site data?',
+        description: (
+          <>
+            Permanently delete all local CubeLab data, caches, settings, and
+            authentication state. CubeLab will restart as a new user.{' '}
+            <strong>
+              This action cannot be undone. Google Drive cloud data will not be
+              deleted.
+            </strong>
+          </>
+        ),
+        details: (
+          <ul>
+            <li>All locally stored solves and sessions</li>
+            <li>All Training attempts, calibration, and practice history</li>
+            <li>All settings and preferences</li>
+            <li>All onboarding and first-visit flags</li>
+            <li>All IndexedDB databases owned by CubeLab</li>
+            <li>All CubeLab localStorage and sessionStorage</li>
+            <li>
+              All CubeLab application caches and offline data the page can
+              access
+            </li>
+            <li>
+              All locally stored Google authentication and synchronization
+              state
+            </li>
+          </ul>
+        ),
+        cancelLabel: 'Cancel',
+        confirmLabel: 'Reset All Data',
+        requireText: 'RESET',
+        onConfirm: confirmSiteReset,
+      }
+    }
+
     if (deleteAllOpen) {
       return {
         eyebrow: 'Developer · Danger zone',
@@ -1809,11 +2269,13 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     confirmDeleteSession,
     confirmImport,
     confirmResetAll,
+    confirmSiteReset,
     deleteAllOpen,
     pendingImport,
     resetAllOpen,
     sessionToDelete,
     sessions,
+    siteResetOpen,
     solves.length,
     totalSolveCount,
   ])
@@ -1834,10 +2296,10 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
   // over another panel. Space is reserved for timing except in text-entry
   // fields; buttons and switches remain keyboard-operable with Enter.
   useEffect(() => {
+    if (view !== 'timer' && !(view === 'training' && trainingWorkspace)) return
     const isActive = timer.state.status !== 'idle'
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (view !== 'timer') return
       if (modalOpen) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
 
@@ -1850,7 +2312,7 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
       }
 
       if (
-        effectiveSettings.stopWithAnyKey &&
+        (view === 'training' ? settings.stopWithAnyKey : effectiveSettings.stopWithAnyKey) &&
         timer.state.status === 'running' &&
         !event.repeat &&
         !isModifierKey(event.key) &&
@@ -1883,7 +2345,6 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (view !== 'timer') return
       if (modalOpen || event.code !== 'Space') return
       if (isTextEntryTarget(event.target)) return
       if (isSpaceControlTarget(event.target)) return
@@ -1901,10 +2362,12 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     canStart,
     modalOpen,
     effectiveSettings.stopWithAnyKey,
+    settings.stopWithAnyKey,
     timerCancel,
     timerPress,
     timerRelease,
     timer.state.status,
+    trainingWorkspace,
     view,
   ])
 
@@ -1917,147 +2380,6 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     createSessionOpenPrev.current = createSessionOpen
   }, [createSessionOpen, timer.state.status])
 
-  // Sidebar split initialization and drag helpers.
-  const getStatsBounds = useCallback(
-    (containerHeight: number) => {
-      const max = Math.max(0, containerHeight - minSolvesHeight)
-      const min = Math.min(statsMinimumHeight, max)
-      return { min, max }
-    },
-    [statsMinimumHeight],
-  )
-
-  const clampStatsHeight = useCallback(
-    (value: number, containerHeight: number) => {
-      const { min, max } = getStatsBounds(containerHeight)
-      return Math.min(Math.max(value, min), max)
-    },
-    [getStatsBounds],
-  )
-
-  const resetStatsSplit = useCallback(() => {
-    const container = sidebarSplitRef.current
-    if (container) {
-      const target = Math.round(container.clientHeight * 0.36)
-      setStatsPanelHeight(clampStatsHeight(target, container.clientHeight))
-    }
-    updateSettings({ statsPanelHeightPercent: 36 })
-  }, [clampStatsHeight, updateSettings])
-
-  const beginSidebarDrag = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      if (event.pointerType === 'mouse' && event.button !== 0) return
-      const container = sidebarSplitRef.current
-      if (!container) return
-      event.preventDefault()
-      const containerRect = container.getBoundingClientRect()
-      const startHeight =
-        statsPanelHeight ?? Math.round(container.clientHeight * 0.36)
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId)
-      } catch {
-        /* noop */
-      }
-      sidebarDragRef.current = {
-        pointerId: event.pointerId,
-        startY: event.clientY,
-        startHeight,
-        containerHeight: container.clientHeight,
-        scale: containerRect.height / container.offsetHeight || 1,
-      }
-      setSidebarDragging(true)
-      document.body.style.userSelect = 'none'
-    },
-    [statsPanelHeight],
-  )
-
-  const moveSidebarDrag = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      const state = sidebarDragRef.current
-      if (!state || state.pointerId !== event.pointerId) return
-      event.preventDefault()
-      const delta = (event.clientY - state.startY) / state.scale
-      const next = clampStatsHeight(state.startHeight + delta, state.containerHeight)
-      setStatsPanelHeight(next)
-    },
-    [clampStatsHeight],
-  )
-
-  const endSidebarDrag = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      const state = sidebarDragRef.current
-      if (!state || state.pointerId !== event.pointerId) return
-      sidebarDragRef.current = null
-      setSidebarDragging(false)
-      document.body.style.userSelect = ''
-      try {
-        event.currentTarget.releasePointerCapture(event.pointerId)
-      } catch {
-        /* noop */
-      }
-      const container = sidebarSplitRef.current
-      if (container && statsPanelHeight !== null && container.clientHeight > 0) {
-        const percent = Math.round((statsPanelHeight / container.clientHeight) * 100)
-        const clampedPercent = Math.min(95, Math.max(5, percent))
-        updateSettings({ statsPanelHeightPercent: clampedPercent })
-      }
-    },
-    [statsPanelHeight, updateSettings],
-  )
-
-  const cancelSidebarDrag = useCallback(() => {
-    sidebarDragRef.current = null
-    setSidebarDragging(false)
-    document.body.style.userSelect = ''
-  }, [])
-
-  // Grow the rendered split when newly enabled rows or metrics need more room.
-  // The saved percentage is retained so hiding the same content restores the
-  // user's previous preference.
-  useLayoutEffect(() => {
-    if (!isDesktopLayout) return
-    const container = sidebarSplitRef.current
-    if (!container) return
-    setStatsPanelHeight((previous) =>
-      previous === null ? previous : clampStatsHeight(previous, container.clientHeight),
-    )
-  }, [clampStatsHeight, isDesktopLayout])
-
-  // Initialize/restore sidebar split height from settings.
-  useEffect(() => {
-    const container = sidebarSplitRef.current
-    if (!container || statsPanelHeight !== null) return
-    const height = container.clientHeight
-    if (height <= 0) return
-    setSidebarHeight(height)
-    const percent = settings.statsPanelHeightPercent ?? 36
-    setStatsPanelHeight(clampStatsHeight(Math.round(height * (percent / 100)), height))
-  }, [settings.statsPanelHeightPercent, statsPanelHeight, clampStatsHeight, isDesktopLayout])
-
-  // Keep the split usable when the window or sidebar container changes size.
-  useEffect(() => {
-    const container = sidebarSplitRef.current
-    if (!container) return
-    const update = () => {
-      setSidebarHeight(container.clientHeight)
-      if (sidebarDragRef.current) return
-      setStatsPanelHeight((previous) => {
-        if (previous === null) return previous
-        const height = container.clientHeight
-        if (height <= 0) return previous
-        const percent = settings.statsPanelHeightPercent ?? 36
-        return clampStatsHeight(Math.round(height * (percent / 100)), height)
-      })
-    }
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', update)
-      return () => window.removeEventListener('resize', update)
-    }
-    const observer = new ResizeObserver(update)
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [settings.statsPanelHeightPercent, clampStatsHeight, isDesktopLayout])
-
   const appShellClassName = [
     'app-shell',
     settings.showTimerDecimalSmall ? 'is-decimal-small' : '',
@@ -2065,20 +2387,6 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
   ]
     .filter(Boolean)
     .join(' ')
-
-  const sidebarBounds = getStatsBounds(sidebarHeight)
-  const sidebarMinPercent =
-    sidebarHeight > 0
-      ? Math.round((sidebarBounds.min / sidebarHeight) * 100)
-      : 0
-  const sidebarMaxPercent =
-    sidebarHeight > 0
-      ? Math.round((sidebarBounds.max / sidebarHeight) * 100)
-      : 100
-  const statsSplitPercent =
-    statsPanelHeight !== null && sidebarHeight > 0
-      ? Math.round((statsPanelHeight / sidebarHeight) * 100)
-      : undefined
 
   const sessionSummaryContent = useMemo(
     () =>
@@ -2121,29 +2429,92 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
     ],
   )
 
+  const appShellStyle = {
+    '--ui-scale': `${settings.uiZoomPercent / 100}`,
+  } as React.CSSProperties
+
+  if (onboarding) {
+    return (
+      <div
+        className={`${appShellClassName} onboarding-shell`}
+        data-accent={settings.accentColor}
+        data-theme={resolvedTheme}
+        data-ui-zoom={settings.uiZoomPercent}
+        style={appShellStyle}
+      >
+        <Suspense
+          fallback={
+            <main className="onboarding-loading" role="status">
+              <span className="onboarding-spinner" aria-hidden="true" />
+              Opening setup…
+            </main>
+          }
+        >
+          <Onboarding
+            mode={onboarding.mode}
+            {...(onboarding.draft ? { initialDraft: onboarding.draft } : {})}
+            sessionsData={syncSessionsData}
+            settings={settings}
+            sync={sync}
+            transport={driveTransport}
+            drawScrambleMode={drawScrambleMode}
+            onDrawScrambleModeChange={setDrawScrambleMode}
+            onChangeSettings={updateSettings}
+            onCommitSetup={handleOnboardingCommitSetup}
+            onImportBackup={handleOnboardingImportBackup}
+            onMarkComplete={handleOnboardingMarkComplete}
+            onSkip={handleOnboardingSkip}
+            onClose={handleOnboardingClose}
+            onFinish={handleOnboardingFinish}
+          />
+        </Suspense>
+      </div>
+    )
+  }
+
   return (
     <div
       className={appShellClassName}
       data-accent={settings.accentColor}
       data-theme={resolvedTheme}
       data-ui-zoom={settings.uiZoomPercent}
-      style={
-        {
-          '--ui-scale': `${settings.uiZoomPercent / 100}`,
-        } as React.CSSProperties
-      }
+      style={appShellStyle}
     >
       <AppHeader
         sessionName={activeSession.name}
         event={activeEvent}
         inspectionEnabled={activeInspectionEnabled}
         onOpenSettings={handleOpenSettings}
-        settingsLocked={timerActive}
+        settingsLocked={timerActive || Boolean(requiredReport) || trainingIdle}
         storageOk={storageHealthy}
         view={view}
         onNavigate={handleNavigate}
       />
 
+      {view === 'training' && training.state.closedSessionName ? <div className="training-notice" role="status">
+        <span>{training.state.closedSessionName} ended when the site closed.</span>
+        <button type="button" onClick={training.controller.dismissClosureNotice}>Dismiss</button>
+      </div> : null}
+      {training.state.pendingSave && view !== 'training' && !requiredReport ? <div className="training-notice" role="alert" data-timer-space-ignore>
+        <span>Training changes weren’t saved. Keep this page open.</span>
+        <button type="button" disabled={timerActive} onClick={training.controller.retrySave}>Retry save</button>
+        <button type="button" onClick={() => downloadTrainingRecovery(training.controller)}>Download recovery copy</button>
+      </div> : null}
+      {(training.state.needsContinuity || (view === 'training' && !savedTrainingSession && training.state.data?.activeVisitId)) ? <div className="training-notice" role="status" data-timer-space-ignore>
+        <span>{savedTrainingSession ? `Unfinished Training session: ${savedTrainingSession.session?.name}` : 'Finish your previous Training visit before starting a session.'}</span>
+        {savedTrainingSession ? <>
+          <button type="button" disabled={timerActive || training.state.pendingSave} onClick={() => {
+            training.controller.resumeSession(() => routeTo('training'))
+          }}>{view === 'training' ? 'Resume session' : 'Continue session'}</button>
+          <button type="button" disabled={timerActive || training.state.pendingSave} onClick={() => endTrainingSession(view)}>End session</button>
+        </> : <button type="button" disabled={timerActive || training.state.pendingSave} onClick={() => {
+          if (training.state.needsContinuity && training.state.data?.visits.find(v => v.id === training.state.data?.activeVisitId)?.lifecycle) training.controller.recover('closed')
+          else training.controller.finishLegacyVisit()
+        }}>End visit</button>}
+      </div> : null}
+      {trainingEndRequest ? <TrainingEndConfirmation key={trainingEndRequest.destination}
+        anchor={trainingEndRequest.anchor} leave={trainingEndRequest.destination !== 'training'}
+        onClose={() => setTrainingEndRequest(null)} onConfirm={() => endTrainingSession(trainingEndRequest.destination)} /> : null}
       {view === 'timer' ? (
       <main className="workspace">
         <h1 className="sr-only">CubeLab — offline speedcubing timer</h1>
@@ -2265,8 +2636,11 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
             onReorder={handleReorderSession}
           />
 
-          {isDesktopLayout ? (
-            <div className="sidebar-split" ref={sidebarSplitRef}>
+          <SidebarSplit
+            historyLabel="Solves"
+            percent={settings.statsPanelHeightPercent ?? DEFAULT_STATS_SPLIT}
+            onPercentChange={statsPanelHeightPercent => updateSettings({ statsPanelHeightPercent })}
+            statistics={layout => (
               <StatsPanel
                 stats={stats}
                 visibleStats={settings.statVisibility}
@@ -2275,122 +2649,44 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
                 precision={settings.statPrecision}
                 solves={insightSolves}
                 trimming={averageTrimming}
-                onMinimumHeightChange={setStatsMinimumHeight}
-                style={{ height: statsPanelHeight ?? undefined }}
+                {...layout}
               />
-
-              <div
-                className={`sidebar-divider${sidebarDragging ? ' is-dragging' : ''}`}
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="Resize Statistics and Solves panels"
-                aria-valuemin={sidebarMinPercent}
-                aria-valuemax={sidebarMaxPercent}
-                aria-valuenow={statsSplitPercent}
-                aria-valuetext={
-                  statsSplitPercent === undefined
-                    ? undefined
-                    : `Statistics ${statsSplitPercent}%, Solves ${100 - statsSplitPercent}%`
-                }
-                tabIndex={0}
-                data-sidebar-divider="true"
-                data-divider="stats-solves"
-                data-resize-handle="true"
-                data-testid="stats-solves-divider"
-                data-testid-alt="sidebar-resize-handle"
-                onPointerDown={beginSidebarDrag}
-                onPointerMove={moveSidebarDrag}
-                onPointerUp={endSidebarDrag}
-                onPointerCancel={cancelSidebarDrag}
-                onDoubleClick={resetStatsSplit}
-                onKeyDown={(event) => {
-                  const container = sidebarSplitRef.current
-                  if (!container) return
-                  const step = event.shiftKey ? 48 : 16
-                  if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
-                    event.preventDefault()
-                    const next = clampStatsHeight(
-                      (statsPanelHeight ?? 0) + step,
-                      container.clientHeight,
-                    )
-                    setStatsPanelHeight(next)
-                    const percent = Math.round((next / container.clientHeight) * 100)
-                    updateSettings({
-                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
-                    })
-                  } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
-                    event.preventDefault()
-                    const next = clampStatsHeight(
-                      (statsPanelHeight ?? 0) - step,
-                      container.clientHeight,
-                    )
-                    setStatsPanelHeight(next)
-                    const percent = Math.round((next / container.clientHeight) * 100)
-                    updateSettings({
-                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
-                    })
-                  } else if (event.key === 'Home') {
-                    event.preventDefault()
-                    const bounds = getStatsBounds(container.clientHeight)
-                    setStatsPanelHeight(bounds.min)
-                    const percent = Math.round(
-                      (bounds.min / container.clientHeight) * 100,
-                    )
-                    updateSettings({
-                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
-                    })
-                  } else if (event.key === 'End') {
-                    event.preventDefault()
-                    const bounds = getStatsBounds(container.clientHeight)
-                    setStatsPanelHeight(bounds.max)
-                    const percent = Math.round(
-                      (bounds.max / container.clientHeight) * 100,
-                    )
-                    updateSettings({
-                      statsPanelHeightPercent: Math.min(95, Math.max(5, percent)),
-                    })
-                  } else if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    resetStatsSplit()
-                  }
-                }}
-              >
-                <span className="sidebar-divider-grip" aria-hidden="true" />
-              </div>
-
-              <SolveHistory
-                key={activeSession.id}
-                solves={insightSolves}
-                onSetPenalty={handleSetPenalty}
-                onDelete={handleDelete}
-                onSetComment={handleSetComment}
-                onNotify={handleNotify}
-              />
-            </div>
-          ) : (
-            <>
-              <StatsPanel
-                stats={stats}
-                visibleStats={settings.statVisibility}
-                customAverages={settings.customAverages}
-                metricVisibility={settings.statMetricVisibility}
-                precision={settings.statPrecision}
-                solves={insightSolves}
-                trimming={averageTrimming}
-              />
-              <SolveHistory
-                key={activeSession.id}
-                solves={insightSolves}
-                onSetPenalty={handleSetPenalty}
-                onDelete={handleDelete}
-                onSetComment={handleSetComment}
-                onNotify={handleNotify}
-              />
-            </>
-          )}
+            )}
+          >
+            <SolveHistory
+              key={activeSession.id}
+              solves={insightSolves}
+              onSetPenalty={handleSetPenalty}
+              onDelete={handleDelete}
+              onSetComment={handleSetComment}
+              onNotify={handleNotify}
+            />
+          </SidebarSplit>
         </aside>
       </main>
-      ) : (
+      ) : view === 'training' ? (
+        <Suspense fallback={<main role="status">Loading Training…</main>}>
+          {training.state.data && (!savedTrainingSession || !trainingWorkspace) ? (
+            <TrainingHub data={training.controller.getSavedData() ?? training.state.data} controller={training.controller}
+              hidden={trainingWorkspace} pendingSave={training.state.pendingSave}
+              locked={Boolean(requiredReport || training.state.data.activeVisitId || training.state.needsContinuity || training.state.pendingSave)}
+              error={training.state.error} onOpenHistory={reviewId => setTrainingArchive({ reviewId })}
+              onOpenAlgorithms={() => routeTo('analytics', 'algorithms')} />
+          ) : null}
+          {trainingWorkspace || !training.state.data ? (
+            <TrainingPage controller={training.controller} state={training.state} timer={timer} sessionFlow
+            settings={settings} onPress={timerPress} onCancel={handleCancel} onModalChange={setTrainingModalOpen} onNotify={handleNotify} onDeleteAttempt={handleDeleteTrainingAttempt}
+            onRequestEnd={anchor => setTrainingEndRequest({ anchor, destination: 'training' })} lifecycleLocked={trainingLifecycleLocked}
+            toastHostRef={setTrainingToastHost} />
+          ) : null}
+        </Suspense>
+      ) : (<>
+        <nav className="analytics-view-switcher" aria-label="Analytics views">
+          <button type="button" className="button button-secondary button-small" aria-pressed={analyticsMode === 'solves'}
+            onClick={() => showAnalyticsMode('solves')}>Solves</button>
+          <button type="button" className="button button-secondary button-small" aria-pressed={analyticsMode === 'algorithms'}
+            onClick={() => showAnalyticsMode('algorithms')}>Algorithms</button>
+        </nav>
         <Suspense
           fallback={
             <main className="analytics-page analytics-loading" role="status">
@@ -2398,14 +2694,17 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
             </main>
           }
         >
-          <AnalyticsPage
+          {analyticsOpened.solves ? <AnalyticsPage
             sessions={sessions}
             initialEvent={activeEvent}
             settings={settings}
             onChange={updateSettings}
-          />
+            hidden={analyticsMode !== 'solves'}
+          /> : null}
+          {analyticsOpened.algorithms ? <AlgorithmsAnalytics data={savedTrainingData} hidden={analyticsMode !== 'algorithms'}
+            onStart={() => routeTo('training')} onHistory={setTrainingArchive} /> : null}
         </Suspense>
-      )}
+      </>)}
 
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {announcement}
@@ -2422,10 +2721,12 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
         onChange={updateSettings}
         onOpenBackup={handleOpenBackup}
         onOpenDriveBackup={handleOpenDriveBackup}
+        onOpenOnboarding={handleOpenOnboardingFromSettings}
         onRequestResetAllSolveData={handleOpenResetAll}
         resetAllDisabledReason={resetAllDisabledReason}
         onRequestDeleteAllSessions={handleOpenDeleteAllSessions}
         deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
+        onRequestResetAllSiteData={handleOpenSiteReset}
         developerSyncStatus={developerSyncStatus}
         onClose={() => setSettingsOpen(false)}
       />
@@ -2505,6 +2806,7 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
         eyebrow={confirmContent?.eyebrow ?? ''}
         title={confirmContent?.title ?? ''}
         description={confirmContent?.description ?? null}
+        details={confirmContent?.details}
         cancelLabel={confirmContent?.cancelLabel ?? 'Cancel'}
         confirmLabel={confirmContent?.confirmLabel ?? 'Confirm'}
         requireText={confirmContent?.requireText}
@@ -2566,7 +2868,7 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
 
       <SessionSetupDialog
         open={createSessionOpen}
-        sessions={sessions.map((session) => ({ id: session.id, name: session.name }))}
+        sessions={sessions}
         defaultEvent={activeEvent}
         defaultInspectionEnabled={activeInspectionEnabled}
         onClose={() => setCreateSessionOpen(false)}
@@ -2575,11 +2877,67 @@ export default function App({ initialSessions }: { initialSessions?: SessionsSna
         }
       />
 
-      <Toast
-        toast={toast}
-        onAction={handleToastAction}
-        onDismiss={dismissToast}
-      />
+      {savedTrainingData && trainingArchive && !requiredReport ? <Suspense fallback={<DialogLoadingFallback />}>
+        <TrainingArchive data={savedTrainingData} controller={training.controller} request={trainingArchive}
+          pendingSave={training.state.pendingSave} error={training.state.error}
+          canDelete={!training.state.needsContinuity && !timerActive} onClose={() => setTrainingArchive(null)} />
+      </Suspense> : null}
+
+      {savedTrainingData && (requiredReport || (trainingIdle && !trainingModalOpen && !settingsOpen && !trainingEndRequest)) ? (
+        <Suspense fallback={<DialogLoadingFallback />}>
+          {requiredReport ? <TrainingLifecycleDialog key={requiredReport.id} reportId={requiredReport.id}
+            controller={training.controller} data={savedTrainingData} pendingSave={training.state.pendingSave} error={training.state.error}
+            onDone={() => training.controller.closeSessionReport(requiredReport.id, () => routeTo(requiredReport.lifecycle?.reportDestination ?? view))} />
+            : <TrainingLifecycleDialog controller={training.controller} data={savedTrainingData} pendingSave={training.state.pendingSave}
+              error={training.state.error} onEnd={() => endTrainingSession('training')} />}
+        </Suspense>
+      ) : null}
+
+      {siteResetPhase === 'resetting' || remoteSiteReset ? (
+        <div
+          className="dialog-loading-overlay"
+          data-testid="site-reset-progress"
+          role="status"
+          aria-live="polite"
+        >
+          {siteResetPhase === 'resetting'
+            ? 'Resetting CubeLab…'
+            : remoteSiteReset === 'failed'
+              ? 'Another CubeLab tab could not finish resetting site data. This tab is locked to prevent stale writes. Retry or close that tab.'
+              : 'Another CubeLab tab is resetting site data…'}
+        </div>
+      ) : null}
+
+      {siteResetPhase === 'failed' && siteResetResult ? (
+        <ConfirmDialog
+          open
+          eyebrow="Developer · Danger zone"
+          title="Reset could not finish"
+          description={
+            <>
+              CubeLab did not report success. Google Drive synchronization
+              remains disabled, local sign-in remains blocked, and other
+              CubeLab tabs stay locked to prevent stale writes. Close other
+              CubeLab tabs, then retry.
+            </>
+          }
+          details={
+            <ul>
+              {siteResetResult.errors.map((error, index) => (
+                <li key={`${index}-${error}`}>{error}</li>
+              ))}
+            </ul>
+          }
+          cancelLabel="Reload without finishing"
+          confirmLabel="Retry reset"
+          onCancel={abandonSiteReset}
+          onConfirm={retrySiteReset}
+        />
+      ) : null}
+
+      {trainingToastHost
+        ? createPortal(<Toast toast={toast} onAction={handleToastAction} onDismiss={dismissToast} />, trainingToastHost)
+        : <Toast toast={toast} onAction={handleToastAction} onDismiss={dismissToast} />}
     </div>
   )
 }

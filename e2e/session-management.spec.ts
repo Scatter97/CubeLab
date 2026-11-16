@@ -253,6 +253,47 @@ async function requestDeleteAll(page: Page) {
 }
 
 test.describe('session management', () => {
+  test('suggests Timer session names from the selected event and saves only on Create', async ({ page }) => {
+    const initial = seedData()
+    initial.sessions[0]!.name = 'fto'
+    initial.sessions[1]!.name = 'FTO (3)'
+    await seed(page, initial)
+    await page.goto('/')
+    await waitForApp(page)
+
+    const before = await stored(page)
+    const newSession = page.getByTestId('new-session')
+    const dialog = page.getByRole('dialog', { name: 'Create new session' })
+    const name = dialog.getByRole('textbox', { name: 'Session name' })
+    await newSession.click()
+    await expect(name).toHaveValue('')
+    await expect(name).toHaveAttribute('placeholder', '3×3')
+
+    await chooseTestOption(page, 'session-setup-event', '222')
+    await expect(name).toHaveAttribute('placeholder', '2×2')
+    await name.fill('2×2')
+    await chooseTestOption(page, 'session-setup-event', 'custom:fto')
+    await expect(name).toHaveValue('2×2')
+    await expect(name).toHaveAttribute('placeholder', 'FTO (2)')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toBeHidden()
+    expect(await stored(page)).toEqual(before)
+
+    await newSession.click()
+    await expect(name).toHaveValue('')
+    await expect(name).toHaveAttribute('placeholder', '3×3')
+    await chooseTestOption(page, 'session-setup-event', 'custom:fto')
+    await name.fill('  ')
+    await expect(name).toHaveValue('')
+    await expect(name).toHaveAttribute('placeholder', 'FTO (2)')
+    await dialog.getByRole('button', { name: 'Create session', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect.poll(async () => {
+      const data = await stored(page)
+      return data?.sessions.find((session) => session.id === data.activeSessionId)
+    }).toMatchObject({ name: 'FTO (2)', event: 'custom:fto' })
+  })
+
   test('corrects a solved session event with explicit confirmation and preserves every solve field', async ({
     page,
   }) => {

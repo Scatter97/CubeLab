@@ -1,9 +1,1045 @@
 # CubeLab status
 
-**Updated:** 2026-11-07. This is the current implementation/verification record
+**Updated:** 2026-11-11. This is the current implementation/verification record
 and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
+
+## Local site reset — 2026-11-11
+
+Settings → Developer options → Danger Zone now includes **Reset All Site Data**.
+The entry uses the typed confirmation **RESET** and states that Google Drive
+cloud data is not deleted. The reset disables synchronization and blocks the
+Drive transport before clearing app-owned state, waits up to 10 seconds for an
+in-flight sync run to stop, clears CubeLab localStorage/sessionStorage keys,
+CubeLab-named IndexedDB databases, CubeLab/scoped Workbox caches, the exact
+application service-worker registration and readable CubeLab cookies,
+revokes/clears locally held Google authorization, signals other tabs, and
+reloads into first-visit onboarding. It never uploads an empty state or
+deletes/replaces Drive files.
+
+A blocked IndexedDB deletion or storage that cannot be verified as cleared
+reports partial failure and offers retry; a sync that does not settle within
+10 seconds clears nothing.
+Other current-build tabs receive the begin/complete/failed/abandoned signals,
+gate their own writes first, and either reload after completion/abandonment or
+stay locked after failure so a stale in-memory collection cannot write back.
+`loadSyncStorage` no longer recreates a fresh sync identity during the reset
+gate (found by the cross-tab regression).
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/lib/siteReset.test.ts src/lib/driveTransport.test.ts src/components/ConfirmDialog.test.tsx src/components/SettingsDialog.test.tsx
+npm run test:e2e -- e2e/site-reset.spec.ts --project=chromium --workers=4
+npm run build
+git diff --check
+```
+
+Typecheck passed. Lint passed and retained existing warnings in archived evidence
+scripts plus the pre-existing React Compiler ref/purity warnings in `App.tsx`
+and `SessionPanel.tsx`. Focused Vitest passed 54/54. Chromium Playwright passed
+4/4 with mock Drive: exact/cancel confirmation, full storage/IDB/cache cleanup
+with unrelated data preserved, Drive content captured unchanged at completion
+with no upload/delete/connect operations, first-visit and refresh onboarding, a
+second reset, blocked-IDB failure/retry and cross-tab stale-tab gating. The
+confirmation dialog was also inspected at 1360×900 in light and dark themes and
+at 390×844 in light, and the Developer zone at 1360×900 in light; the disabled
+confirmation, scrollable details list and focus ring rendered correctly. The
+normal production/PWA build passed with the existing chunk-size warning, and
+`git diff --check` passed. Firefox, WebKit, live Google OAuth, physical devices
+and browser-managed HTTP-cache erasure were not exercised. No commit, push or
+deployment was made.
+
+## Training overhaul O8 — 2026-11-11
+
+Integrated verification now covers a synthetic legacy and named history and a
+285-attempt, 75-day chart history. The first flow exercises Begin and capture,
+End, the required report, reload, read-only archive review, typed whole-session
+deletion and Algorithms recalculation. The chart case checks reports and
+Algorithms at 1440, 1024, 390 and 320 px in light and dark, keyboard chart
+inspection, test-dispatched touch selection and axe serious/critical results.
+Saved `rawMs` and `createdAt` values were unchanged by report/chart rendering.
+The audit exposed one accessibility defect in the revision toggle in
+`AlgorithmsAnalytics.tsx`; the toggle name now includes its visible revision count.
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+CI=1 npm run test:e2e -- e2e/training-integrated.spec.ts --project=chromium --workers=4 --retries=0
+CI=1 npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4 --retries=0 --grep 'algorithm tracking stays prospective|Algorithms analytics|session report supports|archive filters'
+CI=1 npx playwright test e2e/training-integrated.spec.ts --project=chromium --workers=1 --retries=0 --grep 'chart-heavy' --reporter=json
+npm run build
+git diff --check
+```
+
+Typecheck and lint passed; lint retained seven existing warnings. The integrated
+spec passed 2/2 and the four existing Training regression cases passed 4/4 in
+Chromium with mock Drive. The normal production/PWA build passed with the
+existing chunk-size warning. The measurement run seeded **285 attempts
+(337,771 bytes)**; archive review open sampled **27.2, 35.8 and 44.3 ms**, and
+Algorithms open with charts measured **347.6 ms**. These are single-run synthetic
+observations, not performance thresholds. No axe serious or critical violations
+remained in the report or Algorithms views.
+
+Firefox, WebKit, physical touch/keyboard hardware, assistive technology, live
+Drive and the 7,000–10,000-solve profiling matrix were outside this pass. The
+integrated history establishes flow and rendering behavior at 286 attempts, not
+a production scale ceiling. No commit, push, deployment or publication was made.
+
+## Training overhaul O7 — 2026-11-11
+
+Optional tracking is off by default. New attempts always count by case.
+Tracking captures an exact verified revision at timing start and unlocks
+management and session overrides. Off-period attempts stay case-only.
+Historical revision statistics remain visible in Analytics → Algorithms.
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/lib/training/controller.test.ts src/lib/training/analytics.test.ts src/lib/training/reports.test.ts src/lib/training/sessionFoundation.test.ts src/lib/training/domainStorage.test.ts src/lib/training/algorithmSelection.test.ts src/lib/training/storage.test.ts src/lib/training/persistenceIntegration.test.ts src/lib/training/stats.test.ts src/components/TrainingPage.test.tsx src/hooks/useTraining.test.tsx
+npm test -- src/lib/training/controller.test.ts
+CI=1 npm run test:e2e -- e2e/training-hub.spec.ts e2e/training.spec.ts --project=chromium --workers=4 --retries=0
+CI=1 npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4 --retries=0 --grep 'algorithm tracking stays prospective|case selection, user algorithm|built-in defaults work'
+CI=1 npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4 --retries=0 --grep 'algorithm tracking stays prospective'
+npm run build
+git diff --check
+```
+
+Typecheck, lint, 141 focused Vitest tests and the normal production/PWA build
+passed. The controller follow-up passed all 29 tests, including exact Undo
+for a case-only attempt after re-enabling tracking. Initial unit fixtures
+that exercised attribution and the manager needed explicit opt-in. The
+Training Chromium run passed 33 of 36 cases with mock Drive. Two management
+cases passed after scoping their dialog locators. The tracking case passed
+after scoping the revision picker. Browser coverage includes on → off → on,
+fixed session overrides, preserved historic charts, 320 px and offline
+practice. Lint retained seven existing warnings. Vite emitted its existing
+chunk-size warning. Full application suites, Firefox, WebKit, live Drive and
+large-history profiling were outside this pass.
+
+## Training overhaul O5, O6a and O6b — 2026-11-11
+
+Reports show measured time and signed comparison, estimated Recognition
+components with coverage, and an inspectable chart. The Hub and archive
+support recent sessions, filtered review and scoped typed deletion. Algorithms
+analytics reads Training history and keeps ordinary Solve Analytics separate.
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+# O5
+npm test -- src/lib/training/reports.test.ts src/lib/training/visits.test.ts src/lib/training/stats.test.ts src/components/TrainingPage.test.tsx
+CI=1 npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4 --retries=0 --grep 'session report supports|all-DNF report|refresh resumes'
+npm run build
+# O6a
+npm test -- src/lib/training/controller.test.ts src/lib/training/domainStorage.test.ts src/lib/training/reports.test.ts src/lib/training/sessionFoundation.test.ts src/components/TrainingPage.test.tsx
+CI=1 npm run test:e2e -- e2e/training-hub.spec.ts e2e/training.spec.ts --project=chromium --workers=4 --retries=0 --grep 'Training Hub|archive filters|refresh resumes|all-DNF report|failed Training deletion|anchored confirmation'
+npm run build
+# O6b
+npm test -- src/lib/training/analytics.test.ts src/lib/training/reports.test.ts src/lib/training/stats.test.ts src/lib/analytics.test.ts src/components/AnalyticsPage.test.tsx
+CI=1 npm run test:e2e -- e2e/training.spec.ts e2e/analytics.spec.ts --project=chromium --workers=4 --retries=0 --grep 'Algorithms analytics|filters, compares|does not route timer keys|horizontal overflow on mobile|fits the page|increased interface zoom|production Training code'
+# Final focused verification
+npm test -- src/lib/training/analytics.test.ts src/lib/training/reports.test.ts src/lib/training/controller.test.ts src/lib/training/domainStorage.test.ts src/lib/training/sessionFoundation.test.ts src/lib/training/stats.test.ts src/lib/training/visits.test.ts src/lib/analytics.test.ts src/components/AnalyticsPage.test.tsx src/components/TrainingPage.test.tsx
+CI=1 npm run test:e2e -- e2e/training-hub.spec.ts e2e/training.spec.ts e2e/analytics.spec.ts --project=chromium --workers=4 --retries=0 --grep 'Algorithms analytics|archive filters|session report supports|all-DNF report|refresh resumes|Training Hub|filters, compares|does not route timer keys|horizontal overflow on mobile|fits the page|increased interface zoom|production Training code'
+npm run build
+git diff --check
+```
+
+O5 passed 32 Vitest and three Chromium cases. O6a passed 65 Vitest and eight
+Chromium cases. O6b passed 68 Vitest and seven Chromium cases. The final pass
+passed 139 Vitest tests, 14 Chromium cases with mock Drive, typecheck, lint and
+the normal production/PWA build. Final lint retained seven existing warnings.
+Vite emitted its existing chunk-size warning. Verification covered offline
+practice, narrow chart inspection, failed deletion retry, history recalculation
+and separation of the four Algorithms categories. Full application suites,
+Firefox, WebKit, live Drive and large-history profiling were outside this pass.
+
+## Training overhaul O4 — 2026-11-11
+
+End and Leave share an anchored confirmation. The idle prompt is configurable
+and defers while armed or running. A checked nonempty end opens the exact
+report and preserves its destination through reload. Recovery offers a choice
+when closure is ambiguous. Empty ends skip the report and archive row.
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/lib/training/controller.test.ts src/lib/training/visits.test.ts src/lib/training/domainStorage.test.ts src/lib/training/sessionFoundation.test.ts src/lib/training/storage.test.ts src/lib/training/persistenceIntegration.test.ts src/lib/training/stats.test.ts src/hooks/useTraining.test.tsx src/hooks/useTimer.test.ts src/components/TrainingPage.test.tsx src/lib/startupDataSafety.test.tsx
+CI=1 npm run test:e2e -- e2e/training-hub.spec.ts e2e/training.spec.ts --project=chromium --workers=4 --retries=0
+CI=1 npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4 --retries=0 --grep 'recovery returns to Analytics|a new tab on Timer|all-DNF report|anchored confirmation|idle waits'
+npm run build
+git diff --check
+```
+
+Typecheck, lint and 155 focused Vitest tests passed. Both full Training
+Chromium runs passed 31 cases with mock Drive, including offline practice,
+deletion and Undo, failed end writes and interrupted report delivery. A
+five-case rerun included Analytics recovery. The normal production/PWA build
+passed. Lint retained seven existing warnings, and Vite emitted its existing
+chunk-size warning. The confirmed-closure path was exercised with a supplied
+signal in a controller test. Browsers' ambiguous reopening path was exercised
+in Chromium. Full application suites, Firefox, WebKit, physical devices and
+live Drive were outside the focused pass.
+
+## Training overhaul O3 — 2026-11-11
+
+**Begin practice** captures a named session and its case revisions before
+setup generation. Recognition collects any required calibration for its own
+set at Begin. The readout, Last Result, Attempts and Statistics use the active
+session. Manual End and resume/end recovery are available while O4 owns
+confirmation, idle handling and mandatory report delivery.
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/lib/training/controller.test.ts src/lib/training/sessionFoundation.test.ts src/lib/training/domainStorage.test.ts src/lib/training/calibration.test.ts src/lib/training/algorithmSelection.test.ts src/lib/training/storage.test.ts src/lib/training/persistenceIntegration.test.ts src/components/TrainingPage.test.tsx src/hooks/useTraining.test.tsx src/lib/startupDataSafety.test.tsx
+CI=1 npm run test:e2e -- e2e/training-hub.spec.ts e2e/training.spec.ts --project=chromium --workers=4 --retries=0
+npm test -- src/components/TrainingPage.test.tsx
+npm run build
+git diff --check
+```
+
+Typecheck, lint, 142 focused Vitest tests and 29 Chromium cases passed. The
+first Training browser pass caught four seeded setups dated after their
+attempts and two tests that had not resumed after reload. After correcting
+those cases, both full Training Chromium runs passed, including offline
+practice, calibration, save failure, deletion/Undo and session scoping. The
+final component check covered an equivalent memoization cleanup. Lint retained
+seven existing warnings. The normal production/PWA build emitted the existing
+chunk-size warning. Full application suites, Firefox/WebKit, physical devices
+and live Drive were outside this phase's focused verification.
+
+## Training overhaul O2b — 2026-11-11
+
+Training opens the Hub with saved selections, category statistics and a local
+case draft. The transitional **Open practice workspace** action preserves the
+existing practice and recovery flows until O3.
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/components/TrainingPage.test.tsx src/hooks/useTraining.test.tsx src/lib/startupDataSafety.test.tsx src/lib/training/sessionFoundation.test.ts src/lib/training/controller.test.ts src/lib/training/stats.test.ts src/lib/training/algorithmSelection.test.ts src/lib/training/domainStorage.test.ts
+CI=1 npm run test:e2e -- e2e/training-hub.spec.ts e2e/training.spec.ts --project=chromium --workers=4 --retries=0 --grep 'Training Hub|keyboard and touch use the shared timer|initial calibration is explicit|refresh resumes|storage conflicts preserve|invalid Training store|inactivity ends|restored-tab ambiguity|failed writes retain|Training split|saved outcome|failed Training deletion|production Training code'
+npm run build
+git diff --check
+```
+
+Typecheck, lint (seven existing warnings), 91 Vitest tests, 16 Chromium cases
+with mock Drive, and the normal production/PWA build passed. Browser coverage
+includes a fresh Hub with no Training storage writes, draft edits at 1440 px
+and 320 px with unchanged stored history, and production offline practice.
+The build emitted the existing chunk size warning. Full suites and
+Firefox/WebKit were outside the focused change. Live Drive was not exercised.
+
+## Training overhaul O2a — 2026-11-11
+
+Timer's Create session dialog uses the shared session-name allocator and the
+selected event label. The [allocation decision](docs/training/PROJECT_MEMORY.md#e162-o2a-session-name-allocation--2026-11-11)
+records suffix reuse and how imported and synced names occupy slots.
+
+Node 22.23.2 verification:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/lib/sessionNames.test.ts src/lib/sessions.test.ts src/lib/sessionTransfers.test.ts src/lib/csTimerImport.test.ts src/lib/sync.test.ts
+npm test -- src/components/SessionSetupDialog.test.tsx
+CI=1 npm run test:e2e -- e2e/session-management.spec.ts e2e/timer.spec.ts --project=chromium --workers=4 --retries=0 --grep 'suggests Timer session names|named sessions create, switch, rename, delete, and persist|csTimer preview keeps ranked names|duplicate session names from Drive'
+npm run build
+```
+
+Typecheck, lint (seven existing warnings), 211 Vitest tests, four Chromium
+cases with mock Drive, and the normal production/PWA build passed. The first
+Chromium launch could not start the local preview server under restricted
+access. The local-access retry passed. The build emitted the existing chunk
+size warning.
+
+## Training overhaul O1 — 2026-11-11
+
+O1 adds optional named-session configuration to Training's v1 visit records.
+Existing visit IDs retain ownership of saved attempts. The checked store
+protects captured revisions and ended named attempts and saves a pending report
+with every nonempty end. Legacy records are read without migration. The
+[progress tracker](docs/training/overhaul/CURRENT_PROGRESS.md) holds the current handoff.
+
+Verification used Node 22.23.2 and synthetic data:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/lib/training/sessionFoundation.test.ts src/lib/training/domainStorage.test.ts \
+  src/lib/training/storage.test.ts src/lib/training/records.test.ts src/lib/training/visits.test.ts \
+  src/lib/training/controller.test.ts src/lib/training/calibration.test.ts src/lib/training/stats.test.ts \
+  src/lib/training/algorithmSelection.test.ts src/lib/training/persistenceIntegration.test.ts \
+  src/hooks/useTraining.test.tsx src/components/TrainingPage.test.tsx src/lib/startupDataSafety.test.tsx
+# 173 passed across 13 files
+CI=1 npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep 'keyboard and touch use the shared timer|initial calibration is explicit|refresh resumes|storage conflicts preserve|invalid Training store|inactivity ends|restored-tab ambiguity|failed writes retain|saved outcome|failed Training deletion'
+# 11 passed with mock Drive
+npm run build
+# Production build and PWA generation passed with mock Drive disabled
+git diff --check
+```
+
+The initial `npm test -- src/lib/training/domainStorage.test.ts` run failed at
+the two new cases before implementation. The first combined run caught a
+deletion fixture that rolled back visit activity. The corrected fixture retains
+the saved timestamp. Chromium's first launch and a `DEBUG=pw:webserver` retry
+hit a local access restriction before any browser cases ran. The run with local
+browser access passed. Lint reported seven pre-existing warnings in the
+Training audit scripts and `SessionPanel`. Vite emitted its chunk-size warning.
+The O1 documentation paths, anchors and changed-file whitespace passed.
+
+The full unit and browser suites, Firefox, WebKit, the offline browser case and
+live Drive validation were outside this local persistence slice. Whole-session
+deletion and the named-session UI are covered by later phases.
+
+## Compact Attempt details and Undo — 2026-11-11
+
+Implemented the approved compact Training dialog with a combined case and
+result summary, copyable setup, inline attribution editor, and separate
+correction and deletion actions. Deletion from the menu or dialog uses
+Timer’s notification with Undo. Practice History stays open and the
+notification remains usable inside it. Checked restoration preserves the
+original record, visit membership and renewal totals. Failed saves show
+recovery controls and report success only after a committed retry.
+
+Verification used Node 22.23.2 and isolated contexts:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/components/TrainingPage.test.tsx src/lib/training/controller.test.ts \
+  src/lib/training/domainStorage.test.ts src/lib/training/storage.test.ts \
+  src/lib/training/persistenceIntegration.test.ts src/lib/training/visits.test.ts \
+  src/lib/startupDataSafety.test.tsx
+# 118 passed
+npm run test:e2e -- e2e/training.spec.ts e2e/timer.spec.ts --project=chromium --workers=4 \
+  --grep 'refresh resumes|long Attempts|saved outcome|failed Training deletion|desktop/mobile light/dark|solve menu handles|window boundary'
+# 8 passed with mock Drive
+npm run build
+git diff --check
+```
+
+A separate Chromium dev-server check inspected the dialog at 1440 and 320 px,
+verified the exact setup text on the clipboard, and exercised the bottom-right
+Undo notification. The full browser suite, Firefox, WebKit and live Drive were
+outside this focused Training and Timer check.
+
+## Training attempt action menu — 2026-11-11
+
+Clicking a Training attempt or pressing Enter opens the same row-anchored
+action menu as a Timer solve. Right-click uses the browser’s context menu.
+The attempt menu offers result correction, clipboard actions, Attempt Details
+and typed deletion. Both histories share popup positioning and keyboard
+navigation. Moving keyboard focus to a distant row keeps the popup anchored
+while the list settles. Existing Training details expose attribution and
+recovery when a save fails.
+
+Verification used Node 22.23.2 and isolated Chromium contexts. Commands:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/components/TrainingPage.test.tsx src/lib/historyWindow.test.ts \
+  src/lib/training/records.test.ts src/lib/training/domainStorage.test.ts src/lib/training/visits.test.ts
+# 52 passed
+npm run test:e2e -- e2e/training.spec.ts e2e/timer.spec.ts e2e/responsive-timer.spec.ts \
+  --project=chromium --workers=4 \
+  --grep 'refresh resumes|long Attempts|window boundary|menu correction fails|solve menu handles|solve menu on touch|desktop/mobile light/dark'
+# 8 passed with mock Drive
+# Right-click follow-up:
+npm test -- src/components/TrainingPage.test.tsx
+# 8 passed
+npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4 --grep 'refresh resumes'
+# 1 passed with mock Drive
+npm run build
+git diff --check
+```
+
+The menu was visually checked in Chromium at 1440 px and 320 px. An isolated
+quota-failure check verified that a rejected menu deletion kept the saved
+attempt visible until Retry save succeeded. The full suite, Firefox, WebKit
+and live Drive were outside this focused UI check.
+
+## Approved Training workspace redesign — 2026-11-11
+
+Implemented the five redesign stages in the
+[approved blueprint](docs/training/ui-audit/REDESIGN_PLAN.md). Training shares
+Timer's Statistics and Attempts presentation, reserves usable history space
+alongside the resize grip and uses compact Setup and Statistics options.
+Begin, Next, Retry and Resume share the Setup toolbar. The stable notation
+track keeps the clock in place across modes and preview changes. The local
+execution preview is on by default. Recognition still renders only the
+setup and fixed precursor. Last Result keeps its preferred floating geometry
+and docks below the clock in constrained layouts.
+
+Checked category and visit changes now use a single candidate. Superseded and
+expired setup generation cannot restore a ready timer. Calibration review,
+saved attempts and failed writes receive distinct feedback. Attempt Details
+displays the saved record while recovery is pending and exposes retry and
+recovery export inside the dialog. Reports open directly from their notice.
+The approved SVGs, algorithms, Training schema and calculation rules are
+unchanged.
+
+[Delivery report](docs/training/ui-redesign/DELIVERY.md) ·
+[Rendered before/after comparisons](docs/training/ui-redesign/index.html) ·
+[Geometry and computed styles](docs/training/ui-redesign/measurements.json) ·
+[Training memory E15](docs/training/PROJECT_MEMORY.md#e15-approved-training-workspace-redesign--2026-11-11)
+
+At 1440×900, both rails are 296 px. Training's first timing row changed from
+40.34 px to 51.59 px at its default allocation. Timer is 53.84 px at its
+default. Both measure 53.84 px when given the same 267 px Statistics allocation.
+Ordinary Attempts and Solves rows are 46.94 px. The Training clock centre was
+at (872, 501.5) CSS px across inactive, execution, recognition, preview on/off
+and calibration review captures. The frame-sampled browser test also asserts
+an unchanged anchor during ordinary transitions.
+
+Verification used Node 22.23.2, isolated fixtures, mock Drive for Playwright
+and four workers per browser. Focused command groups and results:
+
+```bash
+npm run typecheck
+npm run lint
+npm test -- src/components/StatsPanel.test.tsx src/components/SessionPanel.test.tsx \
+  src/lib/historyWindow.test.ts src/components/TrainingPage.test.tsx \
+  src/lib/training/statisticsPreferences.test.ts src/lib/training/stats.test.ts
+# 53 passed
+
+npm test -- src/lib/training/controller.test.ts src/lib/training/storage.test.ts \
+  src/lib/training/runtime.test.ts src/lib/training/calibration.test.ts \
+  src/lib/training/visits.test.ts src/hooks/useTraining.test.tsx
+# 91 passed
+
+npm test -- src/timer/machine.test.ts src/hooks/useTimer.test.ts \
+  src/components/TimerStage.test.tsx src/components/ScramblePanel.test.tsx \
+  src/components/ToolPanel.test.tsx src/lib/toolPanelLayout.test.ts
+# 60 passed
+
+npm run test:e2e -- e2e/training.spec.ts e2e/sidebar-resizable.spec.ts \
+  e2e/timer-stability.spec.ts e2e/accessibility.spec.ts --project=chromium --workers=4
+# 41 passed on the first green pass, 44 passed with final coverage
+
+npm run test:e2e -- e2e/timer.spec.ts e2e/cross-tab-timing.spec.ts \
+  e2e/draw-scramble.spec.ts e2e/timer-response.spec.ts --project=chromium --workers=4
+# 85 passed and one failed while a Clock scramble was pending
+
+npm run test:e2e -- e2e/training.spec.ts e2e/draw-scramble.spec.ts e2e/timer.spec.ts \
+  --grep 'refresh resumes|window boundary|long Attempts|large histories|Last Result|unavailable state for non-cube puzzles|desktop/mobile light/dark' \
+  --project=chromium --workers=4
+# 10 passed, including the corrected Clock state and the 200/201 threshold
+
+npm run test:e2e -- e2e/training.spec.ts e2e/sidebar-resizable.spec.ts \
+  --grep 'keeps the timing surface|keeps the saved outcome|Last Result drag|keyboard resizing' \
+  --project=firefox --workers=4
+# 4 passed
+
+npm run test:e2e -- e2e/training.spec.ts e2e/sidebar-resizable.spec.ts \
+  --grep 'keeps the timing surface|keeps the saved outcome|Last Result drag|keyboard resizing' \
+  --project=webkit --workers=4
+# 4 passed
+
+npm run test:e2e -- e2e/training.spec.ts \
+  --grep 'docks Last Result when a wide zoomed viewport|keeps the timing surface|Last Result drag' \
+  --project=firefox --workers=4
+# 3 passed with the final height-aware docking
+
+npm run test:e2e -- e2e/training.spec.ts \
+  --grep 'docks Last Result when a wide zoomed viewport|keeps the timing surface|Last Result drag' \
+  --project=webkit --workers=4
+# 3 passed with the final height-aware docking
+
+npm run build
+node scripts/training/generate-diagrams.mjs --all --check
+git diff --check
+```
+
+The visual matrix includes 1440×900, 1280×720, 1024×768, the 1100/1101
+and 720/721 dock thresholds, 900/901 and 680/681 stack thresholds, 390×844,
+320×740, short landscape and short desktop. Actual 150% Chromium browser
+zoom was tested separately from CubeLab's 125% and 150% interface zoom.
+Long times fit clear of the default Last Result at the two zoomed desktop
+sizes that reproduced overlap. Keyboard focus was checked in report,
+case editor, calibration and settings transitions. Long notation scrolled by
+keyboard within Setup while the clock stayed anchored. At 320×740, Keep
+sample was focused and visible after stopping calibration.
+[Browser zoom evidence](docs/training/ui-redesign/browser-zoom.json)
+
+Production Chromium profiling used 250 and 8,000 synthetic attempts,
+two warm-up cycles and seven samples per configuration at 1440×900.
+With default Statistics, median stop-to-first-frame was 29.9 ms
+(22.2–37.0 ms) and 366.5 ms (356.5–416.6 ms), respectively. Median checked
+save cost was 9.2 ms and 222.8 ms. With ao25 and ao100 also enabled,
+stop-to-first-frame medians were 34.9 ms and 471.1 ms. Each sample stored
+one attempt, with the measured input interval agreeing within 0.1 ms.
+The 8,000-attempt fixture serialized to about 8.1 MB. Both runs used the
+same memory-backed Training key while exercising production validation and
+serialization. The pre-redesign captures are visual and provide no paired
+production timing baseline. [Profile data](docs/training/ui-redesign/performance.json)
+
+The initial Chromium Training pass had four failures from outdated copy and
+accessible-name assertions. They passed after the assertions and case-action
+name were updated. Lint reports existing SessionPanel and audit-script warnings.
+The build retains the chunk-size warning. Mock Drive coverage includes backup,
+restore and conflict review. Full suites, physical devices, real screen readers
+and live Drive remain outside this verification. Existing working changes were
+preserved. The redesign is local and uncommitted.
+
+## Training UI consistency and statistics — 2026-11-10
+
+Training uses Timer's measured Statistics presentation, history rows and
+windowing, and responsive split. Each category keeps its own visible rows,
+order, Current/Best options and recognition series. Detailed statistics opens
+By Case and By Algorithm views. Attempts opens existing result actions across
+the full category history. Training Tools was removed. Last Result retains
+its geometry and run-time behavior. The setup uses the Scramble layout, the
+footer shows category and visit count, and recognition still conceals its
+upcoming target. [Training memory E14](docs/training/PROJECT_MEMORY.md#e14-training-ui-consistency-and-statistics--2026-11-10)
+records the reuse decisions, file inventory and domain boundaries.
+
+Verification used Node 22.23.2, synthetic records, isolated browser contexts
+and sequential suites. Commands and results:
+
+```bash
+npm test -- src/lib/training src/components/TrainingPage.test.tsx --maxWorkers=2
+# 278 passed in 24 files
+
+npm test -- src/components/StatsPanel.test.tsx src/lib/stats.test.ts \
+  src/lib/statInsights.test.ts src/lib/averageTrimming.test.ts \
+  src/lib/historyWindow.test.ts src/lib/toolPanelLayout.test.ts \
+  src/components/ToolPanel.test.tsx src/components/TimerStage.test.tsx \
+  src/hooks/useTimer.test.ts src/hooks/useTraining.test.tsx \
+  src/hooks/usePostPaintValue.test.ts --maxWorkers=2
+# 130 passed in 11 files
+
+npm run typecheck
+npm run lint
+npm run build
+git diff --check
+node scripts/training/generate-diagrams.mjs --all --check
+# Lint retains the existing SessionPanel Date.now warning. Build retains the
+# chunk-size warning. Generator verifies all 78 approved SVGs and contact sheet.
+```
+
+Chromium used production preview and mock Drive, with `--workers=4`:
+
+```bash
+npm run test:e2e -- e2e/training.spec.ts e2e/sidebar-resizable.spec.ts \
+  e2e/statistics.spec.ts --project=chromium --workers=4
+# Initial 35/37. Restored mobile statistics measurement and used the visible
+# Attempts row text as its accessible name.
+
+npm run test:e2e -- e2e/training.spec.ts e2e/sidebar-resizable.spec.ts \
+  e2e/statistics.spec.ts e2e/average-trimming.spec.ts e2e/timer.spec.ts \
+  e2e/timer-response.spec.ts e2e/cross-tab-timing.spec.ts \
+  e2e/draw-scramble.spec.ts e2e/timer-stability.spec.ts \
+  e2e/responsive-timer.spec.ts e2e/accessibility.spec.ts \
+  --project=chromium --workers=4
+# 141/142 on the broad pass. The remaining assertion raced the intentionally
+# delayed Solves count. The test now waits for the same expected count.
+
+npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4
+# 16/17 on the final Training sweep. The new customization locator matched
+# reorder buttons as well as the checkbox; the checkbox locator is now exact.
+
+npm run test:e2e -- e2e/training.spec.ts e2e/timer.spec.ts \
+  e2e/timer-stability.spec.ts \
+  --grep 'Detailed statistics supports|large histories window rows|removes instructional captions' \
+  --project=chromium --workers=4
+# 3/3 passed, including both corrected assertions and Timer windowed history.
+
+npm run test:e2e -- e2e/training.spec.ts --grep 'Last Result drag' \
+  --project=chromium --workers=4
+# 1/1 passed, including fit of the default actions after docking.
+```
+
+The browser coverage includes keyboard and synthetic touch timing, exact-once
+recording, recognition secrecy and calibration, DNF correction/deletion,
+independent persisted sidebar layouts, history windowing/show-all and scroll,
+dialog focus, responsive stacking and production offline behavior. Timer
+coverage includes resize bounds, statistics settings and trimming, solve
+actions and Undo, backup/import and mock Drive, and Draw Scramble. Axe reported
+zero serious or critical violations in the tested Training light/dark views
+and settings and detailed-statistics dialogs.
+
+Inspected before/after screenshots at 1440×900 and final views at 390×844 and
+320×740. The screenshot set includes both Timer and Training themes, the
+sidebars, detailed tabs, and recognition. Visual review restored the existing
+dialog border/backdrop and adjusted Last Result dimensions to fit its default
+actions. The before/after SVG manifest matched all 78 assets. Aggregate
+SHA-256 is `f8674bbb3337ec07ce7c2ee09440314762c052d59c706a5cb460367967433825`.
+The initial regression run, `npm test -- src/components/TrainingPage.test.tsx
+--maxWorkers=2`, failed on the new shared-panel assertion before implementation.
+The first restricted Training unit run blocked two SVG verification
+subprocesses. Both passed with process access.
+
+Full Vitest, full Playwright, Firefox, WebKit, physical hardware, screen
+readers, live Drive and long-history stop-latency profiling were outside this
+focused verification. The working changes remain local and uncommitted.
+Stop after this refinement.
+
+## Training built-in default algorithms — 2026-11-10
+
+The owner removed CubeLab's internal F12 bundling restriction. All **57 OLL** and
+**21 PLL** standard cases now resolve to a read-only, mathematically verified
+built-in default without user entry. OLL uses the owner-approved Heroor records
+with the E9 OLL 45 (`F R U R' U' F'`) and OLL 56
+(`r U r' (U R U' R')2 r U' r'`) corrections. PLL uses only the first-listed Tao
+Yu algorithm per case; the 37 additional variants remain excluded.
+
+The catalog lives in `src/lib/training/catalog/defaultAlgorithms.ts` with stable
+`<caseId>:alg:default-v1`, version-1 immutable records, provenance/correction/frame
+metadata, and default/generator links. `algorithmSelection.ts` resolves a stored
+preference first, then the built-in default, then the latest verified custom
+algorithm. Built-ins are never copied into `customAlgorithms` or duplicated on
+startup; users can switch to custom algorithms and revisions without losing
+history. Training storage remains schema **v1** with no migration. Edit Cases now
+shows the built-in default, the preferred choice, custom algorithms and
+verification status. A new user sees **57 enabled · 57 with verified algorithms**
+for OLL and **21 enabled · 21 with verified algorithms** for PLL.
+
+**Provenance/legal limitation:** the owner removed the internal gate, but this is
+not a third-party redistribution licence. Heroor has a README-only MIT claim and
+no `LICENSE` file; Tao's MIT software licence credits AlgDb for other algorithms.
+The implementation bundles only the 78 owner-approved short functional sequences,
+independently normalized/verified and assembled with source provenance, not a
+copied compilation, diagrams, presentation structure or extra variants. It
+asserts no third-party redistribution licence. Written permission or legal review
+remains advisable; see [Training memory E13](docs/training/PROJECT_MEMORY.md#e13-built-in-default-ollpll-catalog--2026-11-10).
+
+Verification used Node **22.23.2**, synthetic data and isolated browser contexts:
+
+```bash
+npm test -- src/lib/training --maxWorkers=2
+# 267 passed across 22 files
+
+npm test -- src/lib/training src/components/TrainingPage.test.tsx --maxWorkers=2
+# 272 passed across 23 files
+
+npm run typecheck
+npm run lint
+npm run build
+# All passed. Lint retains only the pre-existing SessionPanel Date.now warning.
+# Build retains the existing >500 kB chunk warning; no ineffective-dynamic-import warning.
+
+git diff --check
+# Passed
+
+node scripts/training/generate-diagrams.mjs --all --check
+# Verified 78 diagrams and the complete contact sheet
+
+npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4
+# 15/15 passed
+```
+
+Catalog tests validate all 78 records structurally and against cube states,
+exercise **624** setup combinations (78 cases × execution/recognition × all four
+AUFs), verify the exact OLL 45/56 corrections, exclude extra PLL variants, and
+check stable IDs/provenance. Runtime tests cover built-in and custom preference
+resolution, custom revision replacement of a built-in, disabled/empty pools,
+recognition's two-case minimum and repeat avoidance. Persistence tests round-trip
+stored built-in preferences and historical attribution snapshots without adding
+defaults to storage. Chromium covers new-user defaults, refresh, PLL counts, Edit
+Cases display, custom history preservation, timer/calibration and offline use.
+Aggregate SHA-256 of the 78 SVG files:
+`f8674bbb3337ec07ce7c2ee09440314762c052d59c706a5cb460367967433825`;
+no SVG or diagram-generator source changed. Ordinary session bytes remain
+unchanged in the browser regression.
+
+Intentionally not run: full Vitest/full multi-engine Playwright or `npm run check`
+(no release requested), Firefox/WebKit, physical hardware, assistive technology,
+live Drive/OAuth, or large-history Training profiling. No dependency, commit,
+push, deployment or publication was performed. Unrelated onboarding and working
+changes are preserved.
+
+## Training Phase 4 — 2026-11-10
+
+> **Superseded in part by the built-in default section above (E13):** Phase 4
+> originally shipped the complete UI with user-provided algorithms only. The
+> defaults are now available; the Phase 4 architecture, timer, calibration,
+> statistics and recovery behavior below remain current.
+
+The explicitly expanded 4A/4B/4C implementation is complete: checked Training
+controller/runtime and hook, one shared manual timer with a start-time eligibility
+and immutable-context gate, third navigation destination, approved static case
+assets/selection/presets/user algorithms, shared floating Tools/Last Result frames,
+seven-repetition calibration and renewal, category statistics, corrections/typed
+attempt deletion, visit recovery and recalculated reports. Training remains
+local-only and excluded from ordinary backups/Drive. Architecture, exact file
+inventory and remaining limits are in
+[Training memory E12](docs/training/PROJECT_MEMORY.md#e12-expanded-phase-4--complete-training-ui-and-shared-timer--2026-11-10);
+[current Training status](docs/training/CURRENT_STATUS.md) is the short entry point.
+
+Verification used Node **22.23.2**, synthetic data and isolated browser contexts.
+Separate suites ran sequentially. Final/relevant commands and results:
+
+```bash
+npm test -- src/lib/training --maxWorkers=2
+# 250 passed across 20 files
+
+npm test -- src/hooks/useTraining.test.tsx src/hooks/useScramble.test.ts src/components/TrainingPage.test.tsx src/components/ToolPanel.test.tsx src/components/TimerStage.test.tsx src/hooks/useTimer.test.ts src/timer/machine.test.ts src/hooks/usePostPaintValue.test.ts src/lib/alerts.test.ts src/lib/storage.test.ts src/lib/backup.test.ts src/lib/sessions.test.ts src/lib/sync.test.ts src/hooks/useSettings.test.ts src/hooks/useSync.test.ts --maxWorkers=2
+# 370 passed across 15 files
+
+npm test -- src/hooks/useTraining.test.tsx src/components/TrainingPage.test.tsx --maxWorkers=2
+# 6 passed across 2 files after the final unsaved-exit regression; overlaps above
+
+npm run typecheck
+npm run lint
+npm run build
+# All passed. Final build restores ordinary output without mock Drive.
+
+git diff --check
+```
+
+Focused milestone runs also passed: initial controller 8/8; controller/shared
+machine/hook 34/34; runtime/component 7/7; shared timer/readout/tools/component
+49/49. Initial missing-controller tests established the new regression boundary.
+A jsdom dialog stub and a native-selector locator were corrected during test
+setup. Restricted localhost/child-process launches prevented browser startup and
+two SVG subprocess checks; they passed with process access. One later permission-review timeout succeeded on its permitted retry. No test assertions,
+storage guards or verification rules were weakened. Final review added a failing-then-passing regression for navigation while a completion save was pending; the retained candidate now includes the visit end before Retry. Lint retains only the existing
+SessionPanel Date.now purity warning. Vite reports the >500 kB main/cubing chunk
+warning; this is not a large-history or bundle-performance clearance.
+
+Production-preview Chromium commands (mock Drive, **four workers**):
+
+```bash
+npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=4
+# Final full Training file: 14/14 passed
+npm run test:e2e -- e2e/training.spec.ts --grep 'floating Training|production Training' --project=chromium --workers=4
+# Earlier added panel/offline checks: 2/2 passed
+
+npm run test:e2e -- e2e/timer.spec.ts e2e/timer-response.spec.ts e2e/cross-tab-timing.spec.ts e2e/draw-scramble.spec.ts e2e/timer-stability.spec.ts e2e/responsive-timer.spec.ts e2e/accessibility.spec.ts --project=chromium --workers=4
+# 102/102 passed
+
+npm run test:e2e -- e2e/analytics.spec.ts e2e/onboarding.spec.ts --project=chromium --workers=4
+# 27/27 passed
+```
+
+**143 distinct targeted Chromium workflows passed.** Training coverage includes
+keyboard and synthetic touch, exact-once recording/no ordinary-solve mutation,
+input/navigation locks, explicit initial calibration/invalid retry/independent sets,
+renewal recommendation versus forced start veto, recognition DOM/accessible
+metadata hiding, case/user-algorithm/difficult/preset persistence, refresh resume,
+navigation/category endings, inactivity deferred through running, restored-tab
+Resume/End, non-blocking pending reports, result correction/deletion, corrupt and
+future-version bytes, external-write conflict preservation/recovery download,
+quota failure/navigation/retry/reload (result and visit end retained together), floating drag/resize/geometry and readout stability,
+mobile docking and production service-worker offline setup generation plus all
+78 image decodes. Pure domain tests retain exact count/day boundaries, baseline,
+DNF/trimming, immutable snapshots and recalculated correction/deletion coverage.
+The existing Timer suites also exercise ordinary deletion/Undo, backup restore,
+csTimer import, mock Drive restore/conflicts, event timing, inspection/warnings,
+large-session stop response and normal offline use. Analytics and pre-existing
+onboarding flows passed without altering their work.
+
+Visual review inspected real light/dark 1440×900, 390×844 and 320×740 captures,
+including scrolled mobile controls. Serious/critical axe violations were zero for
+these Training views and the Training settings dialog. Panels stayed below digits
+when docked, defaults did not overlap, and desktop drag/resize/minimization left
+the readout coordinates unchanged. Small-panel content scrolls. Native Training
+configuration selectors retain platform behavior; modal focus uses the existing
+containment/restoration helper. Reduced-motion emulation was included. Existing
+ordinary responsive coverage also exercised short landscape viewports.
+
+Starting SHA-256 comparison confirms **78/78 approved SVGs byte-identical** and
+unchanged diagram generator, math, pure Training domain, ordinary schemas,
+dependencies and unrelated onboarding source/tests. This phase adds 18 source/test
+files and modifies nine existing source/test/style files plus six current docs;
+E12 lists every file. Final documentation links/paths and diff whitespace were
+checked. Build/browser/screenshot/scratch output is untracked/ignored or outside
+the repository and is not part of delivery.
+
+Intentionally not run: full Vitest/full multi-engine Playwright or npm run check
+(no release requested; affected suites were targeted), Firefox/WebKit, physical
+mobile/keyboard hardware, screen readers, live Drive/OAuth, Training large-history
+profiling/retention or unauthorized backup/sync/reset format extensions. Existing
+skips outside these selected Chromium suites remain unchanged. Fresh non-reload
+openings with active visits still require a continuity choice; partial calibration
+drafts are not durable, and forced termination can lose a failed-write candidate.
+Recovery-copy export is not an automatic importer/merger. No dependency, commit,
+push, deployment, publication or automatic Phase 5 work.
+
+## Training Phase 3B — 2026-11-09
+
+Phase 3B pure domain logic and compatible v1 extensions are implemented and
+verified. No Training UI, app-mounted hook/store, browser listeners, navigation
+or timer integration. Added `src/lib/training/{settings,results,calibration,stats,
+visits,reports}.ts`, four owning test files, and extended types/schema/records/
+storage plus their existing tests/fixtures. Updated README/known limits and both
+Training memory files. See [current Training status](docs/training/CURRENT_STATUS.md)
+and [E11 architecture/policies](docs/training/PROJECT_MEMORY.md#e11-phase-3b--pure-calibration-statistics-and-practice-visits--complete-2026-11-09).
+
+File inventory for this task: created six domain modules above plus
+`calibration.test.ts`, `stats.test.ts`, `visits.test.ts` and
+`domainStorage.test.ts` (10 files). Modified Training `types.ts`, `schema.ts`,
+`records.ts`, `storage.ts`, `records.test.ts`, `storage.test.ts`,
+`persistenceIntegration.test.ts`, `persistenceFixtures.test-support.ts`, and
+`README.md`, `KNOWN_LIMITATIONS.md`, `STATUS.md`,
+`docs/training/CURRENT_STATUS.md`, `docs/training/PROJECT_MEMORY.md` (13 files).
+All other captured existing files remain unchanged.
+
+- Fixed inverse-precursor calibration, seven positive valid samples/exact median,
+  independent OLL/PLL activation/renewal, optional vs forced renewal, durable
+  deletion-safe recognition counts and immutable captured estimates. Page opening
+  never calibrates. Recognition requires two distinct enabled cases.
+- Success/DNF only for new attempts; no inspection/+2. Four-category raw and
+  estimated summaries, case/algorithm revision attribution, 90-day default or
+  configurable days/attempt-count baselines, case-matched improvements and exact
+  symmetric ceiling-trim rolling averages. Empty trim windows and missing
+  estimates have explicit unavailable states.
+- Pure visit events cover category switching, activity, refresh, navigation,
+  inactivity and confirmed closure; running attempts defer transitions. Reports
+  recalculate by stable visit/attempt references with captured baseline policy
+  and end/as-of cutoff. No frozen aggregates or ordinary CubeLab sessions.
+- Payload/key stay v1. Optional validated extensions preserve legacy +2/invalid
+  records, untagged/zero/nonmedian calibration metadata and multi-category visits
+  without rewriting reads. Unsupported results are explicit in statistics;
+  untagged calibration cannot authorize new recognition. Saves preserve checked
+  raw-value guards, historical timing/snapshots, calibration completion order,
+  visit identity/policy/end boundaries and monotonic recognition counts.
+- Browser refresh vs closure requires future explicit continuity evidence;
+  unknown startup returns a signal requirement. No detection is claimed. Legacy
+  visit baseline policy is not invented. Native backups/Drive/reset/recovery/
+  onboarding/cross-tab integration, retention/size/performance and UI remain
+  future work. At the Phase 3B checkpoint, F12 blocked algorithm datasets and
+  additional PLL variants; E13 later removed the internal gate for the 78 defaults.
+
+Verification used Node **22.23.2**, with suites sequential and every npm command
+prefixed by `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`:
+
+- `npm test -- src/lib/training/calibration.test.ts src/lib/training/stats.test.ts src/lib/training/visits.test.ts --maxWorkers=2`:
+  initial three missing-module suites failed before implementation (no tests ran).
+- `npm test -- src/lib/training/calibration.test.ts src/lib/training/stats.test.ts src/lib/training/visits.test.ts src/lib/training/records.test.ts src/lib/training/storage.test.ts src/lib/training/persistenceIntegration.test.ts --maxWorkers=2`:
+  initially 75 passed/9 failed (new-vs-legacy fixture expectations, setup date and
+  floating-point assertion); after corrections **84/84 passed**. Legacy history
+  now loads through explicit legacy fixtures; new builders enforce current rules.
+- `npm test -- src/lib/training/domainStorage.test.ts --maxWorkers=2`: initially
+  13 passed/1 failed because the legacy fixture median was no longer one of its
+  samples; fixed the fixture without weakening validation.
+- `npm test -- src/lib/training/calibration.test.ts src/lib/training/stats.test.ts src/lib/training/visits.test.ts src/lib/training/domainStorage.test.ts --maxWorkers=2`:
+  **44/44 passed** before additional final guard regressions.
+- `npm test -- src/lib/training/calibration.test.ts --maxWorkers=2`: the added
+  equal-timestamp/backward-ID replacement regression failed (11 passed/1 failed)
+  before selecting the later completion and guarding persisted completion order.
+- `npm test -- src/lib/training --maxWorkers=2`: restricted run had 228 passed/
+  2 SVG subprocess EPERM failures; rerun with process access passed 230/230.
+  After the final replacement-order/counter regressions, **232/232 in 18 files
+  passed**. Existing SVG checks ran read-only with process access; none skipped.
+- `npm test -- src/lib/storage.test.ts src/lib/backup.test.ts src/lib/syncStorage.test.ts src/lib/driveStorage.test.ts src/hooks/useSettings.test.ts --maxWorkers=2`:
+  **111/111 in five existing persistence files passed**.
+- `npm run typecheck`: final pass after resolving parameter narrowing/unused
+  import and intentional invalid-input fixture typing during development.
+- `npm run lint`: passed; only the existing `SessionPanel.tsx:566` purity warning.
+- `git diff --check` and whitespace checks of changed untracked Training files:
+  passed. Relative documentation links/new anchors and referenced source paths
+  were checked. SHA-256 comparison against the pre-task manifest confirms all
+  **78 approved SVGs**, existing math/setup/catalog/diagram/generator/reference
+  files and captured unrelated application files are unchanged.
+
+Intentionally skipped: application/full-browser E2E, full application Vitest,
+production build/PWA/offline verification, manual UI/browser/physical-device/
+physical-cube checks and live Drive. This phase has no application/UI/worker/
+network integration, and the owner specifically excluded broad browser suites.
+No dependencies, third-party algorithm records, production migration, commit,
+push, deployment or publication. Existing unrelated work is preserved.
+
+**Immediate Training task:** stop after Phase 3B. A separately authorized Phase 4
+should review E11 continuity/storage-health/start-time snapshot prerequisites
+before implementing checked-storage orchestration and the shared manual timer.
+Do not start it automatically; at that checkpoint F12 remained unresolved and was
+later superseded by E13.
+
+## Training Phase 3A — 2026-11-09
+
+Phase 3A is implemented and verified: separate versioned Training attempts,
+preferences/presets/custom algorithms, practice visits and calibration snapshots,
+with checked local persistence. `src/lib/training/{types,schema,records,storage}.ts`
+uses schema **v1** at `cubelab:training:v1`; sessions v6/settings v11/native
+backup v1/sync envelopes are unchanged. Loads never write, corrupt/unsupported
+bytes block writes, saves require the checked raw value and validate the entire
+candidate. First-schema migration validates/detaches v1; no invented legacy
+Training migration or production startup migration is activated.
+
+Attempts keep permanent category/raw timing/setup/calibration/preferred-at-start
+snapshots. Only explicit attribution correction changes a saved attempt; no
+executed algorithm is inferred. Four-category case/algorithm/visit selection is
+separate from ordinary solve statistics. One automatic practice visit may span
+categories while retaining exact category/attempt references. No Training UI,
+app-mounted hook, calibration/statistics/report calculation, automatic visit
+resume logic, dependency or bundled algorithm content was added.
+
+The owner explicitly approved all **78 final SVGs**; hash comparison confirms
+all **112 pre-existing Training source/asset/generator files** unchanged.
+Gb/Gd historical visual exceptions and E9.16/E9.17 supersession remain recorded.
+Unrelated onboarding/other changes are preserved; nine additionally captured
+unrelated file hashes also match. No commit, push, deploy or publication.
+
+Node 22.23.2, suites sequential. Every npm command used
+`export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"` first:
+
+- `npm test -- src/lib/training/records.test.ts src/lib/training/storage.test.ts`:
+  initially failed to resolve the not-yet-created implementation; then passed
+  **53/53**, and **56/56** after added guard coverage.
+- `npm test -- src/lib/training/storage.test.ts`: the new immutable-history
+  regression failed before the save guard (**42 passed, 1 failed**); fixed
+  without relaxing validation.
+- `npm test -- src/lib/training`: initial **179 passed, 6 failed**. Four new
+  integration fixtures missed the existing verified-algorithm precondition;
+  corrected the fixtures, preserving generator checks. Two existing SVG tests
+  could not launch read-only generator subprocesses (EPERM).
+- `npm test -- src/lib/training/persistenceIntegration.test.ts`: **4/4 passed**
+  with real mathematically verified setup output for all four categories.
+- Final `npm test -- src/lib/training --maxWorkers=2`: **185/185 passed in
+  14 files**, including the existing read-only generator checks, run with the
+  subprocess access they require. Includes **60 new Phase 3A tests** for
+  corruption/versions/lossless serialization, failed reads/quota/stale writes,
+  record creation, permanent category/attribution, preferences, custom revisions,
+  visits, separate calibration snapshots, penalties/invalid attempts and ordinary
+  history/custom-event/backup preservation.
+- `npm test -- src/lib/storage.test.ts src/lib/backup.test.ts src/lib/syncStorage.test.ts src/lib/replacement.test.ts src/lib/startupRecovery.test.ts src/lib/onboarding.test.ts src/hooks/useSettings.test.ts --maxWorkers=2`:
+  **139/139 passed in 7 files**.
+- `npm run typecheck`: final pass; an initial synthetic custom-event fixture
+  used the wrong placeholder field and was corrected. `npm run lint`: passed
+  with only the pre-existing `SessionPanel.tsx:566` purity warning.
+- `git diff --check`: passed. Local documentation link/path checks and the
+  protected-file SHA-256 comparison passed.
+
+Intentionally skipped full application Vitest, Playwright/all browser engines,
+manual UI, production build/offline and live Drive: the new isolated modules
+are not mounted, and no UI, existing destructive path, worker/build, backup or
+sync behavior changed. No live credentials or real browser history were used.
+Large-history performance/size was not profiled.
+
+Training remains excluded from native backup/export/import and Drive sync.
+Cross-tab adoption, replacement/recovery UI, reset/onboarding integration,
+retention and size policy remain later work. At the Phase 3A checkpoint, F12
+blocked third-party algorithm records and the 37 PLL alternatives; E13 later
+implemented the 78 defaults. After a new Phase 3B request,
+the exact first task is pure seven-sample calibration/median/renewal/snapshot
+logic with tests, resolving F6/F8 fidelity and missing/expired/below-calibration
+policy before those branches; category statistics/visit/report logic follows
+with approved F9 baselines. No Phase 3B or Phase 4 started. Architecture and
+prerequisites: [Training memory E10](docs/training/PROJECT_MEMORY.md#e10-phase-3a--training-data-model-and-persistence--complete-2026-11-09).
+
+## Training PLL corner arrows — 2026-11-09
+
+Corner arrows are lengthened (E9.16) and now centred on actual cubie-centre
+lines (E9.17), removing the prior 5 px outward bias. All edge-arrow groups and
+57 OLL SVGs are byte-identical. Latest focused renderer/SVG tests passed 26/26
+(including deterministic generator checks), typecheck and lint passed (existing
+SessionPanel warning), and all 21 PLLs were inspected in Chromium at 128/64 px
+on light/dark. No head collisions or clipping; G-perms remain dense at 64 px.
+Full app/browser suites and build skipped for static SVG presentation only.
+See [Training current status](docs/training/CURRENT_STATUS.md) E9.17 for commands
+and limits. No commit or push; unrelated working changes preserved.
+
+## First-run onboarding — 2026-11-08
+
+The first-run setup system is implemented as a lazy full-screen flow before the
+editable timer. It reuses the existing session, settings, csTimer parser,
+durable replacement, Drive transport and synchronization merge systems.
+
+- **Detection and durability:** `cubelab:onboarding:v1` stores a completed or
+  skipped decision plus a non-sensitive in-progress draft. A saved draft resumes;
+  no OAuth token is persisted. Meaningful sessions, solves, custom events,
+  ordering/transfers, stored settings, sync identity or Drive metadata suppress
+  onboarding for existing users. An untouched auto-created placeholder does not.
+  A welcome draft is written before the app hooks mount so a reload cannot be
+  mistaken for an existing installation after default settings/Sync identity are
+  written.
+- **Start Fresh:** staged event cards (3×3 default, at least one required),
+  common settings and Main Event. Commit is idempotent and durable: one empty
+  session per event, untouched 3×3 placeholder reused where possible, meaningful
+  sessions preserved, no duplicate sessions on retry/reopen. The Main Event
+  activates its session and stamps selection metadata so a first cloud merge
+  cannot silently replace it.
+- **csTimer:** reuses `analyzeCsTimerBackup`/`parseCsTimerBackup`, preview,
+  validation, custom-event mapping/deduplication and additive durable import.
+  No event-selection step and no extra empty event sessions. A durable import
+  checkpoint reconciles interrupted commits by preview signatures, preventing
+  duplicate imports. Main Event choices are limited to imported events.
+- **Returning user:** uses the existing Google transport, all-snapshot reader and
+  sync merge; reports real found/restored counts, preserves custom events,
+  ordering, settings, tombstones and selection metadata, and does not treat
+  sign-in as restoration. No data found offers another account, Start Fresh,
+  csTimer import or Skip. A failed restore has no completion success state.
+- **Optional sync:** shown only for Start Fresh/csTimer. Existing cloud data is
+  disclosed before merge; local setup is not uploaded before a choice. Maybe
+  Later leaves sync disabled and local setup commits normally. Connection/sync
+  failures can be skipped without losing local data. A clean-device restore
+  verifies the expected solve count before advancing.
+- **Device settings:** only the device-local Draw Scramble 2D/3D preference is
+  requested after restoration. Synchronized inspection, timer input, theme,
+  scaling, statistics and analytics settings are not re-asked.
+- **Completion:** actual counts, Main Event and real Drive status display for
+  about three seconds, then fade to the timer with the chosen session active. No
+  Start Cubing button or tutorial. Required failures never show success.
+- **Reopen:** Settings → Data → Setup assistant reopens the flow non-destructively;
+  existing solves are preserved and empty event sessions are reused. Closing a
+  reopened flow keeps the prior completed decision and clears only its draft.
+
+Settings classification confirmed from the implementation: every top-level
+`Settings` field in `SETTINGS_FIELD_KEYS` is synchronized; Draw Scramble mode and
+tool-panel visibility/geometry are local. Only Draw Scramble mode is relevant
+onboarding configuration, so the returning-user device step shows just that.
+
+Node 22.23.2 verification, separate suites sequential unless noted:
+
+- `npm run typecheck`: passed. `npm run lint`: passed with only the pre-existing
+  `SessionPanel` purity warning. `git diff --check`: passed.
+- Full Vitest: **976 passed in 70 files**. New owner coverage: onboarding
+  detection/draft serialization, placeholder reuse/removal, retry idempotency,
+  import reconciliation, Main Event import choice, lockstep component flows,
+  save failure, csTimer preview, already-connected state, OAuth failure,
+  no-cloud returning state and Settings reopen.
+- `e2e/onboarding.spec.ts`: **12/12 passed** on Chromium `--workers=4`. Covers
+  all three paths, three-second automatic completion, actual summaries, optional
+  sync, detected cloud data with Keep local, successful returning restore with
+  custom events/settings, failed optional Google read, skip persistence, upgrade
+  suppression, interrupted resume, non-destructive reopen, keyboard-only event
+  selection, reduced motion, mobile overflow bounds and light/dark axe checks
+  with no serious/critical violations. The csTimer path asserts preserved
+  custom-event definitions and three imported sessions with no extra empty event
+  sessions.
+- Chromium `--workers=4`: `session-management`, `storage-safety`, `single-tab`
+  and `accessibility` **45/45 passed**, and `cross-tab-timing` **6/6 passed**.
+  `timer.spec.ts` passed **63/64**; the one Pyraminx mobile scramble wait exceeded
+  its timeout under parallel load and passed alone immediately afterward. All
+  product behavior paths, native backup, csTimer, mock Drive and production
+  offline cases passed.
+- A user-authorized `timer.spec.ts` trial at `--workers=16` produced **55/64**
+  with resource-contention timeouts in inspection clock fast-forward, large
+  histories, 4×4/Square-1 scramble generation, named sessions and one backup
+  flow. All **9** failed cases passed together on a normal `--workers=4` rerun.
+  The 16-worker run is not treated as a product failure.
+- `npm run build`: passed with normal (non-mock) output and PWA generation;
+  Onboarding is a separate 37.04 kB lazy chunk, and the csTimer parser plus cloud
+  reader are deferred until their paths request them. Existing large-chunk
+  advisory remains.
+- Visual inspection: desktop light welcome/events/settings/sync and mobile
+  390×844 light/dark welcome, events, settings, sync and completion. No clipping,
+  horizontal overflow or missing actions observed; completion was inspected after
+  entry animation settled.
+
+Not tested: live Google OAuth/Drive, Firefox/WebKit for onboarding, physical
+devices and assistive technology. No dependencies installed, no release version
+changed, no commit or push. Existing unrelated changes remain intact.
 
 ## N1/N3 startup read and native-date safety — 2026-11-07
 
@@ -104,11 +1140,14 @@ safeguards remain in place for older clients and other browsers/devices.
   with selected-session reassignment plus metadata-based correction of previously
   imported solves.
 - Developer options are collapsed by default. Their Danger Zone retains the
-  typed-confirmation solve reset and adds **Delete All Sessions**, which records
-  session and solve tombstones, removes every session, creates one empty active
-  **Session 1**, and preserves settings and custom-event definitions. Both
-  actions block unsafe storage/sync states and skip snapshot cleanup for their
-  publication.
+  typed-confirmation solve reset and **Delete All Sessions**, which record
+  session and solve tombstones, block unsafe storage/sync states and skip
+  snapshot cleanup for their publication. **Reset All Site Data** is the full
+  local restart: it disables sync, blocks Drive, clears CubeLab-owned storage,
+  indexed databases, caches, the scoped service worker and local Google
+  authorization, then reloads into onboarding. It never uploads an empty state
+  or deletes Drive files; partial failures report the blocking item and offer
+  retry.
 - Inspection/penalties/warnings, named sessions, comments/actions, configurable
   average trimming, compact/expanded Time Trend, wheel/pinch/pan and historical
   PB statistics are implemented. Sessions use schema v6; settings use v11.

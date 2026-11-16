@@ -1745,6 +1745,7 @@ interface AnalyticsPageProps {
   initialEvent: PuzzleEvent
   settings: Settings
   onChange: (next: Partial<Settings>) => void
+  hidden?: boolean
 }
 
 export default function AnalyticsPage({
@@ -1752,6 +1753,7 @@ export default function AnalyticsPage({
   initialEvent,
   settings,
   onChange,
+  hidden,
 }: AnalyticsPageProps) {
   const localDay = useLocalDayRefresh()
   const analyticsSettings = settings.analytics
@@ -2188,6 +2190,7 @@ export default function AnalyticsPage({
         overview.count === 0 ? ' is-empty' : ''
       }${analysisEmpty ? ' is-analysis-empty' : ''}`}
       aria-labelledby="analytics-title"
+      hidden={hidden}
     >
       <header className="analytics-heading">
         <div className="analytics-heading-copy">

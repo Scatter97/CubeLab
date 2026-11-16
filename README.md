@@ -17,9 +17,10 @@ system-following theme. See
 
 ![CubeLab desktop interface](docs/cubelab-desktop.png)
 
-The header switches between the timer and the read-only Analytics dashboard.
-Timer state and session data are shared; opening Analytics never changes stored
-solves.
+The header switches between Timer, the read-only Analytics dashboard and
+Training. Training shares the manual timer interactions while keeping its
+attempts, calibration and practice visits separate from ordinary solves.
+Opening Analytics never changes stored solves.
 
 ## One active tab
 
@@ -51,6 +52,13 @@ including interaction rules, settings defaults, session overrides and persistenc
   choose an optional text placeholder shown instead of a scramble, and record
   solves with the normal timer, inspection, sessions, statistics, Analytics, and
   PB tracking. Custom-event solves remain separate from every built-in event.
+- **First-run onboarding** for a clean browser: start fresh with one ready empty
+  session per selected event, import a csTimer backup without extra event setup,
+  or restore an existing CubeLab setup through Google Drive. The optional sync
+  step never blocks local use, returning users only confirm device-local display
+  options, and a three-second completion summary opens the timer automatically
+  with the Main Event active. **Settings → Data → Setup assistant** reopens the
+  flow non-destructively; existing users are not prompted after an update.
 - **Merge and split sessions** from **Session settings**. Merge one or more
   same-event sources into a destination with a counted preview; split selected
   solves or ranges into a new session that copies the source event/settings and
@@ -88,6 +96,50 @@ including interaction rules, settings defaults, session overrides and persistenc
   Horizontal navigation keeps the vertical scale fixed. Expanding is
   disabled during timing; the dialog contains keyboard focus and closes with
   Escape, returning focus to **Expand**.
+- **OLL / PLL Training** opens the **Training Hub**. It restores the saved set,
+  practice type, and cases. Edit the session name and case selection as a
+  draft and see statistics for the selected category. Opening the Hub or
+  applying a case edit leaves practice history and saved preferences intact.
+  **Begin practice** saves a named session with the chosen category and one
+  algorithm revision per selected usable case. All 57 OLL and 21 PLL cases
+  include a verified built-in default. **Track algorithm revisions** in
+  Training Settings is off by default. Enable it to add and verify custom
+  algorithms, choose a preferred revision or override it for a session, and
+  record revision statistics on future attempts. Case totals include every
+  attempt. Existing revision charts remain available when tracking is off.
+  Every generated setup is cube-state verified.
+  Execution needs one enabled case with a verified algorithm; recognition needs
+  two. **Show upcoming case** in Training Settings defaults on and controls the
+  name and diagram for both execution modes. Recognition hides the target
+  until completion and uses the fixed FR insertion or Sune. Initial recognition calibration times seven repetitions of
+  the fixed precursor. Missing or due calibration is required at Begin for
+  the selected set. Invalid repetitions can be retried, and cancelling returns
+  to the Hub draft. Once practice starts, renewal waits for the next session.
+  **Current session** shows the captured selection and offers **End session**.
+  End and navigation away ask for confirmation. A nonempty session opens its
+  report before returning to the Hub or selected view. The inactivity prompt
+  defaults to 15 minutes and waits while the timer is armed or running.
+  Reopening with unfinished practice offers a choice to continue or end.
+  The readout, Statistics, Attempts, and Last Result use the active session.
+  The sidebar
+  shares Timer's Statistics rows, windowed history and resizable split.
+  **Customize** in Statistics options sets the visible rows, order, and Current/Best columns
+  for each category. **Raw** and **Estimated** switch the recognition timing
+  series. **Detailed statistics** opens searchable case and algorithm-revision
+  views. Select an **Attempts** row to open the same action menu used by Timer.
+  From it you can correct the result, copy the setup or attempt, open the compact
+  **Attempt details** dialog, or delete the attempt. Attempt details shows the
+  case, time, setup and algorithm attribution. **Delete attempt** takes effect
+  immediately and offers **Undo** in the notification.
+  The floating **Last Result** shows the previous case and allows retrying and
+  marking it difficult. It docks below the timer when space is tight.
+  The Hub shows recent sessions and opens the filterable Practice history.
+  Reports show measured times, comparisons, estimated Recognition components
+  with coverage and a keyboard-inspectable attempt chart. Historical review
+  is read-only. A typed **DELETE** removes an acknowledged archived session
+  and its attempts. Timing is manual
+  with success or DNF. Training stays local to the browser. See
+  [Training behavior](docs/training/CURRENT_STATUS.md).
 - **Analytics dashboard** opened from the header **Analytics** tab. Global event,
   session, date-range, latest-count, and penalty filters drive overview cards,
   time and average progression, historical PBs, a clickable distribution,
@@ -105,7 +157,11 @@ including interaction rules, settings defaults, session overrides and persistenc
   are downsampled, and no analytics calculation runs while the timer is active.
   A subtle display version in the bottom-right footer identifies the running
   build.
-- **CubeLab-themed dropdowns** replace native select menus throughout the app,
+- **Analytics → Algorithms** reads Training history. Filter Execution or
+  Recognition by OLL/PLL and date to see case performance, measured time
+  progression, practice volume and DNF rate. Open filtered Practice history
+  or return to the Hub with **Start new session**.
+- **CubeLab-themed dropdowns** replace native select menus in the established Timer and Analytics flows,
   including Settings, session and event pickers, Analytics filters, import and
   Drive dialogs, and tool controls. They match both themes, support arrow keys,
   Home/End, Enter, Escape, type-ahead, touch and screen readers, close on outside
@@ -168,13 +224,20 @@ including interaction rules, settings defaults, session overrides and persistenc
 - **JSON backup and restore** covering every session, solve, and setting. Imports
   are validated and replace local data only after explicit confirmation.
 - **Developer options** in Settings are collapsed by default. **Danger Zone**
-  provides two typed-confirmation actions: **Reset All Solve Data** removes every
-  solve while keeping session names, event assignments, preferences, custom
-  event definitions, and application settings; **Delete All Sessions** removes
-  every session and solve, then creates one empty active **Session 1** while
-  preserving settings and custom-event definitions. Both record durable
-  deletion metadata for synchronization; existing Google Drive snapshots are not
-  deleted by either action.
+  provides three typed-confirmation actions: **Reset All Solve Data** removes
+  every solve while keeping session names, event assignments, preferences,
+  custom event definitions, and application settings; **Delete All Sessions**
+  removes every session and solve, then creates one empty active **Session 1**
+  while preserving settings and custom-event definitions. These two record
+  durable deletion metadata for synchronization. **Reset All Site Data** is the
+  full local restart: it disables synchronization, blocks Drive access, clears
+  CubeLab's localStorage/sessionStorage keys, CubeLab IndexedDB databases,
+  CubeLab application caches, the scoped service worker and locally held Google
+  authorization, then reloads into first-visit onboarding. It never deletes or
+  overwrites Google Drive files and does not upload an empty state; reconnect
+  explicitly to use Drive again. Existing Google Drive snapshots are not deleted
+  by any of these actions. A reset that cannot finish (for example, a blocked
+  IndexedDB connection) reports the partial failure and offers a safe retry.
 - **csTimer `.txt` / `.json` import** detects the csTimer format automatically
   and shows a concise preview table of every session name and solve count,
   including empty sessions. Sessions are appended in csTimer `rank` order, with
@@ -436,12 +499,18 @@ schema versions.
 
 ### Sessions
 
-CubeLab starts with one local session named **Session 1**. New sessions receive
-the next unused default name, and names are trimmed, limited to 40 characters,
-and unique case-insensitively. The active session determines the statistics,
-history, and solve count shown in the interface. Session controls are disabled
-while the timer is armed, running, or in inspection so a solve cannot move
-between sessions mid-timing.
+CubeLab starts with one local session named **Session 1**. **Create session**
+suggests the selected event's display name, including custom events. A name
+you type stays when you switch events. Clear the field or enter only spaces to
+use the suggestion. Suggestions use the first available name in order, such
+as **3×3**, **3×3 (2)**, and **3×3 (3)**. All current Timer sessions count, including
+imported and synced names. Deleting the last session with a given name makes
+that name available again. New names are trimmed, limited to 40 characters,
+and validated for case-insensitive uniqueness.
+
+The active session determines the statistics, history, and solve count shown in
+the interface. Session controls are disabled while the timer is armed, running,
+or in inspection so a solve cannot move between sessions mid-timing.
 
 The gear beside the session selector opens **Session settings**. It controls the
 session's name, event, inspection override, merging, splitting, clearing all
@@ -1008,6 +1077,12 @@ src/
   lib/version.ts         Formats the release record for display
   lib/averageTrimming.ts Trim presets, validation, counts, and labels
   lib/storage.ts         Versioned localStorage validation and migration
+  lib/training/          OLL/PLL mathematics, approved static diagrams and isolated
+                         v1 records/storage, calibration, statistics and pure
+                         visits/reports and the checked Training controller/runtime
+  hooks/useTraining.ts    Training startup continuity, inactivity and unsaved-exit protection
+  components/TrainingPage.tsx Shared workspace and Training presentation
+  components/training/    Case/algorithm selection, calibration presentation, stats and reports
   lib/alerts.ts          Web Audio, vibration, DNF gain, and inspection warnings
   lib/format.ts          Display formatting
   hooks/useSync.ts       Merge orchestration, scheduling, retries, and conflicts
@@ -1016,7 +1091,9 @@ src/
   components/SettingsDialog.tsx  Timer, Alerts, Display, Appearance, Statistics,
                                  Scramble, Data, and About preferences
   components/SessionSettingsDialog.tsx  Per-session inspection, merge/split, clear, and delete
-  components/SolveHistory.tsx  History rows and the floating solve action menu
+  components/SolveHistory.tsx  Solve row data and floating solve action menu
+  components/{StatisticsPanel,HistoryPanel,SidebarSplit}.tsx  Shared Timer/Training sidebar
+  hooks/useHistoryList.ts  Measured windowing and scroll anchors for history
   App.tsx                Integration, global input, session/backup orchestration
   hooks/useTheme.ts      System-theme tracking and document/meta application
   lib/theme.ts           Pure theme resolution
@@ -1039,6 +1116,21 @@ Storage keys are versioned:
   containing its solves, plus optional ordering and partial-split transfer
   metadata.
 - `cubelab:settings:v1` — local preferences.
+- `cubelab:training:v1` — schema v1 Training attempts, preferences, custom
+  algorithm revisions, calibration snapshots and automatic practice visits. The
+  app mounts its checked controller only after acquiring the active-tab lock.
+  Reports recalculate from current attempts and captured visit policies. Invalid
+  bytes block Training writes; failed saves retain the candidate and offer retry
+  or a recovery copy, without replacing external data. Training is excluded from
+  native backups, Drive sync and ordinary solve/session resets. Compatible v1
+  history is retained without read-time migration. See
+  [Training status](docs/training/CURRENT_STATUS.md).
+- `cubelab:training-last-result:layout:v1` stores Last Result geometry.
+  `cubelab:training-statistics:v1` stores per-category display choices.
+  `cubelab:training-sidebar-split:v1` stores the Training sidebar proportion.
+  `cubelab:training-show-upcoming-case:v1` stores the local execution preview
+  preference as a JSON boolean. Missing or invalid values use the on default.
+  `sessionStorage` key `cubelab:view:v1` retains Training on reload.
 - `cubelab:solves:v1` — the original single-session key, read only to migrate
   existing 3×3 solves into **Session 1**.
 - `cubelab:drive:v1` — optional Google Drive connection metadata (account label
@@ -1121,7 +1213,9 @@ All sessions, solves, and settings stay in the browser's local storage by
 default. Backup files are created and read locally by the browser. If you
 explicitly connect Google Drive, synchronization uploads a device-owned
 versioned snapshot to CubeLab's app-data folder in your own Drive account; there
-is no CubeLab account, backend, analytics, or telemetry.
+is no CubeLab account, backend, analytics, or telemetry. **Reset All Site Data**
+clears local CubeLab state and authorization but never deletes those Drive
+snapshots; using Drive again requires an explicit new connection.
 
 ## Scope
 

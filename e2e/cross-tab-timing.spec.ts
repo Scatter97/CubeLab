@@ -49,7 +49,7 @@ test('cross-tab timing is not redirected and reconciles when idle', async ({
 }) => {
   test.skip(browserName === 'webkit', 'WebKit keyboard timing is not reliable in this flow.')
   const pageErrors: string[] = []
-  const context = await browser.newContext()
+  const context = await browser.newContext({ storageState: 'e2e/storage-state.json' })
   await simulateLegacyConcurrentTabs(context)
   const pageA = await context.newPage()
   const pageB = await context.newPage()
@@ -232,7 +232,7 @@ test('a committed cross-tab replacement waits for a running solve and preserves 
   browserName,
 }) => {
   test.skip(browserName === 'webkit', 'WebKit keyboard timing is not reliable in this flow.')
-  const context = await browser.newContext()
+  const context = await browser.newContext({ storageState: 'e2e/storage-state.json' })
   await simulateLegacyConcurrentTabs(context)
   const pageA = await context.newPage()
   const pageB = await context.newPage()
@@ -311,7 +311,7 @@ test('a solve completed during a prepared replacement is not written over its ca
   browserName,
 }) => {
   test.skip(browserName === 'webkit', 'WebKit keyboard timing is not reliable in this flow.')
-  const context = await browser.newContext()
+  const context = await browser.newContext({ storageState: 'e2e/storage-state.json' })
   await simulateLegacyConcurrentTabs(context)
   const pageA = await context.newPage()
   const pageB = await context.newPage()
@@ -378,7 +378,7 @@ test('a committed reclassification keeps a prepared-phase solve event-compatible
   browserName,
 }) => {
   test.skip(browserName === 'webkit', 'WebKit keyboard timing is not reliable in this flow.')
-  const context = await browser.newContext()
+  const context = await browser.newContext({ storageState: 'e2e/storage-state.json' })
   await simulateLegacyConcurrentTabs(context)
   const pageA = await context.newPage()
   const pageB = await context.newPage()
@@ -469,7 +469,7 @@ test('a replacement rollback/removal during a running solve keeps its original o
   browserName,
 }) => {
   test.skip(browserName === 'webkit', 'WebKit keyboard timing is not reliable in this flow.')
-  const context = await browser.newContext()
+  const context = await browser.newContext({ storageState: 'e2e/storage-state.json' })
   await simulateLegacyConcurrentTabs(context)
   const pageA = await context.newPage()
   const pageB = await context.newPage()
@@ -525,7 +525,7 @@ test('a replacement rollback/removal during a running solve keeps its original o
 test('an idle tab adopts split ownership metadata from another tab', async ({
   browser,
 }) => {
-  const context = await browser.newContext()
+  const context = await browser.newContext({ storageState: 'e2e/storage-state.json' })
   await simulateLegacyConcurrentTabs(context)
   const pageA = await context.newPage()
   const pageB = await context.newPage()

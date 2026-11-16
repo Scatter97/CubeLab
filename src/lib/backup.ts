@@ -6,14 +6,15 @@ import {
   parseSettingsData,
 } from './storage'
 import { cloneAnalyticsSettings } from './analyticsSettings'
+import { MAX_BACKUP_BYTES } from './backupLimits'
 import type { SyncEnvelope } from './sync'
 import { parseRemoteSyncEnvelope } from './sync'
-
 
 export const BACKUP_APP = 'CubeLab'
 export const BACKUP_FORMAT = 'cubelab-backup'
 export const BACKUP_VERSION = 1
-export const MAX_BACKUP_BYTES = 10 * 1024 * 1024
+
+export { MAX_BACKUP_BYTES } from './backupLimits'
 
 export interface Backup {
   app: typeof BACKUP_APP

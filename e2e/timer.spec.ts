@@ -987,6 +987,7 @@ test('mobile layout supports hold-to-time pointer controls', async ({
     'Pointer hold-to-time emulation is only exercised in Chromium.',
   )
   const context = await browser.newContext({
+    storageState: 'e2e/storage-state.json',
     viewport: { width: 390, height: 844 },
     hasTouch: true,
     isMobile: true,
@@ -1027,6 +1028,7 @@ test('narrow mobile layout keeps settings, session, and solve-menu targets usabl
   browser,
 }) => {
   const context = await browser.newContext({
+    storageState: 'e2e/storage-state.json',
     viewport: { width: 320, height: 700 },
     hasTouch: true,
     isMobile: true,
@@ -1354,7 +1356,8 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await page.getByTestId('new-session').click()
   const input = page.getByRole('textbox', { name: 'Session name' })
   await expect(input).toBeVisible()
-  await expect(input).toHaveValue('3×3')
+  await expect(input).toHaveValue('')
+  await expect(input).toHaveAttribute('placeholder', '3×3')
   await expect(input).toBeFocused()
 
   // Duplicate names are rejected case-insensitively without closing the dialog.
@@ -1793,7 +1796,16 @@ test('backup export and import restore sessions, comments, and settings', async 
   await expect(dialog).toBeHidden()
 
   // Start from empty local data so the restore is observable.
-  await page.evaluate(() => localStorage.clear())
+  await page.evaluate(() => {
+    localStorage.clear()
+    localStorage.setItem(
+      'cubelab:onboarding:v1',
+      JSON.stringify({
+        version: 1,
+        decision: { status: 'completed', at: 1 },
+      }),
+    )
+  })
   await page.reload()
   await waitForApp(page)
   expect(await selectedSessionName(page)).toBe('Session 1')

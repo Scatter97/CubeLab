@@ -6,6 +6,7 @@ import {
   type StorageLike,
 } from './storage'
 import { SYNC_STORAGE_KEY } from './syncStorage'
+import { isSiteResetInProgress } from './siteReset'
 
 export const REPLACEMENT_STORAGE_KEY = 'cubelab:replacement:v1'
 export const REPLACEMENT_VERSION = 1
@@ -146,7 +147,7 @@ function saveJournal(
   journal: ReplacementJournal,
   storage: StorageLike | null,
 ): boolean {
-  if (!storage) return false
+  if (!storage || isSiteResetInProgress()) return false
   try {
     storage.setItem(REPLACEMENT_STORAGE_KEY, JSON.stringify(journal))
     return true
@@ -232,7 +233,7 @@ export function rollbackReplacement(
   journal: ReplacementJournal,
   storage: StorageLike | null = getDefaultStorage(),
 ): boolean {
-  if (!storage) return false
+  if (!storage || isSiteResetInProgress()) return false
   let ok = true
   for (const [key, value] of Object.entries(journal.before) as [
     ReplacementKey,

@@ -4,12 +4,14 @@ import {
   type ToolPanelLayout,
 } from '../lib/toolPanelLayout'
 
+import { isSiteResetInProgress } from '../lib/siteReset'
+
 export const TOOL_PANEL_LAYOUT_STORAGE_KEY = 'cubelab:toolPanelLayout:v1'
 
-export function loadToolPanelLayout(): ToolPanelLayout | null {
+export function loadToolPanelLayout(storageKey = TOOL_PANEL_LAYOUT_STORAGE_KEY): ToolPanelLayout | null {
   try {
     return parseToolPanelLayout(
-      localStorage.getItem(TOOL_PANEL_LAYOUT_STORAGE_KEY),
+      localStorage.getItem(storageKey),
     )
   } catch {
     return null
@@ -23,18 +25,18 @@ interface UseToolPanelLayout {
   persist: (layout: ToolPanelLayout) => void
 }
 
-export function useToolPanelLayout(): UseToolPanelLayout {
+export function useToolPanelLayout(storageKey = TOOL_PANEL_LAYOUT_STORAGE_KEY): UseToolPanelLayout {
   const [layout, setLayout] = useState<ToolPanelLayout | null>(() =>
-    loadToolPanelLayout(),
+    loadToolPanelLayout(storageKey),
   )
 
   const persist = useCallback((next: ToolPanelLayout) => {
     try {
-      localStorage.setItem(TOOL_PANEL_LAYOUT_STORAGE_KEY, JSON.stringify(next))
+      if (!isSiteResetInProgress()) localStorage.setItem(storageKey, JSON.stringify(next))
     } catch {
       // A full or unavailable storage must not break the panel.
     }
-  }, [])
+  }, [storageKey])
 
   return { layout, setLayout, persist }
 }

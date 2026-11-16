@@ -1,0 +1,207 @@
+ M AGENTS.md
+ M FEATURES.md
+ M KNOWN_LIMITATIONS.md
+ M README.md
+ M STATUS.md
+ M e2e/cross-tab-timing.spec.ts
+ M e2e/timer-stability.spec.ts
+ M e2e/timer.spec.ts
+ M playwright.config.ts
+ M src/App.tsx
+ M src/bootstrap.tsx
+ M src/components/AppHeader.tsx
+ M src/components/SettingsDialog.test.tsx
+ M src/components/SettingsDialog.tsx
+ M src/components/SolveHistory.tsx
+ M src/components/StatsPanel.tsx
+ M src/components/TimerStage.tsx
+ M src/components/ToolPanel.tsx
+ M src/hooks/useScramble.ts
+ M src/hooks/useTimer.test.ts
+ M src/hooks/useTimer.ts
+ M src/hooks/useToolPanelLayout.ts
+ M src/index.css
+ M src/lib/backup.ts
+ M src/lib/sessions.ts
+ M src/lib/sync.ts
+?? docs/training/CURRENT_STATUS.md
+?? docs/training/PROJECT_MEMORY.md
+?? docs/training/previews/phase-2c-all-diagrams.html
+?? docs/training/previews/phase-2c-diagrams.html
+?? docs/training/previews/pll-refinement-comparison.html
+?? docs/training/references/f2l-oll-recognition-reference.png
+?? e2e/onboarding.spec.ts
+?? e2e/storage-state.json
+?? e2e/training.spec.ts
+?? scripts/audit-training.mjs
+?? scripts/training/generate-diagrams.mjs
+?? scripts/training/renderDiagram.mjs
+?? scripts/training/renderDiagram.test.mjs
+?? src/assets/training/diagrams/oll/oll-01.svg
+?? src/assets/training/diagrams/oll/oll-02.svg
+?? src/assets/training/diagrams/oll/oll-03.svg
+?? src/assets/training/diagrams/oll/oll-04.svg
+?? src/assets/training/diagrams/oll/oll-05.svg
+?? src/assets/training/diagrams/oll/oll-06.svg
+?? src/assets/training/diagrams/oll/oll-07.svg
+?? src/assets/training/diagrams/oll/oll-08.svg
+?? src/assets/training/diagrams/oll/oll-09.svg
+?? src/assets/training/diagrams/oll/oll-10.svg
+?? src/assets/training/diagrams/oll/oll-11.svg
+?? src/assets/training/diagrams/oll/oll-12.svg
+?? src/assets/training/diagrams/oll/oll-13.svg
+?? src/assets/training/diagrams/oll/oll-14.svg
+?? src/assets/training/diagrams/oll/oll-15.svg
+?? src/assets/training/diagrams/oll/oll-16.svg
+?? src/assets/training/diagrams/oll/oll-17.svg
+?? src/assets/training/diagrams/oll/oll-18.svg
+?? src/assets/training/diagrams/oll/oll-19.svg
+?? src/assets/training/diagrams/oll/oll-20.svg
+?? src/assets/training/diagrams/oll/oll-21.svg
+?? src/assets/training/diagrams/oll/oll-22.svg
+?? src/assets/training/diagrams/oll/oll-23.svg
+?? src/assets/training/diagrams/oll/oll-24.svg
+?? src/assets/training/diagrams/oll/oll-25.svg
+?? src/assets/training/diagrams/oll/oll-26.svg
+?? src/assets/training/diagrams/oll/oll-27.svg
+?? src/assets/training/diagrams/oll/oll-28.svg
+?? src/assets/training/diagrams/oll/oll-29.svg
+?? src/assets/training/diagrams/oll/oll-30.svg
+?? src/assets/training/diagrams/oll/oll-31.svg
+?? src/assets/training/diagrams/oll/oll-32.svg
+?? src/assets/training/diagrams/oll/oll-33.svg
+?? src/assets/training/diagrams/oll/oll-34.svg
+?? src/assets/training/diagrams/oll/oll-35.svg
+?? src/assets/training/diagrams/oll/oll-36.svg
+?? src/assets/training/diagrams/oll/oll-37.svg
+?? src/assets/training/diagrams/oll/oll-38.svg
+?? src/assets/training/diagrams/oll/oll-39.svg
+?? src/assets/training/diagrams/oll/oll-40.svg
+?? src/assets/training/diagrams/oll/oll-41.svg
+?? src/assets/training/diagrams/oll/oll-42.svg
+?? src/assets/training/diagrams/oll/oll-43.svg
+?? src/assets/training/diagrams/oll/oll-44.svg
+?? src/assets/training/diagrams/oll/oll-45.svg
+?? src/assets/training/diagrams/oll/oll-46.svg
+?? src/assets/training/diagrams/oll/oll-47.svg
+?? src/assets/training/diagrams/oll/oll-48.svg
+?? src/assets/training/diagrams/oll/oll-49.svg
+?? src/assets/training/diagrams/oll/oll-50.svg
+?? src/assets/training/diagrams/oll/oll-51.svg
+?? src/assets/training/diagrams/oll/oll-52.svg
+?? src/assets/training/diagrams/oll/oll-53.svg
+?? src/assets/training/diagrams/oll/oll-54.svg
+?? src/assets/training/diagrams/oll/oll-55.svg
+?? src/assets/training/diagrams/oll/oll-56.svg
+?? src/assets/training/diagrams/oll/oll-57.svg
+?? src/assets/training/diagrams/pll/pll-aa.svg
+?? src/assets/training/diagrams/pll/pll-ab.svg
+?? src/assets/training/diagrams/pll/pll-e.svg
+?? src/assets/training/diagrams/pll/pll-f.svg
+?? src/assets/training/diagrams/pll/pll-ga.svg
+?? src/assets/training/diagrams/pll/pll-gb.svg
+?? src/assets/training/diagrams/pll/pll-gc.svg
+?? src/assets/training/diagrams/pll/pll-gd.svg
+?? src/assets/training/diagrams/pll/pll-h.svg
+?? src/assets/training/diagrams/pll/pll-ja.svg
+?? src/assets/training/diagrams/pll/pll-jb.svg
+?? src/assets/training/diagrams/pll/pll-na.svg
+?? src/assets/training/diagrams/pll/pll-nb.svg
+?? src/assets/training/diagrams/pll/pll-ra.svg
+?? src/assets/training/diagrams/pll/pll-rb.svg
+?? src/assets/training/diagrams/pll/pll-t.svg
+?? src/assets/training/diagrams/pll/pll-ua.svg
+?? src/assets/training/diagrams/pll/pll-ub.svg
+?? src/assets/training/diagrams/pll/pll-v.svg
+?? src/assets/training/diagrams/pll/pll-y.svg
+?? src/assets/training/diagrams/pll/pll-z.svg
+?? src/components/HistoryPanel.tsx
+?? src/components/Onboarding.test.tsx
+?? src/components/Onboarding.tsx
+?? src/components/SidebarSplit.tsx
+?? src/components/StatisticsPanel.tsx
+?? src/components/TrainingPage.test.tsx
+?? src/components/TrainingPage.tsx
+?? src/components/training/AttemptDetailsDialog.tsx
+?? src/components/training/CaseDiagram.tsx
+?? src/components/training/CaseSelectionDialog.tsx
+?? src/components/training/TrainingAttempts.tsx
+?? src/components/training/TrainingDetailedStatistics.tsx
+?? src/components/training/TrainingDialog.tsx
+?? src/components/training/TrainingPreparation.tsx
+?? src/components/training/TrainingReportSummary.tsx
+?? src/components/training/TrainingReportsDialog.tsx
+?? src/components/training/TrainingSettingsDialog.tsx
+?? src/components/training/TrainingSetup.tsx
+?? src/components/training/TrainingStatistics.tsx
+?? src/components/training/TrainingStatisticsSettings.tsx
+?? src/components/training/TrainingTimingDetails.tsx
+?? src/hooks/useHistoryList.ts
+?? src/hooks/useScramble.test.ts
+?? src/hooks/useTraining.test.tsx
+?? src/hooks/useTraining.ts
+?? src/lib/backupLimits.ts
+?? src/lib/onboarding.test.ts
+?? src/lib/onboarding.ts
+?? src/lib/onboardingCloud.ts
+?? src/lib/training/algorithmSelection.test.ts
+?? src/lib/training/algorithmSelection.ts
+?? src/lib/training/algorithms.ts
+?? src/lib/training/audit/emergencyAudit.test.ts
+?? src/lib/training/audit/stickerCube.ts
+?? src/lib/training/calibration.test.ts
+?? src/lib/training/calibration.ts
+?? src/lib/training/caseSignature.test.ts
+?? src/lib/training/caseSignature.ts
+?? src/lib/training/caseSpace.ts
+?? src/lib/training/caseState.ts
+?? src/lib/training/catalog/catalog.test.ts
+?? src/lib/training/catalog/defaultAlgorithms.test.ts
+?? src/lib/training/catalog/defaultAlgorithms.ts
+?? src/lib/training/catalog/index.ts
+?? src/lib/training/catalog/ollCases.ts
+?? src/lib/training/catalog/pllCases.ts
+?? src/lib/training/catalog/standardCases.test.ts
+?? src/lib/training/catalog/standardCases.ts
+?? src/lib/training/catalog/stateValidation.ts
+?? src/lib/training/catalog/types.ts
+?? src/lib/training/catalog/validation.ts
+?? src/lib/training/controller.test.ts
+?? src/lib/training/controller.ts
+?? src/lib/training/cube3.test.ts
+?? src/lib/training/cube3.ts
+?? src/lib/training/diagrams/arrows.ts
+?? src/lib/training/diagrams/buildDiagramSpec.ts
+?? src/lib/training/diagrams/diagrams.test.ts
+?? src/lib/training/diagrams/facelets.ts
+?? src/lib/training/diagrams/svgAssets.test.ts
+?? src/lib/training/domainStorage.test.ts
+?? src/lib/training/format.ts
+?? src/lib/training/frame.test.ts
+?? src/lib/training/frame.ts
+?? src/lib/training/notation.test.ts
+?? src/lib/training/notation.ts
+?? src/lib/training/persistenceFixtures.test-support.ts
+?? src/lib/training/persistenceIntegration.test.ts
+?? src/lib/training/pllIdentity.test.ts
+?? src/lib/training/pllIdentity.ts
+?? src/lib/training/records.test.ts
+?? src/lib/training/records.ts
+?? src/lib/training/reports.ts
+?? src/lib/training/results.ts
+?? src/lib/training/runtime.test.ts
+?? src/lib/training/runtime.ts
+?? src/lib/training/schema.ts
+?? src/lib/training/settings.ts
+?? src/lib/training/setupGeneration.test.ts
+?? src/lib/training/setupGeneration.ts
+?? src/lib/training/statisticsPreferences.test.ts
+?? src/lib/training/statisticsPreferences.ts
+?? src/lib/training/statisticsView.ts
+?? src/lib/training/stats.test.ts
+?? src/lib/training/stats.ts
+?? src/lib/training/storage.test.ts
+?? src/lib/training/storage.ts
+?? src/lib/training/types.ts
+?? src/lib/training/visits.test.ts
+?? src/lib/training/visits.ts

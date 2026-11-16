@@ -7,6 +7,18 @@
 3. Load the matching project skill below. Read [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)
    when changing data handling, performance, platform support or related claims.
 
+**Training feature workflow:**
+
+1. Read [docs/training/CURRENT_STATUS.md](docs/training/CURRENT_STATUS.md) first.
+2. Consult the relevant sections of [docs/training/PROJECT_MEMORY.md](docs/training/PROJECT_MEMORY.md) for the current task.
+3. Read the complete `PROJECT_MEMORY.md` when beginning a major development phase or making architectural decisions.
+4. Treat `PROJECT_MEMORY.md` as authoritative if the two documents conflict.
+5. Update `CURRENT_STATUS.md` after meaningful completed tasks.
+6. Update `PROJECT_MEMORY.md` after completed implementation phases, important verified findings, or approved design changes.
+7. Keep the immediate next task and phase status accurate.
+
+Do not duplicate the complete Training specification in this file.
+
 Current code and tests establish implementation; dated verification establishes
 what was exercised. [ROADMAP.md](ROADMAP.md) lists the retained layout, performance,
 storage-design and external-validation follow-ups. Future feature-phase proposals
@@ -29,6 +41,7 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | Area | Owner |
 | --- | --- |
 | Application wiring, single-tab ownership, startup, input and modals | `src/App.tsx`, `src/components/SingleTabGate.tsx`, `src/bootstrap.tsx`, `src/main.tsx` |
+| First-run onboarding, setup drafts and setup/sync coordination | `src/components/Onboarding.tsx`, `src/lib/onboarding.ts`, `src/lib/onboardingCloud.ts`, `e2e/onboarding.spec.ts` |
 | Timer transitions and inspection penalties | `src/timer/machine.ts`, `src/hooks/useTimer.ts` |
 | Live readout and delayed insight presentation | `src/hooks/useRunningElapsed.ts`, `src/hooks/usePostPaintValue.ts` |
 | Sessions, merge/split transfers, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/lib/sessionTransfers.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts`, `src/lib/dates.ts` |

@@ -52,6 +52,7 @@ import {
   MAX_STAT_TARGET_MS,
   MIN_STAT_TARGET_MS,
 } from './statTargets'
+import { isSiteResetInProgress } from './siteReset'
 
 export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
 export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
@@ -852,7 +853,7 @@ export function saveSessions(
   data: SessionsData,
   storage = getDefaultStorage(),
 ): boolean {
-  if (!storage) return false
+  if (!storage || isSiteResetInProgress()) return false
 
   try {
     storage.setItem(SESSIONS_STORAGE_KEY, serializeSessionsData(data))
@@ -947,7 +948,7 @@ export function saveSettings(
   settings: Settings,
   storage = getDefaultStorage(),
 ): boolean {
-  if (!storage) return false
+  if (!storage || isSiteResetInProgress()) return false
 
   try {
     storage.setItem(SETTINGS_STORAGE_KEY, serializeSettingsData(settings))

@@ -8,6 +8,7 @@ import {
   loadSyncStorage,
   type Tombstone,
 } from './syncStorage'
+import { isSiteResetInProgress } from './siteReset'
 import {
   loadSessionsForStartup,
   parseSolve,
@@ -283,7 +284,7 @@ function savePendingCompletion(
   completion: PendingCompletion,
   storage: StorageLike | null,
 ): boolean {
-  if (!storage) return false
+  if (!storage || isSiteResetInProgress()) return false
   try {
     storage.setItem(
       PENDING_COMPLETION_STORAGE_KEY,
@@ -371,6 +372,7 @@ export function recordPendingCompletion(
   local: SessionsData,
   storage: StorageLike | null = getDefaultStorage(),
 ): boolean {
+  if (isSiteResetInProgress()) return false
   const existing = loadPendingCompletion(storage)
   if (existing.status === 'invalid') return false
 

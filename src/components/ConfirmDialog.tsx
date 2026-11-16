@@ -7,6 +7,8 @@ interface ConfirmDialogProps {
   eyebrow: string
   title: string
   description: ReactNode
+  /** Optional detailed list rendered between the description and confirmation. */
+  details?: ReactNode
   cancelLabel: string
   confirmLabel: string
   requireText?: string
@@ -19,6 +21,7 @@ export function ConfirmDialog({
   eyebrow,
   title,
   description,
+  details,
   cancelLabel,
   confirmLabel,
   requireText,
@@ -31,6 +34,7 @@ export function ConfirmDialog({
   // in the document and every dialog announces the wrong name.
   const titleId = useId()
   const descriptionId = useId()
+  const detailsId = useId()
   const [confirmationText, setConfirmationText] = useState('')
   const confirmationMatches = !requireText || confirmationText === requireText
 
@@ -45,7 +49,7 @@ export function ConfirmDialog({
       ref={dialogRef}
       className="confirm-dialog"
       aria-labelledby={titleId}
-      aria-describedby={descriptionId}
+      aria-describedby={details ? `${descriptionId} ${detailsId}` : descriptionId}
       onKeyDown={handleKeyDown}
       onCancel={(event) => {
         event.preventDefault()
@@ -62,6 +66,11 @@ export function ConfirmDialog({
         <span className="eyebrow">{eyebrow}</span>
         <h2 id={titleId}>{title}</h2>
         <p id={descriptionId}>{description}</p>
+        {details ? (
+          <div className="confirm-details" id={detailsId}>
+            {details}
+          </div>
+        ) : null}
         {requireText ? (
           <label className="confirm-typed-field">
             <span>

@@ -143,7 +143,9 @@ test.describe('resizable statistics panel', () => {
     expect(atMaximum.panelHeight).toBeGreaterThan(initial.panelHeight)
     expect(atMaximum.panelHeight).toBeLessThanOrEqual(container.height - 119)
     expect(atMaximum.failures).toEqual([])
-    await expect(page.locator('.history-panel')).toBeVisible()
+    const history = page.locator('.history-panel')
+    await expect(history).toBeVisible()
+    expect((await history.boundingBox())!.height).toBeGreaterThanOrEqual(120)
     await expectEveryRowMounted(page, 4)
   })
 

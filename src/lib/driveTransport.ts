@@ -59,8 +59,16 @@ export interface DriveTransport {
   configured: boolean
   accountLabel: string | null
   __corruptRemote?(): void
+  /** Test-only inspection for the in-memory transport. */
+  __peekRemote?(): Array<DriveFile & { content: string }>
   connect(): Promise<void>
   disconnect(): void
+  /**
+   * Permanently blocks this transport for the current document after the user
+   * resets local site data. In-flight requests are aborted, locally held
+   * authorization is revoked/cleared, and reconnecting requires a reload.
+   */
+  blockForReset?(): void
   isConnected(): boolean
   findBackup(): Promise<DriveFile | null>
   uploadBackup(
@@ -348,14 +356,36 @@ declare global {
   }
 }
 
+const RESET_BLOCKED_MESSAGE =
+  'Google Drive was disconnected for a local site reset. Reload CubeLab to reconnect.'
+
 export function createGoogleDriveTransport(
   clientId: string | undefined,
 ): DriveTransport {
   let accessToken: string | null = null
   let tokenExpiresAt = 0
   let accountLabel: string | null = null
+  let blockedForReset = false
+  const inFlight = new Set<AbortController>()
 
   const configured = Boolean(clientId)
+
+  function clearAuthorization(revoke: boolean) {
+    if (revoke && accessToken && window.google?.accounts?.oauth2) {
+      try {
+        window.google.accounts.oauth2.revoke(accessToken)
+      } catch {
+        // A provider-side revoke failure must not keep the local token.
+      }
+    }
+    accessToken = null
+    tokenExpiresAt = 0
+    accountLabel = null
+  }
+
+  function assertNotBlocked() {
+    if (blockedForReset) throw new Error(RESET_BLOCKED_MESSAGE)
+  }
 
   async function loadGoogleIdentityServices(): Promise<void> {
     if (window.google?.accounts?.oauth2) return
@@ -388,6 +418,7 @@ export function createGoogleDriveTransport(
   }
 
   async function ensureToken(prompt = ''): Promise<string> {
+    assertNotBlocked()
     if (isTokenValid() && accessToken) return accessToken
     if (!clientId) throw new Error('Google Drive is not configured for this build.')
 
@@ -413,6 +444,17 @@ export function createGoogleDriveTransport(
             )
             return
           }
+          if (blockedForReset) {
+            // A reset can finish while the Google consent flow is open. Do not
+            // retain authorization granted after the transport was blocked.
+            try {
+              gis.revoke(response.access_token)
+            } catch {
+              // Local blocking still prevents every request in this document.
+            }
+            reject(new Error(RESET_BLOCKED_MESSAGE))
+            return
+          }
           accessToken = response.access_token
           tokenExpiresAt = Date.now() + 55 * 60 * 1000
           resolve(response.access_token)
@@ -433,20 +475,32 @@ export function createGoogleDriveTransport(
   }
 
   async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    assertNotBlocked()
     const token = await ensureToken()
-    const response = await fetch(url, {
-      ...init,
-      headers: {
-        ...(init.headers || {}),
-        Authorization: `Bearer ${token}`,
-      },
-    })
-    if (response.status === 401) {
-      accessToken = null
-      tokenExpiresAt = 0
-      throw new Error('Google authorization expired. Connect again and retry.')
+    assertNotBlocked()
+    const controller = new AbortController()
+    inFlight.add(controller)
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          ...(init.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      if (response.status === 401) {
+        accessToken = null
+        tokenExpiresAt = 0
+        throw new Error('Google authorization expired. Connect again and retry.')
+      }
+      return response
+    } catch (error) {
+      if (blockedForReset) throw new Error(RESET_BLOCKED_MESSAGE)
+      throw error
+    } finally {
+      inFlight.delete(controller)
     }
-    return response
   }
 
   async function listBackupFiles(): Promise<DriveFile[]> {
@@ -643,24 +697,28 @@ export function createGoogleDriveTransport(
   return {
     configured,
     get accountLabel() {
-      return accountLabel
+      return blockedForReset ? null : accountLabel
     },
     async connect() {
+      assertNotBlocked()
       await ensureToken('consent')
+      assertNotBlocked()
       // No identity-network call: app-data access does not reveal the account
       // email, and requesting it would broaden consent unnecessarily.
       accountLabel = 'Google Drive connected'
     },
     disconnect() {
-      if (accessToken && window.google?.accounts?.oauth2) {
-        window.google.accounts.oauth2.revoke(accessToken)
-      }
-      accessToken = null
-      tokenExpiresAt = 0
-      accountLabel = null
+      clearAuthorization(true)
+    },
+    blockForReset() {
+      if (blockedForReset) return
+      blockedForReset = true
+      for (const controller of inFlight) controller.abort()
+      inFlight.clear()
+      clearAuthorization(true)
     },
     isConnected() {
-      return isTokenValid()
+      return !blockedForReset && isTokenValid()
     },
     async findBackup() {
       return (await listBackupFiles())[0] ?? null
@@ -712,7 +770,12 @@ export function createMemoryDriveTransport(
   accountLabel = 'Google Drive (mock)',
 ): DriveTransport {
   let connected = false
+  let blockedForReset = false
   const currentAccountLabel: string | null = accountLabel
+  const assertActive = () => {
+    if (blockedForReset) throw new Error(RESET_BLOCKED_MESSAGE)
+    if (!connected) throw new Error('Connect Google Drive first.')
+  }
   interface MemoryFile {
     id: string
     name: string
@@ -833,28 +896,33 @@ export function createMemoryDriveTransport(
   return {
     configured: true,
     get accountLabel() {
-      return connected ? currentAccountLabel : null
+      return connected && !blockedForReset ? currentAccountLabel : null
     },
     async connect() {
+      if (blockedForReset) throw new Error(RESET_BLOCKED_MESSAGE)
       connected = true
     },
     disconnect() {
       connected = false
     },
+    blockForReset() {
+      blockedForReset = true
+      connected = false
+    },
     isConnected() {
-      return connected
+      return connected && !blockedForReset
     },
     async findBackup() {
-      if (!connected) throw new Error('Connect Google Drive first.')
+      assertActive()
       const newest = sortedFiles()[0]
       return newest ? publicFile(newest) : null
     },
     async listBackups() {
-      if (!connected) throw new Error('Connect Google Drive first.')
+      assertActive()
       return sortedFiles().map(publicFile)
     },
     async uploadBackup(content, existingFileId, options) {
-      if (!connected) throw new Error('Connect Google Drive first.')
+      assertActive()
       const existing = [...files.values()].find(
         (file) => file.name === DRIVE_BACKUP_FILE_NAME,
       )
@@ -866,7 +934,7 @@ export function createMemoryDriveTransport(
       )
     },
     async uploadDeviceBackup(content, deviceId) {
-      if (!connected) throw new Error('Connect Google Drive first.')
+      assertActive()
       // Immutable snapshot with a unique name: each upload adds a file instead
       // of replacing the device's previous snapshot, so a stale or concurrent
       // writer can never overwrite another writer's unique data.
@@ -879,19 +947,25 @@ export function createMemoryDriveTransport(
       )
     },
     async downloadBackup(fileId) {
-      if (!connected) throw new Error('Connect Google Drive first.')
+      assertActive()
       const file = files.get(fileId)
       if (!file) throw new Error('No Google Drive backup was found.')
       return file.content
     },
     async deleteBackup(fileId) {
-      if (!connected) throw new Error('Connect Google Drive first.')
+      assertActive()
       files.delete(fileId)
     },
     __corruptRemote() {
       for (const [id, file] of files) {
         files.set(id, { ...file, content: '{not valid json' })
       }
+    },
+    __peekRemote() {
+      return sortedFiles().map((file) => ({
+        ...publicFile(file),
+        content: file.content,
+      }))
     },
   }
 }

@@ -1,0 +1,254 @@
+{
+  "browser": "156.0.8078.4",
+  "viewport": [
+    1440,
+    900
+  ],
+  "unit": "ms",
+  "summaryOrder": [
+    "min",
+    "median",
+    "max"
+  ],
+  "storage": "Same memory-backed Training key for both sizes; the normal controller, checked validation, comparison and serialization ran in production Chromium.",
+  "runs": [
+    {
+      "count": 250,
+      "bytes": 252780,
+      "expanded": false,
+      "samples": 7,
+      "stop": {
+        "raw": [
+          127.5,
+          133.8,
+          135
+        ],
+        "captureDelta": [
+          0,
+          0.1,
+          0.1
+        ],
+        "checkedSave": [
+          8,
+          9.2,
+          11.3
+        ],
+        "inputToSave": [
+          13.3,
+          15.4,
+          18.3
+        ],
+        "firstStoppedFrame": [
+          22.2,
+          29.9,
+          37
+        ]
+      },
+      "modeSwitch": {
+        "toStatisticsFrame": [
+          29.2,
+          40.2,
+          48.7
+        ],
+        "toVerifiedSetup": [
+          42.5,
+          61,
+          67.2
+        ],
+        "checkedSave": [
+          7.8,
+          8.9,
+          11.6
+        ]
+      },
+      "dividerToFrame": [
+        3.7,
+        5.6,
+        9.6
+      ],
+      "longTasks": []
+    },
+    {
+      "count": 250,
+      "bytes": 252780,
+      "expanded": true,
+      "samples": 7,
+      "stop": {
+        "raw": [
+          126,
+          129.3,
+          133.6
+        ],
+        "captureDelta": [
+          0,
+          0,
+          0.1
+        ],
+        "checkedSave": [
+          8.3,
+          9.8,
+          16.5
+        ],
+        "inputToSave": [
+          14.4,
+          16.1,
+          28.5
+        ],
+        "firstStoppedFrame": [
+          26.4,
+          34.9,
+          49.5
+        ]
+      },
+      "modeSwitch": {
+        "toStatisticsFrame": [
+          32.5,
+          36.4,
+          51
+        ],
+        "toVerifiedSetup": [
+          44.5,
+          53.5,
+          73.5
+        ],
+        "checkedSave": [
+          7.8,
+          8.8,
+          10.9
+        ]
+      },
+      "dividerToFrame": [
+        3.3,
+        4.3,
+        9.8
+      ],
+      "longTasks": []
+    },
+    {
+      "count": 8000,
+      "bytes": 8055193,
+      "expanded": false,
+      "samples": 7,
+      "stop": {
+        "raw": [
+          440.9,
+          455.4,
+          482.4
+        ],
+        "captureDelta": [
+          0,
+          0.1,
+          0.1
+        ],
+        "checkedSave": [
+          214.1,
+          222.8,
+          257
+        ],
+        "inputToSave": [
+          328,
+          336.6,
+          385.3
+        ],
+        "firstStoppedFrame": [
+          356.5,
+          366.5,
+          416.6
+        ]
+      },
+      "modeSwitch": {
+        "toStatisticsFrame": [
+          456.3,
+          482.9,
+          556.7
+        ],
+        "toVerifiedSetup": [
+          466.7,
+          496.2,
+          567.3
+        ],
+        "checkedSave": [
+          207.8,
+          224.8,
+          226.5
+        ]
+      },
+      "dividerToFrame": [
+        4.6,
+        11.9,
+        14.9
+      ],
+      "longTasks": [
+        389,
+        363,
+        365,
+        356,
+        417,
+        359
+      ]
+    },
+    {
+      "count": 8000,
+      "bytes": 8055193,
+      "expanded": true,
+      "samples": 7,
+      "stop": {
+        "raw": [
+          448.7,
+          468.8,
+          497
+        ],
+        "captureDelta": [
+          0,
+          0,
+          0.1
+        ],
+        "checkedSave": [
+          218.9,
+          230.7,
+          250.3
+        ],
+        "inputToSave": [
+          342.9,
+          352.4,
+          364.5
+        ],
+        "firstStoppedFrame": [
+          461.7,
+          471.1,
+          484
+        ]
+      },
+      "modeSwitch": {
+        "toStatisticsFrame": [
+          542.4,
+          553.7,
+          641.8
+        ],
+        "toVerifiedSetup": [
+          556.4,
+          567,
+          686.3
+        ],
+        "checkedSave": [
+          210.6,
+          216.2,
+          223
+        ]
+      },
+      "dividerToFrame": [
+        3.7,
+        4.2,
+        12
+      ],
+      "longTasks": [
+        468,
+        484,
+        465,
+        482,
+        479,
+        461
+      ]
+    }
+  ]
+}

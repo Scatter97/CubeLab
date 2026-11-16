@@ -1,0 +1,35 @@
+{
+  "browserZoom": 1.5,
+  "before": {
+    "width": 1440,
+    "height": 813,
+    "dpr": 1
+  },
+  "after": {
+    "width": 960,
+    "height": 542,
+    "dpr": 1.5,
+    "zoom": "100"
+  },
+  "geometry": {
+    "digits": {
+      "x": 496.59375,
+      "y": 240.5,
+      "width": 244.80209350585938,
+      "height": 108
+    },
+    "surface": {
+      "x": 288.66668701171875,
+      "y": 193,
+      "width": 660.6666870117188,
+      "height": 250
+    },
+    "result": {
+      "x": 603.3333740234375,
+      "y": 447,
+      "width": 340,
+      "height": 163
+    },
+    "resultPosition": "relative"
+  }
+}

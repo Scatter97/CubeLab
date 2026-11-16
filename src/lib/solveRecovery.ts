@@ -3,6 +3,7 @@ import { createId } from './id'
 import { createSession, restoreSolve } from './sessions'
 import { isActiveTombstone, type Tombstone } from './syncStorage'
 import { parseSolve, type StorageLike } from './storage'
+import { isSiteResetInProgress } from './siteReset'
 
 export const SOLVE_RECOVERY_STORAGE_KEY = 'cubelab:recovery:v1'
 export const SOLVE_RECOVERY_VERSION = 1
@@ -130,7 +131,7 @@ export function saveSolveRecovery(
   data: SolveRecoveryData,
   storage: StorageLike | null = getDefaultStorage(),
 ): boolean {
-  if (!storage) return false
+  if (!storage || isSiteResetInProgress()) return false
   try {
     storage.setItem(
       SOLVE_RECOVERY_STORAGE_KEY,

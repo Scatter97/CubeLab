@@ -3,7 +3,7 @@ import { getEventLabel } from '../lib/events'
 
 import type { PuzzleEvent } from '../types'
 
-export type AppView = 'timer' | 'analytics'
+export type AppView = 'timer' | 'analytics' | 'training'
 
 interface AppHeaderProps {
   sessionName: string
@@ -13,7 +13,7 @@ interface AppHeaderProps {
   settingsLocked: boolean
   storageOk: boolean
   view: AppView
-  onNavigate: (view: AppView) => void
+  onNavigate: (view: AppView, anchor: HTMLButtonElement) => void
 }
 
 export function AppHeader({
@@ -29,7 +29,7 @@ export function AppHeader({
   const inspectionLabel = inspectionEnabled ? 'on' : 'off'
 
   return (
-    <header className="app-header">
+    <header className="app-header" data-view={view}>
       <div className="brand">
         <span className="brand-mark">
           <CubeMark size={40} />
@@ -47,7 +47,8 @@ export function AppHeader({
           type="button"
           className="app-nav-button"
           aria-current={view === 'timer' ? 'page' : undefined}
-          onClick={() => onNavigate('timer')}
+          disabled={settingsLocked}
+          onClick={event => onNavigate('timer', event.currentTarget)}
         >
           Timer
         </button>
@@ -61,23 +62,25 @@ export function AppHeader({
               ? 'Finish or reset the current timer before opening Analytics'
               : 'Open solve analytics'
           }
-          onClick={() => onNavigate('analytics')}
+          onClick={event => onNavigate('analytics', event.currentTarget)}
           data-testid="analytics-nav"
         >
           Analytics
         </button>
+        <button type="button" className="app-nav-button" aria-current={view === 'training' ? 'page' : undefined}
+          disabled={settingsLocked} onClick={event => onNavigate('training', event.currentTarget)} data-testid="training-nav">Training</button>
       </nav>
 
-      <div className="header-context" aria-hidden="true">
+      {view !== 'training' ? <div className="header-context" aria-hidden="true">
         <span className="context-divider" />
         <span className="context-label" title={sessionName}>
           {sessionName}
         </span>
         <span className="context-dot" />
         <span className="context-meta">
-          {getEventLabel(event)} · Inspection {inspectionLabel}
+          {`${getEventLabel(event)} · Inspection ${inspectionLabel}`}
         </span>
-      </div>
+      </div> : null}
 
       <div className="header-actions">
         {!storageOk ? (
@@ -93,7 +96,7 @@ export function AppHeader({
         <button
           type="button"
           className="settings-button"
-          aria-label={`Settings. Inspection ${inspectionLabel}.`}
+          aria-label={view === 'training' ? 'Settings' : `Settings. Inspection ${inspectionLabel}.`}
           aria-haspopup="dialog"
           disabled={settingsLocked}
           onClick={onOpenSettings}

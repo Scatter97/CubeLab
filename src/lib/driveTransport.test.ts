@@ -341,6 +341,105 @@ describe('Google Identity Services authorization', () => {
   })
 })
 
+describe('local site reset blocks Drive access', () => {
+  it('keeps the in-memory cloud files untouched while blocking reconnection', async () => {
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const uploaded = await memory.uploadBackup('precious backup', null)
+    const before = memory.__peekRemote?.()
+
+    memory.blockForReset?.()
+
+    expect(memory.isConnected()).toBe(false)
+    expect(memory.accountLabel).toBeNull()
+    expect(memory.__peekRemote?.()).toEqual(before)
+    expect(before?.[0]?.content).toBe('precious backup')
+    await expect(memory.connect()).rejects.toThrow(/site reset/i)
+    await expect(memory.listBackups!()).rejects.toThrow(/site reset/i)
+    await expect(memory.uploadBackup('replacement', null)).rejects.toThrow(
+      /site reset/i,
+    )
+    await expect(memory.deleteBackup(uploaded.id)).rejects.toThrow(/site reset/i)
+  })
+
+  it('revokes the Google token and aborts an in-flight request', async () => {
+    const revoke = vi.fn()
+    ;(window as Window & { google?: unknown }).google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            callback: (response: { access_token?: string }) => void
+          }) => {
+            config.callback({ access_token: 'access-token' })
+            return { requestAccessToken: vi.fn() }
+          },
+          revoke,
+        },
+      },
+    }
+    const transport = createGoogleDriveTransport('client-id')
+    await transport.connect()
+
+    let aborted = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      (_input, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            aborted = true
+            reject(new DOMException('Aborted', 'AbortError'))
+          })
+        }),
+    )
+
+    const pending = transport.findBackup()
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+    transport.blockForReset?.()
+
+    await expect(pending).rejects.toThrow(/site reset/i)
+    expect(aborted).toBe(true)
+    expect(revoke).toHaveBeenCalledWith('access-token')
+    expect(transport.isConnected()).toBe(false)
+    expect(transport.accountLabel).toBeNull()
+    await expect(transport.connect()).rejects.toThrow(/site reset/i)
+  })
+
+  it('revokes a token granted after the reset blocked the transport', async () => {
+    const revoke = vi.fn()
+    let callback:
+      | ((response: { access_token?: string; error?: string }) => void)
+      | undefined
+    ;(window as Window & { google?: unknown }).google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            callback: (response: { access_token?: string; error?: string }) => void
+          }) => {
+            callback = config.callback
+            return { requestAccessToken: vi.fn() }
+          },
+          revoke,
+        },
+      },
+    }
+    const transport = createGoogleDriveTransport('client-id')
+    const connecting = transport.connect()
+    await vi.waitFor(() => expect(callback).toBeDefined())
+
+    transport.blockForReset?.()
+    callback?.({ access_token: 'late-token' })
+
+    await expect(connecting).rejects.toThrow(/site reset/i)
+    expect(revoke).toHaveBeenCalledWith('late-token')
+    expect(transport.isConnected()).toBe(false)
+    expect(transport.accountLabel).toBeNull()
+  })
+
+  afterEach(() => {
+    delete (window as Window & { google?: unknown }).google
+    vi.restoreAllMocks()
+  })
+})
+
 describe('Google authorization error guidance', () => {
   it('names the origin that must be authorized', () => {
     const message = describeGoogleAuthError(

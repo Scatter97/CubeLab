@@ -10,6 +10,8 @@ for dated verification and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for limi
 ## Contents
 
 - [Application and navigation](#application-and-navigation)
+- [Training](#training)
+- [First-run onboarding](#first-run-onboarding)
 - [Timer, input, inspection and feedback](#timer-input-inspection-and-feedback)
 - [Puzzles and scrambles](#puzzles-and-scrambles)
 - [Sessions and custom events](#sessions-and-custom-events)
@@ -25,7 +27,7 @@ for dated verification and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for limi
 
 ## Application and navigation
 
-- Local-first browser application with **Timer** and **Analytics** header views.
+- Local-first browser application with **Timer**, **Analytics** and **Training** header views.
 - Timer is the initial view; the active session supplies the current event,
   solves, statistics and history. Header context identifies session/event and
   inspection state.
@@ -45,6 +47,101 @@ for dated verification and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for limi
   from storage and backup schema versions.
 - Toasts report actions, failures and available follow-up actions such as Undo
   or Review Merge. Empty, loading and error states are part of each relevant flow.
+
+## Training
+
+Training was added in the explicitly expanded Phase 4 scope (2026-11-09).
+It reuses the timer machine, input handling, readout and floating Tools frame.
+
+- Four permanent categories combine OLL or PLL with Execution or Recognition.
+  The Hub restores saved selections and **Begin practice** captures one named
+  session, including a case pool and an algorithm revision for each case.
+- All 78 approved static diagrams, independent enabled selections, mathematical
+  family filters, select all/clear, difficult cases and user preset CRUD.
+- User-provided algorithms are verified before setup generation; preferred
+  algorithms, revisions, assumed/corrected/Unknown attribution remain separate
+  from the setup generator. All 57 OLL and 21 PLL cases also have a read-only
+  verified built-in default, switchable with custom algorithms without copying
+  defaults into user storage. The 37 additional PLL variants remain excluded.
+- Execution needs one enabled usable case, recognition two; no extra cases are
+  added. Verified setup generation stays inside that pool and avoids repeats
+  when possible. Recognition hides target names, diagrams and algorithms.
+- Shared manual keyboard/touch timing, no inspection or +2. OLL ends at
+  orientation even with PLL remaining; PLL permits AUF. Completed attempts never
+  become ordinary solves. Execution retry stays in the current session.
+- Initial recognition calibration is explicit, uses fixed inverse precursor
+  setups and seven positive samples/median, with review/retry/cancel. Independent
+  medians and captured due thresholds retain historical estimates. Default
+  seven-day/100-attempt renewal gates the next Recognition session. Global
+  Training settings also control trimming, inactivity and historical baselines.
+- Current session, Statistics and Attempts share Timer's sidebar styling and
+  resize behavior. Attempts and statistics use the active session. Each
+  category keeps its own statistics order and visibility.
+  Recognition can show Raw or Estimated timing. Detailed statistics has
+  searchable case and algorithm-revision views.
+- Attempts windows long histories and opens the saved attempt, including DNF
+  and attribution corrections and immediate deletion with Undo. Practice History retains
+  recalculated visit reports. End and leave ask for confirmation, and the
+  inactivity prompt waits for a choice. Nonempty ends open the exact report
+  before returning to the Hub or queued destination.
+- Reports include an inspectable attempt-order chart, signed historical
+  comparison and estimated Recognition components with coverage. The Hub
+  lists recent sessions. Practice history provides filters, read-only review
+  and typed deletion of acknowledged named sessions.
+- Analytics → Algorithms shows Training progression, volume, DNF rate and
+  case performance for the selected set and practice type. Solves remains
+  the default Analytics view.
+- Optional revision tracking is off by default. When enabled, **Edit cases**
+  offers verified preferred algorithms and session overrides. Every attempt
+  counts toward its case, and revision charts use saved attribution only.
+- Last Result is the Training floating panel. It keeps draggable, resizable
+  geometry, minimizes while running and restores on completion. Narrow and
+  short layouts dock it below the readout.
+
+## First-run onboarding
+
+- Onboarding opens before the editable timer only when this browser has no saved
+  decision and no meaningful local history. An untouched auto-created
+  placeholder is not meaningful; stored settings, sync identity, Drive metadata,
+  solves, named sessions, custom events, ordering or transfer records are.
+  Existing users therefore keep opening directly into CubeLab after an update.
+- The intro offers **Start Fresh**, **Import from csTimer**, and **Already Use
+  CubeLab?** plus a persistent **Skip Setup**. The decision is stored in
+  `cubelab:onboarding:v1`; an interrupted path stores a non-sensitive draft and
+  resumes without persisting OAuth tokens.
+- **Start Fresh** stages event cards (3×3 selected by default; at least one event),
+  common timer/appearance preferences and a Main Event. On completion it creates
+  exactly one empty session per selected event, reuses the untouched 3×3
+  placeholder where possible, preserves every meaningful existing session and
+  activates the Main Event session. No session is written merely by selecting a
+  card, and retries reuse the same staged identities.
+- **Import from csTimer** uses the existing parser, validation, preview, custom
+  event mapping and additive import path. It skips event selection, never adds
+  empty event sessions, preserves imported names/solves/penalties/scrambles and
+  lets the Main Event choose only events represented by the import. A durable
+  import checkpoint prevents a resumed setup from importing the same file twice.
+- **Already Use CubeLab?** uses the existing Google Drive transport and sync
+  merge. It lists and validates cloud snapshots before enabling sync, reports
+  real found/restored counts, restores sessions, solves, custom events, ordering,
+  settings, tombstones and selection metadata through the established sync
+  protocol, and never treats sign-in as restoration success. If no data is found,
+  it offers another account, Start Fresh, or csTimer import. Conflicts continue
+  to use the existing review/merge safeguards.
+- The optional sync step appears for Start Fresh and csTimer imports. **Maybe
+  Later** leaves sync disabled and continues locally. Existing cloud data is
+  disclosed before a merge; local setup is not uploaded before the user chooses.
+  A failed optional connection never blocks locally saved setup.
+- Returning users see only device-local options after restoration. The current
+  device-only onboarding choice is the Draw Scramble 2D/net versus 3D view;
+  synchronized settings (including inspection, timer input, theme, scaling,
+  statistics and analytics preferences) are not asked for again.
+- Every path ends in a non-interactive summary that reports actual counts and the
+  Main Event, then fades out after about three seconds and opens the timer with
+  the correct session active. Reduced-motion preferences remove the transition.
+- **Settings → Data → Setup assistant** reopens the flow non-destructively. It
+  never deletes sessions or solves, reuses existing empty event sessions, keeps
+  synchronized settings unless the user changes them, and requires an explicit
+  file choice before any csTimer re-import.
 
 ## Timer, input, inspection and feedback
 
@@ -407,8 +504,9 @@ Settings sections are **Timer, Alerts, Display, Appearance, Statistics,
 Scramble, Controls, Data, Developer options and About**. Controls provides input
 help; Data shows local-data status and opens Backup & restore or Google Drive.
 Developer options is collapsed initially and contains the typed-confirmation
-Danger Zone. About identifies the application. They are not additional hidden
-calculation or timing modes.
+Danger Zone: solve reset, session deletion and full local site reset. About
+identifies the application. They are not additional hidden calculation or
+timing modes.
 
 ### Session-specific settings
 
@@ -516,13 +614,18 @@ seconds and up to three decimal places; strict `< target` defines success.
 | Delete session | Type `DELETE THIS SESSION` | Removes session/solves, leaves an active session available. |
 | Reset All Solve Data | Type `DELETE ALL SOLVES` | Clears solves across sessions; preserves session names/events/preferences, custom definitions and application settings. |
 | Delete All Sessions | Type `DELETE ALL SESSIONS` | Removes all sessions/solves and creates empty active Session 1; retains settings/custom definitions. |
+| Reset All Site Data | Type `RESET` | Disables sync, blocks Drive access, clears CubeLab-owned local/session storage, IndexedDB, caches, the scoped service worker and local Google authorization, then reloads into first-visit onboarding. Google Drive files are not deleted or replaced; reconnect explicitly. |
 | Native import | Explicit replacement confirmation | Replaces collection/settings with validated backup. |
 | csTimer import | Preview and import confirmation | Appends imported sessions/definitions. |
 | Event correction/reassignment | Explicit affected-session/solve confirmation | Changes event identity only, preserving solve data. |
 
 - Storage/sync safety and active-timing guards can disable destructive controls.
   Bulk reset/deletion records known solve/session tombstones even when sync is off.
-- Resets do not delete remote Drive snapshots; their publication skips cleanup.
+- Resets do not delete remote Drive snapshots; solve/session reset publications
+  skip cleanup. The full site reset never uploads, deletes or replaces Drive
+  files. A blocked IndexedDB deletion or unreadable storage reports partial
+  failure and offers retry; browser-managed HTTP cache and Google Identity
+  Services cookies are outside page-script control.
   Unknown solves created solely on another offline device can later be recovered,
   rather than being falsely claimed erased everywhere.
 
@@ -659,6 +762,7 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
 | Feature area | Representative regression sources |
 | --- | --- |
 | Timing/inspection/input | [machine tests](src/timer/machine.test.ts), [timer hook tests](src/hooks/useTimer.test.ts), [timer browser flows](e2e/timer.spec.ts), [response flows](e2e/timer-response.spec.ts) |
+| First-run onboarding | [state/session helpers](src/lib/onboarding.test.ts), [component flow](src/components/Onboarding.test.tsx), [browser paths](e2e/onboarding.spec.ts) |
 | Sessions/settings/summaries | [session rules](src/lib/sessions.test.ts), [Settings UI](src/components/SettingsDialog.test.tsx), [session settings UI](src/components/SessionSettingsDialog.test.tsx), [session browser flows](e2e/session-management.spec.ts) |
 | Custom events/imports | [custom events](src/lib/customEvents.test.ts), [csTimer parser](src/lib/csTimerImport.test.ts), [custom-event flows](e2e/custom-events.spec.ts) |
 | Statistics/trimming | [statistics](src/lib/stats.test.ts), [trimming](src/lib/averageTrimming.test.ts), [format](src/lib/format.test.ts), [browser trimming](e2e/average-trimming.spec.ts) |
