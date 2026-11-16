@@ -1,4 +1,4 @@
-export async function copyText(text: string): Promise<boolean> {
+export async function copyText(text: string, container = document.body): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
     return true
@@ -9,11 +9,15 @@ export async function copyText(text: string): Promise<boolean> {
       area.setAttribute('readonly', '')
       area.style.position = 'fixed'
       area.style.opacity = '0'
-      document.body.append(area)
-      area.select()
-      const copied = document.execCommand('copy')
-      area.remove()
-      return copied
+      const focused = document.activeElement
+      container.append(area)
+      try {
+        area.select()
+        return document.execCommand('copy')
+      } finally {
+        area.remove()
+        if (focused instanceof HTMLElement) focused.focus({ preventScroll: true })
+      }
     } catch {
       return false
     }

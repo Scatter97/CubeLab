@@ -169,6 +169,11 @@ describe('ToolPanel', () => {
     }
   })
 
+  it('shows that a non-cube 2D net is unavailable while its scramble is loading', () => {
+    render(<ToolPanel {...baseProps} event="clock" scramble={null} />)
+    expect(screen.getByTestId('draw-scramble-unavailable')).toHaveTextContent('Clock')
+  })
+
   it('drags from the header handle and persists the layout when released', () => {
     const { container } = render(<ToolPanel {...baseProps} />)
     const stage = container

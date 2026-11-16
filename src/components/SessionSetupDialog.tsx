@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { AlertCircleIcon, CloseIcon } from './Icons'
-import { getSessionNameError } from '../lib/sessions'
+import { resolveSessionName, suggestSessionName } from '../lib/sessionNames'
+import {
+  getSessionNameError,
+  MAX_SESSION_NAME_LENGTH,
+  type SessionNameCandidate,
+} from '../lib/sessions'
 import {
   formatEventOptionLabel,
   getEventLabel,
@@ -12,7 +17,7 @@ import { Select } from './Select'
 
 interface SessionSetupDialogProps {
   open: boolean
-  sessions: readonly { id?: string; name: string }[]
+  sessions: readonly SessionNameCandidate[]
   defaultEvent: PuzzleEvent
   defaultInspectionEnabled: boolean
   defaultPreferences?: SessionPreferences
@@ -21,10 +26,6 @@ interface SessionSetupDialogProps {
 }
 
 type SessionSetupContentProps = Omit<SessionSetupDialogProps, 'open'>
-
-function defaultNameForEvent(event: PuzzleEvent): string {
-  return getEventLabel(event) || 'Session 1'
-}
 
 /**
  * The dialog shell stays mounted so native close/focus restoration still runs.
@@ -66,7 +67,7 @@ function SessionSetupContent({
   onClose,
   onCreate,
 }: SessionSetupContentProps) {
-  const [name, setName] = useState(() => defaultNameForEvent(defaultEvent))
+  const [name, setName] = useState('')
   const [event, setEvent] = useState<PuzzleEvent>(defaultEvent)
   const [inspectionEnabled, setInspectionEnabled] = useState(
     defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled,
@@ -75,26 +76,23 @@ function SessionSetupContent({
   const [nameTouched, setNameTouched] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const suggestedName = suggestSessionName(
+    getEventLabel(event),
+    sessions.map((session) => session.name),
+  )
+  const resolvedName = resolveSessionName(name, suggestedName)
   const validationError =
-    saveError ?? (nameTouched ? getSessionNameError(name, nameCandidates()) : null)
+    saveError ?? (nameTouched ? getSessionNameError(resolvedName, sessions) : null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 50)
     return () => window.clearTimeout(timer)
   }, [])
 
-  function nameCandidates() {
-    return sessions.map((session, index) => ({
-      id: session.id ?? String(index),
-      name: session.name,
-    }))
-  }
-
   function submit() {
-    const trimmed = name.trim()
     setNameTouched(true)
     setSaveError(null)
-    const submitError = getSessionNameError(trimmed, nameCandidates())
+    const submitError = getSessionNameError(resolvedName, sessions)
     if (submitError) {
       inputRef.current?.focus()
       return
@@ -102,7 +100,7 @@ function SessionSetupContent({
     const preferences: SessionPreferences = {
       inspectionEnabled,
     }
-    const ok = onCreate(trimmed, event, preferences)
+    const ok = onCreate(resolvedName, event, preferences)
     if (!ok) {
       setSaveError('Could not create the session. Try another name.')
       inputRef.current?.focus()
@@ -139,6 +137,7 @@ function SessionSetupContent({
           <span>Session name</span>
           <input
             type="text"
+            className="session-name-input"
             aria-label="Session name"
             aria-invalid={validationError ? true : undefined}
             aria-describedby={
@@ -146,9 +145,11 @@ function SessionSetupContent({
             }
             ref={inputRef}
             value={name}
-            maxLength={40}
+            placeholder={suggestedName}
+            maxLength={MAX_SESSION_NAME_LENGTH}
             onChange={(eventTarget) => {
-              setName(eventTarget.target.value)
+              const nextName = eventTarget.target.value
+              setName(nextName.trim() ? nextName : '')
               setSaveError(null)
               setNameTouched(true)
             }}
@@ -183,22 +184,8 @@ function SessionSetupContent({
               text: item.label,
             }))}
             onChange={(value) => {
-              const next = value as PuzzleEvent
-              const previous = event
-              setEvent(next)
-              if (!nameTouched) {
-                setName(defaultNameForEvent(next))
-              } else {
-                const current = name.trim()
-                const previousLabel = defaultNameForEvent(previous)
-                if (
-                  current === previousLabel ||
-                  current === '' ||
-                  /^Session\s+\d+$/.test(current)
-                ) {
-                  setName(defaultNameForEvent(next))
-                }
-              }
+              setEvent(value)
+              setSaveError(null)
             }}
           />
         </div>

@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react'
 
+import { isSiteResetInProgress } from '../lib/siteReset'
+
 const STORAGE_KEY = 'cubelab:toolPanelOpen:v1'
 
 export function loadToolPanelOpen(): boolean {
@@ -18,7 +20,7 @@ export function useToolPanelOpen(): [boolean, (open: boolean) => void] {
   const update = useCallback((next: boolean) => {
     setOpen(next)
     try {
-      localStorage.setItem(STORAGE_KEY, next ? 'true' : 'false')
+      if (!isSiteResetInProgress()) localStorage.setItem(STORAGE_KEY, next ? 'true' : 'false')
     } catch {
       // ignore
     }

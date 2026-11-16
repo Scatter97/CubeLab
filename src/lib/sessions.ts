@@ -16,8 +16,9 @@ import { effectiveTimeMs } from './stats'
 import { unionCustomEvents } from './customEvents'
 import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
 import { mergeSessionTransfers } from './sessionTransfers'
+import { MAX_SESSION_NAME_LENGTH, normalizeSessionName, sessionNameKey } from './sessionNames'
 
-export const MAX_SESSION_NAME_LENGTH = 40
+export { MAX_SESSION_NAME_LENGTH, normalizeSessionName } from './sessionNames'
 export const MAX_SOLVE_COMMENT_LENGTH = 500
 export const DEFAULT_SESSION_NAME = 'Session 1'
 
@@ -35,15 +36,6 @@ export interface RemovedSolve {
   solve: Solve
   index: number
   sessionId: string
-}
-
-/** Trims and collapses whitespace so names compare predictably. */
-export function normalizeSessionName(value: string): string {
-  return value.trim().replace(/\s+/g, ' ')
-}
-
-function sessionNameKey(value: string): string {
-  return normalizeSessionName(value).toLowerCase()
 }
 
 function fitSessionName(value: string, maxLength: number): string {
@@ -187,6 +179,25 @@ export function getActiveSession(data: SessionsData): Session | null {
     data.sessions.find((session) => session.id === data.activeSessionId) ??
     data.sessions[0] ??
     null
+  )
+}
+
+/**
+ * True only when a session is still the untouched placeholder CubeLab creates
+ * on first run. Older placeholders did not persist `isAutoCreatedDefault`, so a
+ * missing marker is accepted only when every other signal also says untouched.
+ * An explicit `false` always means the session was deliberately created.
+ */
+export function isUntouchedDefaultSession(session: Session): boolean {
+  if (session.isAutoCreatedDefault === false) return false
+
+  return (
+    normalizeSessionName(session.name) === DEFAULT_SESSION_NAME &&
+    (session.event === undefined || session.event === '333') &&
+    session.solves.length === 0 &&
+    session.inspectionEnabled === undefined &&
+    !(session.preferences && Object.keys(session.preferences).length > 0) &&
+    session.createdAt === session.updatedAt
   )
 }
 

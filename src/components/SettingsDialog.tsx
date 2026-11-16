@@ -96,12 +96,15 @@ interface SettingsDialogProps {
   onChange: (next: Partial<Settings>) => void
   onOpenBackup: () => void
   onOpenDriveBackup: () => void
+  onOpenOnboarding: () => void
   onRequestResetAllSolveData: () => void
   /** Why the destructive reset is unavailable, if it is. */
   resetAllDisabledReason?: string | null
   onRequestDeleteAllSessions: () => void
   /** Why deleting every session is unavailable, if it is. */
   deleteAllSessionsDisabledReason?: string | null
+  /** Opens the typed-confirmation full local site reset. */
+  onRequestResetAllSiteData: () => void
   /** Current Google Drive synchronization state for the Developer section. */
   developerSyncStatus: string
   onClose: () => void
@@ -118,10 +121,12 @@ export function SettingsDialog({
   onChange,
   onOpenBackup,
   onOpenDriveBackup,
+  onOpenOnboarding,
   onRequestResetAllSolveData,
   resetAllDisabledReason,
   onRequestDeleteAllSessions,
   deleteAllSessionsDisabledReason,
+  onRequestResetAllSiteData,
   developerSyncStatus,
   onClose,
 }: SettingsDialogProps) {
@@ -153,10 +158,12 @@ export function SettingsDialog({
           onChange={onChange}
           onOpenBackup={onOpenBackup}
           onOpenDriveBackup={onOpenDriveBackup}
+          onOpenOnboarding={onOpenOnboarding}
           onRequestResetAllSolveData={onRequestResetAllSolveData}
           resetAllDisabledReason={resetAllDisabledReason}
           onRequestDeleteAllSessions={onRequestDeleteAllSessions}
           deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
+          onRequestResetAllSiteData={onRequestResetAllSiteData}
           developerSyncStatus={developerSyncStatus}
           onClose={onClose}
         />
@@ -175,10 +182,12 @@ function SettingsContent({
   onChange,
   onOpenBackup,
   onOpenDriveBackup,
+  onOpenOnboarding,
   onRequestResetAllSolveData,
   resetAllDisabledReason,
   onRequestDeleteAllSessions,
   deleteAllSessionsDisabledReason,
+  onRequestResetAllSiteData,
   developerSyncStatus,
   onClose,
 }: Omit<SettingsDialogProps, 'open'>) {
@@ -818,6 +827,20 @@ function SettingsContent({
               </span>
               <ChevronRightIcon size={16} />
             </button>
+            <button
+              type="button"
+              className="settings-data-button"
+              onClick={onOpenOnboarding}
+              data-testid="settings-onboarding-button"
+            >
+              <span className="settings-data-copy">
+                <span className="settings-data-title">Setup assistant</span>
+                <span className="settings-data-description">
+                  Reconfigure events, import, or restore data
+                </span>
+              </span>
+              <ChevronRightIcon size={16} />
+            </button>
             <p className="settings-note">
               Backups stay on this device. Drive sync uploads data only after
               you connect an account.
@@ -915,6 +938,37 @@ function SettingsContent({
                     {deleteAllSessionsDisabledReason}
                   </p>
                 ) : null}
+              </div>
+
+              <div
+                className="settings-danger-zone settings-danger-zone-secondary"
+                data-testid="settings-reset-site-zone"
+              >
+                <div className="settings-danger-zone-heading">
+                  <h4>Reset All Site Data</h4>
+                </div>
+                <p className="settings-row-description">
+                  Permanently delete all local CubeLab data, caches, settings,
+                  and authentication state. Restart as a new user.
+                </p>
+                <button
+                  type="button"
+                  className="button button-danger"
+                  data-testid="settings-reset-all-site-data"
+                  disabled={Boolean(resetAllDisabledReason)}
+                  title={resetAllDisabledReason ?? undefined}
+                  onClick={onRequestResetAllSiteData}
+                >
+                  Reset All Site Data
+                </button>
+                {resetAllDisabledReason ? (
+                  <p className="settings-inline-error" role="alert">
+                    {resetAllDisabledReason}
+                  </p>
+                ) : null}
+                <p className="settings-note">
+                  Google Drive cloud backups are not deleted.
+                </p>
               </div>
             </div>
           </details>

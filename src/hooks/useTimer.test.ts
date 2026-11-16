@@ -148,3 +148,28 @@ describe('useTimer input-boundary timestamps', () => {
     },
   )
 })
+
+describe('useTimer destination capture', () => {
+  afterEach(() => cleanup())
+  it('gates and captures a Training destination once on release, with no inspection', () => {
+    let clock = 0
+    const onStart = vi.fn(() => true), onSolve = vi.fn()
+    const { result } = renderHook(() => useTimer({ inspectionEnabled: false, holdDurationMs: 100, now: () => clock, onStart, onSolve }))
+    act(() => result.current.press('keyboard'))
+    clock = 100
+    act(() => result.current.release('keyboard'))
+    expect(onStart).toHaveBeenCalledTimes(1)
+    expect(result.current.state).toMatchObject({ status: 'running', inspectionStartedAt: null })
+    clock = 2000
+    act(() => { result.current.press('keyboard'); result.current.press('pointer') })
+    expect(onSolve).toHaveBeenCalledExactlyOnceWith({ rawMs: 1900, penalty: 'none' })
+  })
+  it('returns to idle if the destination fails its start-time safety gate', () => {
+    let clock = 0
+    const { result } = renderHook(() => useTimer({ inspectionEnabled: false, holdDurationMs: 100, now: () => clock, onStart: () => false, onSolve: vi.fn() }))
+    act(() => result.current.press('keyboard'))
+    clock = 100
+    act(() => result.current.release('keyboard'))
+    expect(result.current.state.status).toBe('idle')
+  })
+})

@@ -1,10 +1,5 @@
-import {
-  memo,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from 'react'
+import { memo, useMemo } from 'react'
+import { StatColumns, StatisticsPanel } from './StatisticsPanel'
 import type { CSSProperties } from 'react'
 import {
   formatOptionalTime,
@@ -152,32 +147,19 @@ function StatRowContent({
 
   return (
     <>
-      <div
-        className={`stat-main${showCurrent ? ' has-current' : ''}${
-          showBest ? ' has-best' : ''
-        }`}
-      >
-        <span className="stat-label">{row.label}</span>
-        {showCurrent ? (
-          <span className={`stat-current ${resultClass(row.pair.latest)}`}>
-            <span>Current</span>
-            <strong data-testid={measurement ? undefined : row.currentTestId}>
-              {formatStatValue(row.pair.latest, precision)}
-            </strong>
-          </span>
-        ) : null}
-        {showBest ? (
-          <span className="stat-best">
-            <span>Best</span>
-            <strong
-              className={row.pair.best === null ? 'is-empty' : ''}
-              data-testid={measurement ? undefined : row.testId}
-            >
-              {formatOptionalTime(row.pair.best, precision)}
-            </strong>
-          </span>
-        ) : null}
-      </div>
+      <StatColumns
+        label={row.label}
+        current={showCurrent ? {
+          text: formatStatValue(row.pair.latest, precision),
+          className: resultClass(row.pair.latest),
+          testId: measurement ? undefined : row.currentTestId,
+        } : undefined}
+        best={showBest ? {
+          text: formatOptionalTime(row.pair.best, precision),
+          className: row.pair.best === null ? 'is-empty' : '',
+          testId: measurement ? undefined : row.testId,
+        } : undefined}
+      />
 
       {hasSecondary && insights ? (
         <div className="stat-secondary">
@@ -255,9 +237,6 @@ export const StatsPanel = memo(function StatsPanel({
   onMinimumHeightChange,
   style,
 }: StatsPanelProps) {
-  const panelRef = useRef<HTMLElement>(null)
-  const measureRef = useRef<HTMLDivElement>(null)
-
   const tiles = useMemo(() => {
     const builtInTiles = BUILT_IN_STAT_DEFINITIONS.filter(
       (definition) => visibleStats[definition.key],
@@ -337,92 +316,21 @@ export const StatsPanel = memo(function StatsPanel({
     return insights
   }, [metricVisibility, solves, tiles, trimming])
 
-  const reportMinimum = useCallback(() => {
-    const measure = measureRef.current
-    if (!measure) return
-    const height = Math.ceil(measure.offsetHeight)
-    if (height > 0) onMinimumHeightChange?.(height)
-  }, [onMinimumHeightChange])
-
-  useLayoutEffect(() => {
-    reportMinimum()
-  }, [insightsByKey, metricVisibility, precision, reportMinimum, tiles])
-
-  useLayoutEffect(() => {
-    if (typeof ResizeObserver === 'undefined') return
-    const panel = panelRef.current
-    const measure = measureRef.current
-    if (!panel || !measure) return
-    const observer = new ResizeObserver(() => reportMinimum())
-    observer.observe(panel)
-    observer.observe(measure)
-    let disposed = false
-    void document.fonts?.ready.then(() => {
-      if (!disposed) reportMinimum()
-    })
-    return () => {
-      disposed = true
-      observer.disconnect()
-    }
-  }, [reportMinimum])
-
   return (
-    <section
-      className="panel stats-panel"
-      aria-labelledby="stats-title"
-      ref={panelRef}
+    <StatisticsPanel
+      count={formatSolveCount(stats.count)}
+      hasRows={tiles.length > 0}
+      empty="No statistics shown. Enable at least one in Settings."
+      onMinimumHeightChange={onMinimumHeightChange}
       style={style}
-    >
-      <div className="stats-panel-measure" ref={measureRef} aria-hidden="true">
-        <div className="panel-heading">
-          <h2>Statistics</h2>
-          <span className="count-pill">{formatSolveCount(stats.count)}</span>
-        </div>
-        {tiles.length > 0 ? (
-          <div className="stats-grid">
-            {tiles.map((row) => (
-              <div className="stat-entry" key={row.key}>
-                <StatRowContent
-                  row={row}
-                  precision={precision}
-                  metricVisibility={metricVisibility}
-                  insights={insightsByKey.get(row.key) ?? null}
-                  measurement
-                />
-              </div>
-            ))}
+      renderRows={measurement => tiles.map(row => {
+        const props = { row, precision, metricVisibility, insights: insightsByKey.get(row.key) ?? null }
+        return measurement ? (
+          <div className="stat-entry" key={row.key}>
+            <StatRowContent {...props} measurement />
           </div>
-        ) : (
-          <p className="stats-empty-measure">
-            No statistics shown. Enable at least one in Settings.
-          </p>
-        )}
-      </div>
-
-      <div className="stats-scroll">
-        <div className="panel-heading">
-          <h2 id="stats-title">Statistics</h2>
-          <span className="count-pill">{formatSolveCount(stats.count)}</span>
-        </div>
-
-        {tiles.length > 0 ? (
-          <div className="stats-grid">
-            {tiles.map((row) => (
-              <StatRow
-                key={row.key}
-                row={row}
-                precision={precision}
-                metricVisibility={metricVisibility}
-                insights={insightsByKey.get(row.key) ?? null}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="stats-empty">
-            No statistics shown. Enable at least one in Settings.
-          </p>
-        )}
-      </div>
-    </section>
+        ) : <StatRow key={row.key} {...props} />
+      })}
+    />
   )
 })

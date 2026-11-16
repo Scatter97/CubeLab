@@ -29,7 +29,9 @@ interface TimerStageProps {
   timerUpdateMode?: TimerUpdateMode
   inspectionElapsedMs: number | null
   holdProgress: number
-  latestSolve: Solve | null
+  latestSolve?: Solve | null
+  /** Presentation-only Training result; never a Solve/session record. */
+  latestResult?: { rawMs: number; penalty: 'none' | 'dnf' } | null
   disabled: boolean
   disabledHint?: string
   inspectionEnabled: boolean
@@ -86,7 +88,8 @@ export function TimerStage({
   timerUpdateMode = 'live',
   inspectionElapsedMs,
   holdProgress,
-  latestSolve,
+  latestSolve = null,
+  latestResult = null,
   disabled,
   disabledHint = 'Generating scramble…',
   inspectionEnabled,
@@ -99,6 +102,7 @@ export function TimerStage({
   onRelease,
   onCancel,
 }: TimerStageProps) {
+  const result = latestResult ?? latestSolve
   const activePointer = useRef<number | null>(null)
   const elapsedMs = useRunningElapsed(state.status === 'running' ? state.startedAt : null, timerUpdateMode)
   // Inspection keeps its own display through holding and armed states. The
@@ -138,11 +142,11 @@ export function TimerStage({
   } else if (inspection) {
     mainValue = inspection.value
     toneClass = inspection.tone === 'danger' ? 'is-dnf' : inspection.tone === 'warning' ? 'is-penalty' : ''
-  } else if (state.status === 'idle' && latestSolve) {
-    const last = formatSolveTime(latestSolve.rawMs, latestSolve.penalty)
+  } else if (state.status === 'idle' && result) {
+    const last = formatSolveTime(result.rawMs, result.penalty)
     mainValue = last.display
     suffix = last.suffix
-    toneClass = latestSolve.penalty === 'dnf' ? 'is-dnf' : latestSolve.penalty === '+2' ? 'is-penalty' : ''
+    toneClass = result.penalty === 'dnf' ? 'is-dnf' : result.penalty === '+2' ? 'is-penalty' : ''
   }
 
   const hint = ''
@@ -202,13 +206,13 @@ export function TimerStage({
     }
     if (state.status === 'ready') return `Timer armed at ${mainValue}. Release to start.`
     if (state.status === 'holding') return `Timer arming. Keep holding.`
-    if (latestSolve) {
+    if (result) {
       const nextAction = inspectionEnabled
         ? 'Press Space or tap to start inspection.'
         : 'Hold Space or press and hold to start.'
-      return `Timer ready. Last solve ${mainValue}${
-        latestSolve.penalty === '+2' ? ' plus two' : ''
-      }${latestSolve.penalty === 'dnf' ? ' DNF' : ''}. ${nextAction}`
+      return `Timer ready. ${latestResult ? 'Last result' : 'Last solve'} ${mainValue}${
+        result.penalty === '+2' ? ' plus two' : ''
+      }${result.penalty === 'dnf' ? ' DNF' : ''}. ${nextAction}`
     }
     return inspectionEnabled
       ? 'Timer ready. Press Space or tap the timer to start 15-second inspection.'

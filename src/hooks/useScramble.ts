@@ -25,7 +25,7 @@ const EMPTY_SLOTS: Slots = [null, null]
  * ready when a solve ends. Generation is cancelled/restarted atomically when
  * the queue advances, including under React StrictMode.
  */
-export function useScramble(event: import('../types').PuzzleEvent = '333'): ScrambleController {
+export function useScramble(event: import('../types').PuzzleEvent = '333', enabled = true): ScrambleController {
   const [slots, setSlots] = useState<Slots>(EMPTY_SLOTS)
   const slotsRef = useRef<Slots>(EMPTY_SLOTS)
   const [isGenerating, setIsGenerating] = useState(true)
@@ -45,6 +45,7 @@ export function useScramble(event: import('../types').PuzzleEvent = '333'): Scra
   // oxlint-disable-next-line react/set-state-in-effect
   useEffect(() => {
     let cancelled = false
+    if (!enabled) return
     if (eventRef.current !== event) {
       eventRef.current = event
       slotsRef.current = EMPTY_SLOTS
@@ -92,7 +93,7 @@ export function useScramble(event: import('../types').PuzzleEvent = '333'): Scra
     return () => {
       cancelled = true
     }
-  }, [commitSlots, event, fillVersion, placeholder])
+  }, [commitSlots, enabled, event, fillVersion, placeholder])
 
   const advance = useCallback(() => {
     const next: Slots = [slotsRef.current[1], null]

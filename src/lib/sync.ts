@@ -1,5 +1,5 @@
 import type { FieldUpdate, Session, SessionsData, Solve } from '../types'
-import { DEFAULT_SESSION_NAME, MAX_SESSION_NAME_LENGTH, normalizeSessionName, resolveSessionOrdering, sortSessionsByOrder } from './sessions'
+import { DEFAULT_SESSION_NAME, MAX_SESSION_NAME_LENGTH, isUntouchedDefaultSession, normalizeSessionName, resolveSessionOrdering, sortSessionsByOrder } from './sessions'
 import { mergeCustomEvents } from './customEvents'
 import { isCustomEventId } from './events'
 import { mergeSolveFields, recordTime, resolveSolveEvent, solvesEqual } from './solveMerge'
@@ -294,22 +294,6 @@ export function findDuplicateSessionNames(
     .filter(([, ids]) => ids.size > 1)
     .map(([key]) => displayName.get(key) ?? key)
     .sort((left, right) => left.localeCompare(right))
-}
-
-function isUntouchedDefaultSession(session: Session): boolean {
-  // Older generated placeholders did not persist `isAutoCreatedDefault`.
-  // Treat the missing marker as generated only when every other signal agrees;
-  // an explicit `false` always means the session was deliberately created.
-  if (session.isAutoCreatedDefault === false) return false
-
-  return (
-    normalizeSessionName(session.name) === DEFAULT_SESSION_NAME &&
-    (session.event === undefined || session.event === '333') &&
-    session.solves.length === 0 &&
-    session.inspectionEnabled === undefined &&
-    !hasPreferences(session) &&
-    session.createdAt === session.updatedAt
-  )
 }
 
 function hasUserSessionContent(session: Session): boolean {

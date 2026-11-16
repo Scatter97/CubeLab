@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react'
 
+import { isSiteResetInProgress } from '../lib/siteReset'
+
 const STORAGE_KEY = 'cubelab:drawScrambleMode:v1'
 
 export type DrawScrambleMode = 'net' | '3d'
@@ -19,7 +21,7 @@ export function useDrawScrambleMode(): [DrawScrambleMode, (mode: DrawScrambleMod
   const update = useCallback((next: DrawScrambleMode) => {
     setMode(next)
     try {
-      localStorage.setItem(STORAGE_KEY, next)
+      if (!isSiteResetInProgress()) localStorage.setItem(STORAGE_KEY, next)
     } catch {
       // ignore
     }

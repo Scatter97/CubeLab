@@ -55,4 +55,42 @@ describe('ConfirmDialog typed confirmation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel reset' }))
     expect(onCancel).toHaveBeenCalledOnce()
   })
+
+  it('renders reset details and enables only the exact RESET phrase', () => {
+    const onConfirm = vi.fn()
+    render(
+      <ConfirmDialog
+        open
+        eyebrow="Developer · Danger zone"
+        title="Reset all site data?"
+        description="This action cannot be undone."
+        details={
+          <ul>
+            <li>All locally stored solves and sessions</li>
+            <li>All settings and preferences</li>
+          </ul>
+        }
+        cancelLabel="Cancel"
+        confirmLabel="Reset All Data"
+        requireText="RESET"
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Reset all site data?' }))
+      .toBeInTheDocument()
+    expect(screen.getByText('All settings and preferences')).toBeVisible()
+
+    const confirm = screen.getByRole('button', { name: 'Reset All Data' })
+    const input = screen.getByLabelText('Type RESET to confirm')
+    fireEvent.change(input, { target: { value: 'RESET ' } })
+    expect(confirm).toBeDisabled()
+    fireEvent.change(input, { target: { value: 'reset' } })
+    expect(confirm).toBeDisabled()
+    fireEvent.change(input, { target: { value: 'RESET' } })
+    expect(confirm).toBeEnabled()
+    fireEvent.click(confirm)
+    expect(onConfirm).toHaveBeenCalledOnce()
+  })
 })

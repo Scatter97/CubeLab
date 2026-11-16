@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   transitionTimer,
   type TimerCompletion,
@@ -11,6 +11,8 @@ export interface UseTimerOptions {
   inspectionEnabled: boolean
   holdDurationMs: number
   onSolve: (completion: TimerCompletion) => void
+  /** Optional destination gate/capture, invoked exactly at the running transition. */
+  onStart?: () => boolean
   /** Injectable for deterministic tests; defaults to performance.now. */
   now?: () => number
 }
@@ -38,13 +40,21 @@ export function useTimer(options: UseTimerOptions): TimerController {
   const [clock, setClock] = useState(() => now())
 
   const onSolveRef = useRef(options.onSolve)
-  useEffect(() => {
+  const onStartRef = useRef(options.onStart)
+  useLayoutEffect(() => {
     onSolveRef.current = options.onSolve
-  }, [options.onSolve])
+    onStartRef.current = options.onStart
+  }, [options.onSolve, options.onStart])
 
   const applyEvent = useCallback((event: TimerEvent) => {
     const previous = stateRef.current
     const { state: next, completed } = transitionTimer(previous, event)
+
+    if (next.status === 'running' && previous.status !== 'running' && onStartRef.current?.() === false) {
+      stateRef.current = { status: 'idle' }
+      setState(stateRef.current)
+      return
+    }
 
     if (next !== previous) {
       stateRef.current = next

@@ -3,11 +3,20 @@ import App from './App'
 import { loadSessionsForStartup, type SessionsSnapshot } from './lib/storage'
 import { applyPendingCompletionAtStartup } from './lib/pendingCompletion'
 import { recoverReplacementAtStartup } from './lib/startupRecovery'
+import {
+  loadOnboardingBootstrap,
+  startOnboardingWelcomeDraft,
+  type OnboardingBootstrap,
+} from './lib/onboarding'
 
 type BootstrapPhase =
   | { kind: 'checking' }
   | { kind: 'blocked'; message: string }
-  | { kind: 'ready'; snapshot: SessionsSnapshot }
+  | {
+      kind: 'ready'
+      snapshot: SessionsSnapshot
+      onboarding: OnboardingBootstrap
+    }
 
 function RecoveryGate({
   phase,
@@ -74,7 +83,17 @@ export default function Bootstrap() {
         setPhase({ kind: 'blocked', message: completion.message })
         return
       }
-      setPhase({ kind: 'ready', snapshot: loadSessionsForStartup() })
+      const snapshot = loadSessionsForStartup()
+      let onboarding = loadOnboardingBootstrap(snapshot.data)
+      if (onboarding.show && !onboarding.draft) {
+        const draft = startOnboardingWelcomeDraft()
+        if (draft) onboarding = { ...onboarding, draft }
+      }
+      setPhase({
+        kind: 'ready',
+        snapshot,
+        onboarding,
+      })
     } catch (error) {
       setPhase({ kind: 'blocked', message: error instanceof Error ? error.message : 'Saved history could not be opened safely. The original data has been kept.' })
     } finally {
@@ -89,7 +108,14 @@ export default function Bootstrap() {
     void runRecovery()
   }, [runRecovery])
 
-  if (phase.kind === 'ready') return <App initialSessions={phase.snapshot} />
+  if (phase.kind === 'ready') {
+    return (
+      <App
+        initialSessions={phase.snapshot}
+        initialOnboarding={phase.onboarding}
+      />
+    )
+  }
   return (
     <RecoveryGate
       phase={phase}

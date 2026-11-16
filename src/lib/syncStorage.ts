@@ -8,6 +8,7 @@ import {
   type SnapshotKeepPerDevice,
   type SnapshotMaxAgeDays,
 } from './snapshotRetention'
+import { isSiteResetInProgress } from './siteReset'
 
 export type SyncIntervalMinutes = 1 | 2 | 3 | 5 | 10 | 15 | 30 | 60
 export type SyncSolveThreshold = 1 | 2 | 3 | 5 | 10 | 20 | 25 | 50 | 100
@@ -509,8 +510,13 @@ export function loadSyncStorage(storage: SyncStorageReader | null = getDefaultSt
     const data = createDefaultSyncStorage()
     // Persist a fresh identity immediately. Without this, a reload before any
     // other sync edit would generate a different device ID, invalidating the
-    // provenance on existing field metadata and remote snapshots.
-    storage.setItem?.(SYNC_STORAGE_KEY, JSON.stringify(data))
+    // provenance on existing field metadata and remote snapshots. During a
+    // local site reset the storage is being cleared, so returning the default
+    // identity without writing prevents a stale tab from recreating a key that
+    // would suppress first-visit onboarding.
+    if (!isSiteResetInProgress()) {
+      storage.setItem?.(SYNC_STORAGE_KEY, JSON.stringify(data))
+    }
     return data
   }
   try {
@@ -536,7 +542,7 @@ export function saveSyncStorage(
   data: SyncStorageData,
   storage: { setItem(key: string, value: string): void } | null = getDefaultStorage(),
 ): boolean {
-  if (!storage) return false
+  if (!storage || isSiteResetInProgress()) return false
   try {
     storage.setItem(SYNC_STORAGE_KEY, JSON.stringify(data))
     return true

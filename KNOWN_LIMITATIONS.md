@@ -83,6 +83,112 @@ These are current boundaries; dated repair details are in the
   In-flight guards recompute content fingerprints, but 32-bit FNV-1a is not a
   collision-free equality proof.
 
+## Training
+
+- **Local-only persistence.** Training is mounted under the existing active-tab
+  Web Lock and uses checked v1 reads/guarded writes. Ordinary backups, Drive,
+  retention and replacement formats have not been extended. The full **Reset All
+  Site Data** action clears the local Training store along with other
+  CubeLab-owned data; ordinary solve/session resets leave Training untouched.
+  Clearing browser storage loses Training; its recovery-copy download preserves
+  both the in-memory candidate and checked external snapshot but is not a native
+  backup importer or an automatic conflict merge.
+- **Failed writes cannot promise durability.** The exact candidate stays in
+  memory, additional attempts are blocked, navigation retains a visible warning,
+  and an unsaved-exit prompt is requested until retry succeeds. Browsers can
+  suppress exit prompts, and crashes/forced termination can still discard an
+  unsaved candidate. No corrupt bytes or changed external snapshot is overwritten.
+- **Deletion Undo is temporary.** Training offers Undo for the latest saved
+  attempt deletion through the same six-second notification used by Timer.
+  A reload, dismissal, or replacement notification can end that opportunity.
+  Typed deletion of an archived session is permanent.
+- **Recognition timing splits are estimates.** An estimate needs the attempt's
+  captured calibration, a saved algorithm identity and enough matching
+  Execution history in the session's saved window. Reports show coverage and
+  leave unavailable values blank. Legacy visits without a saved comparison
+  policy retain their measured results.
+- **Tracking is prospective.** Attempts recorded while tracking is off
+  remain case-only after re-enabling. Setup-generation metadata still
+  identifies the verified generator and does not establish which algorithm
+  the user executed. Existing attributed attempts retain their revision.
+- **Browser continuity has limits.** Named sessions offer an explicit
+  resume/end choice after reload or ambiguous reopening. Browser lifecycle
+  events do not reliably establish site closure. When ending a recovered
+  session without a reliable close time, CubeLab uses the last saved activity.
+  The required report and its destination survive reload after a successful
+  end write. A previously saved report remains available in Practice history.
+- **Persisted verification is metadata.** Loading validates structure/history,
+  not physical execution. Runtime built-in and user algorithms and every new setup
+  are mathematically reverified. Success is manually reported by stopping; DNF can
+  be corrected afterwards. Calibration drafts commit only after seven accepted
+  positive repetitions; refreshing a partial calibration discards its draft and
+  preserves the previous committed median.
+- **Recognition and result visibility.** Upcoming names/diagrams/algorithms stay
+  out of the rendered recognition UI. Retrying a revealed known case explicitly
+  switches to execution. The fixed physical precursor cannot prevent an expert
+  inferring its target from the setup itself. No smart-cube observation is made.
+- **Comparisons and large histories.** Visit improvement requires eligible
+  successes for matching cases or algorithm revisions in the latest visit and
+  its saved baseline. Missing estimates and empty trim windows show a dash.
+  The Attempts list windows histories above 200 rows, with Show all available
+  for browser search and sequential navigation. Best rolling averages scan
+  category history when attempts change. The isolated 8,000-attempt production
+  profile measured several hundred milliseconds before the stopped frame,
+  including synchronous validation and serialization. It used a memory-backed
+  key for the 8.1 MB fixture. Device quota and a pre-redesign timing baseline
+  remain unverified. [Profile data](docs/training/ui-redesign/performance.json)
+- **Responsive input.** Detailed statistics tables scroll horizontally on
+  narrow screens. Physical-device and screen-reader validation remains open.
+  The default Last Result docks below the clock in constrained layouts. A
+  deliberately positioned floating desktop panel can still cover digits.
+- **Built-in defaults and provenance.** All 57 OLL and 21 PLL cases have a
+  verified default, available without user entry. The 37 additional PLL variants
+  are not included. Defaults are read-only; user preferences/custom algorithms
+  are stored separately. The owner removed CubeLab's internal bundling restriction,
+  but no explicit third-party redistribution permission was established. The
+  catalog contains only the 78 owner-approved short functional move sequences,
+  independently normalized/verified and assembled with source provenance, not a
+  copied compilation or artwork. Written permission or legal review remains
+  advisable before broader redistribution. See
+  [Training memory E13](docs/training/PROJECT_MEMORY.md#e13-built-in-default-ollpll-catalog--2026-11-10).
+
+## Onboarding
+
+- **Onboarding is new in this build.** Its first-run detection deliberately uses
+  stored settings, sync identity and Drive metadata as evidence of an existing
+  browser. A browser with only an untouched placeholder is treated as new. This
+  protects existing users from an unexpected setup screen but cannot distinguish
+  a deliberately cleared settings record from a genuinely new browser.
+- **Live Google OAuth is not part of routine verification.** Browser automation
+  uses the existing mock Drive transport. Popup blocking, account switching,
+  cancellation, real redirects and provider outages were exercised through mocked
+  states and error paths, not a live Google account. The existing app-data scope
+  does not expose the account email, so "Try another Google account" relies on
+  Google's account chooser rather than displaying the current address.
+- **Returning-user restore uses the normal sync merge.** A clean device adopts
+  cloud data through the established merge, tombstones and conflict rules; it is
+  not a byte-for-byte replacement. Existing local data is merged rather than
+  discarded. If sync reports a conflict that automatic resolution cannot settle,
+  onboarding stops and leaves cloud data unchanged.
+- **Only the Draw Scramble 2D/3D choice is device-local onboarding configuration.**
+  Tool-panel visibility and geometry remain local persisted UI state but are not
+  requested during setup. Other global and session preferences are synchronized.
+- **Completion summaries use current local counts.** They are not a historical
+  audit. A reload during the three-second completion screen opens the timer
+  directly because the completed decision is already durable.
+- **The full site reset is bounded by browser storage APIs.** It removes only
+  CubeLab-prefixed localStorage/sessionStorage keys, CubeLab-named IndexedDB
+  databases, CubeLab/scoped Workbox caches, this application's exact `sw.js`
+  registration and readable CubeLab-prefixed cookies. Browser-managed HTTP cache
+  entries and cookies set by Google Identity Services are not fully erasable by
+  page JavaScript; locally held Google authorization is revoked/cleared and the
+  transport is blocked for the rest of the document. A reset whose IndexedDB
+  deletion stays blocked reports a partial failure and must be retried after the
+  holding tab or connection closes. The cross-tab reset broadcast is understood
+  only by this build, so refresh or close older CubeLab tabs before resetting.
+  Google Drive files are never deleted, replaced, or emptied by this action, and
+  reconnecting requires an explicit new authorization.
+
 ## Synchronization and recovery
 
 - **One editable tab per origin/profile.** A document-lifetime Web Lock is

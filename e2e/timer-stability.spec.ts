@@ -180,7 +180,8 @@ test.describe('timer workspace stability', () => {
     await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'running')
     await page.keyboard.press('Space')
     await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
-    expect(await solveCount(page)).toBe('1')
+    // The sidebar intentionally refreshes after the timer result has painted.
+    await expect(page.getByTestId('solve-count')).toHaveText('1')
   })
 })
 

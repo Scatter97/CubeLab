@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type CSSProperties,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { applyCubeFaceColors, type PuzzleGeometryColors } from '../lib/cubeColors'
@@ -196,6 +198,13 @@ function TwistyCube({
 }
 
 interface Props {
+  /** Shared floating frame used by Training; regular tools retain their defaults. */
+  panelId?: string
+  title?: string
+  children?: ReactNode
+  defaultSide?: 'left' | 'right'
+  minimized?: boolean
+  onToggleMinimized?: () => void
   scramble: string | null
   event: PuzzleEvent
   mode: DrawScrambleMode
@@ -216,16 +225,19 @@ interface InteractionState {
   origin: ToolPanelLayout
   latest: ToolPanelLayout
   stage: StageSize
+  scale: number
 }
 
-export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING }: Props) {
+export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING, panelId, title, children, defaultSide = 'right', minimized = false, onToggleMinimized }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLElement | null>(null)
   const ghostRef = useRef<HTMLDivElement | null>(null)
   const interactionRef = useRef<InteractionState | null>(null)
-  const { layout, setLayout, persist } = useToolPanelLayout()
+  const { layout, setLayout, persist } = useToolPanelLayout(panelId ? `cubelab:${panelId}:layout:v1` : undefined)
+  const [stageBounds, setStageBounds] = useState<StageSize | null>(null)
+  const [dragLayout, setDragLayout] = useState<ToolPanelLayout | null>(null)
   const [interaction, setInteraction] = useState<InteractionMode | null>(null)
   const [ghostPortalContainer, setGhostPortalContainer] = useState<HTMLElement | null>(null)
 
@@ -256,33 +268,43 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
     return { width, height }
   }, [])
 
-  useEffect(() => {
+  const cancelInteraction = useCallback(() => {
+    if (!interactionRef.current) return
+    interactionRef.current = null
+    setInteraction(null)
+    setDragLayout(null)
+    const ghost = ghostRef.current
+    if (ghost) ghost.style.display = 'none'
+  }, [])
+
+  useLayoutEffect(() => {
     const stage = panelRef.current?.parentElement
-    if (stage) setGhostPortalContainer(stage)
     if (!stage) return
-    const reclamp = () => {
+    setGhostPortalContainer(stage)
+    const measure = () => {
       const size = stageSize()
       if (!size) return
-      setLayout((current) => {
-        if (!current) return current
-        const next = clampToolPanelLayout(current, size)
-        return next.x === current.x && next.y === current.y && next.width === current.width && next.height === current.height
-          ? current
-          : next
-      })
+      const previous = interactionRef.current?.stage
+      if (previous && (previous.width !== size.width || previous.height !== size.height ||
+        getComputedStyle(panelRef.current!).position !== 'absolute')) cancelInteraction()
+      setStageBounds(current => current?.width === size.width && current.height === size.height ? current : size)
     }
-    reclamp()
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(reclamp) : null
+    measure()
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
     observer?.observe(stage)
-    window.addEventListener('resize', reclamp)
+    window.addEventListener('resize', measure)
     return () => {
       observer?.disconnect()
-      window.removeEventListener('resize', reclamp)
+      window.removeEventListener('resize', measure)
     }
-  }, [setLayout, stageSize])
+  }, [cancelInteraction, stageSize])
 
+  // A constrained viewport projects the preferred layout without replacing it.
+  const projected = layout && stageBounds ? clampToolPanelLayout(layout, stageBounds) : layout
+  const renderedLayout = dragLayout ?? projected
   const beginInteraction = useCallback(
     (mode: InteractionMode) => (event: ReactPointerEvent<HTMLElement>) => {
+      if (interactionRef.current || minimized) return
       if (event.pointerType === 'mouse' && event.button !== 0) return
       if (mode === 'drag') {
         const dragTarget = event.target as HTMLElement | null
@@ -293,18 +315,17 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
       const panel = panelRef.current
       const stage = panel?.parentElement
       const size = stageSize()
-      if (!panel || !stage || !size) return
+      if (!panel || !stage || !size || (panelId && getComputedStyle(panel).position !== 'absolute')) return
 
       event.preventDefault()
       setMenuOpen(false)
 
-      const panelRect = panel.getBoundingClientRect()
-      const stageRect = stage.getBoundingClientRect()
-      const origin = layout ?? {
-        x: Math.round(panelRect.left - stageRect.left),
-        y: Math.round(panelRect.top - stageRect.top),
-        width: Math.round(panelRect.width) || TOOL_PANEL_MIN_WIDTH,
-        height: Math.round(panelRect.height) || TOOL_PANEL_MIN_HEIGHT,
+      const scale = stage.getBoundingClientRect().width / stage.offsetWidth || 1
+      const origin = renderedLayout ?? {
+        x: panel.offsetLeft,
+        y: panel.offsetTop,
+        width: panel.offsetWidth || TOOL_PANEL_MIN_WIDTH,
+        height: panel.offsetHeight || TOOL_PANEL_MIN_HEIGHT,
       }
       const start = clampToolPanelLayout(origin, size)
 
@@ -329,13 +350,11 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
         origin: start,
         latest: start,
         stage: size,
-      }
-      if (mode === 'drag') {
-        setLayout(start)
+        scale,
       }
       setInteraction(mode)
     },
-    [layout, setLayout, stageSize],
+    [minimized, panelId, renderedLayout, stageSize],
   )
 
   const moveInteraction = useCallback(
@@ -344,8 +363,8 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
       if (!state || state.pointerId !== event.pointerId) return
       event.preventDefault()
 
-      const dx = event.clientX - state.startX
-      const dy = event.clientY - state.startY
+      const dx = (event.clientX - state.startX) / state.scale
+      const dy = (event.clientY - state.startY) / state.scale
 
       if (state.mode === 'drag') {
         const next = clampToolPanelLayout(
@@ -353,7 +372,7 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
           state.stage,
         )
         state.latest = next
-        setLayout(next)
+        setDragLayout(next)
       } else {
         const right = state.origin.x + state.origin.width
         const bottom = state.origin.y + state.origin.height
@@ -376,34 +395,27 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
         }
       }
     },
-    [setLayout],
+    [],
   )
 
   const endInteraction = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       const state = interactionRef.current
       if (!state || state.pointerId !== event.pointerId) return
-      interactionRef.current = null
-      setInteraction(null)
+      cancelInteraction()
       try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* noop */ }
-      const ghost = ghostRef.current
-      if (ghost) ghost.style.display = 'none'
-      if (state.mode === 'resize') {
+      if (state.latest.x !== state.origin.x || state.latest.y !== state.origin.y ||
+        state.latest.width !== state.origin.width || state.latest.height !== state.origin.height) {
         setLayout(state.latest)
-        persist(state.latest)
-      } else if (state.mode === 'drag') {
         persist(state.latest)
       }
     },
-    [setLayout, persist],
+    [cancelInteraction, setLayout, persist],
   )
 
-  const cancelInteraction = useCallback(() => {
-    interactionRef.current = null
-    setInteraction(null)
-    const ghost = ghostRef.current
-    if (ghost) ghost.style.display = 'none'
-  }, [])
+  const cancelPointer = (event: ReactPointerEvent<HTMLElement>) => {
+    if (interactionRef.current?.pointerId === event.pointerId) cancelInteraction()
+  }
 
   useEffect(() => {
     const handler = () => {
@@ -433,15 +445,26 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
 
   return (
     <>
-    <section id="tool-panel" ref={panelRef} className={`scramble-draw-panel tool-panel${interaction ? ` is-${interaction}` : ''}`} aria-label="Tool panel" data-testid="tool-panel" data-mode={mode} data-tool={activeTool} data-scramble={scramble ?? ''} data-interaction={interaction ?? undefined}
-      style={layout ? { left: `${layout.x}px`, top: `${layout.y}px`, right: 'auto', bottom: 'auto', width: `${layout.width}px`, height: `${layout.height}px` } : undefined}>
+    <section id={panelId ?? "tool-panel"} ref={panelRef} className={`scramble-draw-panel tool-panel${panelId ? ` training-floating is-${defaultSide}${minimized ? ' is-minimized' : ''}` : ''}${interaction ? ` is-${interaction}` : ''}`} aria-label={title ?? "Tool panel"} data-testid={panelId ?? "tool-panel"} data-mode={mode} data-tool={activeTool} data-scramble={scramble ?? ''} data-interaction={interaction ?? undefined}
+      style={renderedLayout ? (panelId ? {
+        '--tool-left': `${renderedLayout.x}px`,
+        '--tool-top': `${renderedLayout.y}px`,
+        '--tool-right': 'auto',
+        '--tool-bottom': 'auto',
+        '--tool-width': `${renderedLayout.width}px`,
+        '--tool-height': `${renderedLayout.height}px`,
+      } as CSSProperties : {
+        left: renderedLayout.x, top: renderedLayout.y, right: 'auto', bottom: 'auto',
+        width: renderedLayout.width, height: renderedLayout.height,
+      }) : undefined}>
 
-      <div className="scramble-draw-header" data-testid="tool-panel-drag-handle" title="Drag to move" onPointerDown={beginInteraction('drag')} onPointerMove={moveInteraction} onPointerUp={endInteraction} onPointerCancel={endInteraction}>
-        <span>{toolLabel(activeTool)}</span>
-        {activeTool === 'drawScramble' ? <span className="scramble-draw-mode">{mode === 'net' ? '2D' : '3D'}</span> : null}
+      <div className="scramble-draw-header" data-testid="tool-panel-drag-handle" title={panelId ? undefined : 'Drag to move'} onPointerDown={beginInteraction('drag')} onPointerMove={moveInteraction} onPointerUp={endInteraction} onPointerCancel={cancelPointer} onLostPointerCapture={cancelPointer}>
+        <span>{title ?? toolLabel(activeTool)}</span>
+        {onToggleMinimized ? <button type="button" disabled={timerActive} onClick={onToggleMinimized} aria-label={`${minimized ? 'Expand' : 'Minimize'} ${title}`}>{minimized ? '+' : '−'}</button> : null}
+        {!children && activeTool === 'drawScramble' ? <span className="scramble-draw-mode">{mode === 'net' ? '2D' : '3D'}</span> : null}
       </div>
-      <div className="scramble-draw-stage" style={{ position: 'relative' }}>
-        {activeTool === 'drawScramble' ? (
+      {!minimized ? <><div className="scramble-draw-stage" style={{ position: 'relative' }}>
+        {children ?? (activeTool === 'drawScramble' ? (
           customEvent ? (
             <p
               className="scramble-draw-status"
@@ -450,20 +473,14 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
             >
               Scramble visualization is not available for the custom event {label}.
             </p>
-          ) : !scramble ? <p className="scramble-draw-status">Preparing scramble…</p>
-          : mode === 'net' ? (
-            size === null ? (
-              <p
-                className="scramble-draw-status"
-                role="status"
-                data-testid="draw-scramble-unavailable"
-              >
-                2D net is not available for {label}. Switch Draw Scramble to
-                3D in Settings to see this puzzle.
-              </p>
-            ) : net ? (
-              <ScrambleNet net={net} />
-            ) : (
+          ) : mode === 'net' && size === null ? (
+            <p className="scramble-draw-status" role="status" data-testid="draw-scramble-unavailable">
+              2D net is not available for {label}. Switch Draw Scramble to 3D in Settings to see this puzzle.
+            </p>
+          ) : !scramble ? (
+            <p className="scramble-draw-status">Preparing scramble…</p>
+          ) : mode === 'net' ? (
+            net ? <ScrambleNet net={net} /> : (
               <p className="scramble-draw-status" role="alert">
                 This scramble cannot be drawn.
               </p>
@@ -477,9 +494,9 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
           )
         ) : activeTool === 'timeTrend' ? (
           <TimeTrend solves={solves} compact disabled={timerActive} trimming={trimming} />
-        ) : null}
+        ) : null)}
       </div>
-      <footer className="scramble-draw-footer">
+      {!children ? <footer className="scramble-draw-footer">
         <span className="scramble-draw-footer-label">Function</span>
         <div className="scramble-tool-menu-wrap" ref={menuRef}>
           <button ref={buttonRef} type="button" className="scramble-draw-select" onClick={() => setMenuOpen((o) => !o)} aria-label={`Function: ${toolLabel(activeTool)}`} aria-haspopup="menu" aria-expanded={menuOpen} data-testid="tool-select-button">
@@ -500,8 +517,9 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
             </div>
           ) : null}
         </div>
-      </footer>
-      <span className="scramble-draw-resize" data-testid="tool-panel-resize-handle" aria-hidden="true" onPointerDown={beginInteraction('resize')} onPointerMove={moveInteraction} onPointerUp={endInteraction} onPointerCancel={endInteraction} />
+      </footer> : null}
+      <span className="scramble-draw-resize" data-testid="tool-panel-resize-handle" aria-hidden="true" onPointerDown={beginInteraction('resize')} onPointerMove={moveInteraction} onPointerUp={endInteraction} onPointerCancel={cancelPointer} onLostPointerCapture={cancelPointer} />
+      </> : null}
     </section>
     {ghostPortalContainer
       ? createPortal(

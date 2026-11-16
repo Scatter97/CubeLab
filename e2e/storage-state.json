@@ -1,0 +1,14 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:4173",
+      "localStorage": [
+        {
+          "name": "cubelab:onboarding:v1",
+          "value": "{\"version\":1,\"decision\":{\"status\":\"completed\",\"at\":1}}"
+        }
+      ]
+    }
+  ]
+}
