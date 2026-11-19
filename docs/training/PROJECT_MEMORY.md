@@ -1,7 +1,8 @@
 # CubeLab Training — Persistent Project Memory
 
 **Status:** Active source of truth for the CubeLab Training feature
-**Last updated:** 2026-11-11
+**Last updated:** 2026-11-18 (environment/repository re-check; Training feature
+status remains 2026-11-11)
 **Current phase:** Phases 0–3B, the explicitly expanded **Phase 4A/4B/4C**, and
 the owner-authorized **built-in default OLL/PLL catalog** are implemented. The
 approved Training UI redesign is implemented in E15. Overhaul O1 adds the
@@ -21,6 +22,13 @@ defaults are bundled using an independently assembled functional-sequence
 catalog. Third-party redistribution permission remains unestablished and is
 documented in E13/F12. Training remains local-only and excluded from ordinary
 backup/Drive.
+
+> **Reading note (2026-11-18):** Later sections preserve dated decisions and
+> checkpoints. The current status above and E16 supersede older statements that
+> Training has no named sessions, that Phase 4 has not started, or that
+> application/timer integration remains future work. The “Historical repository
+> status” section is a 2026-11-08 snapshot, not the current checkout.
+
 **Immediate next task:** No overhaul phase remains. O1 through O8 are complete.
 See [overhaul progress](overhaul/CURRENT_PROGRESS.md) for the handoff. Owner
 review and any release, publication, live Drive, Firefox/WebKit, physical-device
@@ -108,7 +116,11 @@ The following are agreed requirements. They must not be silently changed.
 - The left sidebar is redesigned specifically for Training.
 - Training must not look or behave like a separate application.
 
-### B2. No Training Sessions
+### B2. No Training Sessions (superseded by E16)
+
+**Superseded 2026-11-11:** Training now uses explicitly started named sessions
+with session-scoped practice and reports (E16/O3). The following was the
+original V1 decision and remains only as decision history.
 
 - Do **not** create manually managed Training Sessions.
 - Training is one continuous workspace with global attempt history.
@@ -3513,7 +3525,9 @@ until acknowledged; history remains available afterwards. Reports recalculate
 current associated attempts, corrections/deletions, raw/estimated statistics,
 per-case results, duration and matched-case historical improvement using the
 captured policy and visit cutoff. Insufficient history/legacy policy are explicit.
-There are no manually managed Training Sessions or ordinary solve reports.
+There are no manually managed Training Sessions or ordinary solve reports in
+this legacy visit description. This is superseded by E16: named Training
+sessions are now implemented.
 
 **File inventory for Phase 4:**
 
@@ -4073,10 +4087,10 @@ remaining rows are unresolved; do not present them as finalized.
 | F5 | Training cloud-sync inclusion in V1 | Phase 0 recommended local + native backup and deferring Drive sync | Owner decision; if included, design retention/tombstones/size/sync protocol |
 | F6 | Calibration reference-state fidelity | **RESOLVED 2026-11-09 (E11)** — fixed inverse precursor setup from solved, time precursor only, exactly seven positive valid samples/median; no random AUF/cases | Future UI must preserve this protocol |
 | F7 | Reuse `cubing.js` directly vs specialized cubie model | **RESOLVED 2026-11-08** — thin CubeLab wrapper over the `cubing.js` 3x3x3 KPuzzle/KPattern; no second simulator (E5) | None for Phase 1. Re-run Phase 1 coverage if the cubing.js definition/API changes |
-| F8 | Calibration activation and renewal | **RESOLVED 2026-11-09 (E11)** — mandatory initial recognition calibration per set, optional due renewal by default, shared forced-renewal toggle OFF, captured thresholds, deletion-safe counters; explicit missing/invalid/below/DNF states | Application/timer integration remains future work |
+| F8 | Calibration activation and renewal | **RESOLVED 2026-11-09 (E11)** — mandatory initial recognition calibration per set, optional due renewal by default, shared forced-renewal toggle OFF, captured thresholds, deletion-safe counters; explicit missing/invalid/below/DNF states | Application/timer integration was subsequently implemented in E12/E16; retained as decision history |
 | F9 | Report baselines and trimming | **RESOLVED 2026-11-09 (E11)** — configurable previous X days/attempts (90 days default); case/category matching, explicit insufficient history, 5% symmetric ceiling trimming; recalculated reports with captured policy | Descriptive comparisons with explicit matched coverage; no significance claim |
 | F10 | Training data retention/size policy | Raw attempts can pressure localStorage/10 MB backup cap | Decide retention/aggregation/separate export before cloud sync |
-| F11 | Training inspection/penalties | **RESOLVED 2026-11-09 (E11)** — no inspection or +2; successful raw duration or DNF; exclude DNFs from successful metrics | Future manual DNF UI and shared timer bypass must be implemented/tested |
+| F11 | Training inspection/penalties | **RESOLVED 2026-11-09 (E11)** — no inspection or +2; successful raw duration or DNF; exclude DNFs from successful metrics | Manual DNF UI and shared-timer integration were subsequently implemented and tested in E12/E16 |
 | F12 | Redistribution rights for the approved Heroor OLL and Tao PLL algorithm data | **OWNER GATE REMOVED 2026-11-10; THIRD-PARTY PERMISSION STILL UNESTABLISHED.** Heroor has a README-only MIT claim and no LICENSE file; Tao has an MIT software license but credits AlgDb for other algorithms. E13 bundles only the 78 owner-approved functional sequences as an independently assembled catalog, records source provenance, and asserts no third-party redistribution licence. This is a risk-reduction approach, not a grant of rights (see E13.2) | Obtain written permission or legal review if broader redistribution is required; retain provenance/attribution and do not add the 37 extra variants without separate authorization |
 | F13 | Exact OLL 56 default and renewed verification | **RESOLVED 2026-11-08 (E9)** — owner explicitly approved B, `r U r' (U R U' R')2 r U' r'`; it verifies as OLL 56 `1212\|1010` with F2L preserved. Earlier A/D break F2L; historical C solves OLL 54. Earlier approvals and the transcription error remain preserved in E8/E9 | None for the OLL 56 default. Keep the superseded strings only as history; do not reintroduce them |
 
@@ -4230,7 +4244,8 @@ string B (E9), and both finalized OLL/PLL diagram designs. The complete 57 OLL +
 diagram generator, and all **78 static SVGs** are implemented. The ten approved
 preview assets are byte-identical after full generation. Algorithm-data
 redistribution rights remain unresolved (F12), so algorithm records stay
-unbundled. Phases 3A/3B are complete (E10/E11); Phase 4 has not started.
+unbundled. Phases 3A/3B are complete (E10/E11). This is a Phase 2 checkpoint;
+Phase 4 and the subsequent O1–O8 overhaul were implemented later (E12/E16).
 
 **Phase 2A completed scope**
 
@@ -4322,9 +4337,10 @@ are bundled; no missing/incorrect case may silently ship.
 
 **Phase 3A is COMPLETE (E10); Phase 3B is COMPLETE (E11).** Records,
 checked local persistence and pure calibration/statistics/visit/report decisions
-are implemented. No app-mounted `useTraining` or browser orchestration exists;
-those portions of the original scope below remain future work. Stop after 3B;
-Phase 4 needs a subsequent explicit request.
+are implemented. This Phase 3 checkpoint predates the app-mounted
+`useTraining`/`TrainingPage` work; those were subsequently implemented in E12
+and E16, and Phase 4 plus O1–O8 are complete. The original scope below is
+retained as history.
 
 **Purpose/scope**
 
@@ -4547,6 +4563,10 @@ unlicensed content, and no silent data loss.
 
 ### Dependency order
 
+> **Superseded dependency plan.** Phase 4 and overhaul O1–O8 are complete; the
+> later phases below are retained as the original sequence and are not a
+> current task list.
+
 ```text
 Phase 0 (complete)
   -> Pre-Phase 1 (complete)
@@ -4573,7 +4593,14 @@ and data integration/recovery gates are complete.
 
 ---
 
-## H. Current repository status
+## H. Historical repository status (2026-11-08)
+
+**Current (2026-11-18):** branch `master`, HEAD `562b4f7`, with no pre-existing
+working-tree changes before the documentation/environment audit. The onboarding
+and Training implementation described below is committed in the current
+baseline. Current setup guidance is in
+[docs/development/ARCH_LINUX.md](../../docs/development/ARCH_LINUX.md).
+See [STATUS.md](../../STATUS.md) for current verification.
 
 **As inspected on 2026-11-08:**
 
@@ -4583,9 +4610,10 @@ and data integration/recovery gates are complete.
 - **origin/master:** same commit, `0 ahead / 0 behind`
 - **Working tree:** dirty. Do not assume a clean checkout.
 
-### Pre-existing uncommitted onboarding work
+### Historical pre-existing onboarding work (2026-11-08)
 
-Before this documentation task, `git status --porcelain` reported:
+At the 2026-11-08 snapshot, before that documentation task,
+`git status --porcelain` reported:
 
 **Modified:**
 
@@ -4722,14 +4750,15 @@ unresolved; no algorithm records, Phase 3, commit, push, deploy or publication.
 
 ### Risks associated with ongoing onboarding development
 
-- The onboarding implementation is **uncommitted**. It touches core application
-  wiring (`App.tsx`, `bootstrap.tsx`), settings, backup, sync, CSS, tests, and
-  docs. Do not revert, overwrite, or assume the `origin/master` versions of these
-  files.
+- At the 2026-11-08 snapshot, the onboarding implementation was **uncommitted**.
+  It touched core application wiring (`App.tsx`, `bootstrap.tsx`), settings,
+  backup, sync, CSS, tests, and docs. It is committed in the current baseline
+  (`562b4f7`); preserve current changes rather than reverting to that snapshot.
 - Training integration must inspect the current working-tree files, not just the
   committed baseline.
-- `e2e/storage-state.json` is an untracked test artifact. Preserve it unless the
-  owner explicitly authorizes cleanup.
+- At the 2026-11-08 snapshot, `e2e/storage-state.json` was an untracked test
+  artifact; it is tracked in the current baseline. Preserve it unless the owner
+  explicitly authorizes cleanup.
 - Existing unrelated changes must remain intact throughout Training work.
 - `STATUS.md` records onboarding verification; that record is not re-run by this
   training task. Do not claim full-suite verification for Training or onboarding
@@ -4816,7 +4845,8 @@ preview assets remained byte-identical; the full collection was visually reviewe
 at 128/64 px on light and dark. No third-party algorithms or diagrams were
 copied. Full evidence is in E9.15. E9.16 subsequently lengthens corner arrows and removes the prior
 Gb/Gd head-overlap exception; edge geometry and OLL stay unchanged. F12 still blocks algorithm
-records and alternatives. Phases 3A/3B are complete (E10/E11); Phase 4 has not started.
+records and alternatives. Phases 3A/3B were complete at this checkpoint;
+Phase 4 and O1–O8 were subsequently implemented (E12/E16).
 
 ### Phases 3A and 3B — COMPLETE (2026-11-09)
 

@@ -1,5 +1,10 @@
 # CubeLab Training redesign delivery
 
+> **Historical delivery record (2026-11-11).** The E15 redesign is implemented
+> and committed in the current baseline. “Working tree” below describes the
+> delivery-time checkout, not the current git state. Current Training status is
+> in [CURRENT_STATUS.md](../CURRENT_STATUS.md).
+
 ## A. Implementation summary
 
 The five approved stages are implemented. Training now shares Timer's sidebar
@@ -123,9 +128,10 @@ suites were outside this pass. The benchmark has no paired pre-redesign
 production trace. Users can deliberately position a floating desktop panel over
 the digits. Long-history validation and save cost remain visible in the profile.
 
-## L. Working tree
+## L. Working tree at delivery time
 
-The changes are local to Training presentation, its controller and tests, the
-shared workspace components, and the delivery evidence. Existing onboarding
-and other working changes were preserved. No commit, push, deployment or
-publication was made.
+At delivery time, the changes were local to Training presentation, its
+controller and tests, the shared workspace components, and the delivery
+evidence. Existing onboarding and other working changes were preserved. No
+commit, push, deployment or publication was made at that checkpoint; the work is
+committed in the current baseline.

@@ -1,25 +1,27 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-07 against the implementation and the latest recorded
+**Reviewed:** 2026-11-18 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
 
 ## Layout and performance
 
-- **Floating tools overlay the timer.** Tool panels no longer participate in the
-  readout's layout, so opening, dragging, resizing, or switching tools cannot move
-  the timer. A panel deliberately dragged over the digits can still cover them;
-  the layout tests verify position stability, not every possible occlusion.
+- **Floating tools avoid the readout when space permits.** Tool panels do not
+  participate in the readout's layout, so opening, dragging, resizing, or
+  switching tools cannot move the timer. Ordinary panels are moved to the nearest
+  clear side when a saved or released position overlaps the timer display. On a
+  stage too small to fit the panel beside the readout, overlap can still occur;
+  the tests cover the normal desktop and compact layouts.
 - **3D viewer lifecycle is fixed for the shared-renderer path.** The player is
   retained across navigation, tool switching and event changes, so repeated
   Timer/Analytics round trips no longer create additional vantages or enter the
-  shared renderer path. A red/blue channel swap in that path was reported on Zen,
-  but was not reproduced on Playwright Chromium 152 or Firefox 157; the new
+  shared renderer path. A red/blue channel swap in that path was reported on
+  Zen Browser, but was not reproduced on Playwright Chromium 152 or Firefox 157; the new
   regression compares rendered sticker colors across five round trips in both
   engines.
 - **Stop performance evidence is limited.** Historical measurements used 7,000
-  synthetic solves, sync/audio off and isolated Firefox/Chromium. Actual Zen,
+  synthetic solves, sync/audio off and isolated Firefox/Chromium. Zen Browser,
   enabled sync, 10,000 solves and physical display latency were not established.
   Chart/statistics completion can lag the first stopped result.
 - **Session total time is a rounded hour display.** Completed sessions show
@@ -385,9 +387,24 @@ These are current boundaries; dated repair details are in the
   Offline coverage is scoped to the supported Chromium project. Non-cube player
   checks establish puzzle IDs/initialization, not every rendered pixel. README
   describes existing engine-specific skips.
+- **Arch browser coverage is focused, not a full official matrix.** Playwright
+  reports Arch as unsupported and uses Ubuntu 24.04 fallback builds. Chromium
+  156 passed onboarding/accessibility and the installed-app offline case;
+  Firefox 157 passed 15/15 onboarding/accessibility cases; WebKit 27.2 passed
+  15/15 only after providing isolated ICU 74, legacy libxml2 and Flite
+  compatibility libraries and skipping host validation. WebKit may expect other
+  older sonames (for example libvpx 9 and libavcodec 60) in broader flows.
+  `npm run test:e2e` and `npm run check` select all three projects by default;
+  use focused `--project=...` commands. This is not official Playwright support
+  for Arch or a full three-engine matrix.
 - **Build advisory needs rechecking before action.** The October 30 record found
   `GHSA-gcqx-w48m-w2h4` through `vite-plugin-pwa → workbox-build →
   @rollup/plugin-node-resolve → deepmerge@4.3.1`. It concerned build tooling;
   the proposed forced downgrade broke the offline pipeline. This is a dated
   dependency observation, not a current upstream-status claim. Recheck before
   selecting a compatible fix; do not force-install a breaking downgrade.
+- **Development dependency advisories remain.** The 2026-11-18 `npm ci` audit
+  reported four development-only moderate advisories and zero production
+  advisories. The existing lockfile was used and no dependency version changed
+  in the environment audit. Recheck the advisories before choosing a compatible
+  update.

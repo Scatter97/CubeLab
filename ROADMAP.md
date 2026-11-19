@@ -1,7 +1,9 @@
 # CubeLab roadmap
 
-**Updated:** 2026-11-05. Current delivery/test evidence belongs in
+**Updated:** 2026-11-18. Current delivery/test evidence belongs in
 [STATUS.md](STATUS.md); risks belong in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
+The verified primary local development environment is Arch Linux with KDE
+Plasma on Wayland; see [docs/development/ARCH_LINUX.md](docs/development/ARCH_LINUX.md).
 The [previous detailed roadmap](docs/archive/ROADMAP.md) preserves completed
 phase checklists and historical acceptance gates.
 
@@ -12,26 +14,31 @@ require their existing authorization.
 
 ## Delivered baseline
 
-The timer, inspection, sessions, native backup, optional Drive sync, twelve
-events, themes, scramble tools, Time Trend/PB details, the Analytics dashboard,
-configurable trimming and csTimer import are implemented. Core phases 2A–4, theme polish, Phase 5 audit
-remediation and Phase 6a are delivered. The first stop-response patch and
-November 1 selection/import regression fixes are also implemented; remaining
-performance/platform follow-ups are below.
+The timer, inspection, named sessions, native backup, optional Drive sync,
+twelve built-in events plus custom events, first-run onboarding, themes,
+scramble tools, Time Trend/PB details, the Analytics dashboard, configurable
+trimming, csTimer import and the OLL/PLL Training workspace are implemented.
+Core phases 2A–4, theme polish, Phase 5 audit remediation and Phase 6a are
+delivered. The first stop-response patch and November 1 selection/import
+regression fixes are also implemented; remaining performance/platform
+follow-ups are below.
 
 ## Retained follow-ups
 
-1. **Verify floating-panel occlusion**, including moved/resized panels, narrow
-   screens, timing states and layout restored after reload. Timer placement is
-   now layout-independent; this follow-up covers visual overlap only.
+1. **Floating-panel occlusion** — auto-avoid implemented 2026-11-19 for saved and
+   released panel positions, including reload. Retain visual confirmation at
+   narrow/short edge sizes where no clear side exists.
 2. **Profile large-history performance** at 7,000–10,000 solves, with sync on/off,
-   charts open/closed, both stop inputs, actual Zen when available and production
-   preview. Separate first-result response, chart completion and storage cost.
+   charts open/closed, both stop inputs, Zen Browser when available and
+   production preview. Separate first-result response, chart completion and storage cost.
 3. **Optimize the measured bottlenecks** in hashing, statistics and charts while
    preserving recording, durability, exact pending/in-flight detection and cache
    invalidation after edits, deletion/Undo, imports, session and trimming changes.
 4. **Design incremental storage separately**, including migration, crash recovery,
-   failure and cross-tab safety, before replacing whole-collection writes.
+   failure and cross-tab safety, before replacing whole-collection writes. The
+   reviewable design is in
+   [docs/development/INCREMENTAL_STORAGE_DESIGN.md](docs/development/INCREMENTAL_STORAGE_DESIGN.md);
+   implementation still requires separate approval.
 5. **Complete external validation**: owner-dependent OAuth, explicitly authorized
    live Drive, physical devices/assistive technology, and a recheck of the dated
    build dependency advisory before choosing a compatible fix.

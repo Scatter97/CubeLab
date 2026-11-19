@@ -230,7 +230,7 @@ function writeReport(result, outputDir) {
         '- [J Perm OLL](https://jperm.net/algs/oll), [OLL definition script](https://jperm.net/lib/oll.js?v=20190924-1156)',
         '- [J Perm PLL](https://jperm.net/algs/pll), [PLL definition script](https://jperm.net/lib/pll.js?v=20190924-1156)',
         '- [Speedsolving OLL](https://www.speedsolving.com/wiki/index.php/OLL), [SpeedCubeDB OLL 56](https://www.speedcubedb.com/a/3x3/OLL/OLL_56)',
-        '- Reproduce: Node 22.23.2; download the two public J Perm definition scripts to /tmp/audit-ref-oll.js and /tmp/audit-ref-pll.js; run node scripts/audit-training.mjs from the checkout. Optional CUBELAB_AUDIT_REFERENCE_DIR and CUBELAB_AUDIT_OUTPUT_DIR change transient input/output directories. Local source clones are read from ~/heroor-cfop and ~/tao-alg-trainer. No dependencies are installed.',
+        '- Reproduce: Node 22.22.2+ in the 22.x line, 24.15+, or 26+; download the two public J Perm definition scripts to /tmp/audit-ref-oll.js and /tmp/audit-ref-pll.js; run node scripts/audit-training.mjs from the checkout. Optional CUBELAB_AUDIT_REFERENCE_DIR and CUBELAB_AUDIT_OUTPUT_DIR change transient input/output directories. Local source clones are read from ~/heroor-cfop and ~/tao-alg-trainer. No dependencies are installed.',
         '- Source revisions: Heroor e1cba6995f3ff27732ac18c767e7e9ca1343f13a; Tao cb95945c3e4839ee1e4b058d4a79bc022615b220 (confirm against clones when reproducing).',
         '',
         'SHA-256 input snapshots:',

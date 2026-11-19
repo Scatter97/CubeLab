@@ -1,8 +1,8 @@
-import { createServer } from '/home/joshua/cube-lab/node_modules/vite/dist/node/index.js'
+import { createServer } from '/home/joshua/Projects/CubeLab/node_modules/vite/dist/node/index.js'
 import assert from 'node:assert/strict'
 
 const app = await createServer({
-  root: '/home/joshua/cube-lab', configFile: false,
+  root: '/home/joshua/Projects/CubeLab', configFile: false,
   cacheDir: '/tmp/cubelab-training-audit-vite-cache',
   server: { middlewareMode: true, hmr: false, ws: false, watch: null },
 })

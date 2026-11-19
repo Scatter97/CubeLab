@@ -182,7 +182,8 @@ block writing this plan or starting the foundation once requested.
 
 ## Verification and handoff
 
-- Use Node 22.23.2 and the repository's existing dependencies. Use synthetic
+- Use a supported Node release (22.22.2+ in the 22.x line, 24.15+, or 26+)
+  and the repository's existing dependencies. Use synthetic
   fixtures, isolated browser contexts and mock Drive for browser verification.
   Run typecheck, lint and affected Vitest tests after behavior changes.
 - Start with focused tests beside `visits`, `controller`, `storage`,

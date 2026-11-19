@@ -16,7 +16,9 @@ import { getEventDefinition, getEventLabel, isCustomEventId } from '../lib/event
 import {
   TOOL_PANEL_MIN_HEIGHT,
   TOOL_PANEL_MIN_WIDTH,
+  avoidTimerOverlap,
   clampToolPanelLayout,
+  type PanelRect,
   type StageSize,
   type ToolPanelLayout,
 } from '../lib/toolPanelLayout'
@@ -237,6 +239,7 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
   const interactionRef = useRef<InteractionState | null>(null)
   const { layout, setLayout, persist } = useToolPanelLayout(panelId ? `cubelab:${panelId}:layout:v1` : undefined)
   const [stageBounds, setStageBounds] = useState<StageSize | null>(null)
+  const [timerBounds, setTimerBounds] = useState<PanelRect | null>(null)
   const [dragLayout, setDragLayout] = useState<ToolPanelLayout | null>(null)
   const [interaction, setInteraction] = useState<InteractionMode | null>(null)
   const [ghostPortalContainer, setGhostPortalContainer] = useState<HTMLElement | null>(null)
@@ -288,6 +291,30 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
       if (previous && (previous.width !== size.width || previous.height !== size.height ||
         getComputedStyle(panelRef.current!).position !== 'absolute')) cancelInteraction()
       setStageBounds(current => current?.width === size.width && current.height === size.height ? current : size)
+
+      const display = stage.querySelector<HTMLElement>('[data-testid="timer-display"]')
+      if (!display) {
+        setTimerBounds(null)
+        return
+      }
+      const stageRect = stage.getBoundingClientRect()
+      const displayRect = display.getBoundingClientRect()
+      const next = {
+        x: displayRect.left - stageRect.left,
+        y: displayRect.top - stageRect.top,
+        width: displayRect.width,
+        height: displayRect.height,
+      }
+      if (next.width <= 0 || next.height <= 0) {
+        setTimerBounds(null)
+        return
+      }
+      setTimerBounds(current =>
+        current && current.x === next.x && current.y === next.y &&
+        current.width === next.width && current.height === next.height
+          ? current
+          : next,
+      )
     }
     measure()
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
@@ -300,7 +327,9 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
   }, [cancelInteraction, stageSize])
 
   // A constrained viewport projects the preferred layout without replacing it.
-  const projected = layout && stageBounds ? clampToolPanelLayout(layout, stageBounds) : layout
+  const projected = layout && stageBounds
+    ? avoidTimerOverlap(layout, stageBounds, panelId ? null : timerBounds)
+    : layout
   const renderedLayout = dragLayout ?? projected
   const beginInteraction = useCallback(
     (mode: InteractionMode) => (event: ReactPointerEvent<HTMLElement>) => {
@@ -404,13 +433,18 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
       if (!state || state.pointerId !== event.pointerId) return
       cancelInteraction()
       try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* noop */ }
-      if (state.latest.x !== state.origin.x || state.latest.y !== state.origin.y ||
-        state.latest.width !== state.origin.width || state.latest.height !== state.origin.height) {
-        setLayout(state.latest)
-        persist(state.latest)
+      const finalLayout = avoidTimerOverlap(
+        state.latest,
+        state.stage,
+        panelId ? null : timerBounds,
+      )
+      if (finalLayout.x !== state.origin.x || finalLayout.y !== state.origin.y ||
+        finalLayout.width !== state.origin.width || finalLayout.height !== state.origin.height) {
+        setLayout(finalLayout)
+        persist(finalLayout)
       }
     },
-    [cancelInteraction, setLayout, persist],
+    [cancelInteraction, panelId, persist, setLayout, timerBounds],
   )
 
   const cancelPointer = (event: ReactPointerEvent<HTMLElement>) => {

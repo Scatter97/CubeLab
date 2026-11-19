@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TOOL_PANEL_LAYOUT_STORAGE_KEY } from '../hooks/useToolPanelLayout'
 import * as cubeNet from '../lib/cubeNet'
@@ -213,6 +213,30 @@ describe('ToolPanel', () => {
     expect(
       JSON.parse(localStorage.getItem(TOOL_PANEL_LAYOUT_STORAGE_KEY) ?? '{}'),
     ).toMatchObject({ x: 40, y: 60 })
+  })
+
+  it('moves a saved panel off the timer display', async () => {
+    localStorage.setItem(
+      TOOL_PANEL_LAYOUT_STORAGE_KEY,
+      JSON.stringify({ x: 320, y: 170, width: 220, height: 240 }),
+    )
+    const { container } = render(<ToolPanel {...baseProps} />)
+    fakeStage(container, 800, 500)
+    const timer = document.createElement('div')
+    timer.dataset.testid = 'timer-display'
+    container.appendChild(timer)
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    } as DOMRect)
+    vi.spyOn(timer, 'getBoundingClientRect').mockReturnValue({
+      left: 300, top: 150, width: 200, height: 120,
+    } as DOMRect)
+
+    fireEvent(window, new Event('resize'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tool-panel').style.left).toBe('512px')
+    })
   })
 
   it('clamps a dragged panel inside the timer stage', () => {

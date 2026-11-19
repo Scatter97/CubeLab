@@ -1,7 +1,12 @@
 # CubeLab code and behavior audit
 
+> **Historical audit record (2026-11-07).** Retained as dated evidence. The
+> checkout path, commit and commands below are historical; use
+> [AGENTS.md](../AGENTS.md) and the
+> [Arch Linux guide](development/ARCH_LINUX.md) for current setup.
+
 **Date:** November 7, 2026 (America/Toronto)\
-**Reviewed checkout:** `/home/joshua/cube-lab`, branch `master`\
+**Reviewed checkout:** `/home/joshua/Projects/CubeLab`, branch `master`\
 **Commit:** `28f38d76fa052010d9f13d1a44495ab90026fac3`\
 **Repository:** [Scatter97/CubeLab](https://github.com/Scatter97/CubeLab)
 
@@ -51,10 +56,10 @@ npm run test:e2e -- e2e/timer.spec.ts --project=chromium --workers=1 --grep 'bac
 npm run test:e2e -- e2e/timer.spec.ts --project=chromium --workers=1 --grep 'backup export and import restore'
 ```
 
-Run the added probes from this chat's workspace, using Node 22.23.2 and the existing local dependencies:
+Run the added probes from this chat's workspace, using the Node 22.23.2 runtime that was current for this dated audit and the existing local dependencies:
 
 ```bash
-TZ=America/Toronto /home/joshua/cube-lab/node_modules/.bin/vitest run --config outputs/audit.config.mts --maxWorkers=1
+TZ=America/Toronto /home/joshua/Projects/CubeLab/node_modules/.bin/vitest run --config outputs/audit.config.mts --maxWorkers=1
 ```
 
 The supplied harness contains absolute paths to this machine. Adjust those paths if moving it elsewhere. Its storage clearing and injected failures affect its isolated jsdom environment, not browser history.

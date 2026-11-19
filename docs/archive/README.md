@@ -3,8 +3,10 @@
 These snapshots were preserved during the November 1, 2026 documentation
 consolidation. They record decisions and evidence; their old next-step lists,
 commands and approvals do not define the current task. Relative Markdown links
-were rebased for this directory. Future feature-phase proposals were subsequently
-removed at the user's request; delivered-work history and evidence remain.
+were rebased for this directory. Future feature-phase proposals were removed
+from current planning at the user's request; archived bodies may still describe
+them because they preserve their original text. Delivered-work history and
+evidence remain.
 
 For current guidance use [STATUS.md](../../STATUS.md),
 [AGENTS.md](../../AGENTS.md), [KNOWN_LIMITATIONS.md](../../KNOWN_LIMITATIONS.md)

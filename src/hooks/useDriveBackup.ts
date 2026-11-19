@@ -138,6 +138,12 @@ export function useDriveBackup({
     setError(null)
   }, [transport])
 
+  /**
+   * Legacy manual helpers. The Drive dialog no longer exposes manual backup or
+   * restore; synchronization is the user-facing path. These remain covered by
+   * the transport/conditional-write regressions until a replacement test owns
+   * the legacy mutable-file path.
+   */
   const backupNow = useCallback(async () => {
     if (!transport) return
     if (!connected) {

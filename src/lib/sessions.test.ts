@@ -28,7 +28,6 @@ import {
   restoreSolve,
   reconcileExternalSessions,
   setActiveSession,
-  setSessionEvent,
   setSessionInspection,
   setSessionPreferences,
   setSolveComment,
@@ -576,7 +575,7 @@ describe('session synchronization metadata', () => {
   it('stamps renamed, inspected, event, and preference fields independently', () => {
     const renamed = renameSession(data(), 'session-1', 'Practice', 10, 'laptop')!
     const inspected = setSessionInspection(renamed, 'session-1', true, 20, 'laptop')
-    const eventChanged = setSessionEvent(inspected, 'session-1', '222', 30, 'laptop')!
+    const eventChanged = reassignSessionsEvent(inspected, ['session-1'], '222', 30, 'laptop')!
     const preferred = setSessionPreferences(
       eventChanged,
       'session-1',

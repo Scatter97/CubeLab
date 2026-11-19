@@ -1,5 +1,10 @@
 # CubeLab — Full Analytics Page Implementation Plan
 
+> **Historical implementation plan (completed).** This document records the
+> November 2026 Analytics design and acceptance criteria. The dashboard is
+> implemented; current behavior is described in [README.md](README.md) and
+> [FEATURES.md](FEATURES.md), with verification in [STATUS.md](STATUS.md).
+
 ## Objective
 
 Build a dedicated, modern, high-performance Analytics page for CubeLab (React + TypeScript + Vite). It should provide comprehensive speedcubing statistics, interactive visualizations, historical progress tracking, and comparisons.

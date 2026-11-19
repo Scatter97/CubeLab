@@ -53,6 +53,8 @@ export function SingleTabGate({ children }: { children: ReactNode }) {
   if (ownership === 'active') return children
   const waiting = ownership === 'waiting'
   const unavailable = ownership === 'unavailable'
+  const locksAvailable = Boolean(navigator.locks)
+  const retryable = unavailable && locksAvailable
   return (
     <main
       className="startup-recovery"
@@ -66,13 +68,14 @@ export function SingleTabGate({ children }: { children: ReactNode }) {
           {waiting
             ? 'Another CubeLab tab or window is open in this browser. Close it and this tab will open automatically.'
             : unavailable
-              ? 'CubeLab could not safely check for another open tab. Try again, or use a browser that supports tab coordination.'
+              ? locksAvailable
+                ? 'CubeLab could not safely check for another open tab. Try again.'
+                : 'CubeLab requires the Web Locks API to coordinate tabs. This browser does not provide it.'
               : 'Checking for another open CubeLab tab…'}
         </p>
         {waiting ? <p>Your saved history will load when this tab opens.</p> : null}
-        {unavailable ? (
+        {retryable ? (
           <button type="button" className="primary-button" onClick={() => {
-            if (!navigator.locks) return
             setOwnership('checking')
             setAttempt((value) => value + 1)
           }}>

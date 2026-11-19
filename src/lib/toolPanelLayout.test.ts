@@ -3,6 +3,7 @@ import {
   TOOL_PANEL_GAP,
   TOOL_PANEL_MIN_HEIGHT,
   TOOL_PANEL_MIN_WIDTH,
+  avoidTimerOverlap,
   clampToolPanelLayout,
   defaultToolPanelLayout,
   parseToolPanelLayout,
@@ -86,6 +87,29 @@ describe('clampToolPanelLayout', () => {
         stage,
       ),
     ).toEqual({ x: 11, y: 20, width: 200, height: 241 })
+  })
+})
+
+describe('avoidTimerOverlap', () => {
+  const stage = { width: 800, height: 500 }
+  const timer = { x: 300, y: 150, width: 200, height: 120 }
+
+  it('leaves a panel outside the timer display untouched', () => {
+    expect(
+      avoidTimerOverlap({ x: 40, y: 30, width: 220, height: 240 }, stage, timer),
+    ).toEqual({ x: 40, y: 30, width: 220, height: 240 })
+  })
+
+  it('moves an overlapping panel to the nearest clear side', () => {
+    expect(
+      avoidTimerOverlap({ x: 320, y: 170, width: 220, height: 240 }, stage, timer),
+    ).toEqual({ x: 512, y: 170, width: 220, height: 240 })
+  })
+
+  it('allows panels without a measured timer to keep their layout', () => {
+    expect(
+      avoidTimerOverlap({ x: 320, y: 170, width: 220, height: 240 }, stage, null),
+    ).toEqual({ x: 320, y: 170, width: 220, height: 240 })
   })
 })
 
