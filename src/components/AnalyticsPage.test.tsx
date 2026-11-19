@@ -174,6 +174,47 @@ describe('AnalyticsPage', () => {
     expect(activity).toHaveBeenCalledTimes(1)
   })
 
+  it('shares one prepared rolling-series build across the averages views', () => {
+    const trend = vi.spyOn(analytics, 'buildAnalyticsTrend')
+    const rebuild = vi.spyOn(analytics, 'buildAnalyticsAverages')
+    const renderWith = (settings: Settings) => (
+      <AnalyticsPage
+        sessions={sessions}
+        initialEvent="333"
+        settings={settings}
+        onChange={() => {}}
+      />
+    )
+    const view = render(renderWith(DEFAULT_SETTINGS))
+
+    // One prepared build carries the five standard series for the overview
+    // and every analysis view; nothing rebuilds rolling averages.
+    expect(trend).toHaveBeenCalledTimes(1)
+    expect(trend.mock.calls[0]?.[1]).toEqual([5, 12, 50, 100, 1_000])
+    expect(rebuild).not.toHaveBeenCalled()
+
+    selectAnalysis('Average progression')
+    expect(rebuild).not.toHaveBeenCalled()
+    selectAnalysis('Historical personal bests')
+    expect(rebuild).not.toHaveBeenCalled()
+    selectAnalysis('Time progression')
+    fireEvent.click(screen.getByRole('button', { name: 'ao100' }))
+    expect(rebuild).not.toHaveBeenCalled()
+    expect(screen.getByTestId('analytics-progression')).toBeVisible()
+
+    // Changing a trimming rule invalidates the prepared result exactly once;
+    // views keep consuming the refreshed series.
+    view.rerender(
+      renderWith({ ...DEFAULT_SETTINGS, averageTrimBetter: '0' }),
+    )
+    expect(trend).toHaveBeenCalledTimes(2)
+    expect(rebuild).not.toHaveBeenCalled()
+
+    view.unmount()
+    trend.mockRestore()
+    rebuild.mockRestore()
+  })
+
   it('refreshes relative filters and the current streak at local midnight', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(NOW))

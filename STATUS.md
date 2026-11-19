@@ -5,6 +5,92 @@ and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
 
+## Persistence and Analytics performance pass — 2026-11-19
+
+Two focused simplifications landed, plus a measured follow-up map for Drive
+sync and startup. All figures below use deterministic synthetic histories of
+7,000 and 10,000 solves across 20 sessions (same fixture and runtime for the
+before/after paths, 21 samples, median reported; jsdom/Node observations, not
+browser thresholds).
+
+- **Single session serialization per save.** `persistSessions` previously
+  serialized twice (once inside `saveSessions`, once to track the written
+  bytes). `saveSessionsSerialized` now serializes once and returns the exact
+  bytes storage holds; the persist path tracks that string. The boolean
+  `saveSessions` contract, storage format, write count (one per save), save
+  timing, replacement-journal checks, pending-completion buffering and
+  write-failure handling are unchanged.
+  Measurements: at 10,000 solves (1.48 MB payload) the persist path dropped
+  from 5.5 ms to 2.8 ms median; a single serialization is 4.0 ms; 7,000 solves
+  (1.03 MB) dropped from 3.1 ms to 1.2 ms. Storage writes stay at exactly one
+  `setItem` per save in both paths. The audit's 16.7→8.3 ms reference is the
+  same shape on a different fixture.
+- **One prepared rolling-series build for Analytics.** The page-level trend
+  now carries the ao5/ao12/ao50/ao100/ao1000 series; the overview and the
+  Progression/Averages/Personal-bests views consume the prepared result
+  instead of rebuilding subsets. Overview preparation cost is unchanged
+  (16.1→15.8 ms at 10,000), while per-view extra work dropped from
+  12.7 ms to ~0.0 ms (Averages), 5.7 ms to 0.3 ms (Progression) and 6.2 ms to
+  0.3 ms (Personal bests). Current/best values, DNF handling and chart output
+  are byte-identical (equivalence is asserted by the new regressions and the
+  existing Chromium suites). Edits, deletion/Undo, imports, filter changes and
+  either trimming change still invalidate through the shared
+  `filtered`→`trend` memos; a trimming change rebuilds exactly once.
+- **Drive sync fingerprint trace (measurement only).** After one solve with
+  sync enabled, the pending-state memo fingerprints the changed collection
+  exactly once (0 on unchanged re-renders). One sync run then performs six
+  full traversals of the same 10,000-solve state: `startFingerprint`, four
+  `isLocalUnchanged` boundary checks (after the remote read, before upload,
+  immediately before the remote write, after it) and `mergedFingerprint` —
+  five of the six repeat an input already fingerprinted that tick. At
+  10,000 solves each traversal is ~14.7 ms median (10.1 ms at 7,000), so a
+  no-change run spends ~74 ms of redundant main-thread work; a repeat run
+  measured 11 calls. Next step if approved: an identity-checked memo inside
+  the run (WeakMap on the sessions/settings references) without changing any
+  boundary semantics.
+- **Startup cubing chunk (measurement only).** The production entry
+  (612 kB) statically imports the 1,829 kB cubing chunk (gzip 500 kB) —
+  verified in `dist/assets`: `import{…KPattern…}from"./cubing-*.js"`, with
+  exactly one `new KPattern(…)` use, reached from `App.tsx → useTraining →
+  TrainingController → runtime → training/cube3`. A fresh-context Chromium
+  load of the production preview requests the chunk at +172 ms with no
+  interaction and finishes at +462 ms; domContentLoaded lands at +559 ms and
+  the timer surface at ~607 ms median (n=5). The first official scramble
+  already loads the same chunk lazily via `scramble.ts`, and the PWA
+  precaches it, so deferring Training's module-level `KPattern` (its only
+  value uses sit inside already-async `loadCube3Model` flows, which already
+  dynamically import `cubing/puzzles`) would move ~500 KB off the startup
+  critical path without delaying the first scramble. Worker chunking,
+  fingerprint semantics and storage architecture were deliberately left
+  unchanged in this pass.
+
+Verification (final tree, after the temporary benchmark harness was removed):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; only the pre-existing App.tsx ref warnings
+npm run build            # passed; restored normal output after mock-Drive runs
+npx vitest run src/lib/storage.test.ts src/hooks/useSessions.test.ts src/lib/pendingCompletion.test.ts \
+  src/lib/startupDataSafety.test.tsx src/hooks/useSync.test.ts src/hooks/useDurableReplacement.test.ts \
+  src/lib/training/storage.test.ts src/lib/analytics.test.ts src/lib/analyticsSettings.test.ts \
+  src/components/AnalyticsPage.test.tsx src/lib/stats.test.ts src/lib/timeTrend.test.ts \
+  src/lib/sessionTransfers.test.ts    # 317 passed
+CI=1 npm run test:e2e -- e2e/timer-response.spec.ts e2e/analytics.spec.ts e2e/average-trimming.spec.ts \
+  --project=chromium --workers=4 --retries=0    # 19 passed (7,000-solve stop regression, 10,000-solve Analytics)
+CI=1 npm run test:e2e -- e2e/session-management.spec.ts e2e/timer.spec.ts --project=chromium --workers=4 \
+  --retries=0 --grep "final storage write fails|deletion record or collection cannot be saved|Clear Session when deletion intent|clear intent when the empty collection|blocks Undo before changing deletion intent|merge or split storage writes fail|solve menu handles penalties|named sessions create, switch, rename, delete, and persist|backup export and import restore"
+# 9 passed (save failures, recovery, deletion/Undo, import/restore)
+git diff --check       # passed
+```
+
+New regressions: `saveSessionsSerialized` returns the exact stored bytes and
+writes nothing on failure; a successful save tracks its own bytes so the next
+save is not buffered as an external candidate; Analytics sections must consume
+one prepared five-series build and a trimming change must invalidate it
+exactly once. Not measured here: browser stop-response with enabled sync,
+live Drive, physical devices, and multi-engine (Firefox/WebKit) runs; the
+full Playwright suite was not rerun. No commit or push was made.
+
 ## Audit follow-ups — 2026-11-19
 
 Applied the retained follow-ups from the migration audit:
