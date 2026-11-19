@@ -1,6 +1,11 @@
 # CubeLab C1–C3 repair plan
 
-Date: 2026-11-07. Repository: `/home/joshua/cube-lab`.
+> **Historical repair record (2026-11-07).** Implemented and verified; retained
+> as dated evidence. The checkout path and Node/nvm commands below are not
+> current setup instructions. See [AGENTS.md](../AGENTS.md) and the
+> [Arch Linux guide](development/ARCH_LINUX.md).
+
+Date: 2026-11-07. Repository: `/home/joshua/Projects/CubeLab`.
 Status: implemented and verified; see the C1–C3 section in [STATUS.md](../STATUS.md).
 
 ## Scope and evidence
@@ -85,7 +90,7 @@ Repair requirements:
 Write the failing regressions first, then repair C1, repair C2 across its callers, and apply C3. C1 provides safe replay for the C2 integration. Run focused tests during work; finish with the following checks once the final source is ready. Keep separate browser suites sequential.
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
+# Historical Node 22.23.2 environment; see AGENTS.md for current setup.
 npm run typecheck
 npm run lint
 npm test

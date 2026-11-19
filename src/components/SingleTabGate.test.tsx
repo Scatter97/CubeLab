@@ -33,6 +33,8 @@ it('does not mount recovery/application content when coordination is unavailable
   render(<SingleTabGate><div>Editable app</div></SingleTabGate>)
   await screen.findByTestId('single-tab-unavailable')
   expect(screen.queryByText('Editable app')).toBeNull()
+  expect(screen.getByText(/requires the Web Locks API/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
 })
 
 it('retries rejected requests', async () => {

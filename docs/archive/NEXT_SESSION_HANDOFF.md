@@ -167,8 +167,8 @@ former future feature-phase proposals have been removed.
 
 ## Reproduction and delivery commands
 
-Use Node 22+; the installed validation runtime is
-`/home/joshua/.nvm/versions/node/v22.23.2/bin/node`.
+Use Node 22+; the dated validation runtime was a Node 22.23.2 nvm
+installation. Current setup is in `AGENTS.md`.
 
 ```bash
 npm run dev

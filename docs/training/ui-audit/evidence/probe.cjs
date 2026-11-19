@@ -1,4 +1,4 @@
-const { chromium, expect } = require('/home/joshua/cube-lab/node_modules/@playwright/test');
+const { chromium, expect } = require('/home/joshua/Projects/CubeLab/node_modules/@playwright/test');
 const fs = require('node:fs');
 const out = '/tmp/cubelab-training-ui-evidence';
 const url = 'http://127.0.0.1:5179/';

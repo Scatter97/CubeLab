@@ -1,7 +1,12 @@
 # CubeLab recovery-journal fix plan
 
+> **Historical repair record (2026-11-07).** Retained as dated evidence. The
+> checkout path and baseline below are not current setup instructions. See
+> [AGENTS.md](../AGENTS.md) and the
+> [Arch Linux guide](development/ARCH_LINUX.md).
+
 **Prepared:** November 7, 2026\
-**Repository:** `/home/joshua/cube-lab`\
+**Repository:** `/home/joshua/Projects/CubeLab`\
 **Baseline:** Current uncommitted B1–B8 and F1–F4 repairs on `master`.
 
 ## Objective

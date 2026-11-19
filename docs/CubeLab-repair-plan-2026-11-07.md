@@ -1,7 +1,12 @@
 # CubeLab deletion-safety repair plan
 
+> **Historical repair record (2026-11-07).** Retained as dated evidence. The
+> checkout path, baseline and commands below are not current setup instructions.
+> See [AGENTS.md](../AGENTS.md) and the
+> [Arch Linux guide](development/ARCH_LINUX.md).
+
 **Prepared:** November 7, 2026\
-**Checkout:** `/home/joshua/cube-lab`\
+**Checkout:** `/home/joshua/Projects/CubeLab`\
 **Baseline:** `master` at `28f38d76fa052010d9f13d1a44495ab90026fac3`, plus the existing uncommitted B1–B8 repairs.
 
 ## Objective and scope

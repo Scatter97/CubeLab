@@ -1,4 +1,4 @@
-const { chromium } = require('/home/joshua/cube-lab/node_modules/@playwright/test')
+const { chromium } = require('/home/joshua/Projects/CubeLab/node_modules/@playwright/test')
 ;(async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox'] })
   for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {

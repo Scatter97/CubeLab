@@ -1,9 +1,115 @@
 # CubeLab status
 
-**Updated:** 2026-11-11. This is the current implementation/verification record
+**Updated:** 2026-11-19. This is the current implementation/verification record
 and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
+
+## Audit follow-ups — 2026-11-19
+
+Applied the retained follow-ups from the migration audit:
+
+- Floating Draw Scramble/Time Trend panels now move to the nearest clear side
+  when a saved or released position would cover the timer display, with pure
+  geometry and browser regressions.
+- Firefox 157 and WebKit 27.2 passed the focused onboarding/accessibility suites.
+  WebKit required isolated ICU 74, legacy libxml2 and Flite compatibility
+  libraries plus host-validation skipping; this is recorded as a compatibility
+  path, not official Arch support.
+- Headed Chromium 156 loaded the real timer on a nested KWin Wayland virtual
+  display at 1360×860.
+- The misleading Web Lock retry was removed when Web Locks are unavailable, and
+  the duplicate unused `setSessionEvent` helper was removed.
+- Added [incremental storage design](docs/development/INCREMENTAL_STORAGE_DESIGN.md).
+- Re-downloaded the pinned Heroor/Tao audit sources and J Perm references; the
+  audit reproduced 77/78 passing defaults with only the known OLL 56 exception.
+- Historical records now use the current checkout path; stale nvm PATH commands
+  were replaced with dated notes.
+- A 10,000-solve pure analytics benchmark measured 61.7 ms total; no new cache was
+  justified. Browser/chart/sync profiling remains open.
+
+Verification: typecheck, lint (existing warnings), 103 Vitest files / 1,341
+executed tests, production/PWA build, Chromium draw-scramble 15/15, single-tab
+5/5, Firefox onboarding/accessibility 15/15, WebKit 15/15, and the headed nested
+Wayland timer smoke. The audit did not commit or push; the delivery commit is
+recorded in Git history.
+
+## Arch Linux environment audit — 2026-11-18
+
+Primary local development moved from Ubuntu/Zorin OS to Arch Linux rolling. The
+verified desktop is KDE Plasma 6.8.3 with KWin on Wayland and systemd 262. The
+verified toolchain is the official `nodejs` 26.13.1 and `npm` 12.2.2 from
+`/usr/bin`; the previously documented
+`~/.nvm/versions/node/v22.23.2` path does not exist on this machine. Current
+instructions use the toolchain-supported Node range (22.22.2+ in the 22.x line,
+24.15+, or 26+) with no nvm prefix, and `package.json` now records that
+intersection instead of the old `>=22.0.0` floor. Historical entries below retain
+their dated Node 22.23.2 commands and results as evidence.
+
+Added [the Arch Linux development guide](docs/development/ARCH_LINUX.md) with
+official repository packages, Playwright Chromium installation and Arch system
+libraries, KDE Plasma/Wayland behavior, troubleshooting, and the verified
+Chromium test path. README, AGENTS, FEATURES, ROADMAP and KNOWN_LIMITATIONS now
+link to or reflect that environment. Training status/memory and dated repair
+records were labeled historical or superseded where they conflicted with the
+committed O1–O8 implementation; no Training code changed. Remaining current
+claims were reconciled with source (Settings sections, heatmap window, split
+range, reset cookie scope and release example). No application runtime source,
+dependency version, production behavior, storage schema or user data changed. The only manifest change is the `engines.node` range, which now
+records the locked toolchain's actual support instead of `>=22.0.0`; the one-off
+Training audit script's reproduction note now uses a supported Node release.
+
+Verification:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run test:e2e -- e2e/onboarding.spec.ts e2e/accessibility.spec.ts --project=chromium --workers=4
+npm run test:e2e -- e2e/onboarding.spec.ts e2e/accessibility.spec.ts --project=firefox --workers=4
+PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1 npm run test:e2e -- e2e/onboarding.spec.ts e2e/accessibility.spec.ts --project=webkit --workers=4
+npm run test:e2e -- e2e/timer.spec.ts --project=chromium --workers=4 --grep "installed app loads scrambles while completely offline"
+npm run build
+```
+
+`npm ci` installed 445 packages from the lockfile; `npm audit --omit=dev`
+reported zero production advisories (the final full audit reported four
+development-only moderate advisories). Typecheck passed. Lint passed with the
+existing archived-evidence and React ref/purity warnings. Vitest passed 103
+files with 1,341 executed tests (1,216 named definitions; parameterized cases
+expand). The production/PWA build passed with the existing
+chunk-size warning and 78 precache entries. The focused Chromium run passed
+15/15, including axe and onboarding flows; the installed-app offline scramble
+case also passed after the production service worker was installed. Firefox 157
+passed the same 15 cases. WebKit 27.2 passed 15/15 using isolated ICU 74,
+legacy libxml2 and Flite compatibility libraries with host validation skipped.
+Chromium 156 and its headless shell launched successfully; Playwright reported
+Arch as an unsupported OS and used its Ubuntu 24.04 fallback builds. The initial
+FFmpeg download hit a transient DNS failure; a retry completed it, and the
+ordinary trace/screenshot configuration does not require video capture. Headed
+Chromium 156 also loaded the real timer on a nested KWin Wayland virtual display
+at 1360×860. The Training diagram generator verified all 78 SVGs and the
+complete contact sheet. The external Training audit sources were re-downloaded
+at their pinned commits; the audit reproduced 57/21 reference sets, 77/78
+passing defaults and only the known OLL 56 candidate-A failure. All local links
+and anchors across 110 Markdown files resolve, and `git diff --check` passed.
+
+A synthetic pure-calculation benchmark used 10,000 solves across 20 sessions:
+filter 4.7 ms, trend 28.5 ms, rolling averages 13.7 ms, overview 4.7 ms,
+histogram 2.0 ms, consistency 3.1 ms, Sub-X 2.2 ms, activity 2.8 ms and total
+61.7 ms; `buildTrendData` took 23.1 ms. These are single-run Node observations,
+not browser or physical-device thresholds. They do not justify a new cache in
+the pure analytics path; chart rendering, enabled sync and stop latency still
+need browser profiling.
+
+The complete three-engine Playwright matrix, live Google Drive, physical
+touch/keyboard/audio hardware, screen readers and the full 7,000–10,000-solve
+browser profiling matrix were not exercised. WebKit required isolated
+compatibility libraries and a host-validation skip; this is not official
+Playwright support for Arch. No commit, push or deployment was made.
 
 ## Local site reset — 2026-11-11
 
@@ -498,7 +604,8 @@ name were updated. Lint reports existing SessionPanel and audit-script warnings.
 The build retains the chunk-size warning. Mock Drive coverage includes backup,
 restore and conflict review. Full suites, physical devices, real screen readers
 and live Drive remain outside this verification. Existing working changes were
-preserved. The redesign is local and uncommitted.
+preserved. At that checkpoint, the redesign was local and uncommitted; it is
+committed in the current baseline.
 
 ## Training UI consistency and statistics — 2026-11-10
 
@@ -590,7 +697,8 @@ subprocesses. Both passed with process access.
 
 Full Vitest, full Playwright, Firefox, WebKit, physical hardware, screen
 readers, live Drive and long-history stop-latency profiling were outside this
-focused verification. The working changes remain local and uncommitted.
+focused verification. At that checkpoint, the working changes remained local
+and uncommitted; the implementation is committed in the current baseline.
 Stop after this refinement.
 
 ## Training built-in default algorithms — 2026-11-10
@@ -820,8 +928,9 @@ All other captured existing files remain unchanged.
   future work. At the Phase 3B checkpoint, F12 blocked algorithm datasets and
   additional PLL variants; E13 later removed the internal gate for the 78 defaults.
 
-Verification used Node **22.23.2**, with suites sequential and every npm command
-prefixed by `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`:
+Verification used Node **22.23.2**, with suites sequential. The dated record
+prefixed npm commands with the historical nvm PATH; current setup is in
+[AGENTS.md](AGENTS.md).
 
 - `npm test -- src/lib/training/calibration.test.ts src/lib/training/stats.test.ts src/lib/training/visits.test.ts --maxWorkers=2`:
   initial three missing-module suites failed before implementation (no tests ran).
@@ -890,8 +999,8 @@ Gb/Gd historical visual exceptions and E9.16/E9.17 supersession remain recorded.
 Unrelated onboarding/other changes are preserved; nine additionally captured
 unrelated file hashes also match. No commit, push, deploy or publication.
 
-Node 22.23.2, suites sequential. Every npm command used
-`export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"` first:
+Node 22.23.2, suites sequential. The dated record used the historical nvm
+environment first; current setup is in [AGENTS.md](AGENTS.md).
 
 - `npm test -- src/lib/training/records.test.ts src/lib/training/storage.test.ts`:
   initially failed to resolve the not-yet-created implementation; then passed
@@ -1128,6 +1237,11 @@ native-date findings are not repaired by tab exclusion. Existing sync/recovery
 safeguards remain in place for older clients and other browsers/devices.
 
 ## Implemented checkpoint
+
+This consolidated checkpoint predates the Training overhaul. The newest entries
+above and [Training status](docs/training/CURRENT_STATUS.md) add the current
+OLL/PLL workspace; where they differ, the newest dated record and current
+code/tests win.
 
 - React/TypeScript/Vite local-first timer with 12 built-in events: 3×3, 2×2, 4×4,
   3×3 OH, 5×5, 6×6, 7×7, Pyraminx, Skewb, Square-1, Clock and Megaminx.
@@ -1853,11 +1967,10 @@ Baseline/after measurements on isolated synthetic 10k-solve histories:
 
 ## Immediate work
 
-1. **Verify floating-panel occlusion.** Floating tools no longer influence timer
-   layout and the readout no longer reserves a gutter. Inspect the default,
-   moved and restored panel placements at desktop, 320/390 px and landscape to
-   confirm a deliberately overlapping panel does not hide the digits; preserve
-   pointer isolation and refresh affected screenshots after UI changes.
+1. **Confirm floating-panel occlusion at edge sizes.** Auto-avoid now moves a
+   saved or released panel clear of the timer display; pure and browser tests
+   cover normal desktop and compact layouts. Manually inspect 320/390 px and
+   short landscape cases where the stage may be too small to find a clear side.
 2. **Profile large-history performance.** Use the 7,000–10,000-solve matrix
    below, with sync on/off and charts open/closed. Include the Analytics page and
    separate first-result response from chart completion and durability before
@@ -1867,14 +1980,16 @@ Baseline/after measurements on isolated synthetic 10k-solve histories:
    Enabled-sync hash caching must preserve exact pending/in-flight detection;
    chart/statistics/analytics caches must invalidate after edits, deletion/Undo,
    imports, session changes and trimming changes.
-4. **Design incremental storage separately.** Include migration, recovery,
-   failure and cross-tab safety before replacing whole-collection writes.
-   Do not debounce saves to improve a benchmark.
+4. **Design incremental storage separately.** The reviewable design is
+   [docs/development/INCREMENTAL_STORAGE_DESIGN.md](docs/development/INCREMENTAL_STORAGE_DESIGN.md);
+   implementation still requires separate approval. Preserve migration, recovery,
+   failure and cross-tab safety, and do not debounce saves to improve a benchmark.
 5. **Complete external validation within its authorization.** Live Drive requires
    explicit test authorization and a short-lived credential. OAuth publishing
-   needs the Google Cloud owner. Physical mobile/trackpad and assistive-technology
-   checks remain open. Recheck the dated build-tool advisory before choosing a
-   compatible dependency change; preserve offline behavior.
+   needs the Google Cloud owner. The full three-engine browser matrix, physical
+   mobile/trackpad and assistive-technology checks remain open. Recheck the dated
+   build-tool advisory before choosing a compatible dependency change; preserve
+   offline behavior.
 
 ## Profiling matrix
 
@@ -1884,7 +1999,7 @@ Use isolated synthetic histories and memory/mock Drive; never real solve history
 | --- | --- |
 | History | 7,000 and 10,000 solves, including field metadata |
 | Runtime | Development (`localhost:5173`) and production preview (`127.0.0.1:4173`) |
-| Browser | Actual Zen when available; record exact browser/version for comparisons |
+| Browser | Zen Browser when available; record exact browser/version for comparisons |
 | Input | Keyboard and pointer |
 | Insights | Chart closed/open; expanded/custom large averages |
 | Synchronization | Disabled/enabled with mock Drive |

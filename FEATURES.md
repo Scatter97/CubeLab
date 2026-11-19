@@ -1,11 +1,15 @@
 # CubeLab feature and behavior inventory
 
-Source audit: **2026-11-04**, application baseline **`3e3d38a`**. This describes
+Source audit: **2026-11-18**, application baseline **`562b4f7`**. The inventory
+was originally compiled on 2026-11-04; this revision checks it against the current
+source and updates the documented schema and environment details. It describes
 implemented features, not proposed future work. It includes visible controls,
 settings defaults, persistence scope, interaction rules, and data behavior.
 The source links identify the owning implementation; this inventory is not a
 claim that every combination has been manually tested. See [STATUS.md](STATUS.md)
-for dated verification and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for limits.
+for dated verification, [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for limits,
+and [docs/development/ARCH_LINUX.md](docs/development/ARCH_LINUX.md) for the
+verified local development environment.
 
 ## Contents
 
@@ -431,7 +435,8 @@ Owners: [tool panel](src/components/ToolPanel.tsx),
 - Compact empty charts avoid full-height blank plots and hide stale legends.
   Empty-to-populated charts reattach resize observation.
 - Desktop uses bounded internal scrolling; mobile, short viewports and increased
-  interface zoom permit page scrolling. Tables and long heatmaps remain scrollable.
+  interface zoom permit page scrolling. Tables and heatmaps remain scrollable
+  within their bounded panels.
 
 ### Reports and controls
 
@@ -445,7 +450,7 @@ Owners: [tool panel](src/components/ToolPanel.tsx),
 | Consistency | Sample SD, coefficient of variation, fastest-to-slowest spread, mean/median, latest/best rolling SD for 12/50 attempts, rolling-SD chart and solve inspection. |
 | Sub-X analysis | Strictly-under-target success rate, valid-only rate, current/longest success streak, normal-approximation probability, latest-50-attempt success chart (fewer while building the first window), session count/success/rate table. DNFs count as unsuccessful attempts. Per-event target is editable to 3 decimal places, 1–3600 seconds, with built-in presets. Splitter supports drag, arrows/Shift, Home/End and reset; table headers remain sticky. |
 | Session comparison | Two-or-more-session table for mean, median, best single, best ao5/ao12/ao50, SD, DNF and Sub-X rates; overlaid ao5 progression. Fewer sessions use a compact prompt. |
-| Practice activity | Timed practice, active days/frequency, streaks, daily intensity heatmap over the full filtered range, weekly volume, most active days and best/hardest practice days. Empty dates stay visible; multi-year labels include years; long ranges scroll. |
+| Practice activity | Timed practice, active days/frequency, streaks, weekly volume, most active days and best/hardest practice days. The daily intensity heatmap covers one bounded calendar window at a time (about one year); Earlier/Later and Earliest/Latest navigate the full filtered history. Empty dates stay visible, and labels include years when the range spans multiple years. |
 | Advanced analytics | 5th/25th/50th/75th/95th percentiles, single-PB count/rate/per-month frequency, improvement, estimated target probability, moving median over the latest 25 attempt slots, fastest/slowest solve rankings and detail links. DNFs occupy moving-window slots but have no valid median value. |
 
 - Analytics line charts provide hover/per-series values, keyboard left/right
@@ -480,7 +485,7 @@ storage keys to the user; keys here make the inventory auditable.
 | Stop with any key / `stopWithAnyKey` | Off | Running-only non-modifier stop with input boundaries described above. |
 | Small decimal point / `showTimerDecimalSmall` | Off | Smaller decimal portion of timer display; no timing/data change. |
 | Interface zoom / `uiZoomPercent` | 100 | 70, 80, 90, 100, 110, 125, 150%; scales interface. |
-| Statistics split / `statsPanelHeightPercent` | 36 | Saved desktop Statistics/Solves divider proportion, 20–80%; adjusted in the page, subject to fitting complete rows. |
+| Statistics split / `statsPanelHeightPercent` | 36 | Saved desktop Statistics/Solves divider proportion; storage accepts 5–95%, while the effective range is clamped by the measured Statistics minimum and the Solves floor. |
 | Scramble alignment / `scrambleAlignment` | Center | Left/center/right. |
 | Limit scramble height / `scrambleLimitHeight` | Off | Constrain long scramble presentation. |
 | Scramble action / `scrambleAction` | Copy | Nothing/copy/next on scramble activation. |
@@ -493,6 +498,8 @@ storage keys to the user; keys here make the inventory auditable.
 | Accent / `accentColor` | Green | Green/blue/violet/amber across themed controls and surfaces. |
 | Visible cards / `statVisibility` | Single, mo3, ao5, ao12 on | Each of the 11 built-in statistic keys independently visible; remaining seven initially off. |
 | Custom averages / `customAverages` | Empty | Up to five `{id, size, visible}` entries; valid integer size 3–10,000, excluding built-in average sizes and duplicates; add/edit/show/hide/remove. |
+| Statistic row metrics / `statMetricVisibility` | Current and Best on; Target/BPA/WPA off | Independently show or hide Current, Best, Target, BPA and WPA in each statistic row. |
+| Legacy targets / `statTargetsMs` | — | Validated, backed up and synchronized compatibility data; no editable UI and no effect on current Target calculation. |
 | Statistics precision / `statPrecision` | Hundredths | Hundredths/tenths for statistic presentation, not rewriting raw results. |
 | Better trim / `averageTrimBetter` | 5% | 0, 1, 1%, 5%, 10%, 20%, median. |
 | Worse trim / `averageTrimWorse` | Auto | Auto matches better side; otherwise same individual choices. |
@@ -501,12 +508,11 @@ storage keys to the user; keys here make the inventory auditable.
 | Analytics / `analytics` | All sections visible | Ordered `sections` entries (`id`, `visible`, legacy `wide`) and `subXTargetsMs` per event; edited on Analytics. |
 
 Settings sections are **Timer, Alerts, Display, Appearance, Statistics,
-Scramble, Controls, Data, Developer options and About**. Controls provides input
-help; Data shows local-data status and opens Backup & restore or Google Drive.
-Developer options is collapsed initially and contains the typed-confirmation
-Danger Zone: solve reset, session deletion and full local site reset. About
-identifies the application. They are not additional hidden calculation or
-timing modes.
+Scramble, Data, Developer options and About**. Data shows local-data status and
+opens Backup & restore or Google Drive. Developer options is collapsed initially
+and contains the typed-confirmation Danger Zone: solve reset, session deletion
+and full local site reset. About identifies the application. They are not
+additional hidden calculation or timing modes.
 
 ### Session-specific settings
 
@@ -724,7 +730,7 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
 - No application backend or telemetry; records are in browser storage unless
   exported or explicitly synchronized. Browser/origin changes do not share local
   storage automatically.
-- Sessions schema v6, Settings schema v10; storage key suffixes remain v1.
+- Sessions schema v6, Settings schema v11; storage key suffixes remain v1.
   Validation and migrations preserve supported older data. Legacy single-session
   migration imports its supported 3×3 records into Session 1.
 - Persistence failures are surfaced; corrupt/unsafe state is not a reason to
@@ -755,7 +761,10 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
   claimed solved by this inventory.
 - Developer verification includes typecheck, lint, Vitest, focused Playwright and
   production/PWA build scripts; live Drive verification is a separate explicitly
-  authorized harness, not an ordinary application operation.
+  authorized harness, not an ordinary application operation. The verified primary
+  local environment is Arch Linux/KDE Plasma/Wayland; see
+  [the Arch Linux guide](docs/development/ARCH_LINUX.md) for official packages,
+  Playwright browser prerequisites and troubleshooting.
 
 ## Implementation and test map
 
@@ -768,6 +777,7 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
 | Statistics/trimming | [statistics](src/lib/stats.test.ts), [trimming](src/lib/averageTrimming.test.ts), [format](src/lib/format.test.ts), [browser trimming](e2e/average-trimming.spec.ts) |
 | Scramble/tools/trends | [scrambles](src/lib/scramble.test.ts), [tool panel](src/components/ToolPanel.test.tsx), [Time Trend](src/components/TimeTrend.test.tsx), [trend calculations](src/lib/timeTrend.test.ts), [trend browser flows](e2e/time-trend.spec.ts) |
 | Analytics | [calculations](src/lib/analytics.test.ts), [settings](src/lib/analyticsSettings.test.ts), [page](src/components/AnalyticsPage.test.tsx), [browser flows](e2e/analytics.spec.ts) |
+| Training | [domain modules](src/lib/training/), [page tests](src/components/TrainingPage.test.tsx), [browser flows](e2e/training.spec.ts), [integrated flows](e2e/training-integrated.spec.ts) |
 | Persistence/backup/sync | [storage](src/lib/storage.test.ts), [backup](src/lib/backup.test.ts), [sync hook](src/hooks/useSync.test.ts), [merge stress](src/lib/sync.stress.test.ts), [cross-tab timing](e2e/cross-tab-timing.spec.ts) |
 | Theme/accessibility | [theme tests](src/lib/theme.test.ts), [browser accessibility](e2e/accessibility.spec.ts) |
 

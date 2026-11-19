@@ -27,14 +27,24 @@ have been removed. Existing user authorization persists; follow the current requ
 ## Project and ownership
 
 CubeLab is a React 19 / TypeScript / Vite browser application using `cubing.js`,
-custom CSS, Vitest and Playwright. Use **Node 22+** as required by `package.json`.
-It has no application backend or telemetry. Data stays in browser storage unless
-the user exports a file or explicitly connects Google Drive.
+custom CSS, Vitest and Playwright. Use a Node.js release supported by the locked
+toolchain: **22.22.2+ in the 22.x line, 24.15+, or 26+**. The `package.json`
+engine range records this intersection. It has no application backend or
+telemetry. Data stays in browser storage unless the user exports a file or
+explicitly connects Google Drive.
+
+The verified primary local environment is Arch Linux with KDE Plasma on Wayland,
+using the official `nodejs` and `npm` packages (Node 26.13.1 and npm 12.2.2 at
+the 2026-11-18 audit). No nvm path or fixed Node patch release is required. See
+[docs/development/ARCH_LINUX.md](docs/development/ARCH_LINUX.md) for package,
+Playwright, KDE and Wayland guidance. The browser application remains portable;
+preserve other platforms' setup instructions.
 
 The implemented product includes 12 built-in events plus user-defined custom events,
-inspection, named sessions, solve comments/actions, configurable trimmed statistics,
-Time Trend/PB details, the lazy Analytics dashboard, floating scramble/chart tools,
-native JSON backup, additive csTimer import, optional Drive sync, light/dark/system
+first-run onboarding, inspection, named sessions, solve comments/actions,
+configurable trimmed statistics, Time Trend/PB details, the lazy Analytics
+dashboard, the OLL/PLL Training workspace, floating scramble/chart tools, native
+JSON backup, additive csTimer import, optional Drive sync, light/dark/system
 themes and an offline-capable PWA. Sessions use schema **v6**; settings use **v11**. Storage-key
 suffixes remain `v1`; do not confuse key names with payload schema versions.
 
@@ -51,6 +61,7 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | Display release version and release commands | `src/release.json`, `src/lib/version.ts`, `scripts/release.mjs` |
 | Statistics, trimming, session summaries and trend data | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts`, `src/lib/sessions.ts` |
 | Analytics dashboard, filters and reporting | `src/lib/analytics.ts`, `src/lib/analyticsSettings.ts`, `src/components/AnalyticsPage.tsx`, `src/components/AnalyticsCharts.tsx` |
+| OLL/PLL Training workspace, calibration, reports and persistence | `src/lib/training/`, `src/hooks/useTraining.ts`, `src/components/TrainingPage.tsx`, `src/components/training/` |
 | Events, official scrambles and visualizations | `src/lib/events.ts`, `src/lib/scramble.ts`, `src/components/ToolPanel.tsx` |
 | Theme tokens/bootstrap and PWA/worker build | `src/index.css`, `index.html`, `vite.config.ts` |
 
@@ -125,13 +136,15 @@ is tracked in this repository.
 
 ## Verification
 
-Commands are run from the repository root with existing dependencies. Initialize
-the existing Node 22.23.2 runtime for this checkout first. Playwright runs use
-**four workers** by default in agent commands; this user preference supersedes
-older one-worker examples in dated documents. Keep separate suites sequential:
+Commands are run from the repository root after `npm ci`. A supported Node.js
+release and npm must be available; the verified primary environment is Arch
+Linux/KDE Plasma/Wayland with the official `nodejs` and `npm` packages. Do not assume the
+old `~/.nvm/versions/node/v22.23.2` path; no nvm setup is required. Playwright
+runs use **four workers** by default in agent commands; this user preference
+supersedes older one-worker examples in dated documents. Keep separate suites
+sequential:
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
 npm run dev              # Vite development server
 npm run typecheck        # TypeScript
 npm run lint             # Oxlint
@@ -140,6 +153,10 @@ npm run build            # production build and PWA
 npm run test:e2e -- <spec-file> --project=chromium --workers=4
 ```
 
+Playwright browser binaries are not installed by `npm ci`. Install Chromium
+with `npx playwright install chromium` and use the Arch package list in the
+development guide; do not assume Debian/Ubuntu `install-deps` behavior.
+
 Use a tiered workflow so routine work does not saturate the CPU:
 
 | Change | Required verification |
@@ -147,7 +164,7 @@ Use a tiered workflow so routine work does not saturate the CPU:
 | Documentation, copy, or minor CSS/visual-only UI | Inspect the affected view manually. Run a focused Vitest/Playwright case only when the change can affect behavior. |
 | Logic, storage, statistics, import, sync, or another non-visual behavior | `npm run typecheck`, `npm run lint`, and the affected Vitest files. Add the owning regression before editing. |
 | Major cross-layer feature or refactor | Focused Vitest plus the Playwright specs covering the affected flow, normally Chromium and `--workers=4`. Add other engines only when the change is engine-sensitive. |
-| Significant release or explicitly requested full browser pass | `PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run check` once, after the focused checks pass. |
+| Significant release or explicitly requested full browser pass | `PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run check` once, after the focused checks pass. This selects all three Playwright projects; a Chromium-only Arch setup must use focused `--project=chromium` runs. |
 
 Do not run the entire Playwright suite after every change. Reserve the full
 suite for significant releases, broad refactors, or an explicit request. During
@@ -183,6 +200,8 @@ and why.
   immediate tasks and profiling matrix. Record new results here once.
 - `KNOWN_LIMITATIONS.md`: current risks, boundaries and unverified areas.
 - `ROADMAP.md`: retained follow-ups and delivery expectations.
+- `docs/development/ARCH_LINUX.md`: verified Arch Linux/KDE Plasma/Wayland setup,
+  Playwright prerequisites and local troubleshooting.
 - `AGENTS.md`: shared rules; skills: specialized workflows and source/test maps.
 
 Update the documents affected by a change; avoid copying status/test counts into

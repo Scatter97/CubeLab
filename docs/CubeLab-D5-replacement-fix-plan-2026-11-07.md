@@ -1,7 +1,12 @@
 # CubeLab D5 replacement-safety repair plan
 
+> **Historical repair record (2026-11-07).** Retained as dated evidence. The
+> checkout path and Node/nvm commands below are not current setup instructions.
+> See [AGENTS.md](../AGENTS.md) and the
+> [Arch Linux guide](development/ARCH_LINUX.md).
+
 **Prepared:** November 7, 2026\
-**Repository:** `/home/joshua/cube-lab`\
+**Repository:** `/home/joshua/Projects/CubeLab`\
 **Scope:** The two confirmed P1 gaps remaining in D5. Preserve the current D1–D4 and earlier B/F/J repairs.
 
 ## Objective
@@ -13,7 +18,7 @@ Read `AGENTS.md`, current `STATUS.md`, `KNOWN_LIMITATIONS.md`, and the project a
 Use the existing Node runtime and **four Playwright workers**:
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
+# Historical Node 22.23.2 environment; see AGENTS.md for current setup.
 ```
 
 Keep separate suites sequential. Use synthetic data and isolated browser contexts with memory/mock Drive. Do not install dependencies, use live Drive, commit or push. Do not reopen D1–D4 or add unrelated features/storage-engine changes.
@@ -147,7 +152,7 @@ Use both the actual application bootstrap and pure journal fixtures. A unit asse
 Run focused checks after each root cause, then the full unit suite once. Keep browser invocations sequential with `--workers=4`.
 
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
+# Historical Node 22.23.2 environment; see AGENTS.md for current setup.
 npm run typecheck
 npm run lint
 npm test -- src/lib/replacement.test.ts src/hooks/useDurableReplacement.test.ts src/hooks/useSync.test.ts src/hooks/useSettings.test.ts src/hooks/useSessions.test.ts src/lib/sessions.test.ts src/lib/solveRecovery.test.ts

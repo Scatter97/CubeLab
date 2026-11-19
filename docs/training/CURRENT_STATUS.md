@@ -1,6 +1,7 @@
 # CubeLab Training — Current Status
 
-**Last updated:** 2026-11-11
+**Last updated:** 2026-11-18 (environment/repository re-check; Training behavior
+unchanged from the 2026-11-11 feature status below)
 **Phase:** Phases 0–3B, the explicitly expanded **Phase 4A/4B/4C**, and the
 owner-authorized **built-in default OLL/PLL catalog** are complete. The
 owner-approved Training UI redesign is implemented in E15. Overhaul O1 adds
@@ -9,6 +10,12 @@ O3 activates named practice, O4 adds session end, idle and recovery, and
 O5–O6b add reports, the archive, and Algorithms analytics. O7 adds optional
 prospective tracking by algorithm revision. O8 completes integrated synthetic
 verification and documentation.
+
+**Current repository:** HEAD `562b4f7`, with the Training implementation
+committed. The verified primary local environment is Arch Linux/KDE
+Plasma/Wayland; see
+[the Arch Linux guide](../development/ARCH_LINUX.md). Training continues to use
+schema v1 at `cubelab:training:v1`.
 
 [PROJECT_MEMORY.md](./PROJECT_MEMORY.md) is authoritative.
 [E15](./PROJECT_MEMORY.md#e15-approved-training-workspace-redesign--2026-11-11)
@@ -83,7 +90,8 @@ default content are superseded.
   asserts no third-party redistribution licence. Legal review/permission remains
   advisable; this is not a grant of rights.
 - **Case visibility:** the execution preview shows the name and diagram by
-  default and can be disabled for OLL and PLL in Training Settings.
+  default and one device-local Training Settings toggle disables it for both
+  OLL and PLL execution. It has no effect on recognition.
   In recognition, only setup and precursor render before completion. No upcoming case name/image/algorithm/target metadata, including
   failed-target errors. Last Result reveals the previous attempt. A known-case
   retry names the destination when switching to execution and generates that
@@ -105,7 +113,9 @@ default content are superseded.
   selection and next-start gates enforce independent fixed-protocol calibrations.
   Seven accepted positive repetitions, sample review/retry/cancel, progress and
   median; only completed drafts commit. Default seven-day/100-completion renewal
-  recommends; optional forced renewal gates the next start, never an active timer.
+  recommends within an active session; optional forced renewal gates the next
+  start, never an active timer. For named sessions, Begin additionally requires
+  due calibration before creating a new session.
 - **Statistics/results:** Four independent categories with configurable row
   order, visibility and Current/Best columns. Recognition offers Raw and
   Estimated views of the stored series. Single/mo3/ao5/ao12 are the defaults.

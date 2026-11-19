@@ -1,10 +1,15 @@
 # CubeLab: implementation plan for the five outstanding issues
 
+> **Historical repair record (2026-11-07).** The five issues were subsequently
+> implemented; this plan is retained as dated evidence. “Next implementation
+> task” below refers to that checkpoint, not the current work queue. See
+> [STATUS.md](../STATUS.md) and [AGENTS.md](../AGENTS.md).
+
 **Prepared:** November 7, 2026\
-**Repository:** `/home/joshua/cube-lab`\
+**Repository:** `/home/joshua/Projects/CubeLab`\
 **Starting point:** Current uncommitted B1–B8, F1–F4 and J1–J3 repairs. The most recent independent scoped verification passed 861 unit tests, 12 selected Chromium cases and the original journal/bulk probes. These are dated results, not a substitute for testing new changes.
 
-## This is the next implementation task
+## Historical next implementation task (2026-11-07)
 
 The earlier OpenCode instruction was context preparation only: no modifications, expensive tests, commit or push, then stop. That context-loading task is complete. The new user task explicitly authorizes implementing and testing all five issues below. It supersedes the earlier context-only stop, no-edit and no-expensive-test restrictions for this implementation work.
 

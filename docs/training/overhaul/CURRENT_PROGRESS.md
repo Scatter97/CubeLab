@@ -1,5 +1,10 @@
 # Training overhaul current progress
 
+> **Historical handoff (2026-11-11).** O1–O8 are complete and committed in the
+> current baseline. The “working tree” statement below describes the state at
+> that checkpoint, not the current checkout. Current status is in
+> [CURRENT_STATUS.md](../CURRENT_STATUS.md).
+
 **Last updated:** 2026-11-11  
 **State:** O1 through O8 complete.  
 **Current feature:** None; integrated verification and documentation are complete.  
@@ -130,7 +135,9 @@ decisions to resolve in their owning phase.
 - **Remaining decisions.** No O8 decision remains. Legal/provenance,
   backup/export integration and release work remain outside the overhaul. See
   the [decision register](IMPLEMENTATION_PLAN.md#decisions-to-record-before-their-affected-phase).
-- **Working tree.** The checkout contains existing unrelated changes. No commit or push.
+- **Working tree at this checkpoint.** The checkout contained existing unrelated
+  changes; no commit or push was made then. The implementation is committed in
+  the current baseline.
 
 When handing off, replace the current-feature line and update the phase table.
 Record the files and behavior changed, exact verification and failures,

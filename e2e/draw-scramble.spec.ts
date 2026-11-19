@@ -16,6 +16,14 @@ async function openToolPanel(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('tool-panel')).toBeVisible()
 }
 
+function overlaps(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+) {
+  return a.x < b.x + b.width && a.x + a.width > b.x &&
+    a.y < b.y + b.height && a.y + a.height > b.y
+}
+
 async function useMode(
   page: import('@playwright/test').Page,
   mode: 'net' | '3d',
@@ -393,10 +401,11 @@ test('the panel drags by its header and keeps the layout across reloads', async 
   await expect(panel).not.toHaveAttribute('data-interaction')
 
   const moved = await panel.boundingBox()
+  const display = await page.getByTestId('timer-display').boundingBox()
   expect(moved).not.toBeNull()
-  if (!moved) return
-  expect(Math.abs(moved.x - (before.x - 140))).toBeLessThanOrEqual(2)
-  expect(Math.abs(moved.y - (before.y - 90))).toBeLessThanOrEqual(2)
+  expect(display).not.toBeNull()
+  if (!moved || !display) return
+  expect(overlaps(moved, display)).toBe(false)
   expect(Math.abs(moved.width - before.width)).toBeLessThanOrEqual(1)
   expect(Math.abs(moved.height - before.height)).toBeLessThanOrEqual(1)
 
@@ -497,13 +506,15 @@ test('the panel resizes from its corner handle and keeps the size', async ({
   await expect(panel).not.toHaveAttribute('data-interaction')
 
   const resized = await panel.boundingBox()
+  const display = await page.getByTestId('timer-display').boundingBox()
   expect(resized).not.toBeNull()
-  if (!resized) return
+  expect(display).not.toBeNull()
+  if (!resized || !display) return
   expect(resized.width).toBeGreaterThan(before.width + 40)
   expect(resized.height).toBeGreaterThan(before.height + 30)
-  // The bottom-right corner stays anchored: top-left moves, size grows.
-  expect(Math.abs((resized.x + resized.width) - (before.x + before.width))).toBeLessThanOrEqual(2)
-  expect(Math.abs((resized.y + resized.height) - (before.y + before.height))).toBeLessThanOrEqual(2)
+  // A resize that would cover the readout is moved clear; otherwise the
+  // bottom-right corner stays anchored.
+  expect(overlaps(resized, display)).toBe(false)
 
   await page.reload()
   await openToolPanel(page)

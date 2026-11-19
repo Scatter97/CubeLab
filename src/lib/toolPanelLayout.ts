@@ -18,6 +18,13 @@ export interface StageSize {
   height: number
 }
 
+export interface PanelRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export const TOOL_PANEL_MIN_WIDTH = 150
 export const TOOL_PANEL_MIN_HEIGHT = 170
 export const TOOL_PANEL_GAP = 12
@@ -82,6 +89,46 @@ export function clampToolPanelLayout(
     width,
     height,
   }
+}
+
+function overlaps(a: PanelRect, b: PanelRect): boolean {
+  return a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+}
+
+/**
+ * Keep an ordinary floating tool off the timer readout. A deliberately dragged
+ * panel is moved to the nearest non-overlapping side instead of covering the
+ * digits. Training panels pass no protected rect and keep their own dock rules.
+ */
+export function avoidTimerOverlap(
+  layout: ToolPanelLayout,
+  stage: StageSize,
+  timer: PanelRect | null,
+): ToolPanelLayout {
+  const clamped = clampToolPanelLayout(layout, stage)
+  if (!timer || timer.width <= 0 || timer.height <= 0) return clamped
+  if (!overlaps(clamped, timer)) return clamped
+
+  const gap = TOOL_PANEL_GAP
+  const candidates: ToolPanelLayout[] = [
+    { ...clamped, y: timer.y - clamped.height - gap },
+    { ...clamped, y: timer.y + timer.height + gap },
+    { ...clamped, x: timer.x - clamped.width - gap },
+    { ...clamped, x: timer.x + timer.width + gap },
+  ]
+    .map((candidate) => clampToolPanelLayout(candidate, stage))
+    .filter((candidate) => !overlaps(candidate, timer))
+
+  if (candidates.length === 0) return clamped
+  return candidates.reduce((best, candidate) => {
+    const bestDistance = (best.x - clamped.x) ** 2 + (best.y - clamped.y) ** 2
+    const candidateDistance =
+      (candidate.x - clamped.x) ** 2 + (candidate.y - clamped.y) ** 2
+    return candidateDistance < bestDistance ? candidate : best
+  })
 }
 
 /** Bottom-right placement used when the panel has no saved layout yet. */

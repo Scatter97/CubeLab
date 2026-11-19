@@ -12,8 +12,8 @@ ao10000 plus custom averages, named local sessions with per-session settings,
 JSON backup/restore, optional Google Drive synchronization, a dedicated analytics
 dashboard, an optional Draw Scramble diagram, and a floating solve action menu
 in a responsive layout built around the clock. The interface offers audited light and dark palettes plus a
-system-following theme. See
-[`ROADMAP.md`](ROADMAP.md) for the planned phases and their acceptance gates.
+system-following theme. See [`STATUS.md`](STATUS.md) for current verification
+and [`ROADMAP.md`](ROADMAP.md) for the retained follow-ups.
 
 ![CubeLab desktop interface](docs/cubelab-desktop.png)
 
@@ -69,7 +69,9 @@ including interaction rules, settings defaults, session overrides and persistenc
   button. The button toggles a compact panel in the bottom-right of the timer
   area; the panel's footer **Function** dropdown selects the tool. The panel
   can be dragged by its header and resized from its bottom-right corner, with
-  the resulting position and size persisted locally. It is pointer-isolated from
+  the resulting position and size persisted locally. A saved or released
+  position that would cover the timer readout is moved to the nearest clear
+  side when the stage has room. It is pointer-isolated from
   the timer, follows the live scramble and event, and shows either a
   colour-accurate 2D unfolded net for every supported N×N puzzle or the
   `cubing.js` PG3D render. The 2D net uses the standard cube colour scheme
@@ -232,8 +234,9 @@ including interaction rules, settings defaults, session overrides and persistenc
   durable deletion metadata for synchronization. **Reset All Site Data** is the
   full local restart: it disables synchronization, blocks Drive access, clears
   CubeLab's localStorage/sessionStorage keys, CubeLab IndexedDB databases,
-  CubeLab application caches, the scoped service worker and locally held Google
-  authorization, then reloads into first-visit onboarding. It never deletes or
+  CubeLab application caches, the scoped service worker, readable CubeLab
+  cookies and locally held Google authorization, then reloads into first-visit
+  onboarding. It never deletes or
   overwrites Google Drive files and does not upload an empty state; reconnect
   explicitly to use Drive again. Existing Google Drive snapshots are not deleted
   by any of these actions. A reset that cannot finish (for example, a blocked
@@ -293,9 +296,9 @@ give the timer a readable minimum height and let the workspace scroll beneath
 it, so panels never paint over the readout.
 
 The header **Settings** button opens a csTimer-inspired preferences dialog. The
-dialog groups timer, alerts, display, appearance, statistics, scramble, controls,
-data, developer, and about preferences in one place, with progressive migration
-from older settings records. At 320 px the Settings dialog keeps the inspection label and
+dialog groups timer, alerts, display, appearance, statistics, scramble, data,
+developer, and about preferences in one place, with progressive migration from
+older settings records. At 320 px the Settings dialog keeps the inspection label and
 its switch touch target visible, and its body scrolls independently so the Done
 button stays reachable.
 
@@ -472,9 +475,9 @@ behavior.
 
 ### Display version and releases
 
-A subtle version label appears in the bottom-right footer, for example
-`0.01.261105:2`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`, and the date is the
-intentional release date in `America/Toronto`.
+A subtle version label appears in the bottom-right footer; the current release
+record renders as `0.01.261104:1`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`,
+and the date is the intentional release date in `America/Toronto`.
 
 [`src/release.json`](src/release.json) is the single source of release
 information; [`src/lib/version.ts`](src/lib/version.ts) formats the footer and
@@ -492,9 +495,9 @@ npm run release:major                 # MAJOR + 1, FEATURE and PATCH reset
 ```
 
 The script refuses to create another release while `src/release.json` already
-has uncommitted release changes. Commit the release record as part of the
-intended release; neither the script nor normal builds publish, deploy or push
-anything. The display version is separate from session, settings, backup and sync
+has uncommitted release changes. `--allow-dirty-version` skips only that guard
+after manual verification. Commit the release record as part of the intended
+release; neither the script nor normal builds publish, deploy or push anything. The display version is separate from session, settings, backup and sync
 schema versions.
 
 ### Sessions
@@ -843,9 +846,10 @@ does not rewrite raw times.
   from the retained N−1 window and the existing PB rather than a manually
   entered goal, and it accounts for the new result being trimmed as fastest,
   retained, or trimmed as slowest. `—` means there is not enough history or no
-  PB; `N/A` means no achievable next result can beat it; `∞` means every finite
-  next result qualifies because the candidate is trimmed out. A tie with the PB
-  never counts as a new best. Display precision does not change the comparison.
+  PB; `N/A` means no achievable next result can beat it; `∞` means any next
+  result qualifies, either because every finite result qualifies or because
+  even a DNF still produces a new best. A tie with the PB never counts as a new
+  best. Display precision does not change the comparison.
 - **Legacy target data:** older `statTargetsMs` settings remain validated,
   backed up and synchronized as inert data so existing records load safely, but
   the editable target fields and expanded-row controls are gone.
@@ -903,16 +907,24 @@ settings record. The estimate is a statistical approximation, not a guarantee.
 
 ## Getting started
 
-Requirements: Node.js 22+ and npm.
+Requirements: Node.js 22.22.2+ (22.x), 24.15+, or 26+ and npm. The
+`package.json` engine range matches the installed Vite, Vitest and jsdom
+requirements.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Open the printed local URL. The app has no CubeLab backend, account, analytics, or
-telemetry. Optional Google Drive synchronization is the only network feature and
-runs only after you explicitly connect a Google account.
+Use `npm install` instead only when intentionally adding or updating
+dependencies. Open the printed local URL. The app has no CubeLab backend,
+account, analytics, or telemetry. Optional Google Drive synchronization is the
+only network feature and runs only after you explicitly connect a Google account.
+
+Arch Linux is the current primary local development environment. See
+[Arch Linux development environment](docs/development/ARCH_LINUX.md) for the
+verified official packages, Playwright Chromium prerequisites, and KDE
+Plasma/Wayland notes. Other supported Node.js platforms remain usable.
 
 ### Production build
 
@@ -926,8 +938,13 @@ precaches the application shell, fonts, scramble assets, and worker code.
 
 ## Verification
 
+Run these from the repository root with a supported Node.js release
+(22.22.2+ in the 22.x line, 24.15+, or 26+) and npm available. The verified
+primary environment is Arch Linux with KDE Plasma on Wayland; see the
+[Arch Linux guide](docs/development/ARCH_LINUX.md) for package and Playwright
+prerequisites. No nvm setup or fixed Node patch release is required.
+
 ```bash
-export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
 npm run typecheck   # strict TypeScript project build
 npm run lint        # Oxlint
 npm test -- <file>  # focused Vitest case; npm test runs all
@@ -943,9 +960,11 @@ Verification is tiered to keep routine development resource-conscious:
   files, including a new regression at the owning layer.
 - Major cross-layer work needs the focused Playwright specs for the affected
   flows, normally one browser and `--workers=4`.
-- `PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run check` (the full browser matrix) is reserved for
-  significant releases, broad refactors, or an explicit request. Run
-  `npm run build` afterward to restore normal production output.
+- `PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run check` (the full browser
+  matrix) is reserved for significant releases, broad refactors, or an explicit
+  request. It selects Chromium, Firefox and WebKit; a Chromium-only Arch setup
+  must use focused `--project=chromium` commands instead. Run `npm run build`
+  afterward to restore normal production output.
 
 Do not run the full Playwright suite after every change, run multiple browsers or
 test suites concurrently, or rerun passing tests without a relevant code change.
@@ -985,7 +1004,7 @@ sessions/comments/settings, the scramble-failure recovery state, and full
 offline scramble generation through the installed service worker. It also
 covers visual solve and DNF alerts, adjustable alert volume, accent persistence,
 light/dark/system theme application and persistence, the pre-paint theme
-bootstrap, the Controls reference, custom statistics and metric visibility, tenths precision,
+bootstrap, custom statistics and metric visibility, tenths precision,
 Draw Scramble activation/deactivation, draggable/resizable panel persistence,
 2D/3D switching, panel placement, scramble synchronization, a non-zero 3D
 render surface, Google Drive mock
@@ -1012,9 +1031,13 @@ status; they do not establish rendered-pixel correctness for every puzzle.
 ## Project documentation
 
 - [Current status, latest verification and immediate work](STATUS.md)
+- [Feature and behavior inventory](FEATURES.md)
 - [Known limitations and validation gaps](KNOWN_LIMITATIONS.md)
 - [Retained roadmap and scope](ROADMAP.md)
 - [Contributor and coding-agent instructions](AGENTS.md)
+- [Arch Linux development environment](docs/development/ARCH_LINUX.md)
+- [Incremental storage design](docs/development/INCREMENTAL_STORAGE_DESIGN.md)
+- [Training current status](docs/training/CURRENT_STATUS.md)
 - [Archived plans and dated evidence](docs/archive/README.md)
 
 The current status document records the latest test results once. Historical
@@ -1148,6 +1171,12 @@ Storage keys are versioned:
   stage-relative pixel position and size (`{ x, y, width, height }`). It is
   written only when a drag or resize gesture ends, is clamped to the timer
   stage on restore and viewport changes, and is not synchronized to Drive.
+- `cubelab:onboarding:v1` — the first-run decision and a resumable setup draft.
+- `cubelab:recovery:v1`, `cubelab:replacement:v1` and
+  `cubelab:replacement-completion:v1` — local-only Undo, replacement-journal and
+  completion-buffer records used by destructive imports, restores and resets.
+  `cubelab:site-reset-signal:v1` coordinates a full reset across open tabs.
+  These recovery records are not included in native backups or Drive snapshots.
 
 Each session contains `id`, `name`, optional `event` and `preferences`,
 `createdAt`, `updatedAt`, `solves`, an optional `inspectionEnabled` override, and
@@ -1219,29 +1248,21 @@ snapshots; using Drive again requires an explicit new connection.
 
 ## Scope
 
-CubeLab Milestone 1, Phase 2A, Phase 2A.1, Phase 2A.2, Phase 2A.3, Phase 2B,
-and Phase 2C are complete. Phase 2A adds local named sessions and JSON
-backup/restore. Phase 2A.1 adds the csTimer-inspired Settings dialog,
-centralizing the inspection preference and local-data controls. Phase 2A.2 adds
-alert feedback, accent colors, statistics display controls, and the Controls
-reference. Phase 2A.3 adds count-down/count-up inspection with independent
-warnings, custom statistics and independent row metrics, per-session settings, typed destructive
-confirmations, persisted solve comments, and the floating solve action menu.
-Phase 2B introduced manual Google Drive backup and restore. Phase 2C supersedes
-those manual-only controls with optional local-first Google Drive
-synchronization using device-owned snapshots, field-level session and settings
-merging, tombstones, conflict review, and scheduled sync.
+The delivered baseline includes the timer, WCA inspection and penalties, twelve
+built-in events plus custom events, named sessions, solve comments/actions,
+configurable trimmed statistics, Time Trend/PB details, the Analytics dashboard,
+the OLL/PLL Training workspace, native JSON backup, additive csTimer import,
+optional Google Drive synchronization, light/dark/system themes, floating
+scramble/chart tools, first-run onboarding, and the offline-capable PWA.
 
 Sessions support 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7, Pyraminx, Skewb,
 Square-1, Clock, and Megaminx and use `cubing.js` official WCA scrambles for the
-selected event. Phase 3 and Phase 6a are complete, including
-per-event desktop/mobile E2E coverage, shared WCA inspection and penalty rules,
-and multi-event storage, backup, and import verification. Phase 4 is complete:
-history windowing for large sessions, Chromium/Firefox/WebKit coverage,
-accessibility and keyboard audit, and PWA/bundle review. Stage 6 polish is
-complete: an audited light/dark/system theme, automated WCAG AA palette tests,
-and a pre-paint theme bootstrap. Social features and non-Google cloud providers
-remain outside scope. Unique immutable snapshots
+selected event. Per-event timer, storage, backup and import coverage,
+accessibility and keyboard review, and PWA/bundle review are implemented. The
+retained layout, performance, storage-design and external-validation follow-ups
+are in [`ROADMAP.md`](ROADMAP.md); current results are in
+[`STATUS.md`](STATUS.md). Social features and non-Google cloud providers remain
+outside scope. Unique immutable snapshots
 prevent writers from
 overwriting one another; the legacy mutable fixed-name file uses a Drive v2
 ETag/`If-Match` conditional update, and no cross-file transaction exists. Local
