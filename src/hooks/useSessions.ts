@@ -39,7 +39,7 @@ import {
   readSessionsRaw,
   type SessionsSnapshot,
   saveSessions,
-  serializeSessionsData,
+  saveSessionsSerialized,
 } from '../lib/storage'
 import { getSyncDeviceId } from '../lib/syncStorage'
 import { loadReplacementJournal } from '../lib/replacement'
@@ -147,9 +147,12 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
         return recordPendingCompletion(lastPersistedDataRef.current, next)
       }
     }
-    if (!saveSessions(next)) return false
+    // Serialize once and reuse the exact bytes storage now holds; a second
+    // serialization of a large history would double the save cost.
+    const persistedRaw = saveSessionsSerialized(next)
+    if (persistedRaw === null) return false
     lastPersistedDataRef.current = next
-    lastPersistedRawRef.current = serializeSessionsData(next)
+    lastPersistedRawRef.current = persistedRaw
     // Acknowledge only buffered solves that this durable collection actually
     // contains (or that a deliberate deletion superseded). An unrelated save
     // must leave another tab's completion pending for later replay.

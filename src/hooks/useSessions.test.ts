@@ -239,6 +239,30 @@ describe('useSessions staged replacements', () => {
     expect(clearReplacementJournal()).toBe(true)
   })
 
+  it('saves normally right after a successful save without buffering', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+
+    act(() => {
+      result.current.addSolve(
+        { rawMs: 9_876, penalty: 'none', scramble: "F R U'" },
+        '333',
+      )
+    })
+    act(() => {
+      expect(result.current.renameSession('session-1', 'Renamed')).toBe(true)
+    })
+
+    // The first save must track the exact bytes it wrote. Otherwise the
+    // second save would mistake its own earlier write for an external
+    // replacement candidate and buffer the edit instead of persisting it.
+    const disk = loadSessions()
+    expect(disk.sessions[0]?.name).toBe('Renamed')
+    expect(disk.sessions[0]?.solves).toHaveLength(2)
+    expect(loadPendingCompletion().status).toBe('none')
+  })
+
   it('keeps an unrelated buffered completion after an ordinary successful save', () => {
     const initial = sessionsData()
     saveSessions(initial)

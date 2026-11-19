@@ -9,8 +9,11 @@ import {
   loadSettings,
   loadSolves,
   parseSettingsData,
+  readSessionsRaw,
   saveSessions,
+  saveSessionsSerialized,
   saveSettings,
+  serializeSessionsData,
   type StorageLike,
 } from './storage'
 import { DEFAULT_SESSION_NAME } from './sessions'
@@ -187,6 +190,42 @@ describe('session persistence', () => {
 
     expect(saveSessions(original, storage)).toBe(true)
     expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('returns the exact persisted bytes so callers never reserialize', () => {
+    const storage = new MemoryStorage()
+    const original = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({ id: 'tracked-1' }),
+            solve({ id: 'tracked-2', penalty: 'dnf' }),
+          ],
+        }),
+      ],
+    })
+
+    const raw = saveSessionsSerialized(original, storage)
+
+    expect(raw).not.toBeNull()
+    // The returned string is the exact payload storage now holds, identical
+    // to a fresh serialization of the same collection.
+    expect(raw).toBe(readSessionsRaw(storage))
+    expect(raw).toBe(serializeSessionsData(original))
+    expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('reports an unwritten save without touching stored sessions', () => {
+    const failing = new MemoryStorage()
+    failing.setItem = () => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    }
+    const original = sessionsData()
+
+    expect(saveSessionsSerialized(original, failing)).toBeNull()
+    expect(readSessionsRaw(failing)).toBeNull()
+    // The boolean wrapper keeps its contract for every other caller.
+    expect(saveSessions(original, failing)).toBe(false)
   })
 
   it('round-trips per-field session sync metadata', () => {

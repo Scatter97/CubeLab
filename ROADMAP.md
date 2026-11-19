@@ -31,9 +31,18 @@ follow-ups are below.
 2. **Profile large-history performance** at 7,000–10,000 solves, with sync on/off,
    charts open/closed, both stop inputs, Zen Browser when available and
    production preview. Separate first-result response, chart completion and storage cost.
+   The 2026-11-19 persistence/Analytics pass measured the pure calculation and
+   serialization layers (see STATUS.md); browser stop-response with enabled sync
+   remains the unmeasured part.
 3. **Optimize the measured bottlenecks** in hashing, statistics and charts while
    preserving recording, durability, exact pending/in-flight detection and cache
    invalidation after edits, deletion/Undo, imports, session and trimming changes.
+   The 2026-11-19 pass removed the duplicate Analytics rolling-series rebuilds and
+   the double session serialization; measured follow-ups are the redundant
+   `syncStateFingerprint` traversals inside one sync run (five of six calls repeat
+   an already-fingerprinted input at ~15 ms each at 10,000 solves) and the
+   ~500 KB cubing.js chunk on the production startup path via Training's static
+   `KPattern` import (see STATUS.md for the measured trace and deferral notes).
 4. **Design incremental storage separately**, including migration, crash recovery,
    failure and cross-tab safety, before replacing whole-collection writes. The
    reviewable design is in

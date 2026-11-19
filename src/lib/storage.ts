@@ -849,18 +849,30 @@ export function serializeSessionsData(data: SessionsData): string {
   return JSON.stringify(payload)
 }
 
+/**
+ * Serializes the collection once, writes those exact bytes and returns them so
+ * callers that track the persisted payload can reuse the stored string instead
+ * of serializing again. `null` means nothing was written.
+ */
+export function saveSessionsSerialized(
+  data: SessionsData,
+  storage = getDefaultStorage(),
+): string | null {
+  if (!storage || isSiteResetInProgress()) return null
+  const raw = serializeSessionsData(data)
+  try {
+    storage.setItem(SESSIONS_STORAGE_KEY, raw)
+    return raw
+  } catch {
+    return null
+  }
+}
+
 export function saveSessions(
   data: SessionsData,
   storage = getDefaultStorage(),
 ): boolean {
-  if (!storage || isSiteResetInProgress()) return false
-
-  try {
-    storage.setItem(SESSIONS_STORAGE_KEY, serializeSessionsData(data))
-    return true
-  } catch {
-    return false
-  }
+  return saveSessionsSerialized(data, storage) !== null
 }
 
 /**

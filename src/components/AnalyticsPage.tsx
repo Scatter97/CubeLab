@@ -21,7 +21,6 @@ import {
   addLocalDays,
   buildActivity,
   buildActivityCalendar,
-  buildAnalyticsAverages,
   buildAnalyticsTrend,
   buildHistogram,
   buildPBHistory,
@@ -73,8 +72,12 @@ import type {
   Settings,
 } from '../types'
 
-const OVERVIEW_AVERAGE_SIZES = [5, 12, 50, 100, 1_000] as const
-const AVERAGE_CHART_SIZES = [5, 12, 50, 100, 1_000] as const
+/** Rolling series prepared once for the filtered history; every view reuses them. */
+const ANALYSIS_AVERAGE_SIZES = [5, 12, 50, 100, 1_000] as const
+/** Personal-bests tables present only the ao5 and ao12 progression. */
+const PERSONAL_BEST_AVERAGE_SIZES = [5, 12] as const
+/** Progression markers need only single PB events, not average PB tables. */
+const NO_AVERAGE_SERIES: ReadonlyMap<number, readonly (number | null)[]> = new Map()
 const SESSION_AVERAGE_SIZES = [5, 12, 50] as const
 
 const PROGRESS_SERIES = [
@@ -530,14 +533,12 @@ function useMultipleYears(trend: AnalyticsTrend): boolean {
 
 function ProgressionSection({
   trend,
-  trimming,
   progressSeries,
   onToggleSeries,
   progressXAxis,
   onChangeXAxis,
   onSelectSolve,
 }: SectionCalculationProps & {
-  trimming: AverageTrimming
   progressSeries: ReadonlySet<string>
   onToggleSeries: (key: string) => void
   progressXAxis: 'solve' | 'date'
@@ -545,10 +546,6 @@ function ProgressionSection({
 }) {
   const multipleYears = useMultipleYears(trend)
   const { series, markers } = useMemo(() => {
-    const sizes = PROGRESS_SERIES.flatMap((entry) =>
-      entry.size !== null && progressSeries.has(entry.key) ? [entry.size] : [],
-    )
-    const averages = buildAnalyticsAverages(trend.solves, sizes, trimming)
     return {
       series: PROGRESS_SERIES.filter((entry) => progressSeries.has(entry.key)).map(
         (entry): AnalyticsSeries => ({
@@ -558,16 +555,16 @@ function ProgressionSection({
           values:
             entry.size === null
               ? trend.singles
-              : averages.averages.get(entry.size) ?? [],
+              : trend.averages.get(entry.size) ?? [],
         }),
       ),
-      markers: buildPBHistory(trend).single.map((event) => ({
+      markers: buildPBHistory(trend, NO_AVERAGE_SERIES).single.map((event) => ({
         index: event.index,
         value: event.ms,
         label: `PB · ${formatTime(event.ms)} · ${fullDate(event.solve.createdAt)}`,
       })),
     }
-  }, [progressSeries, trend, trimming])
+  }, [progressSeries, trend])
   const xSolveLabel = (index: number) => `#${index + 1}`
   const xDateLabel = (index: number) =>
     formatAnalyticsAxisDate(
@@ -639,14 +636,9 @@ function AveragesSection({
   statPrecision: Settings['statPrecision']
 }) {
   const { series, overviews } = useMemo(() => {
-    const averages = buildAnalyticsAverages(
-      trend.solves,
-      AVERAGE_CHART_SIZES,
-      trimming,
-    )
     return {
-      series: AVERAGE_CHART_SIZES.flatMap((size): AnalyticsSeries[] => {
-        const values = averages.averages.get(size) ?? []
+      series: ANALYSIS_AVERAGE_SIZES.flatMap((size): AnalyticsSeries[] => {
+        const values = trend.averages.get(size) ?? []
         return values.some((value) => value !== null)
           ? [
               {
@@ -658,11 +650,11 @@ function AveragesSection({
             ]
           : []
       }),
+      // Summarize the prepared series; the rolling windows are never rebuilt.
       overviews: computeAverageOverviews(
         trend,
-        AVERAGE_CHART_SIZES,
+        ANALYSIS_AVERAGE_SIZES,
         trimming,
-        averages,
       ),
     }
   }, [trend, trimming])
@@ -717,14 +709,19 @@ function AveragesSection({
 
 function PersonalBestsSection({
   trend,
-  trimming,
   onSelectSolve,
-}: SectionCalculationProps & { trimming: AverageTrimming }) {
+}: SectionCalculationProps) {
   const multipleYears = useMultipleYears(trend)
   const pbHistory = useMemo(() => {
-    const averages = buildAnalyticsAverages(trend.solves, [5, 12], trimming)
-    return buildPBHistory(trend, averages.averages)
-  }, [trend, trimming])
+    // The shared trend already carries the ao5/ao12 series; PB tables read
+    // them instead of rebuilding rolling averages.
+    const pbAverages = new Map<number, readonly (number | null)[]>()
+    for (const size of PERSONAL_BEST_AVERAGE_SIZES) {
+      const values = trend.averages.get(size)
+      if (values) pbAverages.set(size, values)
+    }
+    return buildPBHistory(trend, pbAverages)
+  }, [trend])
   const markers = useMemo(
     () =>
       pbHistory.single.map((event) => ({
@@ -1814,25 +1811,15 @@ export default function AnalyticsPage({
     () => filterAnalyticsSolves(sessions, filters, localDay),
     [sessions, filters, localDay],
   )
-  // The single and PB preparation is shared by every section. Rolling series
-  // are built only by the section that needs them.
+  // The single/PB preparation and the five rolling series are shared by every
+  // section. The overview needs them all, so no view rebuilds its own series.
   const trend = useMemo(
-    () => buildAnalyticsTrend(filtered, [], trimming),
-    [filtered, trimming],
-  )
-  const overviewAverages = useMemo(
-    () => buildAnalyticsAverages(filtered, OVERVIEW_AVERAGE_SIZES, trimming),
+    () => buildAnalyticsTrend(filtered, ANALYSIS_AVERAGE_SIZES, trimming),
     [filtered, trimming],
   )
   const overview = useMemo(
-    () =>
-      computeAnalyticsOverview(
-        trend,
-        OVERVIEW_AVERAGE_SIZES,
-        trimming,
-        overviewAverages,
-      ),
-    [trend, trimming, overviewAverages],
+    () => computeAnalyticsOverview(trend, ANALYSIS_AVERAGE_SIZES, trimming),
+    [trend, trimming],
   )
   const visibleOverviewAverages = overview.averages.filter(
     (average) => average.best !== null || average.current !== null,
@@ -2099,7 +2086,6 @@ export default function AnalyticsPage({
     : selectedAnalysis.id === 'progression' ? (
         <ProgressionSection
           trend={trend}
-          trimming={trimming}
           progressSeries={progressSeries}
           onToggleSeries={toggleProgressSeries}
           progressXAxis={progressXAxis}
@@ -2118,7 +2104,6 @@ export default function AnalyticsPage({
     : selectedAnalysis.id === 'personalBests' ? (
         <PersonalBestsSection
           trend={trend}
-          trimming={trimming}
           onSelectSolve={setSelectedSolve}
         />
       )
