@@ -16,14 +16,17 @@ import {
 } from '../lib/statInsights'
 import { BUILT_IN_STAT_DEFINITIONS } from '../lib/statDefinitions'
 import type { SessionStats, StatPair, StatResult } from '../lib/stats'
+import type { CompetitionRound } from '../lib/competition'
 import type {
   AverageTrimming,
+  CompetitionFormat,
   CustomAverageSetting,
   Solve,
   StatMetricVisibility,
   StatPrecision,
   StatVisibility,
 } from '../types'
+import { CompetitionRounds } from './competition/CompetitionRounds'
 
 interface StatsPanelProps {
   stats: SessionStats
@@ -33,6 +36,10 @@ interface StatsPanelProps {
   precision: StatPrecision
   solves: readonly Solve[]
   trimming?: AverageTrimming
+  competition?: {
+    format: CompetitionFormat
+    rounds: readonly CompetitionRound[]
+  }
   /** Receives the intrinsic panel height needed to show every enabled row. */
   onMinimumHeightChange?: (height: number) => void
   style?: CSSProperties
@@ -234,6 +241,7 @@ export const StatsPanel = memo(function StatsPanel({
   precision,
   solves,
   trimming = DEFAULT_AVERAGE_TRIMMING,
+  competition,
   onMinimumHeightChange,
   style,
 }: StatsPanelProps) {
@@ -323,6 +331,15 @@ export const StatsPanel = memo(function StatsPanel({
       empty="No statistics shown. Enable at least one in Settings."
       onMinimumHeightChange={onMinimumHeightChange}
       style={style}
+      footer={
+        competition ? (
+          <CompetitionRounds
+            format={competition.format}
+            rounds={competition.rounds}
+            precision={precision}
+          />
+        ) : undefined
+      }
       renderRows={measurement => tiles.map(row => {
         const props = { row, precision, metricVisibility, insights: insightsByKey.get(row.key) ?? null }
         return measurement ? (

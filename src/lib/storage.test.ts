@@ -1170,6 +1170,130 @@ describe('session summary settings migration', () => {
   })
 })
 
+describe('competition sessions schema v7', () => {
+  it('reads every stored v6 payload unchanged with the v7 reader', () => {
+    const storage = new MemoryStorage()
+    const legacy = sessionsData({
+      sessions: [
+        session({
+          event: '666',
+          solves: [solve({ id: 'v6-solve', event: '666' })],
+        }),
+      ],
+    })
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({ version: 6, ...legacy }),
+    )
+
+    const loaded = loadSessions(storage)
+    expect(loaded).toEqual(legacy)
+    expect(loaded.sessions[0]?.kind).toBeUndefined()
+    expect(loaded.sessions[0]?.solves[0]?.roundId).toBeUndefined()
+  })
+
+  it('round-trips competition formats and round membership at v7', () => {
+    const storage = new MemoryStorage()
+    const original = sessionsData({
+      sessions: [
+        session({
+          kind: 'competition',
+          competitionFormat: { type: 'mo', size: 3 },
+          solves: [
+            solve({
+              id: 'round-solve-2',
+              roundId: 'round-1',
+              roundIndex: 2,
+              createdAt: 1_700_000_002_000,
+            }),
+            solve({
+              id: 'round-solve-1',
+              roundId: 'round-1',
+              roundIndex: 1,
+              createdAt: 1_700_000_001_000,
+            }),
+          ],
+        }),
+      ],
+    })
+
+    expect(saveSessions(original, storage)).toBe(true)
+    expect(loadSessions(storage)).toEqual(original)
+  })
+
+  it('drops out-of-bounds round fields without losing the solve', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 7,
+        activeSessionId: 'session-1',
+        sessions: [
+          session({
+            kind: 'competition',
+            competitionFormat: { type: 'ao', size: 5 },
+            solves: [
+              { ...solve(), id: 'valid', roundId: 'round-1', roundIndex: 0 },
+              { ...solve(), id: 'negative', roundId: 'round-1', roundIndex: -1 },
+              { ...solve(), id: 'fraction', roundId: 'round-1', roundIndex: 1.5 },
+              { ...solve(), id: 'too-large', roundId: 'round-1', roundIndex: 1000 },
+              { ...solve(), id: 'empty-round', roundId: '', roundIndex: 1 },
+              { ...solve(), id: 'long-round', roundId: 'x'.repeat(201), roundIndex: 1 },
+            ],
+          }),
+        ],
+      }),
+    )
+
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions[0]?.solves.map((entry) => entry.id)).toEqual([
+      'valid',
+      'negative',
+      'fraction',
+      'too-large',
+      'empty-round',
+      'long-round',
+    ])
+    expect(loaded.sessions[0]?.solves[0]).toMatchObject({
+      roundId: 'round-1',
+      roundIndex: 0,
+    })
+    for (const id of ['negative', 'fraction', 'too-large']) {
+      const entry = loaded.sessions[0]?.solves.find((candidate) => candidate.id === id)
+      expect(entry).toMatchObject({ roundId: 'round-1' })
+      expect(entry).not.toHaveProperty('roundIndex')
+    }
+    for (const id of ['empty-round', 'long-round']) {
+      const entry = loaded.sessions[0]?.solves.find((candidate) => candidate.id === id)
+      expect(entry).not.toHaveProperty('roundId')
+      expect(entry).toMatchObject({ roundIndex: 1 })
+    }
+  })
+
+  it('keeps the session when competition metadata is malformed', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SESSIONS_STORAGE_KEY,
+      JSON.stringify({
+        version: 7,
+        activeSessionId: 'session-1',
+        sessions: [
+          session({
+            kind: 'competition',
+            competitionFormat: { type: 'ao', size: 3 },
+            solves: [solve()],
+          }),
+        ],
+      }),
+    )
+
+    const loaded = loadSessions(storage)
+    expect(loaded.sessions[0]?.kind).toBeUndefined()
+    expect(loaded.sessions[0]?.competitionFormat).toBeUndefined()
+    expect(loaded.sessions[0]?.solves).toHaveLength(1)
+  })
+})
+
 describe('statistics target persistence', () => {
   it('round-trips independent per-event targets', () => {
     const storage = new MemoryStorage()

@@ -12,7 +12,19 @@ import {
   getEventLabel,
   getEventOptions,
 } from '../lib/events'
-import type { PuzzleEvent, SessionPreferences } from '../types'
+import type {
+  CompetitionFormat,
+  CompetitionFormatId,
+  PuzzleEvent,
+  SessionKind,
+  SessionPreferences,
+} from '../types'
+import {
+  COMPETITION_FORMATS,
+  competitionFormatId,
+  defaultCompetitionFormat,
+  getCompetitionFormatById,
+} from '../lib/competition'
 import { Select } from './Select'
 
 interface SessionSetupDialogProps {
@@ -22,7 +34,12 @@ interface SessionSetupDialogProps {
   defaultInspectionEnabled: boolean
   defaultPreferences?: SessionPreferences
   onClose: () => void
-  onCreate: (name: string, event: PuzzleEvent, preferences: SessionPreferences) => boolean
+  onCreate: (
+    name: string,
+    event: PuzzleEvent,
+    preferences: SessionPreferences,
+    competitionFormat?: CompetitionFormat,
+  ) => boolean
 }
 
 type SessionSetupContentProps = Omit<SessionSetupDialogProps, 'open'>
@@ -69,6 +86,11 @@ function SessionSetupContent({
 }: SessionSetupContentProps) {
   const [name, setName] = useState('')
   const [event, setEvent] = useState<PuzzleEvent>(defaultEvent)
+  const [kind, setKind] = useState<SessionKind>('practice')
+  const [formatId, setFormatId] = useState<CompetitionFormatId>(() => {
+    const format = defaultCompetitionFormat(defaultEvent)
+    return competitionFormatId(format) ?? 'ao5'
+  })
   const [inspectionEnabled, setInspectionEnabled] = useState(
     defaultPreferences?.inspectionEnabled ?? defaultInspectionEnabled,
   )
@@ -100,7 +122,13 @@ function SessionSetupContent({
     const preferences: SessionPreferences = {
       inspectionEnabled,
     }
-    const ok = onCreate(resolvedName, event, preferences)
+    const competitionFormat =
+      kind === 'competition'
+        ? getCompetitionFormatById(formatId) ?? undefined
+        : undefined
+    const ok = competitionFormat
+      ? onCreate(resolvedName, event, preferences, competitionFormat)
+      : onCreate(resolvedName, event, preferences)
     if (!ok) {
       setSaveError('Could not create the session. Try another name.')
       inputRef.current?.focus()
@@ -185,10 +213,64 @@ function SessionSetupContent({
             }))}
             onChange={(value) => {
               setEvent(value)
+              setFormatId(
+                competitionFormatId(defaultCompetitionFormat(value)) ?? 'ao5',
+              )
               setSaveError(null)
             }}
           />
         </div>
+
+        <div className="settings-field">
+          <span>Session type</span>
+          <div
+            className="competition-kind-toggle"
+            role="group"
+            aria-label="Session type"
+          >
+            {(['practice', 'competition'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="button button-secondary"
+                aria-pressed={kind === option}
+                data-testid={`session-setup-kind-${option}`}
+                onClick={() => {
+                  setKind(option)
+                  setSaveError(null)
+                }}
+              >
+                {option === 'practice' ? 'Practice' : 'Competition'}
+              </button>
+            ))}
+          </div>
+          <p className="settings-row-description">
+            {kind === 'competition'
+              ? 'Solves fill WCA-style rounds automatically. The format is fixed for this session.'
+              : 'Free-form solves with the usual session statistics.'}
+          </p>
+        </div>
+
+        {kind === 'competition' ? (
+          <div className="settings-field">
+            <span>Round format</span>
+            <Select
+              className="compact-select"
+              value={formatId}
+              ariaLabel="Competition round format"
+              testId="session-setup-format"
+              options={COMPETITION_FORMATS.map((format) => ({
+                value: format.id,
+                label: format.description,
+                text: format.label,
+              }))}
+              onChange={(value) => {
+                setFormatId(value as CompetitionFormatId)
+                setSaveError(null)
+              }}
+            />
+          </div>
+        ) : null}
 
         <div className="settings-row">
           <div className="settings-row-copy">

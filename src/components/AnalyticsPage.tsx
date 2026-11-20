@@ -1852,7 +1852,8 @@ export default function AnalyticsPage({
     (filters.sessionIds === null ? 0 : 1) +
     (filters.datePreset === 'all' ? 0 : 1) +
     (filters.solveLimit === null ? 0 : 1) +
-    (filters.penalty === 'all' ? 0 : 1)
+    (filters.penalty === 'all' ? 0 : 1) +
+    (filters.sessionKind === 'all' ? 0 : 1)
   const activeTargetEvent = filters.event === 'all' ? initialEvent : filters.event
   const targetMs = getSubXTargetMs(analyticsSettings, activeTargetEvent)
   const selectedAnalysis =
@@ -1873,6 +1874,7 @@ export default function AnalyticsPage({
     filters.customEnd,
     filters.solveLimit,
     filters.penalty,
+    filters.sessionKind,
     sessionFilterKey,
     sessions,
     histogramIntervalMs,
@@ -2254,6 +2256,26 @@ export default function AnalyticsPage({
                   ...current,
                   event: value as PuzzleEvent | 'all',
                   sessionIds: null,
+                }))
+              }
+            />
+          </label>
+
+          <label className="analytics-filter-field is-kind">
+            Session type
+            <Select
+              value={filters.sessionKind}
+              ariaLabel="Analytics session type"
+              testId="analytics-session-kind"
+              options={[
+                { value: 'all', label: 'All sessions' },
+                { value: 'practice', label: 'Practice' },
+                { value: 'competition', label: 'Competition' },
+              ]}
+              onChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  sessionKind: value as AnalyticsFilters['sessionKind'],
                 }))
               }
             />

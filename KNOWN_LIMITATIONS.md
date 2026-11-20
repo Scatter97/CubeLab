@@ -1,6 +1,6 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-18 against the implementation and the latest recorded
+**Reviewed:** 2026-11-19 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
@@ -84,6 +84,34 @@ These are current boundaries; dated repair details are in the
   React state references; in-place mutations can leave the display stale.
   In-flight guards recompute content fingerprints, but 32-bit FNV-1a is not a
   collision-free equality proof.
+
+## Competition sessions
+
+- **Rounds are derived from solve fields.** There is no separate round entity,
+  round history export, cutoff/combined-round simulation, or competition-day
+  standings. Deleting all attempts removes the derived round; deleting one leaves
+  an incomplete round that reports no average. If Undo restores an attempt after a
+  replacement solve, the round can temporarily exceed the format size; it is
+  shown as incomplete and produces no result rather than dropping an attempt.
+- **The post-round summary is for the newest round only.** It opens once after
+  the timer becomes idle and a previously observed open round completes. Reload,
+  switching to a session, or returning to an older completed round does not
+  reopen it. The round list remains available in the Statistics rail.
+- **Formats are immutable and conversion is one-way.** There is no format editor,
+  round reseeding, or practice-to-competition conversion, including through
+  split. Changing the session event preserves round membership but does not
+  revalidate it against a different puzzle's defaults.
+- **Sync convergence favors flattening.** Competition kind, format and round
+  fields ride the existing solve/session merge. If one snapshot has already
+  converted a session to practice, that flattened shape wins over a stale
+  competition copy; no new conflict kind is created. Round IDs are random stable
+  strings, so independent devices cannot create the same round by collision in
+  normal use, but this is not a cryptographic guarantee.
+- **Browser evidence is focused.** Chromium covers creation, inspected timing,
+  reload, deletion/Undo, merge/split, conversion, Analytics filtering and an
+  offline installed-app round. Live Drive, physical devices, multi-engine
+  competition flows and large-history competition stop latency were not
+  separately measured.
 
 ## Training
 

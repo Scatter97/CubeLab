@@ -1,4 +1,5 @@
 import type { FieldUpdate, Solve } from '../types'
+import { isValidRoundId, isValidRoundIndex } from './competition'
 import type { SyncConflict } from './syncStorage'
 
 export function recordTime(item: { updatedAt?: number; createdAt?: number }): number {
@@ -323,6 +324,20 @@ export function mergeSolveFields(
   }
 
   const importSource = local.importSource ?? remote.importSource
+  const localRoundId = isValidRoundId(local.roundId) ? local.roundId : undefined
+  const remoteRoundId = isValidRoundId(remote.roundId) ? remote.roundId : undefined
+  // Round membership is immutable session structure, not a user-edited field.
+  // Keep the local accumulator's assignment when both sides carry one; the
+  // session-level normalizer still flattens a converted practice session.
+  const roundId = localRoundId ?? remoteRoundId
+  const roundIndex = !roundId
+    ? undefined
+    : roundId === localRoundId && isValidRoundIndex(local.roundIndex)
+      ? local.roundIndex
+      : roundId === remoteRoundId && isValidRoundIndex(remote.roundIndex)
+        ? remote.roundIndex
+        : undefined
+
   return {
     id: local.id,
     event: resolvedEvent.event,
@@ -334,6 +349,8 @@ export function mergeSolveFields(
     updatedAt: Math.max(recordTime(local), recordTime(remote), latestResolvedUpdate),
     ...(Object.keys(fieldUpdates).length > 0 ? { fieldUpdates } : {}),
     ...(importSource ? { importSource } : {}),
+    ...(roundId ? { roundId } : {}),
+    ...(roundIndex !== undefined ? { roundIndex } : {}),
   }
 }
 

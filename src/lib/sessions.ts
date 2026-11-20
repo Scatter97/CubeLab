@@ -1,4 +1,5 @@
 import type {
+  CompetitionFormat,
   Penalty,
   PuzzleEvent,
   Session,
@@ -17,6 +18,12 @@ import { unionCustomEvents } from './customEvents'
 import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
 import { mergeSessionTransfers } from './sessionTransfers'
 import { MAX_SESSION_NAME_LENGTH, normalizeSessionName, sessionNameKey } from './sessionNames'
+import {
+  assignRoundMembership,
+  isCompetitionFormat,
+  isCompetitionSession,
+  stripRoundMembership,
+} from './competition'
 
 export { MAX_SESSION_NAME_LENGTH, normalizeSessionName } from './sessionNames'
 export const MAX_SOLVE_COMMENT_LENGTH = 500
@@ -194,6 +201,8 @@ export function isUntouchedDefaultSession(session: Session): boolean {
   return (
     normalizeSessionName(session.name) === DEFAULT_SESSION_NAME &&
     (session.event === undefined || session.event === '333') &&
+    session.kind === undefined &&
+    session.competitionFormat === undefined &&
     session.solves.length === 0 &&
     session.inspectionEnabled === undefined &&
     !(session.preferences && Object.keys(session.preferences).length > 0) &&
@@ -483,6 +492,7 @@ export function createSession(
     inspectionEnabled?: boolean
     preferences?: SessionPreferences
     editorId?: string
+    competitionFormat?: CompetitionFormat
   } = {},
 ): CreatedSession | null {
   const normalized = normalizeSessionName(name)
@@ -492,6 +502,9 @@ export function createSession(
   if (data.sessions.some((session) => session.id === id)) return null
 
   const now = options.now ?? Date.now()
+  const competitionFormat = isCompetitionFormat(options.competitionFormat)
+    ? options.competitionFormat
+    : undefined
   const session: Session = {
     id,
     name: normalized,
@@ -499,6 +512,12 @@ export function createSession(
     createdAt: now,
     updatedAt: now,
     solves: [],
+    ...(competitionFormat
+      ? {
+          kind: 'competition' as const,
+          competitionFormat: { ...competitionFormat },
+        }
+      : {}),
     ...(typeof options.inspectionEnabled === 'boolean'
       ? { inspectionEnabled: options.inspectionEnabled }
       : {}),
@@ -640,11 +659,14 @@ export function addSolve(
       scramble: { updatedAt: solve.createdAt ?? now, editorId },
       comment: { updatedAt: now, editorId },
     }
+    const prepared = isCompetitionSession(session)
+      ? assignRoundMembership([solve], session, session.competitionFormat)[0] ?? solve
+      : solve
     return {
       ...session,
       solves: [
         {
-          ...solve,
+          ...prepared,
           updatedAt: solve.updatedAt ?? now,
           fieldUpdates: {
             rawMs: fieldUpdates.rawMs ?? { updatedAt: solve.createdAt ?? now, editorId },
@@ -801,7 +823,10 @@ export function reconcileExternalSessions(input: {
         (solve) => !existingIds.has(solve.id),
       )
       if (newSolves.length === 0) continue
-      target.solves = [...target.solves, ...newSolves].sort(
+      const prepared = isCompetitionSession(target)
+        ? assignRoundMembership(newSolves, target, target.competitionFormat)
+        : stripRoundMembership(newSolves)
+      target.solves = [...target.solves, ...prepared].sort(
         (left, right) =>
           right.createdAt - left.createdAt || left.id.localeCompare(right.id),
       )
@@ -1182,10 +1207,13 @@ export function mergeSessions(
     sourceIdSet.has(session.id),
   )
 
+  const targetSolveIds = new Set(target.solves.map((solve) => solve.id))
+  const incomingIds = new Set<string>()
   const solvesById = new Map<string, Solve>()
   for (const solve of target.solves) solvesById.set(solve.id, solve)
   for (const source of sources) {
     for (const solve of source.solves) {
+      if (!targetSolveIds.has(solve.id)) incomingIds.add(solve.id)
       const existing = solvesById.get(solve.id)
       solvesById.set(
         solve.id,
@@ -1194,7 +1222,29 @@ export function mergeSessions(
     }
   }
 
-  const mergedSolves = [...solvesById.values()].sort((left, right) => {
+  let mergedSolves = [...solvesById.values()]
+  if (isCompetitionSession(target)) {
+    // Source solves lose any prior membership and re-enter through the same
+    // grouping rule. Target solves keep their existing rounds.
+    const incoming = mergedSolves.filter((solve) => incomingIds.has(solve.id))
+    const assigned = assignRoundMembership(
+      incoming,
+      target,
+      target.competitionFormat,
+    )
+    const assignedById = new Map(assigned.map((solve) => [solve.id, solve]))
+    mergedSolves = mergedSolves.map(
+      (solve) => assignedById.get(solve.id) ?? solve,
+    )
+  } else if (
+    mergedSolves.some(
+      (solve) =>
+        solve.roundId !== undefined || solve.roundIndex !== undefined,
+    )
+  ) {
+    mergedSolves = stripRoundMembership(mergedSolves)
+  }
+  mergedSolves.sort((left, right) => {
     if (right.createdAt !== left.createdAt) {
       return right.createdAt - left.createdAt
     }
@@ -1227,6 +1277,35 @@ export function mergeSessionsById(
   return mergeSessions(data, targetId, [sourceId], now)
 }
 
+/**
+ * One-way competition to practice conversion. Round membership is flattened in
+ * place and the session keeps its identity, name, event, solves, preferences and
+ * sync metadata. Practice sessions are never converted the other way.
+ */
+export function convertSessionToPractice(
+  data: SessionsData,
+  sessionId: string,
+  now = Date.now(),
+): SessionsData | null {
+  const session = data.sessions.find((candidate) => candidate.id === sessionId)
+  if (!session || !isCompetitionSession(session)) return null
+
+  return {
+    ...data,
+    sessions: data.sessions.map((candidate) => {
+      if (candidate.id !== sessionId) return candidate
+      const next: Session = {
+        ...candidate,
+        solves: stripRoundMembership(candidate.solves),
+        updatedAt: now,
+      }
+      delete next.kind
+      delete next.competitionFormat
+      return next
+    }),
+  }
+}
+
 export interface SplitSessionResult {
   data: SessionsData
   sessionId: string
@@ -1248,10 +1327,17 @@ export function splitSession(
     id?: string
     now?: number
     editorId?: string
+    competitionFormat?: CompetitionFormat
   } = {},
 ): SplitSessionResult | null {
   const source = data.sessions.find((session) => session.id === sessionId)
   if (!source || source.solves.length === 0) return null
+  const competitionFormat = isCompetitionFormat(options.competitionFormat)
+    ? options.competitionFormat
+    : undefined
+  // Practice to competition is never offered: it would invent rounds for
+  // solves that never happened as rounds.
+  if (competitionFormat && !isCompetitionSession(source)) return null
   const uniqueSolveIds = [...new Set(solveIds)]
   if (uniqueSolveIds.length === 0 || uniqueSolveIds.length !== solveIds.length) {
     return null
@@ -1279,13 +1365,22 @@ export function splitSession(
     solves: remainingSolves,
     updatedAt: now,
   }
+  const preparedSolves = competitionFormat
+    ? assignRoundMembership(movedSolves, { solves: [] }, competitionFormat)
+    : stripRoundMembership(movedSolves)
   const newSession: Session = {
     id,
     name: normalizedName,
     event: source.event ?? '333',
     createdAt: now,
     updatedAt: now,
-    solves: movedSolves,
+    solves: preparedSolves,
+    ...(competitionFormat
+      ? {
+          kind: 'competition' as const,
+          competitionFormat: { ...competitionFormat },
+        }
+      : {}),
     ...(source.inspectionEnabled !== undefined
       ? { inspectionEnabled: source.inspectionEnabled }
       : {}),

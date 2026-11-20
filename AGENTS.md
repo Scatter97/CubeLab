@@ -45,7 +45,7 @@ first-run onboarding, inspection, named sessions, solve comments/actions,
 configurable trimmed statistics, Time Trend/PB details, the lazy Analytics
 dashboard, the OLL/PLL Training workspace, floating scramble/chart tools, native
 JSON backup, additive csTimer import, optional Drive sync, light/dark/system
-themes and an offline-capable PWA. Sessions use schema **v6**; settings use **v11**. Storage-key
+themes and an offline-capable PWA. Sessions use schema **v7**; settings use **v11**. Storage-key
 suffixes remain `v1`; do not confuse key names with payload schema versions.
 
 | Area | Owner |
@@ -54,7 +54,7 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | First-run onboarding, setup drafts and setup/sync coordination | `src/components/Onboarding.tsx`, `src/lib/onboarding.ts`, `src/lib/onboardingCloud.ts`, `e2e/onboarding.spec.ts` |
 | Timer transitions and inspection penalties | `src/timer/machine.ts`, `src/hooks/useTimer.ts` |
 | Live readout and delayed insight presentation | `src/hooks/useRunningElapsed.ts`, `src/hooks/usePostPaintValue.ts` |
-| Sessions, merge/split transfers, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/lib/sessionTransfers.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts`, `src/lib/dates.ts` |
+| Sessions, competition rounds, merge/split transfers, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/lib/competition.ts`, `src/lib/sessionTransfers.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts`, `src/lib/dates.ts` |
 | Custom events, csTimer event mapping and reassignment | `src/lib/events.ts`, `src/lib/customEvents.ts`, `src/components/CustomEventsDialog.tsx` |
 | Backup and csTimer parsing | `src/lib/backup.ts`, `src/lib/csTimerImport.ts` |
 | Sync orchestration, replacement recovery and pure merges | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts`, `src/lib/replacement.ts`, `src/lib/startupRecovery.ts`, `src/lib/pendingCompletion.ts` |

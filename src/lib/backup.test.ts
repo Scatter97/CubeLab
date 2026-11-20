@@ -594,6 +594,51 @@ describe('checked backup serialization', () => {
   })
 })
 
+describe('backup competition sessions', () => {
+  it('round-trips the session kind, format and solve round membership', () => {
+    const data: SessionsData = {
+      activeSessionId: 'competition',
+      sessions: [
+        {
+          id: 'competition',
+          name: 'Friday',
+          kind: 'competition',
+          competitionFormat: { type: 'ao', size: 5 },
+          event: '333',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_002_000,
+          solves: [
+            solve({
+              id: 'solve-2',
+              roundId: 'round-1',
+              roundIndex: 1,
+              createdAt: 1_700_000_002_000,
+            }),
+            solve({
+              id: 'solve-1',
+              roundId: 'round-1',
+              roundIndex: 0,
+              createdAt: 1_700_000_001_000,
+            }),
+          ],
+        },
+      ],
+    }
+    const backup = createBackup(data, DEFAULT_SETTINGS)
+    const result = parseBackup(serializeBackup(backup))
+    expect(result).toEqual({ ok: true, backup })
+    if (!result.ok) return
+    expect(result.backup.sessions.sessions[0]).toMatchObject({
+      kind: 'competition',
+      competitionFormat: { type: 'ao', size: 5 },
+    })
+    expect(result.backup.sessions.sessions[0]?.solves[0]).toMatchObject({
+      roundId: 'round-1',
+      roundIndex: 1,
+    })
+  })
+})
+
 describe('backup session ordering', () => {
   it('round-trips order metadata without changing session or solve data', () => {
     const data: SessionsData = {

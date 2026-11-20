@@ -1,6 +1,6 @@
 # CubeLab roadmap
 
-**Updated:** 2026-11-18. Current delivery/test evidence belongs in
+**Updated:** 2026-11-19. Current delivery/test evidence belongs in
 [STATUS.md](STATUS.md); risks belong in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 The verified primary local development environment is Arch Linux with KDE
 Plasma on Wayland; see [docs/development/ARCH_LINUX.md](docs/development/ARCH_LINUX.md).
@@ -17,7 +17,8 @@ require their existing authorization.
 The timer, inspection, named sessions, native backup, optional Drive sync,
 twelve built-in events plus custom events, first-run onboarding, themes,
 scramble tools, Time Trend/PB details, the Analytics dashboard, configurable
-trimming, csTimer import and the OLL/PLL Training workspace are implemented.
+trimming, csTimer import, competition sessions with derived rounds and the
+OLL/PLL Training workspace are implemented.
 Core phases 2A–4, theme polish, Phase 5 audit remediation and Phase 6a are
 delivered. The first stop-response patch and November 1 selection/import
 regression fixes are also implemented; remaining performance/platform

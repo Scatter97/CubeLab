@@ -13,13 +13,16 @@ const VIRTUALIZE_THRESHOLD = 200
 const ROW_HEIGHT_FALLBACK = 44
 const WINDOW_OVERSCAN_PX = 320
 
-export function useHistoryList<T extends { id: string }>(items: readonly T[]) {
+export function useHistoryList<T extends { id: string }>(
+  items: readonly T[],
+  newestIdOverride?: string,
+) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [showAll, setShowAll] = useState(false)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewport, setViewport] = useState({ height: 0, width: 0 })
   const [heights, setHeights] = useState(() => new Map<string, number>())
-  const newestId = items[0]?.id
+  const newestId = newestIdOverride ?? items[0]?.id
   const canWindow = items.length > VIRTUALIZE_THRESHOLD
   const virtualized = canWindow && !showAll
 

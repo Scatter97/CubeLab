@@ -288,17 +288,21 @@ describe('AnalyticsPage', () => {
     ).toBeLessThanOrEqual(analytics.ACTIVITY_CALENDAR_WINDOW_DAYS + 12)
   })
 
-  it('orders filters as event, sessions, date, last solves and penalty', () => {
+  it('orders filters as event, session type, sessions, date, last solves and penalty', () => {
     render(<Harness />)
     const field = (testId: string) =>
       screen.getByTestId(testId).closest('.analytics-filter-field')
     const event = field('analytics-event')!
+    const kind = field('analytics-session-kind')!
     const sessions = field('analytics-sessions-trigger')!
     const date = field('analytics-date-range')!
     const limit = field('analytics-solve-limit')!
     const penalty = field('analytics-penalty')!
 
-    expect(event.compareDocumentPosition(sessions)).toBe(
+    expect(event.compareDocumentPosition(kind)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(kind.compareDocumentPosition(sessions)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
     expect(sessions.compareDocumentPosition(date)).toBe(
@@ -333,6 +337,30 @@ describe('AnalyticsPage', () => {
     expect(screen.getByTestId('analytics-overview')).toHaveTextContent(
       '100.0%',
     )
+  })
+
+  it('filters practice and competition sessions and includes the filter in reset state', () => {
+    const competition: Session = {
+      ...sessions[0]!,
+      id: 'competition',
+      name: 'Friday',
+      kind: 'competition',
+      competitionFormat: { type: 'ao', size: 5 },
+      solves: [solve('competition-1', 9_000, -500)],
+    }
+    render(<Harness data={[...sessions, competition]} />)
+    expect(screen.getByText('8 matching solves')).toBeVisible()
+
+    chooseOption('analytics-session-kind', 'competition')
+    expect(screen.getByText('1 matching solves')).toBeVisible()
+    expect(screen.getByTestId('analytics-filters-toggle')).toHaveTextContent(
+      '2 active',
+    )
+    fireEvent.click(screen.getByTestId('analytics-reset-filters'))
+    expect(screen.getByText('8 matching solves')).toBeVisible()
+
+    chooseOption('analytics-session-kind', 'practice')
+    expect(screen.getByText('7 matching solves')).toBeVisible()
   })
 
   it('groups hero metrics with the active scope context', () => {

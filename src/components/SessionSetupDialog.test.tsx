@@ -51,6 +51,11 @@ function createSession() {
   fireEvent.click(screen.getByRole('button', { name: 'Create session' }))
 }
 
+function chooseFormat(format: string) {
+  fireEvent.click(screen.getByTestId('session-setup-format'))
+  fireEvent.click(screen.getByTestId(`session-setup-format-option-${format}`))
+}
+
 describe('SessionSetupDialog naming', () => {
   it('updates a blank suggestion and keeps a typed name equal to a prior suggestion', () => {
     const { name, onCreate } = renderDialog()
@@ -85,6 +90,37 @@ describe('SessionSetupDialog naming', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     createSession()
     expect(onCreate).toHaveBeenCalledWith('3×3 (3)', '333', { inspectionEnabled: false })
+  })
+
+  it('defaults competition formats per event and submits the chosen format', () => {
+    const { onCreate } = renderDialog()
+    fireEvent.click(screen.getByTestId('session-setup-kind-competition'))
+    expect(screen.getByTestId('session-setup-format')).toHaveAttribute(
+      'aria-label',
+      'Competition round format',
+    )
+    expect(screen.getByTestId('session-setup-format')).toHaveTextContent(
+      'Average of 5',
+    )
+
+    selectEvent('666')
+    expect(screen.getByTestId('session-setup-format')).toHaveTextContent(
+      'Mean of 3',
+    )
+    chooseFormat('ao50')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Session name' }), {
+      target: { value: 'Big cubes' },
+    })
+    createSession()
+    expect(onCreate).toHaveBeenCalledWith(
+      'Big cubes',
+      '666',
+      { inspectionEnabled: false },
+      { type: 'ao', size: 50 },
+    )
+
+    fireEvent.click(screen.getByTestId('session-setup-kind-practice'))
+    expect(screen.queryByTestId('session-setup-format')).not.toBeInTheDocument()
   })
 
   it('cancels without creation and starts with an empty draft when reopened', () => {

@@ -2573,3 +2573,162 @@ describe('session event correction synchronization', () => {
     ).toEqual(['222', '222'])
   })
 })
+
+describe('competition session synchronization', () => {
+  const format = { type: 'ao' as const, size: 5 as const }
+
+  it('passes round membership through solve merges and keeps the format', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          kind: 'competition',
+          competitionFormat: format,
+          solves: [
+            solve({
+              id: 'round-solve',
+              roundId: 'round-1',
+              roundIndex: 0,
+              createdAt: 1_700_000_001_000,
+            }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({
+          kind: 'competition',
+          competitionFormat: format,
+          solves: [
+            solve({
+              id: 'round-solve',
+              roundId: 'round-1',
+              roundIndex: 0,
+              comment: 'Remote note',
+              updatedAt: 1_700_000_010_000,
+              createdAt: 1_700_000_001_000,
+            }),
+            solve({
+              id: 'unassigned-remote',
+              createdAt: 1_700_000_002_000,
+            }),
+          ],
+        }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    const merged = result.merged.sessions[0]!
+    expect(merged.kind).toBe('competition')
+    expect(merged.competitionFormat).toEqual(format)
+    expect(
+      merged.solves.find((entry) => entry.id === 'round-solve'),
+    ).toMatchObject({
+      roundId: 'round-1',
+      roundIndex: 0,
+      comment: 'Remote note',
+    })
+    expect(
+      merged.solves.find((entry) => entry.id === 'unassigned-remote'),
+    ).toMatchObject({
+      roundId: 'round-1',
+      roundIndex: 1,
+    })
+  })
+
+  it('lets a one-way practice conversion flatten stale competition metadata', () => {
+    const local = sessionsData({
+      sessions: [
+        session({
+          solves: [
+            solve({
+              id: 'converted',
+              createdAt: 1_700_000_001_000,
+            }),
+          ],
+        }),
+      ],
+    })
+    const remote = sessionsData({
+      sessions: [
+        session({
+          kind: 'competition',
+          competitionFormat: format,
+          solves: [
+            solve({
+              id: 'converted',
+              roundId: 'stale-round',
+              roundIndex: 0,
+              createdAt: 1_700_000_001_000,
+            }),
+          ],
+        }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    const merged = result.merged.sessions[0]!
+    expect(merged.kind).toBeUndefined()
+    expect(merged.competitionFormat).toBeUndefined()
+    expect(merged.solves[0]).not.toHaveProperty('roundId')
+    expect(merged.solves[0]).not.toHaveProperty('roundIndex')
+  })
+
+  it('adopts a cloud competition session without losing its rounds', () => {
+    const local = sessionsData()
+    const remote = sessionsData({
+      activeSessionId: 'competition-session',
+      sessions: [
+        session({
+          id: 'competition-session',
+          name: 'Friday',
+          kind: 'competition',
+          competitionFormat: { type: 'mo', size: 3 },
+          solves: [
+            solve({
+              id: 'comp-solve-2',
+              roundId: 'round-1',
+              roundIndex: 2,
+              createdAt: 1_700_000_003_000,
+            }),
+            solve({
+              id: 'comp-solve-1',
+              roundId: 'round-1',
+              roundIndex: 1,
+              createdAt: 1_700_000_002_000,
+            }),
+          ],
+        }),
+      ],
+    })
+
+    const result = mergeSessionsData({
+      local,
+      remote,
+      tombstones: [],
+      deviceId: 'device-local',
+      manualConflictReview: false,
+    })
+    expect(result.adoptedLocalDefault).toBe(true)
+    expect(result.merged.sessions[0]).toMatchObject({
+      kind: 'competition',
+      competitionFormat: { type: 'mo', size: 3 },
+    })
+    expect(result.merged.sessions[0]?.solves.map((entry) => entry.roundId)).toEqual([
+      'round-1',
+      'round-1',
+    ])
+  })
+})

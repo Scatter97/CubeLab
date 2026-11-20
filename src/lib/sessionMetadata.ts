@@ -1,14 +1,21 @@
 import type {
+  CompetitionFormat,
   FieldUpdate,
   PuzzleEvent,
   Session,
   SessionFieldUpdates,
+  SessionKind,
   SessionPreferenceKey,
   SessionPreferences,
 } from '../types'
 import type { SyncConflict } from './syncStorage'
 import { normalizeSessionName } from './sessions'
 import { SESSION_PREFERENCE_KEYS } from './sessionPreferenceKeys'
+import {
+  competitionFormatId,
+  isCompetitionFormat,
+  isCompetitionSession,
+} from './competition'
 
 export type SessionMetadataField =
   | 'name'
@@ -18,10 +25,46 @@ export type SessionMetadataField =
 
 export interface MergedSessionMetadata {
   name: string
+  kind: SessionKind | undefined
+  competitionFormat: CompetitionFormat | undefined
   event: PuzzleEvent | undefined
   inspectionEnabled: boolean | undefined
   preferences: SessionPreferences | undefined
   fieldUpdates: SessionFieldUpdates | undefined
+}
+
+function mergeCompetitionMetadata(
+  local: Session,
+  remote: Session,
+): { kind: SessionKind | undefined; competitionFormat: CompetitionFormat | undefined } {
+  const localCompetition = isCompetitionSession(local)
+  const remoteCompetition = isCompetitionSession(remote)
+  if (!localCompetition && !remoteCompetition) {
+    return { kind: undefined, competitionFormat: undefined }
+  }
+  if (!localCompetition || !remoteCompetition) {
+    // Competition to practice is a one-way conversion, so a flattened copy
+    // always outranks a stale competition snapshot.
+    return { kind: undefined, competitionFormat: undefined }
+  }
+
+  const localId = competitionFormatId(local.competitionFormat)
+  const remoteId = competitionFormatId(remote.competitionFormat)
+  if (localId === remoteId) {
+    return {
+      kind: 'competition',
+      competitionFormat: { ...local.competitionFormat },
+    }
+  }
+  // Formats are immutable per session, so a disagreement can only come from
+  // corrupt or independently invented metadata. Choose deterministically.
+  const winner = (localId ?? '') <= (remoteId ?? '') ? local : remote
+  return {
+    kind: 'competition',
+    competitionFormat: isCompetitionFormat(winner.competitionFormat)
+      ? { ...winner.competitionFormat }
+      : undefined,
+  }
 }
 
 function isValidFieldUpdate(value: FieldUpdate | undefined): value is FieldUpdate {
@@ -470,8 +513,10 @@ export function mergeSessionMetadata(input: {
   }
   if (eventUpdate) fieldUpdates.event = eventUpdate
 
+  const competition = mergeCompetitionMetadata(local, remote)
   return {
     name: nameResult.value as string,
+    ...competition,
     event,
     inspectionEnabled,
     preferences: Object.keys(preferences).length > 0 ? preferences : undefined,

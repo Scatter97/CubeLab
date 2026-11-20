@@ -27,6 +27,11 @@ import type {
 } from '../types'
 import { DEFAULT_AVERAGE_TRIMMING, isAverageTrimRule } from './averageTrimming'
 import {
+  isCompetitionFormat,
+  isValidRoundId,
+  isValidRoundIndex,
+} from './competition'
+import {
   createDefaultAnalyticsSettings,
   parseAnalyticsSettings,
 } from './analyticsSettings'
@@ -58,7 +63,7 @@ export const SOLVES_STORAGE_KEY = 'cubelab:solves:v1'
 export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
-export const SESSIONS_VERSION = 6
+export const SESSIONS_VERSION = 7
 export const SETTINGS_STORAGE_VERSION = 11
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -257,6 +262,10 @@ export function parseSolve(value: unknown): Solve | null {
     ...(parseImportSource(value.importSource)
       ? { importSource: parseImportSource(value.importSource) }
       : {}),
+    ...(isValidRoundId(value.roundId) ? { roundId: value.roundId } : {}),
+    ...(isValidRoundIndex(value.roundIndex)
+      ? { roundIndex: value.roundIndex }
+      : {}),
   }
 }
 
@@ -319,9 +328,21 @@ function parseSession(value: unknown): Session | null {
     }
   }
 
+  const kind =
+    value.kind === 'competition' &&
+    isCompetitionFormat(value.competitionFormat)
+      ? ('competition' as const)
+      : value.kind === 'practice'
+        ? ('practice' as const)
+        : undefined
+
   return {
     id: value.id,
     name,
+    ...(kind ? { kind } : {}),
+    ...(kind === 'competition' && isCompetitionFormat(value.competitionFormat)
+      ? { competitionFormat: value.competitionFormat }
+      : {}),
     event:
       value.event === undefined
         ? '333'

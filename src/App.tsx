@@ -48,6 +48,7 @@ import { useTimer } from './hooks/useTimer'
 import { usePostPaintValue } from './hooks/usePostPaintValue'
 import { useToast } from './hooks/useToast'
 import { SessionSetupDialog } from './components/SessionSetupDialog'
+import { RoundSummaryDialog } from './components/competition/RoundSummaryDialog'
 import { useSync } from './hooks/useSync'
 import { useDurableReplacement } from './hooks/useDurableReplacement'
 import {
@@ -68,6 +69,11 @@ import { unionCustomEvents, findImportedEventCorrections, getCustomEventDeleteEr
 import { formatSessionHours, formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves, getSessionMergeError, getSessionSummary, appendSessionsInOrder, isUntouchedDefaultSession } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
+import {
+  getCompetitionRounds,
+  isCompetitionSession,
+  type CompetitionRound,
+} from './lib/competition'
 import { createDriveTransport } from './lib/driveTransport'
 import {
   beginSiteResetGate,
@@ -103,6 +109,7 @@ import { BUILT_IN_STAT_DEFINITIONS } from './lib/statDefinitions'
 import { DEFAULT_TOOL, type CurrentTool } from './lib/tools'
 import type {
   AlertChannel,
+  CompetitionFormat,
   Penalty,
   PuzzleEvent,
   SessionPreferences,
@@ -264,6 +271,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     clearSolves,
     resetAllSolveData,
     createSession,
+    convertSessionToPractice,
     renameSession,
     deleteSession,
     selectSession,
@@ -336,6 +344,11 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
   const [driveOpen, setDriveOpen] = useState(false)
   const [pendingDriveRestore, setPendingDriveRestore] = useState<Backup | null>(null)
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null)
+  const [convertToPracticeOpen, setConvertToPracticeOpen] = useState(false)
+  const [roundSummary, setRoundSummary] = useState<CompetitionRound | null>(null)
+  const seenRoundCompletionRef = useRef(
+    new Map<string, { id: string; complete: boolean }>(),
+  )
   const [pendingImport, setPendingImport] = useState<Backup | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [siteResetOpen, setSiteResetOpen] = useState(false)
@@ -890,6 +903,8 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     resetAllOpen ||
     deleteAllOpen ||
     sessionToDelete !== null ||
+    convertToPracticeOpen ||
+    roundSummary !== null ||
     pendingImport !== null ||
     driveOpen ||
     mergeSessionsOpen ||
@@ -941,6 +956,57 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     () => getSessionSummary(activeSession.solves),
     [activeSession.solves],
   )
+  const activeCompetitionFormat = isCompetitionSession(activeSession)
+    ? activeSession.competitionFormat
+    : null
+  const competition = useMemo(
+    () =>
+      activeCompetitionFormat
+        ? {
+            format: activeCompetitionFormat,
+            rounds: getCompetitionRounds(
+              insightSolves,
+              activeCompetitionFormat,
+              averageTrimming,
+            ),
+          }
+        : null,
+    [activeCompetitionFormat, averageTrimming, insightSolves],
+  )
+  useEffect(() => {
+    if (timer.state.status !== 'idle') return
+    const sessionId = activeSession.id
+    if (!isCompetitionSession(activeSession)) {
+      seenRoundCompletionRef.current.delete(sessionId)
+      return
+    }
+    // Detection runs after paint, so scanning the current history cannot add
+    // work to the stop path. The rail presentation still uses the deferred
+    // `competition` value above.
+    const currentRounds = getCompetitionRounds(
+      activeSession.solves,
+      activeSession.competitionFormat,
+      averageTrimming,
+    )
+    if (currentRounds.length === 0) {
+      seenRoundCompletionRef.current.delete(sessionId)
+      return
+    }
+    const latest = currentRounds[currentRounds.length - 1]!
+    const previous = seenRoundCompletionRef.current.get(sessionId)
+    seenRoundCompletionRef.current.set(sessionId, {
+      id: latest.id,
+      complete: latest.complete,
+    })
+    if (
+      previous &&
+      previous.id === latest.id &&
+      !previous.complete &&
+      latest.complete
+    ) {
+      setRoundSummary(latest)
+    }
+  }, [activeSession, averageTrimming, timer.state.status])
 
   const handleOpenSettings = useCallback(() => {
     if (timer.state.status !== 'idle') return
@@ -1513,6 +1579,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
       name: string,
       event?: PuzzleEvent,
       preferences?: SessionPreferences,
+      competitionFormat?: CompetitionFormat,
     ): boolean => {
       if (timer.state.status !== 'idle') return false
       const id = createSession(
@@ -1520,6 +1587,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         preferences?.inspectionEnabled ?? activeInspectionEnabled,
         event,
         preferences,
+        competitionFormat,
       )
       if (id) {
         selectSession(id)
@@ -1583,6 +1651,30 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     if (timer.state.status !== 'idle' || sessions.length <= 1) return
     setSessionToDelete(activeSession)
   }, [activeSession, sessions.length, timer.state.status])
+
+  const requestConvertToPractice = useCallback(() => {
+    if (timer.state.status !== 'idle' || !isCompetitionSession(activeSession)) return
+    setSessionSettingsOpen(false)
+    setConvertToPracticeOpen(true)
+  }, [activeSession, timer.state.status])
+
+  const confirmConvertToPractice = useCallback(() => {
+    setConvertToPracticeOpen(false)
+    if (!isCompetitionSession(activeSession)) return
+    if (!convertSessionToPractice(activeSession.id)) {
+      showToast({
+        message:
+          'Conversion could not be saved. The session is still a competition.',
+      })
+      return
+    }
+    showToast({
+      message: `Converted “${activeSession.name}” to practice. Rounds were flattened.`,
+    })
+    if (sync.phase !== 'disabled' && navigator.onLine) {
+      window.setTimeout(() => void sync.syncNow('conversion'), 0)
+    }
+  }, [activeSession, convertSessionToPractice, showToast, sync])
 
   const handleOpenEventManager = useCallback(() => {
     if (timer.state.status !== 'idle') return
@@ -2020,6 +2112,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
       sessionId: string,
       name: string,
       solveIds: readonly string[],
+      competitionFormat?: CompetitionFormat,
     ): string | null => {
       if (timer.state.status !== 'idle') {
         showToast({
@@ -2043,7 +2136,12 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         return null
       }
 
-      const newSessionId = splitSession(sessionId, name, solveIds)
+      const newSessionId = splitSession(
+        sessionId,
+        name,
+        solveIds,
+        competitionFormat,
+      )
       if (!newSessionId) {
         showToast({
           message: 'Split could not be saved. Nothing was moved.',
@@ -2069,6 +2167,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     setDeleteAllOpen(false)
     setSiteResetOpen(false)
     setSessionToDelete(null)
+    setConvertToPracticeOpen(false)
     setPendingImport(null)
     if (cancelledImport) restoreHeaderSettingsFocus()
   }, [pendingImport, restoreHeaderSettingsFocus])
@@ -2223,6 +2322,27 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
       }
     }
 
+    if (convertToPracticeOpen) {
+      return {
+        eyebrow: 'Convert session',
+        title: `Convert “${activeSession.name}” to practice?`,
+        description: (
+          <>
+            This removes the competition format and flattens every round in this
+            session. Solves, times, penalties, scrambles, comments, dates,
+            personal bests and Analytics history stay intact. Practice sessions
+            cannot be converted back into competition sessions because their
+            rounds never existed. This cannot be undone without a previous
+            backup.
+          </>
+        ),
+        cancelLabel: 'Keep competition',
+        confirmLabel: 'Convert to practice',
+        requireText: 'CONVERT TO PRACTICE',
+        onConfirm: confirmConvertToPractice,
+      }
+    }
+
     if (sessionToDelete) {
       return {
         eyebrow: 'Delete session',
@@ -2265,9 +2385,11 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     activeSession.name,
     clearOpen,
     confirmClear,
+    confirmConvertToPractice,
     confirmDeleteAllSessions,
     confirmDeleteSession,
     confirmImport,
+    convertToPracticeOpen,
     confirmResetAll,
     confirmSiteReset,
     deleteAllOpen,
@@ -2649,6 +2771,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
                 precision={settings.statPrecision}
                 solves={insightSolves}
                 trimming={averageTrimming}
+                competition={competition ?? undefined}
                 {...layout}
               />
             )}
@@ -2656,6 +2779,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             <SolveHistory
               key={activeSession.id}
               solves={insightSolves}
+              competition={competition ?? undefined}
               onSetPenalty={handleSetPenalty}
               onDelete={handleDelete}
               onSetComment={handleSetComment}
@@ -2744,8 +2868,19 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         onRequestDelete={requestDeleteSession}
         onRequestMerge={handleOpenMergeSessions}
         onRequestSplit={handleOpenSplitSession}
+        onRequestConvertToPractice={requestConvertToPractice}
         onOpenEventManager={handleOpenEventManager}
         onClose={() => setSessionSettingsOpen(false)}
+      />
+
+      <RoundSummaryDialog
+        round={roundSummary}
+        rounds={competition?.rounds ?? []}
+        format={roundSummary && isCompetitionSession(activeSession)
+          ? activeSession.competitionFormat
+          : { type: 'ao', size: 5 }}
+        precision={settings.statPrecision}
+        onClose={() => setRoundSummary(null)}
       />
 
       {dataOpen ? (
@@ -2839,9 +2974,14 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             session={splitSessionSource}
             sessions={sessions}
             onClose={closeSplitSession}
-            onSplit={(name, solveIds) =>
+            onSplit={(name, solveIds, competitionFormat) =>
               splitSessionSource
-                ? handleSplitSession(splitSessionSource.id, name, solveIds)
+                ? handleSplitSession(
+                    splitSessionSource.id,
+                    name,
+                    solveIds,
+                    competitionFormat,
+                  )
                 : null
             }
           />
@@ -2872,8 +3012,15 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         defaultEvent={activeEvent}
         defaultInspectionEnabled={activeInspectionEnabled}
         onClose={() => setCreateSessionOpen(false)}
-        onCreate={(name, event, preferences) =>
-          Boolean(handleCreateSession(name, event, preferences))
+        onCreate={(name, event, preferences, competitionFormat) =>
+          Boolean(
+            handleCreateSession(
+              name,
+              event,
+              preferences,
+              competitionFormat,
+            ),
+          )
         }
       />
 

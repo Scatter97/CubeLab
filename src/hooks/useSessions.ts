@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CustomEventDefinition, NewSolve, Penalty, PuzzleEvent, Session, SessionOrdering, SessionPreferences, SessionsData, SessionTransfer, Solve } from '../types'
+import type { CompetitionFormat, CustomEventDefinition, NewSolve, Penalty, PuzzleEvent, Session, SessionOrdering, SessionPreferences, SessionsData, SessionTransfer, Solve } from '../types'
 import { createId } from '../lib/id'
 import { setCustomEventDefinitions } from '../lib/events'
 import {
@@ -14,6 +14,7 @@ import {
   addSolve as addSolveToData,
   clearActiveSolves,
   clearAllSolves as clearAllSolvesInData,
+  convertSessionToPractice as convertSessionToPracticeInData,
   createSession as createSessionInData,
   deleteAllSessions as deleteAllSessionsInData,
   deleteSession as deleteSessionFromData,
@@ -71,7 +72,9 @@ export interface UseSessionsResult {
     inspectionEnabled?: boolean,
     event?: PuzzleEvent,
     preferences?: SessionPreferences,
+    competitionFormat?: CompetitionFormat,
   ) => string | null
+  convertSessionToPractice: (id: string) => boolean
   renameSession: (id: string, name: string) => boolean
   setSessionEvent: (id: string, event: PuzzleEvent) => boolean
   mergeSessions: (targetId: string, sourceIds: readonly string[]) => boolean
@@ -79,6 +82,7 @@ export interface UseSessionsResult {
     sessionId: string,
     name: string,
     solveIds: readonly string[],
+    competitionFormat?: CompetitionFormat,
   ) => string | null
   moveSession: (id: string, direction: -1 | 1) => void
   moveSessionTo: (id: string, targetIndex: number) => void
@@ -315,11 +319,13 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
       inspectionEnabled?: boolean,
       event?: PuzzleEvent,
       preferences?: SessionPreferences,
+      competitionFormat?: CompetitionFormat,
     ): string | null => {
       const result = createSessionInData(dataRef.current, name, {
         inspectionEnabled,
         event,
         preferences,
+        competitionFormat,
         editorId: syncDeviceId,
       })
       if (!result) return null
@@ -329,6 +335,18 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     },
     [applyData, syncDeviceId],
   )
+
+  const convertSessionToPractice = useCallback((id: string): boolean => {
+    const current = dataRef.current
+    const next = convertSessionToPracticeInData(current, id)
+    if (!next || next === current) return false
+    if (!persistSessions(next)) {
+      setStorageOk(false)
+      return false
+    }
+    applyData(next)
+    return true
+  }, [applyData, persistSessions])
 
   const renameSession = useCallback((id: string, name: string): boolean => {
     const current = dataRef.current
@@ -376,13 +394,14 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
       sessionId: string,
       name: string,
       solveIds: readonly string[],
+      competitionFormat?: CompetitionFormat,
     ): string | null => {
       const result = splitSessionInData(
         dataRef.current,
         sessionId,
         name,
         solveIds,
-        { editorId: syncDeviceId },
+        { editorId: syncDeviceId, competitionFormat },
       )
       if (!result) return null
       if (!persistSessions(result.data)) {
@@ -584,6 +603,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     clearSolves,
     resetAllSolveData,
     createSession,
+    convertSessionToPractice,
     renameSession,
     setSessionEvent,
     mergeSessions,

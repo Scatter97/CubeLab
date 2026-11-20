@@ -141,6 +141,41 @@ describe('analytics filtering', () => {
     expect(latestTwo.map((solve) => solve.id)).toEqual(['a4', 'a1'])
   })
 
+  it('filters by practice and competition session type', () => {
+    const competitionSession: Session = {
+      ...makeSession('competition', 'Friday', [
+        makeSolve('competition-1', 9_000, NOW),
+      ]),
+      kind: 'competition',
+      competitionFormat: { type: 'ao', size: 5 },
+    }
+    const withCompetition = [...sessions, competitionSession]
+
+    expect(
+      filterAnalyticsSolves(
+        withCompetition,
+        { ...createAnalyticsFilters('all'), sessionKind: 'competition' },
+        NOW,
+      ).map((solve) => solve.id),
+    ).toEqual(['competition-1'])
+    expect(
+      filterAnalyticsSolves(
+        withCompetition,
+        { ...createAnalyticsFilters('all'), sessionKind: 'practice' },
+        NOW,
+      ).map((solve) => solve.id),
+    ).toEqual(['a2', 'a3', 'a4', 'a1', 'b1'])
+
+    const comparison = compareSessions(
+      withCompetition,
+      { ...createAnalyticsFilters('all'), sessionKind: 'competition' },
+      DEFAULT_AVERAGE_TRIMMING,
+      20_000,
+      NOW,
+    )
+    expect(comparison.map((entry) => entry.id)).toEqual(['competition'])
+  })
+
   it('restores within-session chronology for tied imported timestamps', () => {
     const chronological = [
       makeSolve('oldest', 10_000, NOW),

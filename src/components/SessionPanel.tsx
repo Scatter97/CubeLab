@@ -16,6 +16,10 @@ import {
 import { getEventLabel } from '../lib/events'
 import { formatSolveCount } from '../lib/format'
 import {
+  competitionFormatLabel,
+  isCompetitionSession,
+} from '../lib/competition'
+import {
   getDragAutoScrollDelta,
   getSessionDropIndex,
 } from '../lib/sessionDrag'
@@ -757,6 +761,14 @@ export function SessionPanel({
                           <span className="session-picker-meta">
                             {getEventLabel(session.event ?? '333')} ·{' '}
                             {formatSolveCount(session.solves.length)}
+                            {isCompetitionSession(session) ? (
+                              <span
+                                className="competition-format-badge"
+                                data-testid={`session-format-${session.id}`}
+                              >
+                                {competitionFormatLabel(session.competitionFormat)}
+                              </span>
+                            ) : null}
                           </span>
                           {active ? (
                             <CheckIcon

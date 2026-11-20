@@ -9,7 +9,8 @@ scrambles from `cubing.js` for 12 events — 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6�
 with count-down or count-up display and
 independent 8/12-second warnings, WCA-aware statistics from single through
 ao10000 plus custom averages, named local sessions with per-session settings,
-JSON backup/restore, optional Google Drive synchronization, a dedicated analytics
+WCA-style competition sessions with automatic rounds, JSON backup/restore,
+optional Google Drive synchronization, a dedicated analytics
 dashboard, an optional Draw Scramble diagram, and a floating solve action menu
 in a responsive layout built around the clock. The interface offers audited light and dark palettes plus a
 system-following theme. See [`STATUS.md`](STATUS.md) for current verification
@@ -59,6 +60,20 @@ including interaction rules, settings defaults, session overrides and persistenc
   options, and a three-second completion summary opens the timer automatically
   with the Main Event active. **Settings → Data → Setup assistant** reopens the
   flow non-destructively; existing users are not prompted after an update.
+- **Competition sessions** created from the normal session dialog. Choose
+  Practice or Competition, then an immutable round format: ao5, ao12, ao50,
+  mo3, or bo3. New 6×6 and 7×7 sessions preselect mo3; every other event
+  preselects ao5. Timed solves fill the open round automatically, spill into
+  the next round when full, and persist as ordinary solves with round membership.
+  The session list shows a format badge; Attempts groups rows under expandable
+  round headers and marks incomplete rounds; Statistics lists the session's
+  latest, best, and DNF rounds. Completing a round opens a summary with trimmed
+  attempts, the result, and the session-best comparison. There is no manual
+  new-round action. Deleting one attempt leaves an incomplete round, deleting
+  all of a round's attempts removes it, and Undo restores round fields intact.
+  Competition solves count normally in Analytics and PBs. Conversion to practice
+  is one-way and flattens rounds; practice sessions can never become competition
+  sessions, including through split.
 - **Merge and split sessions** from **Session settings**. Merge one or more
   same-event sources into a destination with a counted preview; split selected
   solves or ranges into a new session that copies the source event/settings and
@@ -346,8 +361,9 @@ or scrambles.
 ### Analytics
 
 The Analytics tab analyzes the current solve history without modifying it. Event,
-session, date range, latest-solve count, and penalty filters apply to every
-analysis. A compact scope toolbar sits below the page title, and the statistics
+session type (All / Practice / Competition), session, date range,
+latest-solve count, and penalty filters apply to every analysis. A compact
+scope toolbar sits below the page title, and the statistics
 overview promotes the fastest single, current rolling averages, and total volume
 above a dense secondary metric grid. The dashboard shares WCA effective-time,
 +2/DNF, precision, and trimming rules with the timer statistics. The overview
@@ -429,7 +445,7 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Select the tool shown in the panel | Use the **Function** dropdown in the panel footer; the panel stays open |
 | Inspect a PB | Click its marker in either chart, or focus it and press **Enter**; close the stats dialog with **Close** or **Escape** |
 | Open Analytics | Use the header **Analytics** tab; it is unavailable while the timer is active |
-| Filter Analytics | Use the event, session, date-range, latest-count, and penalty controls above the dashboard |
+| Filter Analytics | Use the event, session-type, session, date-range, latest-count, and penalty controls above the dashboard |
 | Inspect an Analytics point | Point at a chart for values, or focus it and use the arrow keys; press **Enter** to open the solve details |
 | Zoom or pan an Analytics chart | Scroll over the plot to zoom; drag to pan; use **Reset** to restore the full range |
 | Drill down from the distribution | Click a histogram bar to open those solves in the solve-list dialog; **Clear interval filter** removes it |
@@ -454,6 +470,8 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Configure average trimming | Open **Settings → Statistics → Average trimming**; changes recalculate averages and average PBs |
 | Show or hide statistic cards, add custom averages, and choose precision | Open **Settings → Statistics** |
 | Switch session | Open the session selector, then choose a name with the pointer or arrow keys and <kbd>Enter</kbd> |
+| Create a competition | Choose **New session**, set **Competition**, then pick the round format |
+| Convert a competition to practice | Open the session settings gear and use **Convert to practice…** |
 | Create or rename a session | Use the buttons beside the session selector |
 | Reorder sessions | Open the session selector and use each row's accessible **Up**/**Down** buttons; this never changes the active session |
 | Close a dropdown | Click or tap outside it, or press <kbd>Esc</kbd>; focus returns to its trigger |
@@ -511,6 +529,21 @@ imported and synced names. Deleting the last session with a given name makes
 that name available again. New names are trimmed, limited to 40 characters,
 and validated for case-insensitive uniqueness.
 
+The create dialog also chooses the session type. **Competition** sessions use
+one immutable round format: **ao5** and **ao12/ao50** apply the shared trimmed
+average rules, **mo3** is the untrimmed mean of three, and **bo3** is the best of
+three. 6×6 and 7×7 preselect mo3; other events preselect ao5. A solve joins the
+newest round while it is open; once a round reaches its format size, the next
+solve opens the next round. There is no manual new-round control. An incomplete
+round remains visible and never reports an ao4 as an ao5. Deleting every attempt
+in a round removes that derived round; deleting one attempt leaves it
+incomplete, and Undo restores the attempts with their round membership.
+
+**Session settings** offers **Convert to practice** for competition sessions
+after a typed confirmation. Conversion is one-way: the format is removed and
+every solve's round fields are flattened. Practice to competition is never
+offered.
+
 The active session determines the statistics, history, and solve count shown in
 the interface. Session controls are disabled while the timer is armed, running,
 or in inspection so a solve cannot move between sessions mid-timing.
@@ -538,8 +571,12 @@ checkboxes, Shift-click ranges, position-range entry, Select all/none, and a liv
 moved/remaining count; long lists are windowed while selection still covers every
 solve. The new session copies the source event and per-session settings, is
 inserted directly after the source, and becomes active. The source remains even
-when every solve moves. Both actions require a typed confirmation and state that
-they cannot be undone without a previous backup.
+when every solve moves. The split dialog can create practice (the default) or,
+when the source is a competition session, a competition session with its own
+format; moved solves then re-enter through the destination's grouping rule.
+Merging into a competition destination assigns incoming solves to its rounds,
+while merging into practice drops round membership. Both actions require a typed
+confirmation and state that they cannot be undone without a previous backup.
 
 Deleting always leaves at least one session. The
 original single-session data from earlier CubeLab versions is migrated
@@ -896,8 +933,9 @@ percentiles, moving median, rankings, and clearly labeled normal-approximation
 target estimates. A DNF stays in solve counts and DNF percentages but is
 excluded from valid-time statistics and distribution bins.
 
-Global filters apply consistently. Session comparison deliberately compares all
-sessions matching the event/date/penalty filters when fewer than two sessions are
+Global filters apply consistently. The session-type filter flows through the
+same filtered dataset and session comparison. Session comparison deliberately
+compares all sessions matching the event/date/penalty filters when fewer than two sessions are
 selected, so the analysis is not reduced to one column. The solve-time count
 limit applies to the analyzed history; comparison uses each included session's
 full matching history to keep sample sizes explicit.
@@ -1057,7 +1095,9 @@ src/
   hooks/useSettings.ts   Persisted preferences
   hooks/useModalDialog.ts Native modal lifecycle and focus containment
   hooks/useDismissablePopover.ts Outside-click, Escape and focus restoration for dropdowns
-  lib/sessions.ts        Pure session, merge/split, ordering, summary, solve and comment logic
+  lib/sessions.ts        Pure session, merge/split, conversion, ordering, summary, solve and comment logic
+  lib/competition.ts     Competition format registry, round assignment/grouping/results and normalization
+  components/competition/ Round lists and post-round attempt summary presentation
   lib/sessionTransfers.ts Durable partial-split ownership and redirect-aware resolution
   components/MergeSessionsDialog.tsx  Multi-source same-event merge preview and confirmation
   components/SplitSessionDialog.tsx   Solve/range selection, large-list windowing and split preview
@@ -1191,16 +1231,20 @@ solves back into the source. An older record without these fields remains valid.
 Ordering metadata stores session IDs rather than positions, and any session missing from
 the record is appended deterministically instead of being lost. Each solve contains `id`,
 `event`, `rawMs`, `penalty`, `scramble`, `comment`, and `createdAt`, plus optional
-per-field merge metadata (including a deliberate event reclassification) and
+per-field merge metadata (including a deliberate event reclassification),
 optional csTimer import provenance, including the original scramble type and
-whether it was explicit, csTimer’s omitted default, or unavailable. Invalid
-sessions, solves, duplicate IDs, and malformed metadata are skipped
-individually. Corrupt session JSON falls back to the legacy record and then to a
-fresh empty session; a valid session collection is never silently discarded.
-The active session is normalized to an existing session on load. Sessions are
-stored at schema version 6; version 1–5 records load with defaults for newer
-fields, and the custom-event, import-provenance, ordering, and split-transfer
-fields are additive so no destructive migration is required. Missing field
+whether it was explicit, csTimer’s omitted default, or unavailable, and optional
+competition `roundId`/`roundIndex` membership. Competition sessions add optional
+`kind` and immutable `competitionFormat` metadata; rounds are derived from solves
+and never stored as separate entities. Invalid sessions, solves, duplicate IDs,
+and malformed metadata are skipped individually, while an invalid competition
+format is read as practice without discarding the session. Corrupt session JSON
+falls back to the legacy record and then to a fresh empty session; a valid
+session collection is never silently discarded. The active session is normalized
+to an existing session on load. Sessions are stored at schema version 7; version
+1–6 records load unchanged, and the custom-event, import-provenance, ordering,
+split-transfer, competition-kind, format, and round fields are additive so no
+destructive migration is required. Missing field
 metadata falls back to `updatedAt` only at merge time and is not written back as
 fabricated history.
 

@@ -251,6 +251,20 @@ Owners: [events](src/lib/events.ts), [scramble queue](src/hooks/useScramble.ts),
 - Sessions have stable IDs and independent solve histories/statistics. A session
   event applies to the session's solves; event identity is never inferred from
   names, solve durations or scramble text.
+- The creation dialog also selects Practice or Competition. Competition uses one
+  immutable registry format: ao5, ao12, ao50, mo3 or bo3 (mo3 defaults for
+  6×6/7×7, ao5 otherwise). Timed solves fill the newest open round automatically
+  and spill into a new round when full; there is no manual new-round action.
+  Rounds are derived from optional solve `roundId`/`roundIndex` fields rather
+  than stored entities. The session list shows a format badge, Attempts groups
+  rows under expandable round headers, Statistics lists rounds with
+  latest/best/DNF markers, and a completed round opens a summary with trimmed
+  attempts, result and session-best comparison. Deleting every attempt removes a
+  derived round; deleting one leaves an incomplete round with no average; Undo
+  restores round membership.
+- Competition to practice conversion is one-way and requires typed confirmation;
+  it removes the format and flattens every solve's round fields. Practice to
+  competition is never offered.
 - Selector has separate selection and drag handles, arrow-key reordering and
   accessible Up/Down move controls. Reordering does not select another session.
 - Session ordering persists locally, round-trips in native backups and syncs as
@@ -265,8 +279,12 @@ Owners: [events](src/lib/events.ts), [scramble queue](src/hooks/useScramble.ts),
   It supports Shift-click ranges, position-range entry, Select all/none, live
   moved/remaining counts and windowed rendering for large histories. The new
   session copies event/per-session settings, is inserted after the source and
-  becomes active; the source remains even when emptied. Both operations require
-  typed confirmation and have no Undo.
+  becomes active; the source remains even when emptied. A competition source can
+  choose practice (default) or a new competition format for the destination;
+  a practice source can only split into practice. Both operations require typed
+  confirmation and have no Undo. Merge preserves round membership for the
+  destination: incoming solves are assigned to competition rounds or flattened
+  into practice.
 - Event correction on a populated session requires confirmation showing the
   session, previous/new events and affected count. It changes the session and
   every solve together, retaining IDs, times, penalties, scrambles, dates,
@@ -405,12 +423,12 @@ Owners: [tool panel](src/components/ToolPanel.tsx),
 - Statistics overview plus **nine analysis destinations** below it; desktop
   index selects one analysis at a time, narrow screens use Analysis dropdown.
   Tabs support arrows, Home/End and focus-following selection.
-- Global filters: event (initial active event or all events), sessions
-  (all/none/partial/individual), date (all time, today, 7/30/90 days, year,
-  custom start/end), last matching solves (all, 5, 12, 50, 100, 500, 1000),
-  penalty (all/normal/+2/DNF). Reset returns to initial-event scope. Narrow
-  screens collapse the controls behind a Filters disclosure with an active-count
-  badge.
+- Global filters: event (initial active event or all events), session type
+  (all/practice/competition), sessions (all/none/partial/individual), date (all
+  time, today, 7/30/90 days, year, custom start/end), last matching solves (all,
+  5, 12, 50, 100, 500, 1000), penalty (all/normal/+2/DNF). Reset returns to
+  initial-event scope. Narrow screens collapse the controls behind a Filters
+  disclosure with an active-count badge.
 - Last-N applies **after** event/session/date/penalty filtering. Reports share
   the resulting chronological solve set, using stored event IDs and dates,
   **except session comparison**, which deliberately uses each session's complete
@@ -730,7 +748,7 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
 - No application backend or telemetry; records are in browser storage unless
   exported or explicitly synchronized. Browser/origin changes do not share local
   storage automatically.
-- Sessions schema v6, Settings schema v11; storage key suffixes remain v1.
+- Sessions schema v7, Settings schema v11; storage key suffixes remain v1.
   Validation and migrations preserve supported older data. Legacy single-session
   migration imports its supported 3×3 records into Session 1.
 - Persistence failures are surfaced; corrupt/unsafe state is not a reason to
