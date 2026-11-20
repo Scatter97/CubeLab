@@ -78,6 +78,17 @@ export interface CustomEventDefinition {
   }
 }
 
+export type CompetitionFormatType = 'ao' | 'mo' | 'bo'
+export type CompetitionFormatSize = 3 | 5 | 12 | 50
+
+/** An immutable WCA-style round format for a competition session. */
+export interface CompetitionFormat {
+  type: CompetitionFormatType
+  size: CompetitionFormatSize
+}
+
+export type CompetitionFormatId = 'ao5' | 'ao12' | 'ao50' | 'mo3' | 'bo3'
+
 /**
  * A single completed solve.
  *
@@ -113,6 +124,10 @@ export interface Solve {
   }>
   /** Retained csTimer import provenance for safe reclassification. */
   importSource?: CsTimerSolveSource
+  /** Competition round membership. Rounds are derived, never stored separately. */
+  roundId?: string
+  /** Zero-based attempt position within the round, 0..999. */
+  roundIndex?: number
 }
 
 export type TimerUpdateMode = 'live' | 'tenths' | 'seconds'
@@ -316,9 +331,14 @@ export interface SessionOrdering {
  * Timestamps are wall-clock metadata only; solve duration always comes from
  * the monotonic timer.
  */
+export type SessionKind = 'practice' | 'competition'
+
 export interface Session {
   id: string
   name: string
+  /** Absent means practice. Competition sessions carry an immutable format. */
+  kind?: SessionKind
+  competitionFormat?: CompetitionFormat
   /** True only for CubeLab's untouched, auto-created local placeholder. */
   isAutoCreatedDefault?: boolean
   /** The WCA puzzle event for every solve in this session. */

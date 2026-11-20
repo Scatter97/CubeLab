@@ -5,6 +5,69 @@ and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
 
+## Competition sessions — 2026-11-19
+
+Implemented the approved [competition sessions design](docs/development/COMPETITION_SESSIONS_DESIGN.md).
+Sessions schema v7 adds optional `kind`/`competitionFormat` metadata; solves add
+optional `roundId`/`roundIndex`. Rounds remain derived from solve data. Existing
+v1–v6 collections, older backups and older Drive snapshots parse unchanged, and
+new writes use v7.
+
+- The session dialog now selects Practice or Competition and an immutable ao5,
+  ao12, ao50, mo3 or bo3 format. `defaultCompetitionFormat` uses mo3 for 6×6/7×7
+  and ao5 otherwise. The session list shows a format badge.
+- `src/lib/competition.ts` owns the single entry assignment rule, round grouping,
+  result calculation through the existing stats kernel, incomplete/overfull
+  handling and practice normalization. Timed solves, merges, splits and cross-tab
+  additions all use it. Timed assignment scans only the open round (bounded by
+  format size), not the full history.
+- Attempts groups rows under expandable round headers with incomplete marks.
+  Statistics lists the session's Latest/Best/DNF-tagged rounds. A completed newest
+  round opens a post-round summary after the timer returns to idle; reload and
+  switching to existing history do not reopen it. Rail presentation consumes the
+  existing post-paint solve value.
+- Merge into a competition destination re-assigns incoming solves; merge into
+  practice strips round fields. Split can choose a competition destination only
+  from a competition source; practice sources remain practice-only. Conversion
+  to practice is typed and one-way. Deleting one attempt leaves an incomplete
+  round, deleting all removes the derived round, and Undo restores round fields.
+- Sync reuses the existing solve/session merge with no new conflict kind. Round
+  fields pass through; merged practice sessions flatten, and competition sessions
+  repair missing memberships. Analytics adds All/Practice/Competition session
+  type filtering through `filterAnalyticsSolves` and session comparison.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; only the existing archived-script, SessionPanel and App ref warnings
+npm test                 # 105 files, 1,383 tests passed
+CI=1 npm run test:e2e -- e2e/competition.spec.ts --project=chromium --workers=4 --retries=0
+  # 5 passed: creation/ao5 inspected round/reload, incomplete+penalty+Undo/remove, merge+split+conversion, Analytics type filter, offline installed-app round
+CI=1 npm run test:e2e -- e2e/session-management.spec.ts --project=chromium --workers=4 --retries=0 --grep "merge|split"
+  # 5 passed
+CI=1 npm run test:e2e -- e2e/timer-response.spec.ts --project=chromium --workers=4 --retries=0
+  # 1 passed (7,000-solve stop-response regression)
+CI=1 npm run test:e2e -- e2e/analytics.spec.ts --project=chromium --workers=4 --retries=0
+  # 15 passed
+CI=1 npm run test:e2e -- e2e/timer.spec.ts --project=chromium --workers=4 --retries=0 --grep "named sessions create|per-session inspection overrides|per-session inspection can be cleared"
+  # 3 passed
+CI=1 npm run test:e2e -- e2e/timer.spec.ts --project=chromium --workers=4 --retries=0 --grep "backup export and import restore"
+  # 1 passed
+npm run build            # passed; normal production/PWA output restored, existing chunk-size warning
+git diff --check         # passed
+```
+
+New regressions cover format defaults and registry bounds; assignment/spill/foreign
+field discard; DNF trimming, 2-DNF ao, untrimmed mo3 and bo3; incomplete/removed
+rounds; v6 reading and v7 round-trip; invalid round/competition validation; backup
+round trips; merge/split/conversion; reconciliation; sync field passthrough,
+practice flattening and cloud adoption; hook persistence; dialog/round UI; and
+the Analytics session-type filter. Not exercised: Firefox/WebKit competition
+flows, live Drive, physical devices, enabled-sync browser stop latency, and a
+large-history competition-specific performance trace. The full Playwright suite
+was not rerun. No commit or push was made.
+
 ## Persistence and Analytics performance pass — 2026-11-19
 
 Two focused simplifications landed, plus a measured follow-up map for Drive

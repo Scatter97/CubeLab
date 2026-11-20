@@ -72,6 +72,7 @@ function renderDialog(
       onRequestDelete={vi.fn()}
       onRequestMerge={vi.fn()}
       onRequestSplit={vi.fn()}
+      onRequestConvertToPractice={vi.fn()}
       onClose={vi.fn()}
     />,
   )
@@ -91,6 +92,44 @@ describe('SessionSettingsDialog layout', () => {
     expect(within(dialog).getByTestId('session-split')).toBeVisible()
     expect(within(dialog).getByTestId('session-clear')).toBeVisible()
     expect(within(dialog).getByTestId('session-delete')).toBeVisible()
+  })
+})
+
+describe('SessionSettingsDialog competition conversion', () => {
+  it('offers one-way conversion only for competition sessions', () => {
+    const onRequestConvertToPractice = vi.fn()
+    const current = session({
+      kind: 'competition',
+      competitionFormat: { type: 'ao', size: 5 },
+    })
+    render(
+      <SessionSettingsDialog
+        open
+        sessions={[current]}
+        session={current}
+        effectiveInspectionEnabled={false}
+        canDelete={false}
+        onRenameSession={() => true}
+        onSetSessionEvent={() => true}
+        onOpenEventManager={vi.fn()}
+        onSetInspection={vi.fn()}
+        onRequestClear={vi.fn()}
+        onRequestDelete={vi.fn()}
+        onRequestMerge={vi.fn()}
+        onRequestSplit={vi.fn()}
+        onRequestConvertToPractice={onRequestConvertToPractice}
+        onClose={vi.fn()}
+      />,
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Session settings' })
+    expect(dialog).toHaveTextContent('Competition · ao5')
+    fireEvent.click(within(dialog).getByTestId('session-convert-practice'))
+    expect(onRequestConvertToPractice).toHaveBeenCalledOnce()
+  })
+
+  it('does not offer conversion for practice sessions', () => {
+    renderDialog()
+    expect(screen.queryByTestId('session-convert-practice')).not.toBeInTheDocument()
   })
 })
 

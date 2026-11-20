@@ -8,6 +8,10 @@ import {
   getEventOptions,
 } from '../lib/events'
 import type { PuzzleEvent, Session } from '../types'
+import {
+  competitionFormatLabel,
+  isCompetitionSession,
+} from '../lib/competition'
 import { CloseIcon } from './Icons'
 import { Select } from './Select'
 
@@ -25,6 +29,7 @@ interface SessionSettingsDialogProps {
   onRequestDelete: () => void
   onRequestMerge: () => void
   onRequestSplit: () => void
+  onRequestConvertToPractice: () => void
   onClose: () => void
 }
 
@@ -83,6 +88,7 @@ function SessionSettingsContent({
   onRequestDelete,
   onRequestMerge,
   onRequestSplit,
+  onRequestConvertToPractice,
   onClose,
 }: SessionSettingsContentProps) {
   const [name, setName] = useState(session.name)
@@ -323,6 +329,30 @@ function SessionSettingsContent({
             </span>
           </button>
         </div>
+
+        {isCompetitionSession(session) ? (
+          <div className="session-settings-transfer">
+            <div className="settings-row-copy">
+              <span className="settings-row-label">
+                Competition · {competitionFormatLabel(session.competitionFormat)}
+              </span>
+              <span className="settings-row-description">
+                Rounds are fixed to this format. Converting to practice is
+                one-way: every round is flattened and cannot be recreated.
+              </span>
+            </div>
+            <div className="session-settings-actions">
+              <button
+                type="button"
+                className="button button-secondary"
+                data-testid="session-convert-practice"
+                onClick={onRequestConvertToPractice}
+              >
+                Convert to practice…
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="session-settings-transfer">
           <div

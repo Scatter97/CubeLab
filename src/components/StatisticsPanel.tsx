@@ -6,11 +6,12 @@ interface Props {
   hasRows: boolean
   renderRows: (measurement: boolean) => ReactNode
   headingAction?: ReactNode
+  footer?: ReactNode
   onMinimumHeightChange?: (height: number) => void
   style?: CSSProperties
 }
 
-export function StatisticsPanel({ count, empty, hasRows, renderRows, headingAction, onMinimumHeightChange, style }: Props) {
+export function StatisticsPanel({ count, empty, hasRows, renderRows, headingAction, footer, onMinimumHeightChange, style }: Props) {
   const titleId = useId()
   const measure = useRef<HTMLDivElement>(null)
   const reportMinimum = useCallback(() => {
@@ -40,6 +41,7 @@ export function StatisticsPanel({ count, empty, hasRows, renderRows, headingActi
       {hasRows
         ? <div className="stats-grid">{renderRows(measurement)}</div>
         : <p className={measurement ? 'stats-empty-measure' : 'stats-empty'}>{empty}</p>}
+      {measurement ? null : footer}
     </>
   )
 

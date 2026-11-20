@@ -5,6 +5,7 @@ import {
   addSolve,
   clearActiveSolves,
   clearAllSolves,
+  convertSessionToPractice,
   countSolves,
   appendSessionsInOrder,
   deleteAllSessions,
@@ -1498,5 +1499,237 @@ describe('splitting sessions', () => {
       'transfer-1',
       'transfer-2',
     ])
+  })
+})
+
+describe('competition session operations', () => {
+  const format = { type: 'ao' as const, size: 5 as const }
+
+  function competition(
+    id: string,
+    solves: Solve[] = [],
+    name = 'Competition',
+  ): Session {
+    return session({
+      id,
+      name,
+      kind: 'competition',
+      competitionFormat: format,
+      solves,
+    })
+  }
+
+  function competitionSolves(
+    prefix: string,
+    count: number,
+    startAt = 1_000,
+  ): Solve[] {
+    return Array.from({ length: count }, (_, index) =>
+      solve({
+        id: `${prefix}-${index}`,
+        rawMs: 10_000 + index * 100,
+        createdAt: startAt + index * 1_000,
+      }),
+    ).reverse()
+  }
+
+  it('creates a competition session with an immutable format', () => {
+    const practice = createSession(data(), 'Friday')
+    expect(practice?.data.sessions[0]?.kind).toBeUndefined()
+    const created = createSession(data(), 'Friday', {
+      id: 'comp',
+      now: 10,
+      event: '666',
+      competitionFormat: { type: 'mo', size: 3 },
+    })
+    expect(created?.data.sessions.find((entry) => entry.id === 'comp')).toMatchObject({
+      id: 'comp',
+      kind: 'competition',
+      competitionFormat: { type: 'mo', size: 3 },
+    })
+  })
+
+  it('assigns timed solves to the open round and spills when full', () => {
+    let current = data({ sessions: [competition('comp')] })
+    for (let index = 0; index < 5; index += 1) {
+      current = addSolve(
+        current,
+        solve({ id: `timed-${index}`, createdAt: 1_000 + index }),
+        1_000 + index,
+      )
+    }
+    const firstRound = current.sessions[0]!.solves[0]!.roundId
+    expect(new Set(current.sessions[0]!.solves.map((entry) => entry.roundId)).size).toBe(1)
+    expect(
+      current.sessions[0]!.solves.map((entry) => entry.roundIndex).sort(),
+    ).toEqual([0, 1, 2, 3, 4])
+
+    current = addSolve(
+      current,
+      solve({ id: 'timed-5', createdAt: 2_000 }),
+      2_000,
+    )
+    expect(current.sessions[0]!.solves[0]).toMatchObject({
+      id: 'timed-5',
+      roundIndex: 0,
+    })
+    expect(current.sessions[0]!.solves[0]!.roundId).not.toBe(firstRound)
+  })
+
+  it('reassigns merged sources to the destination format and flattens practice destinations', () => {
+    const target = competition('comp', [
+      solve({ id: 'existing-1', createdAt: 2_000, roundId: 'target-round', roundIndex: 1 }),
+      solve({ id: 'existing-0', createdAt: 1_000, roundId: 'target-round', roundIndex: 0 }),
+    ])
+    const source = session({
+      id: 'source',
+      name: 'Source',
+      solves: [
+        solve({
+          id: 'source-late',
+          createdAt: 9_000,
+          roundId: 'foreign',
+          roundIndex: 4,
+        }),
+        solve({
+          id: 'source-early',
+          createdAt: 8_000,
+          roundId: 'foreign',
+          roundIndex: 3,
+        }),
+      ],
+    })
+    const merged = mergeSessions(
+      data({ sessions: [target, source] }),
+      'comp',
+      ['source'],
+      10,
+    )
+    const destination = merged?.sessions[0]
+    expect(destination?.solves.find((entry) => entry.id === 'source-early')).toMatchObject({
+      roundId: target.solves[0]!.roundId,
+      roundIndex: 2,
+    })
+    expect(destination?.solves.find((entry) => entry.id === 'source-late')).toMatchObject({
+      roundId: target.solves[0]!.roundId,
+      roundIndex: 3,
+    })
+    expect(destination?.solves.find((entry) => entry.id === 'existing-0')?.roundId).toBe(
+      target.solves[0]!.roundId,
+    )
+
+    const practiceTarget = session({ id: 'practice', name: 'Practice' })
+    const flattened = mergeSessions(
+      data({ sessions: [practiceTarget, source] }),
+      'practice',
+      ['source'],
+      10,
+    )
+    expect(
+      flattened?.sessions[0]?.solves.every(
+        (entry) => entry.roundId === undefined && entry.roundIndex === undefined,
+      ),
+    ).toBe(true)
+  })
+
+  it('splits into a chosen competition format or flattens into practice', () => {
+    const source = competition('comp', competitionSolves('source', 5))
+    const toPractice = splitSession(
+      data({ sessions: [source] }),
+      'comp',
+      'Practice split',
+      ['source-3', 'source-4'],
+      { id: 'practice-split', now: 10 },
+    )
+    expect(toPractice?.data.sessions[1]).toMatchObject({
+      id: 'practice-split',
+      solves: [
+        { id: 'source-4' },
+        { id: 'source-3' },
+      ],
+    })
+    expect(
+      toPractice?.data.sessions[1]?.solves.every(
+        (entry) => entry.roundId === undefined,
+      ),
+    ).toBe(true)
+    expect(toPractice?.data.sessions[0]?.kind).toBe('competition')
+
+    const toCompetition = splitSession(
+      data({ sessions: [source] }),
+      'comp',
+      'New competition',
+      ['source-3', 'source-4'],
+      {
+        id: 'competition-split',
+        now: 10,
+        competitionFormat: { type: 'bo', size: 3 },
+      },
+    )
+    expect(toCompetition?.data.sessions[1]).toMatchObject({
+      kind: 'competition',
+      competitionFormat: { type: 'bo', size: 3 },
+    })
+    expect(
+      toCompetition?.data.sessions[1]?.solves.every(
+        (entry) => entry.roundId !== undefined,
+      ),
+    ).toBe(true)
+
+    const practiceSource = session({
+      id: 'practice',
+      name: 'Practice',
+      solves: [solve({ id: 'practice-solve' })],
+    })
+    expect(
+      splitSession(
+        data({ sessions: [practiceSource] }),
+        'practice',
+        'Never competition',
+        ['practice-solve'],
+        { competitionFormat: format },
+      ),
+    ).toBeNull()
+  })
+
+  it('converts competition to practice once and flattens every solve', () => {
+    const current = data({
+      sessions: [competition('comp', competitionSolves('source', 3))],
+    })
+    const flattened = convertSessionToPractice(current, 'comp', 20)
+    expect(flattened?.sessions[0]).toMatchObject({
+      id: 'comp',
+      name: 'Competition',
+      updatedAt: 20,
+    })
+    expect(flattened?.sessions[0]?.kind).toBeUndefined()
+    expect(flattened?.sessions[0]?.competitionFormat).toBeUndefined()
+    expect(
+      flattened?.sessions[0]?.solves.every(
+        (entry) => entry.roundId === undefined && entry.roundIndex === undefined,
+      ),
+    ).toBe(true)
+    expect(convertSessionToPractice(flattened!, 'comp')).toBeNull()
+  })
+
+  it('assigns cross-tab solves that arrive while a competition timer was active', () => {
+    const baseline = data({ sessions: [competition('comp')] })
+    const local = data({
+      sessions: [
+        competition('comp', [
+          solve({ id: 'new-tab-solve', createdAt: 2_000 }),
+        ]),
+      ],
+    })
+    const reconciled = reconcileExternalSessions({
+      external: baseline,
+      local,
+      baseline,
+    })
+    expect(reconciled.sessions[0]?.solves[0]).toMatchObject({
+      id: 'new-tab-solve',
+      roundIndex: 0,
+    })
+    expect(reconciled.sessions[0]?.solves[0]?.roundId).toBeTruthy()
   })
 })

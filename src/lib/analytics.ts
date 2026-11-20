@@ -9,6 +9,7 @@ import {
 const DAY_MS = 86_400_000
 
 export type AnalyticsPenaltyFilter = 'all' | 'none' | '+2' | 'dnf'
+export type AnalyticsSessionKindFilter = 'all' | 'practice' | 'competition'
 export type AnalyticsDatePreset =
   | 'all'
   | 'today'
@@ -28,6 +29,7 @@ export interface AnalyticsFilters {
   /** Latest N solves after the other filters. `null` keeps every solve. */
   solveLimit: number | null
   penalty: AnalyticsPenaltyFilter
+  sessionKind: AnalyticsSessionKindFilter
 }
 
 export function createAnalyticsFilters(
@@ -41,6 +43,7 @@ export function createAnalyticsFilters(
     customEnd: '',
     solveLimit: null,
     penalty: 'all',
+    sessionKind: 'all',
   }
 }
 
@@ -139,6 +142,9 @@ export function filterAnalyticsSolves(
       const recordOrder = order++
       if (filters.event !== 'all' && solve.event !== filters.event) continue
       if (sessionIds !== null && !sessionIds.has(session.id)) continue
+      const competition = session.kind === 'competition'
+      if (filters.sessionKind === 'competition' && !competition) continue
+      if (filters.sessionKind === 'practice' && competition) continue
       if (bounds.start !== null && solve.createdAt < bounds.start) continue
       if (bounds.end !== null && solve.createdAt > bounds.end) continue
       if (filters.penalty !== 'all' && solve.penalty !== filters.penalty) continue

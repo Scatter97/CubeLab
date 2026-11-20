@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
-import type { Session, Solve } from '../types'
+import type {
+  CompetitionFormat,
+  CompetitionFormatId,
+  Session,
+  SessionKind,
+  Solve,
+} from '../types'
 import {
   MAX_SESSION_NAME_LENGTH,
   getSessionNameError,
@@ -9,14 +15,27 @@ import {
 } from '../lib/sessions'
 import { getEventLabel } from '../lib/events'
 import { formatSolveCount, formatSolveTime } from '../lib/format'
+import {
+  COMPETITION_FORMATS,
+  competitionFormatId,
+  competitionFormatLabel,
+  defaultCompetitionFormat,
+  getCompetitionFormatById,
+  isCompetitionSession,
+} from '../lib/competition'
 import { CloseIcon } from './Icons'
+import { Select } from './Select'
 
 interface SplitSessionDialogProps {
   open: boolean
   session: Session | null
   sessions: readonly Session[]
   onClose: () => void
-  onSplit: (name: string, solveIds: readonly string[]) => string | null
+  onSplit: (
+    name: string,
+    solveIds: readonly string[],
+    competitionFormat?: CompetitionFormat,
+  ) => string | null
 }
 
 type SplitSessionContentProps = Omit<SplitSessionDialogProps, 'open' | 'session'> & {
@@ -98,6 +117,14 @@ function SplitSessionContent({
   const listRef = useRef<HTMLDivElement>(null)
   const [name, setName] = useState(() => defaultSplitName(session, sessions))
   const [nameError, setNameError] = useState<string | null>(null)
+  const sourceIsCompetition = isCompetitionSession(session)
+  const [kind, setKind] = useState<SessionKind>('practice')
+  const [formatId, setFormatId] = useState<CompetitionFormatId>(() => {
+    const format = sourceIsCompetition
+      ? session.competitionFormat
+      : defaultCompetitionFormat(session.event ?? '333')
+    return competitionFormatId(format) ?? 'ao5'
+  })
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [phrase, setPhrase] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -224,7 +251,13 @@ function SplitSessionContent({
       return
     }
     setError(null)
-    const createdId = onSplit(effectiveName, selectedSolveIds)
+    const competitionFormat =
+      kind === 'competition'
+        ? getCompetitionFormatById(formatId) ?? undefined
+        : undefined
+    const createdId = competitionFormat
+      ? onSplit(effectiveName, selectedSolveIds, competitionFormat)
+      : onSplit(effectiveName, selectedSolveIds)
     if (!createdId) {
       setError('Could not split this session. Nothing was moved.')
       return
@@ -296,6 +329,68 @@ function SplitSessionContent({
             </p>
           ) : null}
         </div>
+
+        <div className="settings-field">
+          <span>New session type</span>
+          <div
+            className="competition-kind-toggle"
+            role="group"
+            aria-label="New session type"
+          >
+            <button
+              type="button"
+              className="button button-secondary"
+              aria-pressed={kind === 'practice'}
+              data-testid="split-session-kind-practice"
+              onClick={() => setKind('practice')}
+            >
+              Practice
+            </button>
+            <button
+              type="button"
+              className="button button-secondary"
+              aria-pressed={kind === 'competition'}
+              data-testid="split-session-kind-competition"
+              disabled={!sourceIsCompetition}
+              title={
+                sourceIsCompetition
+                  ? undefined
+                  : 'Practice solves cannot become competition rounds'
+              }
+              onClick={() => {
+                if (!sourceIsCompetition) return
+                setKind('competition')
+              }}
+            >
+              Competition
+            </button>
+          </div>
+          <p className="settings-row-description">
+            {sourceIsCompetition
+              ? kind === 'competition'
+                ? 'Moved solves enter new rounds using the chosen format.'
+                : 'Moved solves are flattened; the source keeps its competition rounds.'
+              : 'Practice solves can only move into another practice session.'}
+          </p>
+        </div>
+
+        {kind === 'competition' ? (
+          <div className="settings-field">
+            <span>Round format</span>
+            <Select
+              className="compact-select"
+              value={formatId}
+              ariaLabel="Split competition round format"
+              testId="split-session-format"
+              options={COMPETITION_FORMATS.map((format) => ({
+                value: format.id,
+                label: format.description,
+                text: format.label,
+              }))}
+              onChange={(value) => setFormatId(value as CompetitionFormatId)}
+            />
+          </div>
+        ) : null}
 
         <section className="split-selection" aria-labelledby="split-selection-title">
           <div className="split-selection-header">
@@ -475,6 +570,19 @@ function SplitSessionContent({
             <div>
               <span>Event</span>
               <strong>{getEventLabel(session.event ?? '333')}</strong>
+            </div>
+            <div>
+              <span>Session type</span>
+              <strong>
+                {kind === 'competition'
+                  ? competitionFormatLabel(
+                      getCompetitionFormatById(formatId) ?? {
+                        type: 'ao',
+                        size: 5,
+                      },
+                    )
+                  : 'Practice'}
+              </strong>
             </div>
           </div>
           <p className="settings-note">

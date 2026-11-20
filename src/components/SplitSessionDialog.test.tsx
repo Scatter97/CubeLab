@@ -222,6 +222,43 @@ describe('SplitSessionDialog', () => {
     expect(ids).toContain('large-259')
   })
 
+  it('offers a competition destination only for a competition source', () => {
+    const practice = renderDialog()
+    expect(
+      within(practice.dialog).getByTestId('split-session-kind-competition'),
+    ).toBeDisabled()
+    cleanup()
+
+    const competition = session({
+      kind: 'competition',
+      competitionFormat: { type: 'ao', size: 5 },
+    })
+    const onSplit = vi.fn(() => 'new-session')
+    const { dialog } = renderDialog({
+      session: competition,
+      onSplit: onSplit as never,
+    })
+    fireEvent.click(within(dialog).getByTestId('split-solve-0'))
+    fireEvent.click(
+      within(dialog).getByTestId('split-session-kind-competition'),
+    )
+    fireEvent.click(within(dialog).getByTestId('split-session-format'))
+    fireEvent.click(
+      within(dialog).getByTestId('split-session-format-option-bo3'),
+    )
+    fireEvent.change(within(dialog).getByLabelText('Typed confirmation'), {
+      target: { value: 'SPLIT SESSION' },
+    })
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Confirm split' }),
+    )
+    expect(onSplit).toHaveBeenCalledWith(
+      'Morning (split)',
+      ['s5'],
+      { type: 'bo', size: 3 },
+    )
+  })
+
   it('cancel closes without moving anything', () => {
     const onClose = vi.fn()
     const { dialog, onSplit } = renderDialog({ onClose })

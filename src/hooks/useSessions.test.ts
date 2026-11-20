@@ -386,3 +386,100 @@ describe('useSessions staged replacements', () => {
     }
   })
 })
+
+describe('useSessions competition operations', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('creates a competition session, assigns timed solves, converts and persists', () => {
+    saveSessions(sessionsData())
+    const { result } = renderHook(() => useSessions())
+    let created: string | null = null
+    act(() => {
+      created = result.current.createSession(
+        'Friday',
+        false,
+        '333',
+        { inspectionEnabled: false },
+        { type: 'ao', size: 5 },
+      )
+    })
+    expect(created).not.toBeNull()
+    expect(result.current.activeSession).toMatchObject({
+      id: created,
+      kind: 'competition',
+      competitionFormat: { type: 'ao', size: 5 },
+    })
+
+    act(() => {
+      result.current.addSolve({
+        rawMs: 10_000,
+        penalty: 'none',
+        scramble: "R U R' U'",
+      })
+    })
+    expect(result.current.activeSession.solves[0]).toMatchObject({
+      roundIndex: 0,
+    })
+    expect(result.current.activeSession.solves[0]?.roundId).toBeTruthy()
+    expect(
+      loadSessions().sessions.find((session) => session.id === created)?.kind,
+    ).toBe('competition')
+
+    let converted = false
+    act(() => {
+      converted = result.current.convertSessionToPractice(created!)
+    })
+    expect(converted).toBe(true)
+    expect(result.current.activeSession.kind).toBeUndefined()
+    expect(result.current.activeSession.solves[0]).not.toHaveProperty(
+      'roundId',
+    )
+    expect(
+      loadSessions().sessions.find((session) => session.id === created)
+        ?.competitionFormat,
+    ).toBeUndefined()
+  })
+
+  it('splits into a competition session with the chosen format', () => {
+    const competition: SessionsData = {
+      activeSessionId: 'competition',
+      sessions: [
+        {
+          id: 'competition',
+          name: 'Friday',
+          kind: 'competition',
+          competitionFormat: { type: 'ao', size: 5 },
+          createdAt: NOW,
+          updatedAt: NOW,
+          solves: [
+            solve({ id: 'b', createdAt: NOW + 1_000 }),
+            solve({ id: 'a', createdAt: NOW }),
+          ],
+        },
+      ],
+    }
+    saveSessions(competition)
+    const { result } = renderHook(() => useSessions())
+    let created: string | null = null
+    act(() => {
+      created = result.current.splitSession(
+        'competition',
+        'Saturday',
+        ['a', 'b'],
+        { type: 'mo', size: 3 },
+      )
+    })
+    expect(created).not.toBeNull()
+    const split = result.current.sessions.find((session) => session.id === created)
+    expect(split).toMatchObject({
+      kind: 'competition',
+      competitionFormat: { type: 'mo', size: 3 },
+    })
+    expect(split?.solves.every((entry) => entry.roundId !== undefined)).toBe(true)
+    expect(result.current.sessions.find((entry) => entry.id === 'competition')?.kind).toBe(
+      'competition',
+    )
+  })
+})

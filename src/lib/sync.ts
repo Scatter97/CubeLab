@@ -7,6 +7,10 @@ import { applySessionRedirects, findRemoteRedirectDisagreements, findSessionRedi
 import { mergeSessionTransfers, resolveSessionTransferOwners } from './sessionTransfers'
 import { maxSessionFieldUpdateTime, mergeSessionMetadata } from './sessionMetadata'
 import {
+  isCompetitionFormat,
+  normalizeRoundMembership,
+} from './competition'
+import {
   isActiveTombstone,
   isConflict,
   isFieldUpdate,
@@ -300,6 +304,8 @@ function hasUserSessionContent(session: Session): boolean {
   return (
     normalizeSessionName(session.name) !== DEFAULT_SESSION_NAME ||
     (session.event !== undefined && session.event !== '333') ||
+    session.kind !== undefined ||
+    session.competitionFormat !== undefined ||
     session.inspectionEnabled !== undefined ||
     hasPreferences(session)
   )
@@ -495,10 +501,14 @@ export function mergeSessionsData(input: {
   if (remote && hasRelevantCloudContent && isFreshLocalDefault) {
     const adoptedSessions = remote.sessions
       .filter((session) => !deletedSessionIds.has(session.id))
-      .map((session) => ({
-        ...session,
-        solves: session.solves.filter((solve) => !deletedSolveIds.has(solve.id)).map((solve) => ({ ...solve })),
-      }))
+      .map((session) =>
+        normalizeRoundMembership({
+          ...session,
+          solves: session.solves
+            .filter((solve) => !deletedSolveIds.has(solve.id))
+            .map((solve) => ({ ...solve })),
+        }),
+      )
 
     if (adoptedSessions.length > 0) {
       const activeSessionId = adoptedSessions.some((session) => session.id === remote.activeSessionId)
@@ -680,6 +690,8 @@ export function mergeSessionsData(input: {
             const source = (localSession ?? remoteSession)!
             return {
               name: normalizeSessionName(source.name),
+              kind: source.kind,
+              competitionFormat: source.competitionFormat,
               event: source.event,
               inspectionEnabled: source.inspectionEnabled,
               preferences: source.preferences,
@@ -719,13 +731,19 @@ export function mergeSessionsData(input: {
     if (sessionSolves.some((solve) => solve.event !== event)) {
       throw new Error(`Merging solves into session ${sessionId} would mix puzzle events.`)
     }
-    const mergedSession: Session = {
+    const mergedSession = normalizeRoundMembership({
       id: sessionId,
       name: metadata.name,
       event,
       createdAt,
       updatedAt,
       solves: sessionSolves.sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)),
+      ...(metadata.kind === 'competition' && isCompetitionFormat(metadata.competitionFormat)
+        ? {
+            kind: 'competition' as const,
+            competitionFormat: { ...metadata.competitionFormat },
+          }
+        : {}),
       ...(typeof metadata.inspectionEnabled === 'boolean'
         ? { inspectionEnabled: metadata.inspectionEnabled }
         : {}),
@@ -733,7 +751,7 @@ export function mergeSessionsData(input: {
         ? { preferences: metadata.preferences }
         : {}),
       ...(metadata.fieldUpdates ? { fieldUpdates: metadata.fieldUpdates } : {}),
-    }
+    })
     mergedSessions.push(mergedSession)
   }
 
@@ -853,7 +871,7 @@ export function mergeSessionsData(input: {
         added += 1
       }
       if (added === 0) continue
-      const updatedRecovered: Session = {
+      const updatedRecovered = normalizeRoundMembership({
         ...existingRecovered,
         updatedAt: Math.max(
           existingRecovered.updatedAt,
@@ -863,7 +881,15 @@ export function mergeSessionsData(input: {
         solves: [...solvesById.values()].sort(
           (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
         ),
-      }
+        ...(existingRecovered.kind === undefined &&
+        snapshot.kind === 'competition' &&
+        isCompetitionFormat(snapshot.competitionFormat)
+          ? {
+              kind: 'competition' as const,
+              competitionFormat: { ...snapshot.competitionFormat },
+            }
+          : {}),
+      })
       // Preserve preferences already attached to the recovered session. Only
       // fill missing metadata from the deleted session snapshot.
       if (
@@ -895,7 +921,7 @@ export function mergeSessionsData(input: {
       )
     }
 
-    const recovered: Session = {
+    const recovered = normalizeRoundMembership({
       id: recoveredId,
       name: recoveredSessionName(snapshot.name, usedSessionNames),
       event,
@@ -904,13 +930,19 @@ export function mergeSessionsData(input: {
       solves: [...recoveryCandidates].sort(
         (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
       ),
+      ...(snapshot.kind === 'competition' && isCompetitionFormat(snapshot.competitionFormat)
+        ? {
+            kind: 'competition' as const,
+            competitionFormat: { ...snapshot.competitionFormat },
+          }
+        : {}),
       ...(typeof snapshot.inspectionEnabled === 'boolean'
         ? { inspectionEnabled: snapshot.inspectionEnabled }
         : {}),
       ...(snapshot.preferences && Object.keys(snapshot.preferences).length > 0
         ? { preferences: { ...snapshot.preferences } }
         : {}),
-    }
+    })
     mergedSessions.push(recovered)
     for (const candidate of recoveryCandidates) recoveredSolveIds.add(candidate.id)
     recoveredSolves += recoveryCandidates.length

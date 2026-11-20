@@ -1,9 +1,14 @@
-import { memo, useCallback, useState } from 'react'
-import type { Penalty, Solve } from '../types'
+import { memo, useCallback, useMemo, useState } from 'react'
+import type { CompetitionFormat, Penalty, Solve } from '../types'
+import {
+  competitionFormatLabel,
+  type CompetitionRound,
+} from '../lib/competition'
 import {
   formatEffectiveSolveTime,
   formatRelativeTime,
   formatSolveTime,
+  formatStatValue,
   formatTime,
 } from '../lib/format'
 import { copyText } from '../lib/clipboard'
@@ -21,11 +26,33 @@ import {
 
 interface SolveHistoryProps {
   solves: readonly Solve[]
+  competition?: {
+    format: CompetitionFormat
+    rounds: readonly CompetitionRound[]
+  }
   onSetPenalty: (id: string, penalty: Penalty) => void
   onDelete: (id: string) => void
   onSetComment: (id: string, comment: string) => void
   onNotify: (message: string) => void
 }
+
+type HistoryItem =
+  | {
+      id: string
+      type: 'solve'
+      solve: Solve
+      number: number
+    }
+  | {
+      id: string
+      type: 'round'
+      round: CompetitionRound | null
+      label: string
+      result: string
+      incomplete: boolean
+      count: number
+      size: number
+    }
 
 interface SolveRowProps {
   solve: Solve
@@ -158,12 +185,90 @@ const SolveRow = memo(function SolveRow({
 
 export const SolveHistory = memo(function SolveHistory({
   solves,
+  competition,
   onSetPenalty,
   onDelete,
   onSetComment,
   onNotify,
 }: SolveHistoryProps) {
-  const history = useHistoryList(solves)
+  const numberById = useMemo(
+    () =>
+      new Map(
+        solves.map((solve, index) => [solve.id, solves.length - index]),
+      ),
+    [solves],
+  )
+  const [collapsedRounds, setCollapsedRounds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  const historyItems = useMemo<HistoryItem[]>(() => {
+    if (!competition) {
+      return solves.map((solve, index) => ({
+        id: solve.id,
+        type: 'solve' as const,
+        solve,
+        number: solves.length - index,
+      }))
+    }
+
+    const roundsNewestFirst = [...competition.rounds].reverse()
+    const items: HistoryItem[] = []
+    const groupedIds = new Set<string>()
+    for (const round of roundsNewestFirst) {
+      const collapsed = collapsedRounds.has(round.id)
+      const result = round.complete
+        ? formatStatValue(round.result)
+        : `Incomplete · ${round.attemptCount}/${competition.format.size}`
+      items.push({
+        id: `round:${round.id}`,
+        type: 'round',
+        round,
+        label: `Round ${round.number}`,
+        result,
+        incomplete: !round.complete,
+        count: round.attemptCount,
+        size: competition.format.size,
+      })
+      if (collapsed) {
+        for (const solve of round.solves) groupedIds.add(solve.id)
+        continue
+      }
+      for (const solve of [...round.solves].reverse()) {
+        groupedIds.add(solve.id)
+        items.push({
+          id: solve.id,
+          type: 'solve',
+          solve,
+          number: numberById.get(solve.id) ?? 0,
+        })
+      }
+    }
+
+    const ungrouped = solves.filter((solve) => !groupedIds.has(solve.id))
+    if (ungrouped.length > 0) {
+      items.push({
+        id: 'round:ungrouped',
+        type: 'round',
+        round: null,
+        label: 'Unassigned',
+        result: `${ungrouped.length} ${ungrouped.length === 1 ? 'solve' : 'solves'}`,
+        incomplete: true,
+        count: ungrouped.length,
+        size: competition.format.size,
+      })
+      for (const solve of ungrouped) {
+        items.push({
+          id: solve.id,
+          type: 'solve',
+          solve,
+          number: numberById.get(solve.id) ?? 0,
+        })
+      }
+    }
+    return items
+  }, [collapsedRounds, competition, numberById, solves])
+
+  const history = useHistoryList(historyItems, solves[0]?.id)
   const { scrollRef, captureAnchor } = history
   const [commentEditing, setCommentEditing] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
@@ -274,26 +379,71 @@ export const SolveHistory = memo(function SolveHistory({
 
   return (
     <HistoryPanel
-      title="Solves"
+      title={competition ? 'Attempts' : 'Solves'}
       count={solves.length}
-      empty="No solves yet."
-      listLabel="Solve history"
+      empty={competition ? 'No attempts yet.' : 'No solves yet.'}
+      listLabel={competition ? 'Attempt history' : 'Solve history'}
       listTestId="history-list"
       countTestId="solve-count"
       windowToggleTestId="history-window-toggle"
       history={history}
-      renderRows={(start, end) => solves.slice(start, end).map((solve, offset) => (
-        <SolveRow
-          key={solve.id}
-          solve={solve}
-          number={solves.length - start - offset}
-          setSize={solves.length}
-          menuOpen={openMenu?.id === solve.id}
-          onOpenMenu={toggleMenu}
-          onHoverMenu={hoverMenu}
-          onSetPenalty={handleRowPenalty}
-        />
-      ))}
+      renderRows={(start, end) => historyItems.slice(start, end).map((item) => {
+        if (item.type === 'round') {
+          const key = item.round?.id ?? 'ungrouped'
+          const collapsed = collapsedRounds.has(key)
+          return (
+            <li
+              key={item.id}
+              className={`competition-round-header${collapsed ? ' is-collapsed' : ''}${item.incomplete ? ' is-incomplete' : ''}`}
+              data-history-id={item.id}
+              data-testid={`competition-round-header-${item.round?.number ?? 'ungrouped'}`}
+            >
+              <button
+                type="button"
+                className="competition-round-header-button"
+                aria-expanded={!collapsed}
+                onClick={() =>
+                  setCollapsedRounds((current) => {
+                    const next = new Set(current)
+                    if (next.has(key)) next.delete(key)
+                    else next.add(key)
+                    return next
+                  })
+                }
+              >
+                <span className="competition-round-header-name">
+                  {item.label}
+                  {item.round && competition ? (
+                    <span className="competition-round-header-format">
+                      {competitionFormatLabel(competition.format)}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="competition-round-header-result">
+                  {item.result}
+                </span>
+                <span className="competition-round-header-state">
+                  {item.round
+                    ? `${item.count}/${item.size}`
+                    : `${item.count}`}
+                </span>
+              </button>
+            </li>
+          )
+        }
+        return (
+          <SolveRow
+            key={item.solve.id}
+            solve={item.solve}
+            number={item.number}
+            setSize={solves.length}
+            menuOpen={openMenu?.id === item.solve.id}
+            onOpenMenu={toggleMenu}
+            onHoverMenu={hoverMenu}
+            onSetPenalty={handleRowPenalty}
+          />
+        )
+      })}
     >
       {menu}
     </HistoryPanel>
