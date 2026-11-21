@@ -10702,8 +10702,8 @@ select option {
 }
 
 .draw-scramble-mode-prompt span {
-  font-size: 0.56rem;
-  line-height: 1.4;
+  font-size: 0.5rem;
+  line-height: 1.35;
   color: var(--text-muted);
 }
 
