@@ -397,8 +397,8 @@ Owners: [statistics](src/lib/stats.ts), [trimming](src/lib/averageTrimming.ts),
 - Current tool button opens/closes the panel. Function selector offers **Draw
   Scramble**, **Time Trend**, **Confirm Time**, **Statistics**, **Time
   Distribution**, **Daily Stats**, **Metronome** and **Online Battle**;
-  Draw Scramble is the initial selected tool. The first Draw Scramble open asks
-  for a 2D net or 3D cube and remembers the choice.
+  Draw Scramble is the initial selected tool. The first Draw Scramble open shows
+  a 2D net / 3D cube pill switch with a Confirm action, then remembers the choice.
 - Drag by the header and resize from the corner. Geometry is constrained to
   the timer area; saved position/size is committed at the end of the gesture.
 - Open state and geometry persist on this browser. Tool selection itself is
