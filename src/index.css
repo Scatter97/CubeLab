@@ -2911,7 +2911,7 @@ kbd {
   flex-shrink: 0;
   gap: 12px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 12px 20px;
   background: var(--surface-soft);
   border-top: 1px solid var(--line);

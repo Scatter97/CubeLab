@@ -99,7 +99,7 @@ Implemented the 50-item request list. Release version is now
 npm run typecheck                         # passed
 npm run lint                              # passed; existing App ref, SessionPanel purity and archived-probe warnings
 npm test                                  # 117 files, 1,507 tests passed (SVG generator now has an explicit 30 s timeout)
-npm run build                             # passed; PWA 80 precache entries (4,008.04 KiB)
+npm run build                             # passed; PWA 80 precache entries (4,008.03 KiB)
 git diff --check                          # passed
 CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- --project=chromium --workers=4 --retries=0
 # 266 passed, 2 failed: fake-clock inspection-while-holding cases under parallel load;
