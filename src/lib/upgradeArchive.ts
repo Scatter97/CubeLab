@@ -22,6 +22,7 @@ export type UpgradeArchiveReason =
   | 'schema-migration'
   | 'legacy-migration'
   | 'normalization'
+  | 'pre-restore'
 
 export type UpgradeArchiveStatus = 'verified' | 'complete' | 'failed'
 
@@ -143,7 +144,8 @@ export function verifyUpgradeArchiveRecord(value: unknown): value is UpgradeArch
     typeof record.appVersion !== 'string' ||
     (record.reason !== 'schema-migration' &&
       record.reason !== 'legacy-migration' &&
-      record.reason !== 'normalization') ||
+      record.reason !== 'normalization' &&
+      record.reason !== 'pre-restore') ||
     (record.status !== 'verified' &&
       record.status !== 'complete' &&
       record.status !== 'failed') ||

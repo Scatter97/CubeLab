@@ -188,5 +188,35 @@ Sections below are updated as each phase is verified.
   invalid events, committed replacement with one invalid collection, timer
   deferral, and unreadable sync provenance.
 
+## Phase 4 — recovery center and export (verified 2026-11-21)
+
+- `Bootstrap` now reports a structured failure kind (sessions, settings,
+  replacement, pending completion, archive, quota, migration or storage) and
+  renders `RecoveryCenter` instead of a Retry-only gate while editable hooks stay
+  unmounted.
+- The recovery screen lists each affected store with its validated state and
+  schema version when reliable, distinguishes corrupt/future/unavailable data,
+  and shows verified local archives. Retry re-runs the same strict checks without
+  writing.
+- `src/lib/recoveryPackage.ts` creates a versioned `cubelab-recovery` package
+  containing exact allowlisted raw strings, present-vs-absent entries,
+  per-record checksums, an overall manifest and accessible verified archives.
+  OAuth tokens and unrelated origin storage are excluded. Emergency exports are
+  not subject to the native backup size caps.
+- Restoring a verified archive requires preview + confirmation, creates a new
+  pre-restore archive first, writes only sessions/legacy solves/settings through
+  the existing replacement journal and verifies exact read-back.
+- Export-and-start-fresh requires a successfully prepared recovery copy, an
+  explicit saved-file acknowledgement and the exact typed phrase
+  `RESET CUBELAB`. It removes local data/recovery records but keeps verified
+  archives, caches, the service worker and all Google Drive files.
+- Verification: `npm run typecheck`, `npm run lint` and
+  `npm test -- src/components/RecoveryCenter.test.tsx
+  src/lib/recoveryPackage.test.ts src/lib/startupDataSafety.test.tsx`
+  (3 files, 25 tests passed). Covered exact-byte export, large payloads,
+  tampered-archive rejection, archive preview/confirmation, failed removal and
+  typed destructive confirmation.
+
+
 
 

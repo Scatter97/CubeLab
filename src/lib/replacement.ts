@@ -3,6 +3,7 @@ import { DRIVE_STORAGE_KEY } from './driveStorage'
 import {
   SESSIONS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
+  SOLVES_STORAGE_KEY,
   type StorageLike,
 } from './storage'
 import { SYNC_STORAGE_KEY } from './syncStorage'
@@ -22,6 +23,7 @@ export type ReplacementKind =
 
 export type ReplacementKey =
   | 'sessions'
+  | 'solves'
   | 'settings'
   | 'sync'
   | 'drive'
@@ -56,6 +58,7 @@ export type BeginReplacementResult =
 
 const REPLACEMENT_STORAGE_KEYS: Record<ReplacementKey, string> = {
   sessions: SESSIONS_STORAGE_KEY,
+  solves: SOLVES_STORAGE_KEY,
   settings: SETTINGS_STORAGE_KEY,
   sync: SYNC_STORAGE_KEY,
   drive: DRIVE_STORAGE_KEY,

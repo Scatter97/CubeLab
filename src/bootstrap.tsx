@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import App from './App'
+import { RecoveryCenter, type RecoveryFailureInfo } from './components/RecoveryCenter'
 import {
   loadSessionsForStartup,
   loadSettingsForStartup,
@@ -17,7 +18,7 @@ import {
 
 type BootstrapPhase =
   | { kind: 'checking' }
-  | { kind: 'blocked'; message: string }
+  | { kind: 'blocked'; message: string; failure: RecoveryFailureInfo }
   | {
       kind: 'ready'
       snapshot: SessionsSnapshot
@@ -82,25 +83,65 @@ export default function Bootstrap() {
     try {
       const replacement = await recoverReplacementAtStartup()
       if (replacement.status === 'blocked') {
-        setPhase({ kind: 'blocked', message: replacement.message })
+        setPhase({
+          kind: 'blocked',
+          message: replacement.message,
+          failure: { kind: 'replacement', message: replacement.message },
+        })
         return
       }
       const completion = applyPendingCompletionAtStartup()
       if (!completion.ok) {
-        setPhase({ kind: 'blocked', message: completion.message })
+        setPhase({
+          kind: 'blocked',
+          message: completion.message,
+          failure: { kind: 'pending-completion', message: completion.message },
+        })
         return
       }
       // Archive and commit any legacy/older schema before any editable hook can
       // normalize it. A failed archive leaves the source bytes untouched.
       const migration = await runStartupMigration()
       if (migration.status === 'blocked') {
-        setPhase({ kind: 'blocked', message: migration.message })
+        const kind =
+          migration.reason === 'archive'
+            ? 'archive'
+            : migration.reason === 'write'
+              ? 'quota'
+              : migration.reason === 'journal'
+                ? 'replacement'
+                : migration.reason === 'verification'
+                  ? 'migration'
+                  : 'storage'
+        setPhase({
+          kind: 'blocked',
+          message: migration.message,
+          failure: { kind, message: migration.message },
+        })
         return
       }
-      const snapshot = loadSessionsForStartup()
+      let snapshot: SessionsSnapshot
+      try {
+        snapshot = loadSessionsForStartup()
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Saved history could not be opened safely. The original data has been kept.'
+        setPhase({
+          kind: 'blocked',
+          message,
+          failure: { kind: 'sessions', message },
+        })
+        return
+      }
       const settings = loadSettingsForStartup()
       if (!settings.ok) {
-        setPhase({ kind: 'blocked', message: settings.message })
+        setPhase({
+          kind: 'blocked',
+          message: settings.message,
+          failure: { kind: 'settings', message: settings.message },
+        })
         return
       }
       let onboarding = loadOnboardingBootstrap(snapshot.data)
@@ -115,7 +156,15 @@ export default function Bootstrap() {
         onboarding,
       })
     } catch (error) {
-      setPhase({ kind: 'blocked', message: error instanceof Error ? error.message : 'Saved history could not be opened safely. The original data has been kept.' })
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Saved history could not be opened safely. The original data has been kept.'
+      setPhase({
+        kind: 'blocked',
+        message,
+        failure: { kind: 'storage', message },
+      })
     } finally {
       runningRef.current = false
       setBusy(false)
@@ -134,6 +183,15 @@ export default function Bootstrap() {
         initialSessions={phase.snapshot}
         initialSettings={phase.settingsSnapshot}
         initialOnboarding={phase.onboarding}
+      />
+    )
+  }
+  if (phase.kind === 'blocked') {
+    return (
+      <RecoveryCenter
+        failure={phase.failure}
+        busy={busy}
+        onRetry={() => void runRecovery()}
       />
     )
   }
