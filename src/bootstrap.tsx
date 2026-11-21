@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import App from './App'
-import { loadSessionsForStartup, type SessionsSnapshot } from './lib/storage'
+import {
+  loadSessionsForStartup,
+  loadSettingsForStartup,
+  type SessionsSnapshot,
+  type SettingsSnapshot,
+} from './lib/storage'
 import { applyPendingCompletionAtStartup } from './lib/pendingCompletion'
 import { recoverReplacementAtStartup } from './lib/startupRecovery'
 import {
@@ -15,6 +20,7 @@ type BootstrapPhase =
   | {
       kind: 'ready'
       snapshot: SessionsSnapshot
+      settingsSnapshot: SettingsSnapshot
       onboarding: OnboardingBootstrap
     }
 
@@ -84,6 +90,11 @@ export default function Bootstrap() {
         return
       }
       const snapshot = loadSessionsForStartup()
+      const settings = loadSettingsForStartup()
+      if (!settings.ok) {
+        setPhase({ kind: 'blocked', message: settings.message })
+        return
+      }
       let onboarding = loadOnboardingBootstrap(snapshot.data)
       if (onboarding.show && !onboarding.draft) {
         const draft = startOnboardingWelcomeDraft()
@@ -92,6 +103,7 @@ export default function Bootstrap() {
       setPhase({
         kind: 'ready',
         snapshot,
+        settingsSnapshot: settings,
         onboarding,
       })
     } catch (error) {
@@ -112,6 +124,7 @@ export default function Bootstrap() {
     return (
       <App
         initialSessions={phase.snapshot}
+        initialSettings={phase.settingsSnapshot}
         initialOnboarding={phase.onboarding}
       />
     )

@@ -7,6 +7,8 @@ import {
   SOLVES_STORAGE_KEY,
   loadSessions,
   loadSettings,
+  loadSettingsChecked,
+  loadSettingsForStartup,
   loadSolves,
   parseSettingsData,
   readSessionsRaw,
@@ -1392,5 +1394,140 @@ describe('statistics target persistence', () => {
     expect(parseSettingsData({ inspectionEnabled: false })?.statTargetsMs).toEqual(
       {},
     )
+  })
+})
+
+describe('checked settings reader', () => {
+  it('permits defaults only when the settings key is genuinely absent', () => {
+    const storage = new MemoryStorage()
+    const loaded = loadSettingsChecked(storage)
+    expect(loaded).toMatchObject({
+      ok: true,
+      settings: DEFAULT_SETTINGS,
+      raw: null,
+      sourceVersion: null,
+      memoryOnly: false,
+    })
+    expect(storage.getItem(SETTINGS_STORAGE_KEY)).toBeNull()
+  })
+
+  it('reads every supported historical settings version without writing', () => {
+    for (let version = 1; version <= 13; version += 1) {
+      const storage = new MemoryStorage()
+      const payload = JSON.stringify({
+        version,
+        settings: {
+          inspectionEnabled: version % 2 === 0,
+          theme: 'dark',
+          averageTrimBetter: 'p10',
+        },
+      })
+      storage.seed(SETTINGS_STORAGE_KEY, payload)
+      const loaded = loadSettingsChecked(storage)
+      expect(loaded.ok, `v${version}`).toBe(true)
+      if (!loaded.ok) continue
+      expect(loaded.sourceVersion).toBe(version)
+      expect(loaded.raw).toBe(payload)
+      expect(loaded.settings).toMatchObject({
+        inspectionEnabled: version % 2 === 0,
+        theme: 'dark',
+        averageTrimBetter: 'p10',
+      })
+      expect(storage.getItem(SETTINGS_STORAGE_KEY)).toBe(payload)
+    }
+  })
+
+  it.each([
+    ['malformed JSON', '{not json', 'invalid-json'],
+    ['a non-object record', '[]', 'invalid-schema'],
+    ['a missing settings object', JSON.stringify({ version: 13 }), 'invalid-schema'],
+    ['a missing version', JSON.stringify({ settings: { inspectionEnabled: true } }), 'invalid-schema'],
+    ['an unsupported older version', JSON.stringify({ version: 0, settings: { inspectionEnabled: true } }), 'unsupported-version'],
+    ['an unsupported future version', JSON.stringify({ version: 14, settings: { inspectionEnabled: true } }), 'unsupported-version'],
+    ['a missing mandatory field', JSON.stringify({ version: 13, settings: { theme: 'dark' } }), 'invalid-schema'],
+  ])('fails closed for %s and keeps the exact bytes', (_label, raw, reason) => {
+    const storage = new MemoryStorage()
+    storage.seed(SETTINGS_STORAGE_KEY, raw)
+    const loaded = loadSettingsChecked(storage)
+    expect(loaded).toMatchObject({ ok: false, reason, raw })
+    expect(storage.getItem(SETTINGS_STORAGE_KEY)).toBe(raw)
+  })
+
+  it('fails closed when the storage read throws', () => {
+    const storage: StorageLike = {
+      getItem: () => {
+        throw new Error('SecurityError')
+      },
+      setItem: () => undefined,
+    }
+    expect(loadSettingsChecked(storage)).toMatchObject({
+      ok: false,
+      reason: 'read-error',
+      raw: undefined,
+    })
+  })
+
+  it('preserves every supported field through a v1 migration', () => {
+    const storage = new MemoryStorage()
+    storage.seed(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        settings: {
+          inspectionEnabled: false,
+          timerUpdateMode: 'tenths',
+          holdDurationMs: 450,
+          stopWithAnyKey: true,
+          uiZoomPercent: 125,
+          scrambleAlignment: 'left',
+          scrambleAction: 'next',
+          alertChannel: 'sound',
+          theme: 'dark',
+          accentColor: 'blue',
+          statVisibility: { ao5: false, ao100: true },
+          customAverages: [{ id: 'avg-1', size: 7, visible: false }],
+          statPrecision: 'tenths',
+          averageTrimBetter: 'p10',
+          averageTrimWorse: '1',
+          showSessionSolveProgress: true,
+          showSessionTotalTime: true,
+        },
+      }),
+    )
+    const loaded = loadSettingsChecked(storage)
+    expect(loaded.ok).toBe(true)
+    if (!loaded.ok) return
+    expect(loaded.settings).toMatchObject({
+      inspectionEnabled: false,
+      timerUpdateMode: 'tenths',
+      holdDurationMs: 450,
+      stopWithAnyKey: true,
+      uiZoomPercent: 125,
+      scrambleAlignment: 'left',
+      scrambleAction: 'next',
+      alertChannel: 'sound',
+      theme: 'dark',
+      accentColor: 'blue',
+      statVisibility: { ao5: false, ao100: true },
+      customAverages: [{ id: 'avg-1', size: 7, visible: false }],
+      statPrecision: 'tenths',
+      averageTrimBetter: 'p10',
+      averageTrimWorse: '1',
+      showSessionSolveProgress: true,
+      showSessionTotalTime: true,
+    })
+  })
+
+  it('keeps memory-only startup distinct from unreadable storage', () => {
+    expect(loadSettingsForStartup(null)).toMatchObject({
+      ok: true,
+      settings: DEFAULT_SETTINGS,
+      raw: undefined,
+      memoryOnly: true,
+    })
+    expect(loadSettingsChecked(null)).toMatchObject({
+      ok: false,
+      reason: 'unavailable',
+    })
   })
 })

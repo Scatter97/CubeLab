@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MutableRefObject } from 'react'
 import type { Session, SessionsData, Settings } from '../types'
 import { countSolves, reconcileExternalSessions } from '../lib/sessions'
-import { loadSessions, loadSettings, saveSessions } from '../lib/storage'
+import { loadSessionsChecked, loadSettingsChecked, saveSessions } from '../lib/storage'
 import { createBackup, serializeBackupChecked } from '../lib/backup'
 import type { DriveTransport } from '../lib/driveTransport'
 import { isDrivePreconditionError } from '../lib/driveTransport'
@@ -2068,8 +2068,20 @@ export function useSync({
           return
         }
         try {
-          const nextSessions = loadSessions()
-          const nextSettings = loadSettings()
+          const sessionsRead = loadSessionsChecked()
+          const settingsRead = loadSettingsChecked()
+          if (!sessionsRead.ok || !settingsRead.ok) {
+            onNotifyRef.current(
+              !sessionsRead.ok
+                ? sessionsRead.message
+                : !settingsRead.ok
+                  ? settingsRead.message
+                  : 'The committed replacement could not be validated.',
+            )
+            return
+          }
+          const nextSessions = sessionsRead.data
+          const nextSettings = settingsRead.settings
           const nextSync = loadSyncStorage()
           if (timerActiveRef.current) {
             const previous = pendingReplacementRef.current
@@ -2130,18 +2142,22 @@ export function useSync({
           return
         }
         try {
-          const loaded = loadSessions()
+          const loaded = loadSessionsChecked()
+          if (!loaded.ok) {
+            if (loaded.reason !== 'absent') onNotifyRef.current(loaded.message)
+            return
+          }
           if (timerActiveRef.current) {
             const previous = pendingExternalSessionsRef.current
             pendingExternalSessionsRef.current = {
-              external: loaded,
+              external: loaded.data,
               // The baseline is the local collection at the first deferral.
               // Only solves recorded after that point are merged back.
               baseline: previous?.baseline ?? sessionsRef.current,
             }
             return
           }
-          onReplaceSessions(loaded)
+          onReplaceSessions(loaded.data)
         } catch {
           // ignore follower parse failures
         }

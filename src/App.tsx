@@ -1,4 +1,4 @@
-import type { SessionsSnapshot } from './lib/storage'
+import type { SessionsSnapshot, SettingsSnapshot } from './lib/storage'
 import type {
   OnboardingBootstrap,
   OnboardingDraft,
@@ -260,7 +260,7 @@ function formatTrainingAttemptRange(first: number | null, last: number | null): 
   return from === to ? ` on ${from}` : ` from ${from} to ${to}`
 }
 
-export default function App({ initialSessions, initialOnboarding }: { initialSessions?: SessionsSnapshot; initialOnboarding?: OnboardingBootstrap } = {}) {
+export default function App({ initialSessions, initialSettings, initialOnboarding }: { initialSessions?: SessionsSnapshot; initialSettings?: SettingsSnapshot; initialOnboarding?: OnboardingBootstrap } = {}) {
   const [onboarding, setOnboarding] = useState<{
     mode: OnboardingMode
     draft?: OnboardingDraft
@@ -323,7 +323,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     stageSettings,
     setTimerActive: setSettingsTimerActive,
     adoptedFieldsRef: adoptedSettingsFieldsRef,
-  } = useSettings()
+  } = useSettings(initialSettings)
   const storageHealthy = storageOk && settingsStorageOk
   const resolvedTheme = useTheme(settings.theme, settings.appearance)
   const training = useTraining()
