@@ -10689,7 +10689,7 @@ select option {
   flex-direction: column;
   gap: 8px;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   height: 100%;
   padding: 6px;
   text-align: center;
@@ -10769,7 +10769,13 @@ select option {
 }
 
 .draw-scramble-mode-switch {
-  align-self: center;
+  align-self: stretch;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.draw-scramble-mode-prompt > .button-primary {
+  align-self: stretch;
+  min-height: 30px;
 }
 
 .scramble-footer-error {
