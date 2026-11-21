@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 
 const now = Date.now()
 const original = { version: 6, activeSessionId: 'safe-session', sessions: [{ id: 'safe-session', name: 'Keep history', event: '333', createdAt: now, updatedAt: now, solves: [{ id: 'safe-solve', event: '333', rawMs: 12340, penalty: 'none', scramble: 'R U', comment: 'Keep me', createdAt: now }] }] }
@@ -60,4 +61,88 @@ test('previously stored invalid dates show recovery without rewriting the origin
   await expect(page.getByTestId('timer-surface')).toHaveCount(0)
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:sessions:v1')!))).toEqual(invalid)
   expect(errors).toEqual([])
+})
+
+test('corrupt settings keep valid sessions intact and export exact recovery bytes', async ({ page }) => {
+  const settingsRaw = JSON.stringify({ version: 99, settings: { future: true } })
+  await page.addInitScript(({ data, settingsRaw }) => {
+    if (sessionStorage.getItem('settings-recovery-seeded')) return
+    sessionStorage.setItem('settings-recovery-seeded', '1')
+    localStorage.setItem('cubelab:sessions:v1', JSON.stringify(data))
+    localStorage.setItem('cubelab:settings:v1', settingsRaw)
+  }, { data: original, settingsRaw })
+  await page.goto('/')
+  await expect(page.getByTestId('startup-recovery')).toBeVisible()
+  await expect(page.getByTestId('timer-surface')).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:settings:v1'))).toBe(settingsRaw)
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:sessions:v1'))).toBe(JSON.stringify(original))
+
+  await page.getByRole('button', { name: 'View recovery information' }).click()
+  await expect(page.getByText(/Unsupported version/)).toBeVisible()
+  await expect(page.getByText(/Sessions/).first()).toBeVisible()
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByTestId('recovery-download').click()
+  const download = await downloadPromise
+  const path = await download.path()
+  expect(path).not.toBeNull()
+  const text = await readFile(path!, 'utf8')
+  const pkg = JSON.parse(text) as {
+    format: string
+    records: Array<{ key: string; raw: string | null; sourceVersion: number | null }>
+  }
+  expect(pkg.format).toBe('cubelab-recovery')
+  expect(pkg.records.find((record) => record.key === 'cubelab:settings:v1')).toMatchObject({
+    raw: settingsRaw,
+    sourceVersion: 99,
+  })
+  expect(pkg.records.find((record) => record.key === 'cubelab:sessions:v1')?.raw).toBe(JSON.stringify(original))
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:settings:v1'))).toBe(settingsRaw)
+})
+
+test('a verified pre-upgrade archive restores exact old settings after corruption', async ({ page }) => {
+  const oldSessions = JSON.stringify({
+    version: 6,
+    activeSessionId: 'archive-session',
+    sessions: [{
+      id: 'archive-session',
+      name: 'Archive history',
+      event: '333',
+      createdAt: now,
+      updatedAt: now,
+      solves: [{ id: 'archive-solve', event: '333', rawMs: 11_111, penalty: 'none', scramble: 'R U', comment: 'keep', createdAt: now }],
+    }],
+  })
+  const oldSettings = JSON.stringify({
+    version: 2,
+    settings: { inspectionEnabled: true, theme: 'dark', scratch: true },
+  })
+  await page.addInitScript(({ oldSessions, oldSettings }) => {
+    if (sessionStorage.getItem('archive-restore-seeded')) return
+    sessionStorage.setItem('archive-restore-seeded', '1')
+    localStorage.setItem('cubelab:sessions:v1', oldSessions)
+    localStorage.setItem('cubelab:settings:v1', oldSettings)
+  }, { oldSessions, oldSettings })
+
+  await page.goto('/')
+  await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+  const migratedSettings = await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!))
+  expect(migratedSettings.version).toBe(13)
+  expect(migratedSettings.settings.theme).toBe('dark')
+
+  await page.evaluate(() => localStorage.setItem('cubelab:settings:v1', '{broken settings'))
+  await page.reload()
+  await expect(page.getByTestId('startup-recovery')).toBeVisible()
+  await page.getByRole('button', { name: 'View recovery information' }).click()
+  await expect(page.getByText(/schema migration/)).toBeVisible()
+  await page.getByRole('button', { name: 'Preview and restore this archive' }).first().click()
+  await expect(page.getByText(/This replaces the current sessions/)).toBeVisible()
+  await page.getByRole('button', { name: 'Confirm archive restore' }).click()
+  await expect(page.getByText(/verified local archive was restored/)).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:settings:v1'))).not.toBe('{broken settings')
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:sessions:v1'))).toBe(oldSessions)
+  await page.reload()
+  await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
 })

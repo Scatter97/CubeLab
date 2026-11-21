@@ -3911,3 +3911,61 @@ describe('useSync checked external adoption', () => {
     expect(localStorage.getItem(SYNC_STORAGE_KEY)).toBe(corrupt)
   })
 })
+
+describe('useSync corruption isolation from Drive', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('does not turn a corrupt local collection read into a cloud deletion', async () => {
+    enableSync({ solveThreshold: 100 })
+    const initial = sessionsData({
+      sessions: [
+        session({
+          solves: [solve({ id: 'keep-through-corruption', rawMs: 11_111 })],
+        }),
+      ],
+    })
+    saveSessions(initial)
+    saveSettings(DEFAULT_SETTINGS)
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const upload = vi.spyOn(transport, 'uploadDeviceBackup')
+    const onReplaceSessions = vi.fn()
+    const { result } = renderHook(() =>
+      useSync({
+        transport,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions,
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    const corrupt = '{broken external collection'
+    await act(async () => {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, corrupt)
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: SESSIONS_STORAGE_KEY,
+          newValue: corrupt,
+        }),
+      )
+    })
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(upload).toHaveBeenCalled()
+    const snapshot = JSON.parse(upload.mock.calls[0]![0]) as {
+      sessions: { sessions: Array<{ solves: Array<{ id: string }> }> }
+      sync?: { tombstones?: unknown[] }
+    }
+    expect(JSON.stringify(snapshot)).toContain('keep-through-corruption')
+    expect(snapshot.sync?.tombstones ?? []).toEqual([])
+    expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(corrupt)
+  })
+})

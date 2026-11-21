@@ -258,6 +258,33 @@ Sections below are updated as each phase is verified.
 - Verification: `npm run check:data` (12 files, 320 tests passed),
   `npm run typecheck` and `npm run lint`.
 
+## Phase 7 — integration and failure injection (verified 2026-11-21)
+
+- `src/lib/dataSafetyIntegration.test.tsx` covers first install/first solve
+  reload, historical schema archive + migration, corrupt settings with valid
+  sessions, future-version data, Training/solve coexistence and archive quota
+  failure with an exportable package.
+- `src/lib/largeHistorySafety.test.ts` exercises 10,000 and 250,000 synthetic
+  solves through strict validation, verified archive creation, recovery export
+  and native-backup cap behavior. Observations (test machine, not thresholds):
+  10k strict validation 18.3 ms, archive 7.3 ms, export 9.3 ms, package 1.9 MiB;
+  250k strict validation 251.2 ms, archive 178.4 ms, export 279.5 ms, package
+  47.3 MiB. The native backup cap rejects oversized payloads explicitly without
+  truncating the collection.
+- Drive corruption isolation is covered by a new `useSync` integration case:
+  an invalid cross-tab collection is ignored, synchronization still publishes
+  the existing valid solve and does not record a deletion tombstone.
+- Existing focused browser coverage remains authoritative for two-tab ownership
+  (`e2e/single-tab.spec.ts`, `e2e/cross-tab-timing.spec.ts`), Training Drive
+  separation and conflict/undo runs, and the production offline PWA scenario.
+- `e2e/storage-safety.spec.ts` now also verifies corrupt settings with valid
+  sessions, exact recovery-package bytes, and restoring a verified pre-upgrade
+  archive after corruption.
+- Verification: `npm run check:data` (14 files, 328 tests passed),
+  `npm run typecheck`, `npm run lint`, and Chromium
+  `e2e/storage-safety.spec.ts --workers=4` (6 passed).
+
+
 
 
 
