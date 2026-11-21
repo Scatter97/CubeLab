@@ -48,6 +48,23 @@ function sessionsData(): SessionsData {
   }
 }
 
+function twoSessionsData(): SessionsData {
+  return {
+    activeSessionId: 'session-1',
+    sessions: [
+      sessionsData().sessions[0]!,
+      {
+        id: 'session-2',
+        name: 'Other',
+        event: '333',
+        createdAt: NOW + 1,
+        updatedAt: NOW + 1,
+        solves: [solve({ id: 'solve-b', createdAt: NOW + 1 })],
+      },
+    ],
+  }
+}
+
 describe('useSessions durable solve deletion', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -151,6 +168,115 @@ describe('useSessions durable solve deletion', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+describe('useSessions durable session deletion', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('does not publish a session deletion when the collection cannot be saved', () => {
+    saveSessions(twoSessionsData())
+    const { result } = renderHook(() => useSessions())
+
+    const original = Storage.prototype.setItem
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function setItem(this: Storage, key, value) {
+        if (key === SESSIONS_STORAGE_KEY) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      })
+    try {
+      let deleted = true
+      act(() => {
+        deleted = result.current.deleteSession('session-2')
+      })
+
+      expect(deleted).toBe(false)
+      expect(result.current.sessions.map((session) => session.id)).toEqual([
+        'session-1',
+        'session-2',
+      ])
+      expect(result.current.storageOk).toBe(false)
+      expect(loadSessions().sessions.map((session) => session.id)).toEqual([
+        'session-1',
+        'session-2',
+      ])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('writes once per session deletion and keeps the final session', () => {
+    saveSessions(twoSessionsData())
+    const { result } = renderHook(() => useSessions())
+    const original = Storage.prototype.setItem
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function setItem(this: Storage, key, value) {
+        return original.call(this, key, value)
+      })
+    try {
+      spy.mockClear()
+      let deleted = false
+      act(() => {
+        deleted = result.current.deleteSession('session-2')
+      })
+
+      expect(deleted).toBe(true)
+      expect(result.current.sessions.map((session) => session.id)).toEqual([
+        'session-1',
+      ])
+      expect(loadSessions().sessions.map((session) => session.id)).toEqual([
+        'session-1',
+      ])
+      expect(
+        spy.mock.calls.filter(([key]) => key === SESSIONS_STORAGE_KEY),
+      ).toHaveLength(1)
+
+      spy.mockClear()
+      let deletedLast = true
+      act(() => {
+        deletedLast = result.current.deleteSession('session-1')
+      })
+
+      expect(deletedLast).toBe(false)
+      expect(result.current.sessions.map((session) => session.id)).toEqual([
+        'session-1',
+      ])
+      expect(
+        spy.mock.calls.filter(([key]) => key === SESSIONS_STORAGE_KEY),
+      ).toHaveLength(0)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+describe('useSessions custom event references', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('reuses a stable empty custom event collection across renders', () => {
+    saveSessions(sessionsData())
+    const { result, rerender } = renderHook(() => useSessions())
+    const empty = result.current.customEvents
+    expect(empty).toEqual([])
+
+    rerender()
+    expect(result.current.customEvents).toBe(empty)
+
+    act(() => {
+      result.current.addSolve(
+        { rawMs: 9_876, penalty: 'none', scramble: "F R U'" },
+        '333',
+      )
+    })
+    expect(result.current.customEvents).toBe(empty)
   })
 })
 

@@ -1,9 +1,399 @@
 # CubeLab status
 
-**Updated:** 2026-11-19. This is the current implementation/verification record
+**Updated:** 2026-11-21. This is the current implementation/verification record
 and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
+
+## Requested UI, MISC, Training, tool and performance pass — 2026-11-21
+
+Implemented the 50-item request list. Release version is now
+`0.01.261121:1`; settings schema is v12 (sessions remain v7, Training v1).
+
+**Onboarding and settings**
+
+- Welcome uses the same cube mark as the header. The fresh path is four ordered
+  steps: Events → Settings → Appearance → Sync (csTimer: Import → Settings →
+  Appearance → Sync). The csTimer dropzone names only `.txt`, drops the size/
+  additive warning, and unsupported identifiers preview as MISC.
+- Settings explains Quick/Standard/Deliberate hold times in seconds, accepts a
+  custom 0–10,000 ms hold, and includes a hold/start/stop test surface.
+- WCA inspection defaults on for new installs.
+- Appearance is a separate onboarding step and stays in Settings: theme and
+  accent presets, custom accent/background/timer-surface/timer-digit hex colors,
+  and a hold-to-preview timer surface.
+- Sync choice is a larger Google card with **Connect with Google** and **Maybe
+  later**. The completion screen advances after about two seconds and includes
+  **Skip to timer**.
+- Removed the requested copy: the main-event warning, Create-session subtitles/
+  footer note, WCA-style round explanation, Developer **Advanced** pill and
+  description, About Data/Offline rows, footer autosave note, and the session-
+  renamer/move buttons. Added a hidden even-seconds display option.
+
+**Sessions, events and tools**
+
+- The session picker is portalled to the document above the sidebar and shows a
+  floating row while dragging; drag/arrow keys reorder without separate move
+  buttons. Create/session-settings share the same field alignment. New names are
+  prefilled, selected on focus, and only follow event changes until edited.
+- Session type has a hover/focus `?`; round format stays visible but disabled for
+  practice and uses short `ao5`/`mo3`/`bo3` labels. Competition rounds retain the
+  configured trimming.
+- Custom-event support is retired. A built-in **MISC** event folds legacy custom
+  sessions/solves, unsupported csTimer identifiers and unknown stored IDs into one
+  no-scramble category at local load, backup import, Drive adoption and sync.
+- Scramble failure shows the error and a **Regenerate scramble** action.
+- The default tool panel is 220×250; it crops clear of the readout when space is
+  tight. First Draw Scramble open asks 2D net vs 3D cube and persists the choice.
+- Added Confirm Time, Statistics, Time Distribution, Daily Stats, Metronome and
+  serverless Online Battle tools. Battle uses manual WebRTC invitation/answer
+  codes with room ID/password validation; no backend or account is involved.
+
+**Analytics and Training**
+
+- Analytics Custom dates open a themed floating range calendar. Analytics and
+  Training lazy routes use structural skeletons, not spinner-only text.
+- Training lazy loading no longer prints “Loading Training…”; workspace loading
+  uses a timer skeleton after Begin training.
+- **Begin training** replaces **Begin practice**. Training settings are merged
+  into the main Settings dialog (trim, inactivity, baseline, per-set renewal,
+  upcoming-case display); the separate dialog is retired.
+- Hub set/practice controls are switches with **Recognition (BETA)**.
+  Recognition labeling matches Analytics, archive and case selection.
+- Removed the case-selection explanatory copy, empty-training loading text and
+  the algorithm-tracking UI. Algorithm tracking is temporarily retired: new
+  attempts are case-only and stored custom algorithms, preferred revisions and
+  attribution are stripped at every Training ingress while timing/setups/visits/
+  case statistics remain.
+- Beta is now a pill at the bottom-right of the header title (and the Drive
+  backup dialog), not on the cube mark.
+
+**Performance evidence and optimizations**
+
+- `syncStateFingerprint` now memoizes the latest immutable `(sessions, settings)`
+  identity pair, removing the repeated full traversals at in-flight boundaries
+  when nothing changed. Boundary semantics are unchanged.
+- New `largeHistory.test.ts` covers 100,000 solves across 100 sessions with
+  correctness checks: serialize 50.4 ms, parse 609.7 ms, 100k stats 281.6 ms,
+  Analytics filter 92.1 ms, Analytics trend 307.5 ms, and 2,000 competition
+  rounds from 10k attempts 24.8 ms (single Node/jsdom observations, not product
+  thresholds).
+- Production Chromium preview stop measurements (12 stops per size, synthetic
+  seeds): 0 solves median 4.5–9.5 ms to idle; 1,000 solves 12.4–13.5 ms; 10,000
+  solves 70–196 ms across runs. A breakdown at 10k with per-field sync metadata
+  (4.6 MB payload) measured phase-idle median ~89 ms, `JSON.stringify` median
+  ~45 ms (up to ~94 ms) and `localStorage.setItem` median ~38 ms (up to ~65 ms);
+  the remaining ~15 ms is React render/other work. The same 10k history without
+  sync field metadata is 1.44 MB and measured ~44 ms median (~13 ms serialize,
+  ~18 ms write). The range is therefore serialization/storage-IO/GC variance on
+  a deliberately sync-heavy fixture, not fixed timer work. Incremental storage
+  remains the retained fix; deferring the durable write is intentionally not
+  used.
+- Drive sync defaults remain 10 solves / 5 minutes.
+
+**Verification (focused, final tree)**
+
+```bash
+npm run typecheck                         # passed
+npm run lint                              # passed; existing App ref, SessionPanel purity and archived-probe warnings
+npm test                                  # 117 files, 1,507 tests passed (SVG generator now has an explicit 30 s timeout)
+npm run build                             # passed; PWA 80 precache entries (4,006.68 KiB)
+git diff --check                          # passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- --project=chromium --workers=4 --retries=0
+# 266 passed, 2 failed: fake-clock inspection-while-holding cases under parallel load;
+# both passed alone, and the wider focused timer-stability run passed 38/38
+```
+
+Focused Chromium Playwright (workers 4, mock Drive unless noted): onboarding
+12/12; session management 34/34; timer/draw-scramble/competition/
+average-trimming/statistics/onboarding 111/111 in one combined run; Training,
+integrated, native backup and Training Drive backup/sync 43/43; Analytics and
+Analytics layout 23/23; accessibility 3/3; new tools 2/2; cross-tab/single-tab
+11/11; remaining stability/site-reset/storage/timer-response/time-trend 38/38.
+Live Google Drive, Firefox/WebKit, physical devices, screen readers, the full
+three-engine `npm run check`, and a 100,000-solve browser workflow were not
+exercised. No commit or push was made.
+
+## Bug-fix, sync-safety and beta badge pass — 2026-11-20
+
+Fixed the defects retained from the 2026-11-20 inspection and added the requested
+beta badge. No storage key, solve/Training wire format or retention cap changed.
+
+**Training sync data safety**
+
+- A Training sync run now aborts before persisting when local Training or the
+  `cubelab:training-sync:v1` ledger changes during the network window, then
+  retries once from a fresh merge. A late deletion/Undo or conflict approval can
+  no longer be overwritten by the stale captured ledger.
+- Replace-only Training restore (native or manual Drive) now clears stale
+  tombstones, conflicts and approvals while preserving the Training device ID and
+  preferences. The Training-sync key is part of the durable replacement journal,
+  so rollback restores it too.
+- A partially malformed ledger is treated as unreadable: the original bytes are
+  preserved, writes are blocked and the warning is surfaced instead of silently
+  dropping deletion provenance.
+- Archived-session deletion writes the visit and all attempt tombstones in one
+  storage write; a failed batch leaves no partial visit tombstone.
+- Training-sync preferences are only published in memory after the write
+  succeeds. A stale `syncing` status becomes `pending`/`disabled` on reload.
+- Invalid or oversized remote `cubelab-training-*` files are skipped with a
+  warning, sync continues with valid files, and the damaged file is listed for
+  confirmed deletion in the Drive dialog.
+- A fresh device adopts remote preferences instead of overwriting them with local
+  defaults; manual Training upload and merge sync share one Training device ID;
+  unknown additive top-level/visit/recognition fields survive a merge.
+- Training sync no longer downloads the same snapshot list twice when the Drive
+  dialog opens.
+
+**Training and session behavior**
+
+- Named-session **Visit improvement** now compares against full category history;
+  counts and timing remain scoped to the active session.
+- Escape during a running Training attempt no longer clears its captured context,
+  so stopping records the attempt once.
+- The Hub remounts after restore/sync adoption so its draft cannot stay stale;
+  case-selection drafts and immediate global algorithm/preset edits are labelled
+  explicitly, and controls disable while locked.
+- Preset deletion offers inline Undo; historical attribution remains correctable
+  after tracking is turned off (attempts recorded while tracking was off remain
+  case-only).
+- Legacy pre-named-session visits are documented and treated as end-only.
+- A single-session delete persists before publishing and revokes its sync
+  tombstone if the write fails. Destructive session actions no longer autosave
+  the same collection twice.
+- Site-reset dialogs are included in the global modal input guard, so Space
+  cannot arm/stop the timer behind reset confirmation or failure UI.
+- Empty custom-event lists use a stable reference, removing the per-render
+  `useSync` deletion scan at large histories.
+
+**Beta badge**
+
+- Added a small uppercase, tilted BETA pill at the cube mark and the same pill
+  inline after **Settings → Data → Google Drive backup**. Both use existing
+  theme/accent tokens and introduce no focus target.
+
+**Test expectation corrections**
+
+- Native/additive import tests now assert immediate journal cleanup when a failed
+  write leaves the original bytes intact (the rollback skip-if-equal path).
+- The oversized-export test accepts either the portable size guard or the
+  mandatory compressed read-back safety failure; both block the file.
+- The Analytics rail test scrolls off-screen tabs into view and resets the rail
+  before comparing geometry at short viewports.
+- Onboarding axe coverage uses reduced motion so the enter animation's
+  transient opacity cannot report a false contrast failure.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; existing App ref, SessionPanel purity and archived-probe warnings only
+npm test                 # 114 files, 1,504 tests passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  --project=chromium --workers=4 --retries=0
+# 270 passed (4.8m), full Chromium suite
+npm run build            # passed; PWA 82 precache entries (3,988.83 KiB)
+git diff --check         # passed
+# Markdown link/anchor check: 115 files, 0 missing local targets
+```
+
+A full Firefox run was also attempted:
+`--project=firefox --workers=4 --retries=0` measured **250 passed, 15 failed,
+5 skipped**. The failures were Firefox-sensitive statistics text-wrapping
+assertions, mobile per-event scramble-timeout cases, and one clock-driven
+inspection-boundary case. They were not reproduced in Chromium and were not
+treated as product regressions in this pass. WebKit was not run.
+
+Not exercised: WebKit, live Google Drive, `npm run validate:drive`, physical
+devices, screen readers, provider concurrency, or the full three-engine
+`npm run check`. Training local retention/aggregation remains unimplemented.
+No commit or push was made.
+
+## Training Drive backup and sync — 2026-11-20
+
+Implemented both phases of
+[TRAINING_DRIVE_SYNC_PLAN.md](docs/development/TRAINING_DRIVE_SYNC_PLAN.md)
+without changing Training schema v1, `cubelab:training:v1`, solve snapshots,
+`SyncEnvelope`, `cubelab:sync:v1`, solve filenames/cleanup or the solve 10 MB cap.
+
+**Phase 1 — manual replace-only cloud backup/restore.** Training uses a separate
+immutable `cubelab-training-<deviceId>-<uuid>.json` family and optional
+`listTrainingBackups`/`uploadTrainingBackup` transport methods. The envelope
+validates the complete checked Training store, rejects open visits, ignores an
+optional Phase 2 `sync` field, and enforces a 16 MB compact-JSON cap before
+parsing. Upload requires an idle timer and a ready, non-pending Training store,
+writes a new file, and best-effort cleans up older own files while keeping five.
+Restore previews counts/date range, requires typed `RESTORE TRAINING`, uses a new
+`training-restore` durable journal containing only the `training` key, adopts the
+checked bytes through the controller, and recovers prepared/committed journals at
+startup. Upload and restore block on active/pending/continuity states, unresolved
+replacement/Undo recovery and a running solve sync. Solve sync never lists,
+uploads or merges Training files.
+
+**Phase 2 — merge-based Training synchronization.** Training Drive files may now
+carry a version-1 sync envelope. Phase-one files remain readable as base
+snapshots. `cubelab:training-sync:v1` stores an independent Training device ID,
+enable/manual-conflict/retention preferences, attempts/visits/presets tombstones
+with Undo revocations, coarse preferences field updates, exact approvals and the
+last revision/fingerprint. Pure merge covers attempts (corrections by timestamp),
+ended visits (acknowledgement monotonic true→false), append-only calibrations,
+presets by `updatedAt`, immutable custom algorithms, whole-`preferences` updates,
+recognition high-water counts and unknown additive JSON. It rejects open visits,
+recomputes/validates the complete store, and never publishes or adopts a
+partially resolved manual conflict. Deletions record durable intent before the
+local mutation; failed writes and Undo revoke it. `useTrainingSync` has separate
+enable/disable, manual sync, startup-after-idle and after-session-end triggers,
+never uploads per attempt, and blocks on an active timer/attempt, pending save,
+continuity decision, calibration draft, replacement journal, pending solve
+recovery or native import. Training cleanup keeps the newest snapshot per device
+and only selects Training files; solve cleanup only selects solve files. Native
+Training restore and phase-one replace-only restore are blocked while Training
+sync is enabled.
+
+Measured synthetic path (Node/jsdom, 8,001 attempts, compact 8,040,706 bytes,
+five rounds; median and range, not a browser or physical-device threshold):
+
+- merge 209.3 ms (168.7–337.7); no-change fingerprint 123.3 ms (115.6–179.5);
+  compact serialization 118.9 ms (102.8–227.1); envelope parse/validation
+  226.9 ms (217.2–232.7); stage plus controller adoption 422.8 ms
+  (381.8–479.0); mock in-memory upload 2.7 ms and download 0.01 ms. The payload
+  stayed within the 16 MB Training cap. The mock transport bytes are not a
+  network timing claim.
+- Chromium mock-Drive coverage also synchronized a synthetic 4,000-attempt
+  Training store within the cap without adding it to the solve file list.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; existing App ref, SessionPanel purity and archived-script warnings only
+npm test -- src/lib/driveTransport.test.ts src/lib/training/backupSection.test.ts \
+  src/lib/training/storage.test.ts src/lib/replacement.test.ts \
+  src/lib/startupRecovery.test.ts src/hooks/useDurableReplacement.test.ts \
+  src/hooks/useTraining.test.tsx src/hooks/useDriveBackup.test.ts \
+  src/lib/trainingDrive.test.ts src/hooks/useTrainingDriveBackup.test.tsx \
+  src/lib/remoteBackups.test.ts
+# adjusted to existing/new files; 161 passed across 10 files (backupSection.test.ts is not present)
+npm test -- src/lib/trainingSync.test.ts src/lib/trainingSyncStorage.test.ts \
+  src/hooks/useTrainingSync.test.tsx src/hooks/useDriveBackup.test.ts \
+  src/hooks/useSync.test.ts src/lib/sync.test.ts src/lib/trainingDeletion.test.ts \
+  src/lib/trainingSync.performance.test.ts src/lib/trainingDrive.test.ts \
+  src/hooks/useTrainingDriveBackup.test.tsx src/lib/training/controller.test.ts \
+  src/hooks/useTraining.test.tsx src/lib/replacement.test.ts src/lib/startupRecovery.test.ts \
+  src/lib/driveTransport.test.ts src/lib/remoteBackups.test.ts
+# 335 passed across 16 files
+CI=1 npm run test:e2e -- e2e/training-drive-backup.spec.ts --project=chromium --workers=4 --retries=0
+# 2 passed: manual round trip, solve-list isolation, open-visit upload/restore blocks
+CI=1 npm run test:e2e -- e2e/training-drive-sync.spec.ts e2e/training-drive-backup.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# 4 passed: two-device merge, deletion/Undo, exact conflict approval, native-restore block,
+# disable behavior, solve/Training file isolation, 4,000-attempt cap
+npm run build            # passed; production/PWA output, existing chunk-size warning
+git diff --check         # passed
+```
+
+New regressions cover Training filename filtering and separate transport methods;
+envelope round trip/invalid app/format/version/store/open visit/16 MB cap;
+immutable uploads, own-file cleanup and delete-failure tolerance; Training-only
+replacement rollback/startup recovery; merge additions/deduplication/corrections,
+tombstones and Undo, visit acknowledgement, calibration/preset/custom-algorithm
+conflicts, coarse preferences, recognition high-water counts, open-visit
+rejection and Phase 1 base files; deletion-ledger integration; independent
+enable/disable, no-change skip, retry, guards, conflict approval, cleanup
+isolation and no solve-state contamination; plus two-context mock-Drive and large
+history Chromium flows. Not exercised: live Google Drive, `npm run validate:drive`,
+Firefox/WebKit Training Drive flows, physical devices, provider concurrency, real
+user data, automatic background sync across actual sleep/restart, and the full
+Playwright/Vitest suite. Remaining boundaries are eventual merge without
+consensus, coarse whole-`preferences` conflict granularity, independent Training
+identity/ledger loss when its key is cleared, no local Training retention
+pruning, and no live-provider claim. No commit or push was made.
+
+## Training Drive sync plan — 2026-11-20
+
+Plan retained at
+[TRAINING_DRIVE_SYNC_PLAN.md](docs/development/TRAINING_DRIVE_SYNC_PLAN.md).
+Both phases were subsequently implemented and verified in the entry above.
+
+## Training history backup — 2026-11-20
+
+Implemented the approved
+[TRAINING_HISTORY_BACKUP_DESIGN.md](docs/development/TRAINING_HISTORY_BACKUP_DESIGN.md).
+Native backup v1 gains an optional top-level `training` section containing the
+complete checked Training store; Training schema remains v1 at
+`cubelab:training:v1`. Drive snapshots, `SyncEnvelope`, filenames, csTimer
+imports and the Drive/csTimer 10 MB cap are unchanged.
+
+- Export reads the controller's last committed store and blocks while Training
+  is unreadable, has a pending save or continuity decision, or has an active
+  visit. A genuinely absent key omits the section; an existing preferences-only
+  store is included.
+- Native restore replaces Training only when a valid section exists and the user
+  confirms. The confirmation shows local and backup attempt/session/calibration
+  counts. A file without Training leaves local Training unchanged. Imported
+  visits must all be ended and are never resumed.
+- The existing durable replacement journal adds `training`, captures its raw
+  previous bytes (including unreadable bytes), writes it after sessions,
+  settings, sync and Drive, and records the commit marker only after every key.
+  Rollback skips a key already at its captured value, so a still-failing quota
+  does not falsely report an incomplete rollback. `adoptSavedTraining` updates
+  the controller in memory without a second write, so Hub, Practice history,
+  reports and Algorithms recalculate.
+- Native files up to 10 MB compact stay `.json`. Larger files use checked gzip
+  (`.json.gz`) within 16 MB encoded / 64 MB decoded bounds using browser
+  `CompressionStream`/`DecompressionStream`. The export is decompressed and
+  validated again before download. Import detects gzip by magic bytes and
+  rejects oversized, corrupt/truncated, invalid UTF-8, invalid JSON and invalid
+  backup/Training data before mutation. Legacy `.json` files remain importable;
+  older builds cannot read `.json.gz`.
+
+Measured synthetic sizes and timings (single-run/median observations, not
+product thresholds):
+
+- Node/jsdom: 8,000 Training attempts plus 10,000 solves serialized to 16.9 MB
+  pretty / 9.4 MB compact; pretty serialization 27.9 ms median (24.9–33.7 ms),
+  compact 17.1 ms (16.3–17.6 ms), `parseBackup` validation 170.8 ms
+  (166.1–178.6 ms). A 10,500-attempt backup (11.9 MB compact JSON) gzipped to
+  217,932 bytes in 32.1 ms median; gunzip 20.1 ms and checked read 26.1 ms.
+  The complete export/readback path at that size measured 505 ms median
+  (482.5–507.1 ms).
+- Chromium production preview: the 10,500-attempt synthetic file measured
+  10,512,989 decoded / 129,205 encoded bytes; export 758 ms, import preview
+  166 ms and committed restore 454 ms in that sample. A one-attempt Training
+  restore sampled 18 ms to preview, 267 ms to commit, 828 ms to first Training
+  Hub and 849 ms to Analytics → Algorithms. The large fixture used a
+  memory-backed Training key because browser storage cannot hold 10 MB of
+  strings; it exercised production serialization, validation and gzip paths.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; existing archived-script, SessionPanel and App ref warnings only
+npm test -- src/lib/backup.test.ts src/lib/portableBackup.test.ts src/lib/replacement.test.ts \
+  src/lib/startupRecovery.test.ts src/hooks/useDurableReplacement.test.ts \
+  src/hooks/useTraining.test.tsx src/components/DataDialog.test.tsx src/hooks/useSync.test.ts \
+  src/hooks/useSessions.test.ts src/hooks/useSettings.test.ts src/lib/startupDataSafety.test.tsx \
+  src/lib/remoteBackups.test.ts src/lib/csTimerImport.test.ts
+# 255 passed in 13 files
+CI=1 npm run test:e2e -- e2e/training-backup.spec.ts --project=chromium --workers=4 --retries=0
+# 4 passed: Training round trip with unchanged no-Training file, Hub/history/report/Algorithms;
+# open Training decision blocked; failed Training write rollback; >10 MB compressed round trip
+npm run build            # passed; production/PWA output, existing chunk-size warning
+git diff --check         # passed
+```
+
+New regressions cover Training round trip/absent/invalid/future/open-visit
+sections and old backups; portable boundaries, gzip round trip, encoded/decoded
+caps, gzip bomb, truncated/corrupt input, missing codecs and legacy JSON;
+Training journal rollback/old-journal/absent-key/startup cleanup; durable
+Training write failure and committed adoption; unreadable-store repair; async
+DataDialog compressed import/export; and a Drive snapshot without Training at
+the unchanged 10 MB cap. Not exercised: live Drive, Firefox/WebKit, physical
+devices, screen readers, real user data, or the full Playwright suite. The
+retained limits are the Drive 10 MB cap without Training sync, no automatic
+Training retention/aggregation, the 16 MB encoded / 64 MB decoded portable caps,
+and `.json.gz` requiring a current build. No commit or push was made.
 
 ## Competition sessions — 2026-11-19
 

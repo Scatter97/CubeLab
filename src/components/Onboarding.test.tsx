@@ -124,6 +124,8 @@ describe('Onboarding welcome and Start Fresh', () => {
     expect(screen.getByTestId('onboarding-main-222')).toBeVisible()
     fireEvent.click(screen.getByTestId('onboarding-main-222'))
     fireEvent.click(screen.getByTestId('onboarding-settings-continue'))
+    expect(screen.getByRole('heading', { name: 'Make it yours' })).toBeVisible()
+    fireEvent.click(screen.getByTestId('onboarding-appearance-continue'))
 
     expect(
       screen.getByRole('heading', { name: 'Turn on Sync?' }),
@@ -166,6 +168,7 @@ describe('Onboarding welcome and Start Fresh', () => {
     fireEvent.click(screen.getByTestId('onboarding-start-fresh'))
     fireEvent.click(screen.getByTestId('onboarding-events-continue'))
     fireEvent.click(screen.getByTestId('onboarding-settings-continue'))
+    fireEvent.click(screen.getByTestId('onboarding-appearance-continue'))
     await act(async () => {
       fireEvent.click(screen.getByTestId('onboarding-maybe-later'))
     })
@@ -251,7 +254,8 @@ describe('Onboarding returning user', () => {
     fireEvent.click(screen.getByTestId('onboarding-start-fresh'))
     fireEvent.click(screen.getByTestId('onboarding-events-continue'))
     fireEvent.click(screen.getByTestId('onboarding-settings-continue'))
-    expect(screen.getByText('Google Drive is connected.')).toBeVisible()
+    fireEvent.click(screen.getByTestId('onboarding-appearance-continue'))
+    expect(screen.getByText('Connected. Synchronize this device now.')).toBeVisible()
     expect(
       screen.getByRole('button', { name: 'Sync this device' }),
     ).toBeVisible()

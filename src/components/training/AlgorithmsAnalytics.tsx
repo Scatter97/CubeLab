@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { addLocalDays, analyticsSpansMultipleYears, formatAnalyticsAxisDate } from '../../lib/analytics'
 import { buildTrainingAnalytics } from '../../lib/training/analytics'
 import { trainingTime } from '../../lib/training/format'
@@ -8,7 +8,6 @@ import type { TrainingData, TrainingMode, TrainingSetId } from '../../lib/traini
 import { useLocalDayRefresh } from '../../hooks/useLocalDayRefresh'
 import { AnalyticsLineChart } from '../AnalyticsCharts'
 import { TrainingSetSelect } from './TrainingSetup'
-import { TrainingRevisionDetails } from './TrainingRevisionDetails'
 
 const countLabel = (count: number) => count.toLocaleString()
 
@@ -21,7 +20,6 @@ export default function AlgorithmsAnalytics({ data, hidden, onStart, onHistory }
   const [set, setSet] = useState<TrainingSetId>(() => data?.preferences.selectedSetId ?? 'oll')
   const [mode, setMode] = useState<TrainingMode>('execution')
   const [range, setRange] = useState(90)
-  const [expandedCase, setExpandedCase] = useState<string | null>(null)
   const day = useLocalDayRefresh()
   const since = range ? addLocalDays(day, 1 - range) : undefined
   const category = `${set}:${mode}` as const
@@ -42,7 +40,7 @@ export default function AlgorithmsAnalytics({ data, hidden, onStart, onHistory }
         <div role="group" aria-label="Practice type" className="training-actions">
           {(['execution', 'recognition'] as const).map(option => <button type="button" key={option}
             className="button button-secondary button-small" aria-pressed={mode === option} onClick={() => setMode(option)}>
-            {option === 'execution' ? 'Execution' : 'Recognition'}</button>)}
+            {option === 'execution' ? 'Execution' : 'Recognition (BETA)'}</button>)}
         </div>
         <label>Algorithm set <TrainingSetSelect setId={set} onChange={setSet} /></label>
         <label>Date range <select className="training-select" value={range} onChange={event => setRange(Number(event.target.value))}>
@@ -80,22 +78,12 @@ export default function AlgorithmsAnalytics({ data, hidden, onStart, onHistory }
         <div className="training-table-wrap" tabIndex={0} role="region" aria-label="Case performance table">
           <table><thead><tr><th>Case</th><th>Attempts</th><th>DNF rate</th><th>Mean measured</th><th>Best measured</th></tr></thead>
             <tbody>{analytics.cases.map(row => {
-              const { caseId, name, statistics, revisions } = row
-              const expanded = expandedCase === caseId
-              return <Fragment key={caseId}>
-                <tr><th scope="row">{name}
-                  {revisions.length ? <button type="button" className="text-button training-revision-toggle" aria-expanded={expanded}
-                    aria-label={`${name} algorithm revisions, ${revisions.length} ${revisions.length === 1 ? 'revision' : 'revisions'}`}
-                    onClick={() => setExpandedCase(expanded ? null : caseId)}>
-                    {revisions.length} {revisions.length === 1 ? 'revision' : 'revisions'}</button> : null}
-                </th>
-                  <td>{statistics.recordedAttempts}</td><td>{trainingPercentage(statistics.dnfPercentage)}</td>
-                  <td>{trainingTime(statistics.raw.meanMs)}</td><td>{trainingTime(statistics.raw.bestMs)}</td>
-                </tr>
-                {data && expanded && revisions.length ? <tr><td colSpan={5} className="training-revision-cell">
-                  <TrainingRevisionDetails key={`${category}:${caseId}`} data={data} row={row} category={category} />
-                </td></tr> : null}
-              </Fragment>
+              const { caseId, name, statistics } = row
+              return <tr key={caseId}>
+                <th scope="row">{name}</th>
+                <td>{statistics.recordedAttempts}</td><td>{trainingPercentage(statistics.dnfPercentage)}</td>
+                <td>{trainingTime(statistics.raw.meanMs)}</td><td>{trainingTime(statistics.raw.bestMs)}</td>
+              </tr>
             })}</tbody></table>
         </div>
       </section>

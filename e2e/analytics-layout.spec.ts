@@ -78,16 +78,20 @@ async function railGeometry(page: Page) {
 
 async function clickAnalysisTab(page: Page, name: string) {
   const tab = page.getByRole('tab', { name, exact: true })
-  const box = await tab.boundingBox()
-  const container = await page.locator('.analytics-analysis-tabs').boundingBox()
-  expect(box).not.toBeNull()
-  expect(container).not.toBeNull()
-  const y = Math.min(
-    Math.max(box!.y + box!.height / 2, container!.y + 2),
-    container!.y + container!.height - 2,
-  )
-  await page.mouse.click(box!.x + box!.width / 2, y)
+  // The rail is intentionally scrollable at short viewports. Let Playwright
+  // scroll the requested tab into view instead of clamping a raw coordinate to
+  // the visible edge, which would select whichever tab happens to be there.
+  await tab.scrollIntoViewIfNeeded()
+  await tab.click()
   await expect(tab).toHaveAttribute('aria-selected', 'true')
+}
+
+async function resetRailScroll(page: Page) {
+  await page
+    .locator('.analytics-analysis-tabs')
+    .evaluate((element) => {
+      element.scrollTop = 0
+    })
 }
 
 const ANALYSIS_NAMES = [
@@ -119,6 +123,7 @@ test.describe('analytics analysis rail stability', () => {
 
       for (const name of ANALYSIS_NAMES) {
         await clickAnalysisTab(page, name)
+        await resetRailScroll(page)
         const current = await railGeometry(page)
         expect(current.headingY).toBeCloseTo(initial.headingY!, 1)
         expect(current.tabs).toEqual(initial.tabs)
@@ -126,11 +131,13 @@ test.describe('analytics analysis rail stability', () => {
 
       for (let round = 0; round < 3; round += 1) {
         await clickAnalysisTab(page, 'Practice activity')
+        await resetRailScroll(page)
         expect((await railGeometry(page)).headingY).toBeCloseTo(
           initial.headingY!,
           1,
         )
         await clickAnalysisTab(page, 'Advanced analytics')
+        await resetRailScroll(page)
         expect((await railGeometry(page)).headingY).toBeCloseTo(
           initial.headingY!,
           1,

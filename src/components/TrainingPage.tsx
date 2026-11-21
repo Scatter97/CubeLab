@@ -12,9 +12,10 @@ import { availableAlgorithm } from '../lib/training/runtime'
 import { compareTrainingAttempts, storedTrainingEstimate, type TrainingMetric } from '../lib/training/stats'
 import {
   DEFAULT_TRAINING_STATISTICS, parseTrainingStatisticsPreferences, readTrainingPresentation, saveTrainingPresentation,
-  readShowUpcomingCase, TRAINING_UPCOMING_CASE_KEY, TRAINING_SPLIT_KEY, TRAINING_STAT_BY_ID, TRAINING_STATISTICS_KEY, type TrainingStatId, type TrainingStatisticsPreferences,
+  readShowUpcomingCase, TRAINING_SPLIT_KEY, TRAINING_STAT_BY_ID, TRAINING_STATISTICS_KEY, type TrainingStatId, type TrainingStatisticsPreferences,
 } from '../lib/training/statisticsPreferences'
 import { latestCategoryVisit } from '../lib/training/statisticsView'
+import { latestTrainingCalibration } from '../lib/training/calibration'
 import { activeTrainingSession } from '../lib/training/visits'
 import { TimerStage } from './TimerStage'
 import { ToolPanel } from './ToolPanel'
@@ -32,7 +33,6 @@ import { CalibrationReview } from './training/CalibrationReview'
 import { TrainingSaveRecovery, TrainingSaveRecoveryProvider } from './training/TrainingSaveRecovery'
 import { TrainingSetup } from './training/TrainingSetup'
 import { trainingTime } from '../lib/training/format'
-import { TrainingSettingsDialog } from './training/TrainingSettingsDialog'
 import { TrainingReportsDialog } from './training/TrainingReportsDialog'
 import { AttemptDetailsDialog } from './training/AttemptDetailsDialog'
 
@@ -55,13 +55,15 @@ interface Props {
   onCloseHistory?: () => void
   onRequestEnd?: (anchor: HTMLButtonElement) => void
   lifecycleLocked?: boolean
+  showUpcomingCase?: boolean
 }
-export default function TrainingPage({ controller, state, timer, settings, onPress, onCancel, onModalChange, onNotify, onDeleteAttempt, toastHostRef, initialHistoryOpen, sessionFlow, onCloseHistory, onRequestEnd, lifecycleLocked }: Props) {
+export default function TrainingPage({ controller, state, timer, settings, onPress, onCancel, onModalChange, onNotify, onDeleteAttempt, toastHostRef, initialHistoryOpen, sessionFlow, onCloseHistory, onRequestEnd, lifecycleLocked, showUpcomingCase: showUpcomingCaseProp }: Props) {
   const { data, category, setup, calibration, sample } = state
-  const [dialog, setDialog] = useState<'cases' | 'settings' | 'reports' | 'statistics' | 'customize' | null>(initialHistoryOpen ? 'reports' : null)
+  const [dialog, setDialog] = useState<'cases' | 'reports' | 'statistics' | 'customize' | null>(initialHistoryOpen ? 'reports' : null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [timingId, setTimingId] = useState<TrainingStatId | null>(null)
-  const [showUpcomingCase, setShowUpcomingCase] = useState(readShowUpcomingCase)
+  const [localShowUpcomingCase] = useState(readShowUpcomingCase)
+  const showUpcomingCase = showUpcomingCaseProp ?? localShowUpcomingCase
   const [minimizedResultId, setMinimizedResultId] = useState<string | null>(null)
   const [statisticsByCategory, setStatisticsByCategory] = useState(() =>
     parseTrainingStatisticsPreferences(readTrainingPresentation(TRAINING_STATISTICS_KEY)))
@@ -88,6 +90,8 @@ export default function TrainingPage({ controller, state, timer, settings, onPre
   const attempts = useMemo(() => records.filter(attempt => attempt.categoryId === displayedCategory &&
     (currentSessionId ? attempt.visitId === currentSessionId : !sessionFlow)).sort(compareTrainingAttempts),
   [displayedCategory, records, currentSessionId, sessionFlow])
+  const categoryHistory = useMemo(() => records.filter(attempt => attempt.categoryId === displayedCategory).sort(compareTrainingAttempts),
+    [displayedCategory, records])
   const eligible = useMemo(() => data && prefs ? prefs.enabledCaseIds.filter(id => availableAlgorithm(data, id)).length : 0,
     [data, prefs])
   const newestFirst = useMemo(() => attempts.toReversed(), [attempts])
@@ -142,11 +146,6 @@ export default function TrainingPage({ controller, state, timer, settings, onPre
     : data.preferences.sets[last.setId].enabledCaseIds.includes(last.caseId) && availableAlgorithm(data, last.caseId))
   const canPrepare = (session?.cases.length ?? eligible) >= (displayedCategory.endsWith(':recognition') ? 2 : 1)
   const trim = getTrainingDomainSettings(data.preferences).trimPercent
-  const changePreview = (value: boolean) => {
-    if (!saveTrainingPresentation(TRAINING_UPCOMING_CASE_KEY, value)) return false
-    setShowUpcomingCase(value)
-    return true
-  }
   const recovery = state.pendingSave ? {
     error: state.error, retry: controller.retrySave, download: () => downloadTrainingRecovery(controller),
   } : null
@@ -167,10 +166,11 @@ export default function TrainingPage({ controller, state, timer, settings, onPre
         disabled={!ready && !active}
         disabledHint={state.pendingSave ? 'Retry saving Training changes.' : sample !== null ? 'Review the calibration sample.'
           : state.preparing ? 'Preparing setup…' : !canPrepare ? 'Edit cases to continue.'
-          : data.activeVisitId ? 'Prepare a setup to continue.' : category ? 'Resume practice.' : 'Begin practice.'}
+          : data.activeVisitId ? 'Prepare a setup to continue.' : category ? 'Resume practice.' : 'Begin training.'}
         inspectionEnabled={false}
         inspectionCountDirection="down"
         showTimerDecimalSmall={settings.showTimerDecimalSmall}
+        hideEvenTimerSeconds={settings.hideEvenTimerSeconds}
         onPress={onPress}
         onRelease={timer.release}
         onCancel={onCancel}
@@ -194,12 +194,6 @@ export default function TrainingPage({ controller, state, timer, settings, onPre
                 <p className="training-last-time">{trainingOutcome(last.result) === 'dnf' ? `DNF · Raw ${trainingTime(last.rawMs)}` : `Raw ${trainingTime(last.rawMs)}`}
                   {last.mode === 'recognition' && storedTrainingEstimate(last) !== null ? ` · Est. ${trainingTime(storedTrainingEstimate(last))}` : ''}
                 </p>
-                {last.attribution.kind === 'unknown' ? <p>Algorithm unknown</p> : (
-                  <>
-                    <p>{last.attribution.kind === 'assumed-preferred' ? 'Preferred algorithm (assumed)' : 'Corrected algorithm'}</p>
-                    {last.attribution.algorithm.notation ? <p className="training-notation">{last.attribution.algorithm.notation}</p> : null}
-                  </>
-                )}
               </div>
               <div className="training-actions">
                 {!sessionFlow || last.mode === 'execution' ? <button type="button" className="button button-secondary button-small" disabled={locked || !canRetry}
@@ -229,15 +223,19 @@ export default function TrainingPage({ controller, state, timer, settings, onPre
         <p><strong>{session.name}</strong></p>
         <p className="training-muted">{trainingCategoryName(displayedCategory)} · {session.cases.length} {session.cases.length === 1 ? 'case' : 'cases'}</p>
         <div className="training-actions">
-          <button type="button" className="text-button" disabled={locked} onClick={() => setDialog('settings')}>Training settings</button>
+          {!sessionFlow && category?.endsWith(':recognition') && !calibration && !locked ? (
+            <button type="button" className="text-button" onClick={() => controller.startCalibration()}>
+              {latestTrainingCalibration(data, setId) ? 'Recalibrate' : 'Calibrate'} {setId.toUpperCase()}
+            </button>
+          ) : null}
           <button type="button" className="button button-secondary button-small" disabled={locked}
             onClick={event => onRequestEnd?.(event.currentTarget)}>End session</button>
         </div>
       </section> : <TrainingSetup data={data} state={state} controller={controller} eligible={eligible} locked={locked}
-        openCases={() => setDialog('cases')} openSettings={() => setDialog('settings')} openReports={() => setDialog('reports')} />}
+        openCases={() => setDialog('cases')} openReports={() => setDialog('reports')} />}
       <SidebarSplit historyLabel="Attempts" percent={split} onPercentChange={resizeSidebar}
         statistics={layout => (
-          <TrainingStatistics attempts={attempts} category={displayedCategory} trim={trim} preferences={preferences}
+          <TrainingStatistics attempts={attempts} history={categoryHistory} category={displayedCategory} trim={trim} preferences={preferences}
             difficult={prefs.difficultCaseIds} visit={preferences.visible.includes('improvement') ? visit : undefined} locked={locked}
             onChangeMetric={changeMetric} onConfigure={customize} onDetails={showStatistics} onTimingDetails={setTimingId} {...layout} />
         )}>
@@ -246,21 +244,18 @@ export default function TrainingPage({ controller, state, timer, settings, onPre
           onCorrectResult={correctAttempt} onDelete={deleteAttempt} onNotify={onNotify} />
       </SidebarSplit>
     </aside> : null}
-    {dialog === 'statistics' ? <TrainingDetailedStatistics data={data} attempts={attempts} category={displayedCategory}
+    {dialog === 'statistics' ? <TrainingDetailedStatistics data={data} attempts={attempts} history={categoryHistory} category={displayedCategory}
       metric={preferences.metric} visit={visit} onClose={() => setDialog(null)} /> : null}
     {dialog === 'customize' ? <TrainingStatisticsSettings category={displayedCategory} preferences={preferences}
       onChange={updateStatistics} onClose={() => setDialog(null)} /> : null}
     {timing && 'size' in timing ? <TrainingTimingDetails label={timing.label} size={timing.size} trim={timing.size > 3 ? trim : 0}
       metric={preferences.metric} attempts={attempts} onClose={() => setTimingId(null)} /> : null}
-    {dialog === 'cases' ? <CaseSelectionDialog data={savedData ?? data} controller={controller} setId={setId} onClose={() => setDialog(null)} /> : null}
-    {dialog === 'settings' ? <TrainingSettingsDialog data={data} setId={setId} controller={controller}
-      showUpcomingCase={showUpcomingCase} onShowUpcomingCaseChange={changePreview}
-      sessionFlow={sessionFlow} canRecalibrate={Boolean(!sessionFlow && category?.endsWith(':recognition') && !calibration && !locked)} onClose={() => setDialog(null)} /> : null}
+    {dialog === 'cases' ? <CaseSelectionDialog data={savedData ?? data} controller={controller} setId={setId} locked={locked} onClose={() => setDialog(null)} /> : null}
     {dialog === 'reports' ? <TrainingReportsDialog data={savedData ?? data} controller={controller} onOpenAttempt={setDetailId} onClose={() => {
       setDialog(null)
       onCloseHistory?.()
     }} toastHostRef={toastHostRef} /> : null}
-    {detail ? <AttemptDetailsDialog data={data} attempt={detail} controller={controller}
+    {detail ? <AttemptDetailsDialog attempt={detail} controller={controller}
       locked={locked || Boolean(savedData?.visits.some(v => v.id === detail.visitId && v.session && v.endedAt !== null))}
       onDelete={deleteAttempt} onClose={() => setDetailId(null)} /> : null}
   </main></TrainingSaveRecoveryProvider>

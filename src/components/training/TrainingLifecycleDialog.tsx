@@ -26,7 +26,7 @@ export default function TrainingLifecycleDialog(props: Props) {
     {props.reportId !== undefined ? <>
       <TrainingReportsDialog data={data} controller={controller} requiredId={reportId} closeDisabled={pendingSave}
         onOpenAttempt={setAttemptId} onClose={props.onDone} />
-      {attempt ? <AttemptDetailsDialog data={data} controller={controller} attempt={attempt}
+      {attempt ? <AttemptDetailsDialog controller={controller} attempt={attempt}
         locked onDelete={() => false} onClose={() => setAttemptId(null)} /> : null}
     </> : <TrainingDialog title="Are you still there?" onClose={() => {}} dismissible={false} className="training-idle-dialog">
       <p>Your Training session is paused. End it when you’re done, or keep practicing.</p>

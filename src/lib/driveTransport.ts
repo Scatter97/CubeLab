@@ -90,10 +90,18 @@ export interface DriveTransport {
    */
   listBackups?(): Promise<DriveFile[]>
   uploadDeviceBackup?(content: string, deviceId: string): Promise<DriveFile>
+  /**
+   * Separate Training snapshot family. Legacy transports may omit these;
+   * Training cloud features are then unavailable and callers must not fall
+   * back to the solve backup methods.
+   */
+  listTrainingBackups?(): Promise<DriveFile[]>
+  uploadTrainingBackup?(content: string, deviceId: string): Promise<DriveFile>
 }
 
 export const DRIVE_BACKUP_FILE_NAME = 'cubelab-backup.json'
 export const DRIVE_BACKUP_FILE_PREFIX = 'cubelab-backup'
+export const DRIVE_TRAINING_FILE_PREFIX = 'cubelab-training'
 export const DRIVE_BACKUP_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 export const DRIVE_LIST_PAGE_SIZE = 1000
 
@@ -189,8 +197,9 @@ function parseDriveFile(value: unknown): DriveFile {
  * partial list would let synchronization silently miss another device snapshot,
  * so any failed page, malformed token, or repeated token is an explicit error.
  */
-export async function fetchDriveBackupFiles(
+async function fetchDriveFiles(
   requestPage: (pageToken?: string) => Promise<DrivePageResponse>,
+  accept: (name: string) => boolean,
 ): Promise<DriveFile[]> {
   const files: DriveFile[] = []
   const seenIds = new Set<string>()
@@ -243,13 +252,25 @@ export async function fetchDriveBackupFiles(
   }
 
   return files
-    .filter((file) => isDriveBackupFileName(file.name))
+    .filter((file) => accept(file.name))
     .sort(
       (left, right) =>
         (right.modifiedTime ?? '').localeCompare(left.modifiedTime ?? '') ||
         left.name.localeCompare(right.name) ||
         left.id.localeCompare(right.id),
     )
+}
+
+export async function fetchDriveBackupFiles(
+  requestPage: (pageToken?: string) => Promise<DrivePageResponse>,
+): Promise<DriveFile[]> {
+  return fetchDriveFiles(requestPage, isDriveBackupFileName)
+}
+
+export async function fetchDriveTrainingFiles(
+  requestPage: (pageToken?: string) => Promise<DrivePageResponse>,
+): Promise<DriveFile[]> {
+  return fetchDriveFiles(requestPage, isDriveTrainingFileName)
 }
 
 /** Sanitizes a device ID for use in a Drive file name. */
@@ -288,6 +309,20 @@ function snapshotUniqueToken(): string {
  */
 export function deviceSnapshotFileName(deviceId: string): string {
   return `${DRIVE_BACKUP_FILE_PREFIX}-${sanitizeDeviceId(deviceId)}-${snapshotUniqueToken()}.json`
+}
+
+/**
+ * A Training snapshot uses its own immutable file family. The name never
+ * overlaps the solve prefix, so older solve readers ignore it.
+ */
+export function trainingSnapshotFileName(deviceId: string): string {
+  return `${DRIVE_TRAINING_FILE_PREFIX}-${sanitizeDeviceId(deviceId)}-${snapshotUniqueToken()}.json`
+}
+
+export function isDriveTrainingFileName(name: string): boolean {
+  return new RegExp(
+    `^${DRIVE_TRAINING_FILE_PREFIX}-[A-Za-z0-9_-]+-[A-Za-z0-9-]{8,}\\.json$`,
+  ).test(name)
 }
 
 export function isDriveBackupFileName(name: string): boolean {
@@ -503,8 +538,8 @@ export function createGoogleDriveTransport(
     }
   }
 
-  async function listBackupFiles(): Promise<DriveFile[]> {
-    const files = await fetchDriveBackupFiles((pageToken) => {
+  async function listFiles(): Promise<DriveFile[]> {
+    return fetchDriveFiles((pageToken) => {
       const params = new URLSearchParams({
         spaces: 'appDataFolder',
         q: 'trashed=false',
@@ -517,7 +552,19 @@ export function createGoogleDriveTransport(
       return apiFetch(
         `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
       )
-    })
+    }, () => true)
+  }
+
+  async function listBackupFiles(): Promise<DriveFile[]> {
+    const files = (await listFiles()).filter((file) =>
+      isDriveBackupFileName(file.name),
+    )
+    files.sort(
+      (left, right) =>
+        (right.modifiedTime ?? '').localeCompare(left.modifiedTime ?? '') ||
+        left.name.localeCompare(right.name) ||
+        left.id.localeCompare(right.id),
+    )
 
     // Drive v3 does not expose ETags. The legacy fixed-name file is the only
     // mutable file, so read its v2 ETag once per listing. A failure here must
@@ -535,6 +582,19 @@ export function createGoogleDriveTransport(
     } catch {
       return files
     }
+  }
+
+  async function listTrainingFiles(): Promise<DriveFile[]> {
+    // Training files are immutable and never need a solve ETag lookup.
+    const files = (await listFiles()).filter((file) =>
+      isDriveTrainingFileName(file.name),
+    )
+    return files.sort(
+      (left, right) =>
+        (right.modifiedTime ?? '').localeCompare(left.modifiedTime ?? '') ||
+        left.name.localeCompare(right.name) ||
+        left.id.localeCompare(right.id),
+    )
   }
 
   async function readV2FileMetadata(
@@ -591,6 +651,7 @@ export function createGoogleDriveTransport(
     existingFileId?: string | null,
     options: DriveUploadOptions = {},
     deviceId?: string,
+    format: 'cubelab-backup' | 'cubelab-training-backup' = 'cubelab-backup',
   ): Promise<DriveFile> {
     if (existingFileId) {
       // Drive v3 dropped ETags; v2 still exposes one and honours If-Match on
@@ -654,8 +715,10 @@ export function createGoogleDriveTransport(
       parents: ['appDataFolder'],
       appProperties: {
         app: 'CubeLab',
-        format: 'cubelab-backup',
-        backupVersion: '1',
+        format,
+        ...(format === 'cubelab-training-backup'
+          ? { trainingVersion: '1' }
+          : { backupVersion: '1' }),
         ...(deviceId ? { deviceId } : {}),
       },
     }
@@ -683,7 +746,7 @@ export function createGoogleDriveTransport(
       throw new Error(text || 'Google Drive upload failed.')
     }
     const result = (await response.json()) as DriveFile
-    const refreshed = (await listBackupFiles()).find((file) => file.id === result.id)
+    const refreshed = (await listFiles()).find((file) => file.id === result.id)
     return (
       refreshed ?? {
         ...result,
@@ -745,6 +808,18 @@ export function createGoogleDriveTransport(
         null,
         {},
         deviceId,
+      )
+    },
+    listTrainingBackups: listTrainingFiles,
+    async uploadTrainingBackup(content, deviceId) {
+      // Separate immutable Training family. This never touches solve files.
+      return writeFile(
+        content,
+        trainingSnapshotFileName(deviceId),
+        null,
+        {},
+        deviceId,
+        'cubelab-training-backup',
       )
     },
     async downloadBackup(fileId) {
@@ -832,12 +907,15 @@ export function createMemoryDriveTransport(
     existingFileId?: string | null,
     options: DriveUploadOptions = {},
     deviceId?: string,
+    format: 'cubelab-backup' | 'cubelab-training-backup' = 'cubelab-backup',
   ): DriveFile {
     const modifiedTime = nextModifiedTime()
     const appProperties = {
       app: 'CubeLab',
-      format: 'cubelab-backup',
-      backupVersion: '1',
+      format,
+      ...(format === 'cubelab-training-backup'
+        ? { trainingVersion: '1' }
+        : { backupVersion: '1' }),
       ...(deviceId ? { deviceId } : {}),
     }
     if (existingFileId) {
@@ -914,12 +992,16 @@ export function createMemoryDriveTransport(
     },
     async findBackup() {
       assertActive()
-      const newest = sortedFiles()[0]
+      const newest = sortedFiles().find((file) =>
+        isDriveBackupFileName(file.name),
+      )
       return newest ? publicFile(newest) : null
     },
     async listBackups() {
       assertActive()
-      return sortedFiles().map(publicFile)
+      return sortedFiles()
+        .filter((file) => isDriveBackupFileName(file.name))
+        .map(publicFile)
     },
     async uploadBackup(content, existingFileId, options) {
       assertActive()
@@ -944,6 +1026,23 @@ export function createMemoryDriveTransport(
         null,
         {},
         deviceId,
+      )
+    },
+    async listTrainingBackups() {
+      assertActive()
+      return sortedFiles()
+        .filter((file) => isDriveTrainingFileName(file.name))
+        .map(publicFile)
+    },
+    async uploadTrainingBackup(content, deviceId) {
+      assertActive()
+      return writeFile(
+        content,
+        trainingSnapshotFileName(deviceId),
+        null,
+        {},
+        deviceId,
+        'cubelab-training-backup',
       )
     },
     async downloadBackup(fileId) {

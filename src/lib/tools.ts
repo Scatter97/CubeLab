@@ -1,4 +1,12 @@
-export type CurrentTool = 'drawScramble' | 'timeTrend'
+export type CurrentTool =
+  | 'drawScramble'
+  | 'timeTrend'
+  | 'confirmTime'
+  | 'statistics'
+  | 'distribution'
+  | 'dailyStats'
+  | 'metronome'
+  | 'battle'
 
 export interface ToolOption {
   id: CurrentTool
@@ -23,6 +31,36 @@ export const TOOL_OPTIONS: readonly ToolOption[] = [
     id: 'timeTrend',
     label: 'Time Trend',
     description: 'Plot solve times and rolling averages over time',
+  },
+  {
+    id: 'confirmTime',
+    label: 'Confirm Time',
+    description: 'Add a solve by typing its recorded time',
+  },
+  {
+    id: 'statistics',
+    label: 'Statistics',
+    description: 'Session summary for the current solve set',
+  },
+  {
+    id: 'distribution',
+    label: 'Time Distribution',
+    description: 'Histogram of solve times in this session',
+  },
+  {
+    id: 'dailyStats',
+    label: 'Daily Stats',
+    description: 'Solve count and times grouped by day',
+  },
+  {
+    id: 'metronome',
+    label: 'Metronome',
+    description: 'Steady click at a chosen interval',
+  },
+  {
+    id: 'battle',
+    label: 'Online Battle',
+    description: 'Race another CubeLab user over a direct peer connection',
   },
 ]
 

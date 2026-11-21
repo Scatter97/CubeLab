@@ -47,19 +47,7 @@ function Harness({
       activeSessionId={activeId}
       locked={locked}
       onSelect={(id) => setActiveId(id)}
-      onRename={() => true}
       onOpenSessionSettings={() => undefined}
-      onMove={(id, direction) =>
-        setSessions((current) => {
-          const index = current.findIndex((entry) => entry.id === id)
-          const target = index + direction
-          if (index < 0 || target < 0 || target >= current.length) return current
-          const next = [...current]
-          const [entry] = next.splice(index, 1)
-          if (entry) next.splice(target, 0, entry)
-          return next
-        })
-      }
       onReorder={(id, targetIndex) =>
         setSessions((current) => {
           const index = current.findIndex((entry) => entry.id === id)
@@ -92,9 +80,9 @@ function rect(top: number, height = 36): DOMRect {
   }
 }
 
-function mockSessionRows(container: HTMLElement) {
-  const list = container.querySelector<HTMLElement>('.session-picker-list')
-  const panel = container.querySelector<HTMLElement>('.session-picker-panel')
+function mockSessionRows() {
+  const list = document.querySelector<HTMLElement>('.session-picker-list')
+  const panel = document.querySelector<HTMLElement>('.session-picker-panel')
   if (!list) return
   list.getBoundingClientRect = () => rect(0, 120)
   if (panel) {
@@ -108,16 +96,16 @@ function mockSessionRows(container: HTMLElement) {
       value: 200,
     })
   }
-  container
+  document
     .querySelectorAll<HTMLElement>('.session-picker-row')
     .forEach((row, index) => {
       row.getBoundingClientRect = () => rect(index * ROW_HEIGHT)
     })
 }
 
-function mockScrollableSessionRows(container: HTMLElement) {
-  const panel = container.querySelector<HTMLElement>('.session-picker-panel')
-  const list = container.querySelector<HTMLElement>('.session-picker-list')
+function mockScrollableSessionRows() {
+  const panel = document.querySelector<HTMLElement>('.session-picker-panel')
+  const list = document.querySelector<HTMLElement>('.session-picker-list')
   if (!panel || !list) throw new Error('Session panel is not open')
 
   let scrollTop = 0
@@ -140,7 +128,7 @@ function mockScrollableSessionRows(container: HTMLElement) {
   list.getBoundingClientRect = () => rect(-scrollTop, 1_200)
 
   const rows = () =>
-    Array.from(container.querySelectorAll<HTMLElement>('.session-picker-row'))
+    Array.from(document.querySelectorAll<HTMLElement>('.session-picker-row'))
   for (const row of rows()) {
     row.getBoundingClientRect = () => {
       const index = rows().indexOf(row)
@@ -200,34 +188,27 @@ describe('SessionPanel selector', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('reorders without changing the active session and keeps focus', () => {
+  it('reorders from the drag handle without changing the active session and keeps focus', () => {
     render(<Harness />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
-    const moveUp = screen.getByTestId('session-move-up-b')
-    moveUp.focus()
-    fireEvent.click(moveUp)
+    const handle = screen.getByTestId('session-drag-handle-b')
+    handle.focus()
+    fireEvent.keyDown(handle, { key: 'ArrowUp' })
     expect(trigger).toHaveTextContent('Morning')
-    expect(
-      screen.getByRole('group', { name: 'Session list' }),
-    ).toBeInTheDocument()
-    const rows = screen
-      .getByRole('group', { name: 'Session list' })
-      .querySelectorAll('.session-picker-row')
+    expect(screen.getByRole('group', { name: 'Session list' })).toBeInTheDocument()
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Evening')
     expect(rows[1]).toHaveTextContent('Morning')
-    expect(screen.getByTestId('session-move-up-b')).toHaveFocus()
-    expect(screen.getByTestId('session-move-up-b')).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    )
+    expect(handle).toHaveFocus()
+    expect(screen.getByRole('status')).toHaveTextContent('Evening moved up to position 1 of 3.')
   })
 
   it('drags a session upward without changing the active session', () => {
-    const { container } = render(<Harness />)
+    render(<Harness />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
-    mockSessionRows(container)
+    mockSessionRows()
 
     const handle = screen.getByTestId('session-drag-handle-b')
     fireEvent.pointerDown(handle, {
@@ -249,7 +230,7 @@ describe('SessionPanel selector', () => {
       screen.getByTestId('session-drop-indicator'),
     ).toBeInTheDocument()
     expect(
-      container.querySelector('[data-session-id="b"]'),
+      document.querySelector('[data-session-id="b"]'),
     ).toHaveClass('is-dragging')
     expect(trigger).toHaveTextContent('Morning')
 
@@ -260,7 +241,7 @@ describe('SessionPanel selector', () => {
       clientY: 4,
     })
 
-    const rows = container.querySelectorAll('.session-picker-row')
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Evening')
     expect(rows[1]).toHaveTextContent('Morning')
     expect(trigger).toHaveTextContent('Morning')
@@ -275,14 +256,14 @@ describe('SessionPanel selector', () => {
   })
 
   it('drags a session downward without selecting it', () => {
-    const { container } = render(<Harness />)
+    render(<Harness />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
-    mockSessionRows(container)
+    mockSessionRows()
 
     dragHandle(screen.getByTestId('session-drag-handle-a'), 18, 110)
 
-    const rows = container.querySelectorAll('.session-picker-row')
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Evening')
     expect(rows[1]).toHaveTextContent('Empty')
     expect(rows[2]).toHaveTextContent('Morning')
@@ -295,10 +276,10 @@ describe('SessionPanel selector', () => {
   })
 
   it('does not reorder or select when a drag handle is pressed and released', () => {
-    const { container } = render(<Harness />)
+    render(<Harness />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
-    mockSessionRows(container)
+    mockSessionRows()
 
     const handle = screen.getByTestId('session-drag-handle-b')
     fireEvent.pointerDown(handle, {
@@ -316,7 +297,7 @@ describe('SessionPanel selector', () => {
       clientY: 58,
     })
 
-    const rows = container.querySelectorAll('.session-picker-row')
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Morning')
     expect(rows[1]).toHaveTextContent('Evening')
     expect(trigger).toHaveTextContent('Morning')
@@ -324,7 +305,7 @@ describe('SessionPanel selector', () => {
   })
 
   it('reorders from a focused drag handle with arrow keys', () => {
-    const { container } = render(<Harness />)
+    render(<Harness />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
 
@@ -332,7 +313,7 @@ describe('SessionPanel selector', () => {
     handle.focus()
     fireEvent.keyDown(handle, { key: 'ArrowUp' })
 
-    const rows = container.querySelectorAll('.session-picker-row')
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Evening')
     expect(rows[1]).toHaveTextContent('Morning')
     expect(trigger).toHaveTextContent('Morning')
@@ -346,10 +327,10 @@ describe('SessionPanel selector', () => {
     const many = Array.from({ length: 30 }, (_, index) =>
       session(`s${index}`, `Session ${index + 1}`),
     )
-    const { container } = render(<Harness initial={many} />)
+    render(<Harness initial={many} />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
-    const mock = mockScrollableSessionRows(container)
+    const mock = mockScrollableSessionRows()
     await waitFor(() =>
       expect(screen.getByTestId('session-option-s0')).toHaveFocus(),
     )
@@ -367,7 +348,7 @@ describe('SessionPanel selector', () => {
       fireEvent.keyDown(handle, { key: 'ArrowUp' })
     }
     await waitFor(() => expect(mock.scrollTop()).toBe(0))
-    const rows = container.querySelectorAll('.session-picker-row')
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Session 1')
     expect(trigger).toHaveTextContent('Session 1')
     expect(screen.getByTestId('session-option-s0')).toHaveAttribute(
@@ -383,10 +364,10 @@ describe('SessionPanel selector', () => {
       session('c', 'Empty'),
       session('d', 'Night'),
     ]
-    const { container } = render(<Harness initial={initial} />)
+    render(<Harness initial={initial} />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
-    const mock = mockScrollableSessionRows(container)
+    const mock = mockScrollableSessionRows()
 
     const handle = screen.getByTestId('session-drag-handle-b')
     fireEvent.pointerDown(handle, {
@@ -419,7 +400,7 @@ describe('SessionPanel selector', () => {
       clientX: 10,
       clientY: 110,
     })
-    const rows = container.querySelectorAll('.session-picker-row')
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Morning')
     expect(rows[1]).toHaveTextContent('Empty')
     expect(rows[2]).toHaveTextContent('Night')
@@ -438,10 +419,10 @@ describe('SessionPanel selector', () => {
       session('c', 'Empty'),
       session('d', 'Night'),
     ]
-    const { container } = render(<Harness initial={initial} />)
+    render(<Harness initial={initial} />)
     const trigger = screen.getByTestId('session-select')
     fireEvent.click(trigger)
-    const mock = mockScrollableSessionRows(container)
+    const mock = mockScrollableSessionRows()
 
     const handle = screen.getByTestId('session-drag-handle-b')
     fireEvent.pointerDown(handle, {
@@ -468,7 +449,7 @@ describe('SessionPanel selector', () => {
       clientY: 110,
     })
 
-    const rows = container.querySelectorAll('.session-picker-row')
+    const rows = document.querySelectorAll('.session-picker-row')
     expect(rows[0]).toHaveTextContent('Morning')
     expect(rows[1]).toHaveTextContent('Empty')
     expect(rows[2]).toHaveTextContent('Night')
@@ -480,13 +461,13 @@ describe('SessionPanel selector', () => {
     const many = Array.from({ length: 30 }, (_, index) =>
       session(`s${index}`, `Session ${index + 1}`),
     )
-    const { container } = render(<Harness initial={many} />)
+    render(<Harness initial={many} />)
     fireEvent.click(screen.getByTestId('session-select'))
 
     const panel = screen.getByRole('group', { name: 'Session list' })
     expect(panel).toHaveClass('session-picker-panel')
     expect(panel).toHaveStyle({ maxHeight: '430px' })
-    expect(container.querySelectorAll('.session-drag-handle')).toHaveLength(30)
+    expect(document.querySelectorAll('.session-drag-handle')).toHaveLength(30)
   })
 
   it('closes on Escape and outside presses, and stays locked during timing', () => {

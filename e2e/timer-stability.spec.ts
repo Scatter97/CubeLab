@@ -233,7 +233,9 @@ test.describe('inspection while holding', () => {
   }) => {
     await seedInspection(page)
     await page.keyboard.press('Space')
+    await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
     await page.clock.fastForward(2_000)
+    await expect(page.getByTestId('timer-display')).toHaveText('13')
     await page.keyboard.down('Space')
     await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'holding')
     await page.clock.fastForward(100)
@@ -253,12 +255,14 @@ test.describe('inspection while holding', () => {
     await seedInspection(page)
 
     await page.keyboard.press('Space')
+    await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
     await page.clock.fastForward(14_000)
+    await expect(page.getByTestId('timer-display')).toHaveText('1')
     await page.keyboard.down('Space')
     await page.clock.fastForward(1_100)
     await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'ready')
     await expect(page.getByTestId('timer-display')).toHaveText('+2')
-    await page.clock.fastForward(1_400)
+    await page.clock.fastForward(700)
     await expect(page.getByTestId('timer-display')).toHaveText('+2')
     expect(await solveCount(page)).toBe('0')
     await page.keyboard.up('Space')
@@ -269,6 +273,7 @@ test.describe('inspection while holding', () => {
     expect(await storedPenalties(page)).toEqual(['+2'])
 
     await page.keyboard.press('Space')
+    await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'inspection')
     await page.clock.fastForward(16_000)
     await page.keyboard.down('Space')
     await page.clock.fastForward(1_100)

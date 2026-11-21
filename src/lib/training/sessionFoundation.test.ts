@@ -3,6 +3,7 @@ import { algorithmSnapshotFor } from './algorithmSelection'
 import { builtInAlgorithmForCase } from './catalog/defaultAlgorithms'
 import { STANDARD_CASE_BY_ID } from './catalog/standardCases'
 import { calibration, NOW, setup } from './persistenceFixtures.test-support'
+import { stripRetiredAlgorithmTracking } from './retiredAlgorithmTracking'
 import { appendTrainingAttempt, correctTrainingAttribution, createTrainingAttempt, finishTrainingVisit, removeArchivedTrainingSession } from './records'
 import { createEmptyTrainingData, deserializeTrainingData, saveTraining, serializeTrainingData } from './storage'
 import type { TrainingCaseId, TrainingCategoryId, TrainingMode } from './types'
@@ -43,7 +44,7 @@ describe('visit-backed Training session foundation', () => {
     const recorded = appendTrainingAttempt(active, namedAttempt('recognition'))
     const ended = finishTrainingVisit(recorded, input.id, NOW + 20, 'manual')
     expect(removeArchivedTrainingSession(ended, input.id)).toBeNull()
-    const archived = acknowledgeTrainingReport(ended, input.id, 'session')
+    const archived = stripRetiredAlgorithmTracking(acknowledgeTrainingReport(ended, input.id, 'session'))
     let raw = serializeTrainingData(archived)
     const storage = { getItem: () => raw, setItem: (_key: string, value: string) => { raw = value } }
     const next = removeArchivedTrainingSession(archived, input.id)!
@@ -143,8 +144,7 @@ describe('visit-backed Training session foundation', () => {
     const unattributed = namedAttempt('execution', { id: 'unattributed', preferredAlgorithm: null })
     const withCorrection = appendTrainingAttempt({ ...populated, attempts: [corrected] }, unattributed)
     const reloaded = deserializeTrainingData(serializeTrainingData(withCorrection))
-    expect(reloaded.attempts[0]).toEqual(corrected)
-    expect(reloaded.attempts[0]!.preferredAlgorithmAtStart).toEqual(attempt.preferredAlgorithmAtStart)
+    expect(reloaded.attempts[0]).toMatchObject({ id: corrected.id, rawMs: corrected.rawMs, algorithmTracking: false, preferredAlgorithmAtStart: null, attribution: { kind: 'unknown', markedAt: null } })
     expect(reloaded.attempts[1]!.attribution).toEqual({ kind: 'unknown', markedAt: null })
     expect(reloaded.visits[0]!.attemptIds).toEqual([attempt.id, unattributed.id])
   })
@@ -163,7 +163,7 @@ describe('visit-backed Training session foundation', () => {
     const finished = finishTrainingVisit(populated, input.id, NOW + 20, 'manual')
     const reloaded = deserializeTrainingData(serializeTrainingData(finished))
     expect(reloaded.activeVisitId).toBeNull()
-    expect(reloaded.attempts).toEqual([attempt])
+    expect(reloaded.attempts).toEqual([{ ...attempt, algorithmTracking: false, preferredAlgorithmAtStart: null, attribution: { kind: 'unknown', markedAt: null } }])
     expect(reloaded.visits[0]).toMatchObject({
       id: input.id, endedAt: NOW + 20, attemptIds: [attempt.id],
       lifecycle: { lastActivityAt: NOW + 10, endReason: 'manual', reportPending: true },

@@ -188,6 +188,19 @@ describe('Data settings', () => {
     fireEvent.click(screen.getByTestId('settings-onboarding-button'))
     expect(onOpenOnboarding).toHaveBeenCalledOnce()
   })
+
+  it('marks Google Drive backup as beta inside the existing button', () => {
+    renderSettings()
+    const button = screen.getByTestId('settings-drive-button')
+    const badge = within(button).getByText('Beta')
+    const title = button.querySelector('.settings-data-title-with-badge')
+
+    expect(badge.tagName).toBe('SPAN')
+    expect(badge).not.toHaveAttribute('tabindex')
+    expect(badge).not.toHaveAttribute('role')
+    expect(title).toContainElement(badge)
+    expect(title).toHaveTextContent(/^Google Drive backup/)
+  })
 })
 
 describe('session summary settings', () => {

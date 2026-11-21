@@ -87,7 +87,7 @@ async function seed(page: Page, data: SeedData, key: string) {
       if (sessionStorage.getItem(marker)) return
       sessionStorage.setItem(marker, '1')
       localStorage.setItem('cubelab:sessions:v1', JSON.stringify(payload))
-      localStorage.removeItem('cubelab:settings:v1')
+      localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false, holdDurationMs: 0 } }))
       localStorage.removeItem('cubelab:sync:v1')
     },
     { payload: data, marker: key },
@@ -170,7 +170,7 @@ test('creates an ao5 competition session, completes an inspected round and persi
   await create.getByRole('textbox', { name: 'Session name' }).fill('Friday')
   await create.getByTestId('session-setup-kind-competition').click()
   await expect(create.getByTestId('session-setup-format')).toContainText(
-    'Average of 5',
+    'ao5',
   )
   const inspection = create.getByRole('switch', { name: 'Enable inspection' })
   if ((await inspection.getAttribute('aria-checked')) !== 'true') {

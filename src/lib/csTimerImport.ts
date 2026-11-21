@@ -3,7 +3,6 @@ import { createBackup } from './backup'
 import type {
   CsTimerScrTypeSource,
   CsTimerSolveSource,
-  CustomEventDefinition,
   Session,
   SessionsData,
   Settings,
@@ -12,14 +11,10 @@ import type {
 import { createId } from './id'
 import { getEventDefinition } from './events'
 import type { PuzzleEvent } from '../types'
-import {
-  builtInEventForCsTimerType,
-  resolveCsTimerEvent,
-} from './customEvents'
-import type { CsTimerEventResolution } from './customEvents'
+import { builtInEventForCsTimerType } from './customEvents'
 import { normalizeSessionName, resolveUniqueSessionNames } from './sessions'
 
-export type CsTimerMappingKind = 'built-in' | 'custom' | 'new-custom'
+export type CsTimerMappingKind = 'built-in' | 'misc'
 
 export interface CsTimerSessionPreview {
   /** Position in csTimer's ranked source order. */
@@ -55,10 +50,6 @@ export interface CsTimerImportPreview {
 }
 
 export interface CsTimerImportOptions {
-  /** Current definitions; repeated imports reuse their deterministic IDs. */
-  existingCustomEvents?: readonly CustomEventDefinition[]
-  /** Optional display name keyed by the original `scrType` (including ''). */
-  customEventNames?: Readonly<Record<string, string>>
   /** Stored local names used to resolve duplicate imported session names. */
   existingSessionNames?: readonly string[]
 }
@@ -162,26 +153,14 @@ function sortedSessionKeys(parsed: Record<string, unknown>): string[] {
     .sort((a, b) => Number(a.slice(7)) - Number(b.slice(7)))
 }
 
-function mappingKind(
-  scrType: string,
-  resolution: CsTimerEventResolution,
-): CsTimerMappingKind {
-  if (builtInEventForCsTimerType(scrType)) return 'built-in'
-  return resolution.created ? 'new-custom' : 'custom'
-}
-
-function resolveSessionEvent(
-  scrType: string,
-  definitions: readonly CustomEventDefinition[],
-  options: CsTimerImportOptions,
-  now?: number,
-): { resolution: CsTimerEventResolution; definitions: CustomEventDefinition[] } {
-  return resolveCsTimerEvent({
-    scrType,
-    definitions,
-    name: options.customEventNames?.[scrType],
-    ...(now !== undefined ? { now } : {}),
-  })
+function resolveEvent(scrType: string): {
+  event: PuzzleEvent
+  mapping: CsTimerMappingKind
+} {
+  const builtIn = builtInEventForCsTimerType(scrType)
+  return builtIn
+    ? { event: builtIn, mapping: 'built-in' }
+    : { event: 'misc', mapping: 'misc' }
 }
 
 function readRawSessionName(
@@ -207,8 +186,8 @@ function sessionRank(
 /**
  * csTimer's session manager reads `opt.scrType || '333'` for valid session
  * metadata. An omitted value is therefore the official 3×3 default. Missing or
- * malformed metadata is not treated as an omission, and explicit unsupported
- * identifiers remain custom events.
+ * malformed metadata is not treated as an omission. Explicit unsupported
+ * identifiers map to the MISC category with no generated scramble.
  */
 function resolveScrType(meta: Record<string, unknown> | null): ResolvedScrType {
   if (!meta) return { scrType: '', source: 'unavailable' }
@@ -229,7 +208,6 @@ function resolveScrType(meta: Record<string, unknown> | null): ResolvedScrType {
 interface BuiltImport {
   preview: CsTimerImportPreview
   sessions: Session[]
-  definitions: CustomEventDefinition[]
 }
 
 function buildImport(
@@ -292,10 +270,8 @@ function buildImport(
     options.existingSessionNames ?? [],
   )
 
-  let definitions = [...(options.existingCustomEvents ?? [])]
   const previews: CsTimerSessionPreview[] = []
   const mappings = new Map<string, CsTimerEventMapping>()
-  const createdIds = new Set<string>()
   const sessions: Session[] = []
   let totalSolves = 0
 
@@ -309,22 +285,8 @@ function buildImport(
     if (error) return { ok: false, error }
 
     const resolvedScrType = resolveScrType(source.meta)
-    const resolved = resolveSessionEvent(
-      resolvedScrType.scrType,
-      definitions,
-      options,
-      now,
-    )
-    definitions = resolved.definitions
-    const event = resolved.resolution.eventId
-    const kind = mappingKind(resolvedScrType.scrType, resolved.resolution)
-    if (kind === 'new-custom' && resolved.resolution.customEvent) {
-      createdIds.add(resolved.resolution.customEvent.id)
-    }
-    const eventLabel =
-      resolved.resolution.customEvent?.name ??
-      getEventDefinition(event)?.label ??
-      event
+    const { event, mapping: kind } = resolveEvent(resolvedScrType.scrType)
+    const eventLabel = getEventDefinition(event)?.label ?? event
     const solveCount = source.times.length
     const sessionCreatedAt =
       dates.length > 0 && validUnixSeconds(dates[0])
@@ -403,16 +365,13 @@ function buildImport(
     ok: true,
     result: {
       sessions,
-      definitions,
       preview: {
         totalSessions: sourceSessions.length,
         totalSolves,
         sessions: previews,
         mappings: [...mappings.values()],
-        newCustomEventCount: createdIds.size,
-        hasUnknown:
-          createdIds.size > 0 ||
-          previews.some((preview) => preview.mapping === 'custom'),
+        newCustomEventCount: 0,
+        hasUnknown: previews.some((preview) => preview.mapping === 'misc'),
       },
     },
   }
@@ -435,12 +394,11 @@ export function parseCsTimerBackup(
   const built = buildImport(raw, options, Date.now())
   if (!built.ok) return built
 
-  const { sessions, definitions, preview } = built.result
+  const { sessions, preview } = built.result
   const activeSessionId = sessions[0]!.id
   const sessionsData: SessionsData = {
     activeSessionId,
     sessions,
-    ...(definitions.length > 0 ? { customEvents: definitions } : {}),
   }
   const backup = createBackup(sessionsData, settings)
   backup.importMode = 'add'

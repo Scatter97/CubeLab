@@ -337,7 +337,7 @@ describe('session persistence', () => {
       'valid-pyram',
       'unknown-event',
     ])
-    expect(loaded.sessions[0]?.solves[1]?.event).toBe('333bf')
+    expect(loaded.sessions[0]?.solves[1]?.event).toBe('misc')
   })
 
   it('migrates a valid legacy single session', () => {
@@ -817,7 +817,7 @@ describe('settings persistence', () => {
     saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' }, storage)
     expect(loadSettings(storage)).toMatchObject({ theme: 'dark' })
     expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY) ?? '{}')).toMatchObject({
-      version: 11,
+      version: 12,
     })
   })
 
@@ -854,11 +854,35 @@ describe('settings persistence', () => {
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })
 
+
+  it('accepts valid custom appearance colors and ignores malformed values', () => {
+    expect(
+      parseSettingsData({
+        inspectionEnabled: true,
+        appearance: {
+          accent: '#AABBCC',
+          background: '#123456',
+          timerBackground: 'not-a-color',
+          timerText: '#000000',
+        },
+      }),
+    ).toMatchObject({
+      appearance: {
+        accent: '#aabbcc',
+        background: '#123456',
+        timerBackground: null,
+        timerText: '#000000',
+      },
+    })
+    expect(DEFAULT_SETTINGS.inspectionEnabled).toBe(true)
+    expect(DEFAULT_SETTINGS.hideEvenTimerSeconds).toBe(false)
+  })
+
   it('falls back when the version is unsupported', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 12, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 13, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })
@@ -872,7 +896,7 @@ describe('trimming settings schema v8', () => {
     const settings = loadSettings(storage)
     expect(settings).toMatchObject({ inspectionEnabled: true, theme: 'dark', averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
     expect(saveSettings(settings, storage)).toBe(true)
-    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 11, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 12, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
   })
   it('round-trips independent side choices and recovers bad fields independently', () => {
     const storage = new MemoryStorage()
@@ -884,8 +908,8 @@ describe('trimming settings schema v8', () => {
   })
 })
 
-describe('custom event persistence', () => {
-  it('round-trips custom definitions and custom-event solves without changing them', () => {
+describe('retired custom event migration', () => {
+  it('migrates custom-event sessions and solves into MISC and drops definitions', () => {
     const storage = new MemoryStorage()
     const customId = 'custom:test-event'
     const original = sessionsData({
@@ -896,9 +920,6 @@ describe('custom event persistence', () => {
           placeholder: 'Type a scramble',
           createdAt: 1_700_000_000_000,
           updatedAt: 1_700_000_002_000,
-          fieldUpdates: {
-            placeholder: { updatedAt: 1_700_000_002_000, editorId: 'laptop' },
-          },
         },
       ],
       activeSessionId: 'session-1',
@@ -915,9 +936,6 @@ describe('custom event persistence', () => {
                 sessionNumber: 2,
                 solveIndex: 3,
               },
-              fieldUpdates: {
-                event: { updatedAt: 1_700_000_003_000, editorId: 'laptop' },
-              },
             }),
           ],
         }),
@@ -925,10 +943,17 @@ describe('custom event persistence', () => {
     })
 
     expect(saveSessions(original, storage)).toBe(true)
-    expect(loadSessions(storage)).toEqual(original)
+    const loaded = loadSessions(storage)
+    expect(loaded.customEvents).toBeUndefined()
+    expect(loaded.sessions[0]!.event).toBe('misc')
+    expect(loaded.sessions[0]!.solves[0]).toMatchObject({
+      event: 'misc',
+      scramble: 'recorded scramble',
+      importSource: { scrType: 'test', sessionNumber: 2, solveIndex: 3 },
+    })
   })
 
-  it('preserves present unknown event IDs instead of defaulting to 3×3', () => {
+  it('folds unknown stored event IDs into MISC instead of 3×3', () => {
     const storage = new MemoryStorage()
     const original = sessionsData({
       sessions: [
@@ -939,7 +964,7 @@ describe('custom event persistence', () => {
       ],
     })
     expect(saveSessions(original, storage)).toBe(true)
-    expect(loadSessions(storage).sessions[0]!.event).toBe('custom:kept')
+    expect(loadSessions(storage).sessions[0]!.event).toBe('misc')
 
     storage.seed(
       SESSIONS_STORAGE_KEY,
@@ -956,11 +981,11 @@ describe('custom event persistence', () => {
       }),
     )
     const loaded = loadSessions(storage)
-    expect(loaded.sessions[0]!.event).toBe('not a valid event')
-    expect(loaded.sessions[0]!.solves[0]!.event).toBe('not a valid event')
+    expect(loaded.sessions[0]!.event).toBe('misc')
+    expect(loaded.sessions[0]!.solves[0]!.event).toBe('misc')
   })
 
-  it('preserves empty scrambles and present unknown event IDs through save/load', () => {
+  it('preserves empty scrambles through save/load', () => {
     const storage = new MemoryStorage()
     const original = sessionsData({
       sessions: [
@@ -973,10 +998,9 @@ describe('custom event persistence', () => {
 
     expect(saveSessions(original, storage)).toBe(true)
     const loaded = loadSessions(storage)
-    expect(loaded).toEqual(original)
-    expect(loaded.sessions[0]!.event).toBe('333bf')
+    expect(loaded.sessions[0]!.event).toBe('misc')
     expect(loaded.sessions[0]!.solves[0]).toMatchObject({
-      event: '333bf',
+      event: 'misc',
       scramble: '',
       rawMs: 12_340,
       penalty: 'none',
@@ -1012,13 +1036,9 @@ describe('custom event persistence', () => {
         ],
       }),
     )
-
     const loaded = loadSessions(storage)
     expect(loaded.sessions[0]!.event).toBe('333')
-    expect(loaded.sessions[0]!.solves[0]).toMatchObject({
-      event: '333',
-      scramble: '',
-    })
+    expect(loaded.sessions[0]!.solves[0]!.event).toBe('333')
   })
 })
 

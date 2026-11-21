@@ -9,6 +9,7 @@ import { StatColumns, StatisticsPanel } from '../StatisticsPanel'
 
 interface Props {
   attempts: readonly TrainingAttempt[]
+  history: readonly TrainingAttempt[]
   category: TrainingCategoryId
   trim: number
   preferences: TrainingStatisticsPreferences
@@ -24,7 +25,7 @@ interface Props {
 }
 
 export const TrainingStatistics = memo(function TrainingStatistics({
-  attempts, category, trim, preferences, difficult, visit, locked, style, onMinimumHeightChange,
+  attempts, history, category, trim, preferences, difficult, visit, locked, style, onMinimumHeightChange,
   onChangeMetric, onConfigure, onDetails, onTimingDetails,
 }: Props) {
   const { metric, current, best, rows, visible } = preferences
@@ -60,11 +61,11 @@ export const TrainingStatistics = memo(function TrainingStatistics({
           text = trainingTime((metric === 'raw' ? subset.raw : subset.estimated)?.meanMs ?? null)
           break
         }
-        case 'improvement': text = trainingPercentage(compareTrainingVisit(attempts, visit, category, metric)?.improvementPercent ?? null); break
+        case 'improvement': text = trainingPercentage(compareTrainingVisit(history, visit, category, metric)?.improvementPercent ?? null); break
       }
       return { row, text }
     })
-  }, [attempts, best, category, definitions, difficult, metric, summary, trim, visit])
+  }, [attempts, best, category, definitions, difficult, history, metric, summary, trim, visit])
 
   return (
     <StatisticsPanel

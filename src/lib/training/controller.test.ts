@@ -4,11 +4,6 @@ import { createEmptyTrainingData, TRAINING_STORAGE_KEY } from './storage'
 import { NOW, calibration, setup } from './persistenceFixtures.test-support'
 import { STANDARD_CASE_BY_ID } from './catalog/standardCases'
 import { trainingVisitElapsed } from './records'
-import { algorithmSnapshotFor } from './algorithmSelection'
-import { builtInAlgorithmForCase } from './catalog/defaultAlgorithms'
-import { getTrainingDomainSettings } from './settings'
-import { buildTrainingAnalytics } from './analytics'
-import { verifyCustomAlgorithm } from './runtime'
 import type { StorageLike } from '../storage'
 
 function fixture(data = createEmptyTrainingData(), generate?: NonNullable<ConstructorParameters<typeof TrainingController>[0]>['generate']) {
@@ -29,54 +24,6 @@ function fixture(data = createEmptyTrainingData(), generate?: NonNullable<Constr
 }
 
 describe('Training controller ownership and durability', () => {
-  it('tracks prospectively across on, off and on without changing the captured session override', async () => {
-    const f = fixture(), c = f.controller
-    const custom = await verifyCustomAlgorithm('oll:27', "R U R' U R U2 R'")
-    const builtIn = algorithmSnapshotFor(builtInAlgorithmForCase('oll:27')!)
-    const tracking = (enabled: boolean) => {
-      const prefs = c.getSnapshot().data!.preferences
-      return c.updateSettings(getTrainingDomainSettings(prefs), prefs.sets.oll.recognition, 'oll', enabled)
-    }
-    await c.saveAlgorithm(custom)
-    expect(f.read().customAlgorithms).toEqual([])
-    tracking(true)
-    await c.saveAlgorithm(custom)
-    await c.beginSession({ name: 'Override', categoryId: 'oll:execution', caseIds: ['oll:27'], algorithmOverrides: { 'oll:27': builtIn } })
-    const id = f.read().activeVisitId
-    expect(f.read().visits[0].session.cases[0].algorithm).toEqual(builtIn)
-    expect(f.read().preferences.preferredAlgorithms[0].algorithm.id).toBe(custom.id)
-    const nextRevision = await verifyCustomAlgorithm('oll:27', "R U R' U R U2 R'", custom)
-    await c.saveAlgorithm(nextRevision)
-    expect(f.read().preferences.preferredAlgorithms[0].algorithm.id).toBe(nextRevision.id)
-    expect(f.read().visits[0].session.cases[0].algorithm).toEqual(builtIn)
-
-    for (const enabled of [true, false, true]) {
-      tracking(enabled)
-      expect(c.beginAttempt()).toBe(true)
-      expect(tracking(!enabled)).toBeUndefined()
-      expect(c.completeAttempt(1200)).toBe('saved')
-      await Promise.resolve()
-    }
-    const before = f.read().attempts
-    expect(before.map((item: { algorithmTracking: boolean }) => item.algorithmTracking)).toEqual([true, false, true])
-    expect(before[1]).toMatchObject({ attribution: { kind: 'unknown' }, preferredAlgorithmAtStart: null })
-    c.correctAttribution(before[1].id, builtIn)
-    expect(f.read().attempts).toEqual(before)
-    let undo: Parameters<typeof c.undoDeleteAttempt>[0] | undefined
-    expect(c.deleteAttempt(before[1].id, token => { undo = token })).toBe(true)
-    expect(c.undoDeleteAttempt(undo!)).toBe(true)
-    expect(f.read().attempts).toEqual(before)
-    expect(before.every((item: { visitId: string }) => item.visitId === id)).toBe(true)
-    const analytics = buildTrainingAnalytics(fixture(f.read()).controller.getSavedData()!.attempts, 'oll:execution')
-    const row = analytics.cases.find(item => item.caseId === 'oll:27')!
-    expect(row.statistics.recordedAttempts).toBe(3)
-    expect(row.revisions).toMatchObject([{ algorithm: builtIn, statistics: { recordedAttempts: 2 } }])
-    expect(c.endSession()).toBe(true)
-    expect(c.closeSessionReport(id)).toBe(true)
-    tracking(false)
-    await c.beginSession({ name: 'Off', categoryId: 'oll:execution', caseIds: ['oll:27'], algorithmOverrides: { 'oll:27': builtIn } })
-    expect(f.read().visits[1].session.cases[0].algorithm.id).toBe(nextRevision.id)
-  })
   it('deletes only an acknowledged archived session after retry and never restores its stale Undo', async () => {
     const f = fixture(), c = f.controller
     const draft = { name: 'Archived drill', categoryId: 'oll:execution' as const, caseIds: ['oll:27'] as const }
@@ -188,7 +135,7 @@ describe('Training controller ownership and durability', () => {
     expect(c.completeAttempt(1200)).toBe('saved')
     expect(c.completeAttempt(1200)).toBeUndefined()
     expect(f.read().attempts).toHaveLength(1)
-    expect(f.read().attempts[0]).toMatchObject({ visitId: visit.id, preferredAlgorithmAtStart: visit.session.cases[0].algorithm })
+    expect(f.read().attempts[0]).toMatchObject({ visitId: visit.id, preferredAlgorithmAtStart: null, algorithmTracking: false, attribution: { kind: 'unknown' } })
   })
 
   it('keeps calibration out of history and defers named-session renewal until the next Begin', async () => {

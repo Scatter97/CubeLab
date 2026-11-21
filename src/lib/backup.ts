@@ -9,6 +9,12 @@ import { cloneAnalyticsSettings } from './analyticsSettings'
 import { MAX_BACKUP_BYTES } from './backupLimits'
 import type { SyncEnvelope } from './sync'
 import { parseRemoteSyncEnvelope } from './sync'
+import {
+  createTrainingBackupSection,
+  parseTrainingBackupSection,
+  type TrainingBackupSection,
+} from './training/backupSection'
+import type { TrainingData } from './training/types'
 
 export const BACKUP_APP = 'CubeLab'
 export const BACKUP_FORMAT = 'cubelab-backup'
@@ -34,6 +40,12 @@ export interface Backup {
    * by older versions omit this and remain fully compatible.
    */
   sync?: SyncEnvelope
+  /**
+   * Optional complete Training store. Native exports include it when the key
+   * exists; Drive snapshots and csTimer imports never do. Older readers ignore
+   * the additive field.
+   */
+  training?: TrainingBackupSection
 }
 
 export type BackupParseResult =
@@ -50,6 +62,7 @@ export function createBackup(
   settings: Settings,
   exportedAt = new Date(),
   sync?: SyncEnvelope,
+  training?: TrainingData,
 ): Backup {
   return {
     app: BACKUP_APP,
@@ -130,6 +143,7 @@ export function createBackup(
       analytics: cloneAnalyticsSettings(settings.analytics),
     },
     ...(sync ? { sync } : {}),
+    ...(training ? { training: createTrainingBackupSection(training) } : {}),
   }
 }
 
@@ -272,6 +286,18 @@ export function parseBackup(raw: string): BackupParseResult {
     sync = parsedSync
   }
 
+  let training: TrainingBackupSection | undefined
+  if (parsed.training !== undefined) {
+    const parsedTraining = parseTrainingBackupSection(parsed.training)
+    if (!parsedTraining.ok) {
+      return {
+        ok: false,
+        error: `${parsedTraining.error} CubeLab did not change your local data.`,
+      }
+    }
+    training = parsedTraining.section
+  }
+
   return {
     ok: true,
     backup: {
@@ -282,6 +308,7 @@ export function parseBackup(raw: string): BackupParseResult {
       sessions,
       settings,
       ...(sync ? { sync } : {}),
+      ...(training ? { training } : {}),
     },
   }
 }

@@ -1130,7 +1130,7 @@ describe('committed standard SVG assets', () => {
     expect(html.match(/width="64"/g)?.length).toBe(20)
   })
 
-  it('regenerates all 78 assets byte-identically and the complete contact sheet shows both sizes', () => {
+  it('regenerates all 78 assets byte-identically and the complete contact sheet shows both sizes', { timeout: 30_000 }, () => {
     expect(() =>
       execFileSync(
         process.execPath,

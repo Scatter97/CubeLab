@@ -1,6 +1,6 @@
 # CubeLab roadmap
 
-**Updated:** 2026-11-19. Current delivery/test evidence belongs in
+**Updated:** 2026-11-21. Current delivery/test evidence belongs in
 [STATUS.md](STATUS.md); risks belong in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 The verified primary local development environment is Arch Linux with KDE
 Plasma on Wayland; see [docs/development/ARCH_LINUX.md](docs/development/ARCH_LINUX.md).
@@ -15,7 +15,7 @@ require their existing authorization.
 ## Delivered baseline
 
 The timer, inspection, named sessions, native backup, optional Drive sync,
-twelve built-in events plus custom events, first-run onboarding, themes,
+twelve built-in events plus MISC, first-run onboarding, themes,
 scramble tools, Time Trend/PB details, the Analytics dashboard, configurable
 trimming, csTimer import, competition sessions with derived rounds and the
 OLL/PLL Training workspace are implemented.
@@ -39,11 +39,13 @@ follow-ups are below.
    preserving recording, durability, exact pending/in-flight detection and cache
    invalidation after edits, deletion/Undo, imports, session and trimming changes.
    The 2026-11-19 pass removed the duplicate Analytics rolling-series rebuilds and
-   the double session serialization; measured follow-ups are the redundant
-   `syncStateFingerprint` traversals inside one sync run (five of six calls repeat
-   an already-fingerprinted input at ~15 ms each at 10,000 solves) and the
-   ~500 KB cubing.js chunk on the production startup path via Training's static
-   `KPattern` import (see STATUS.md for the measured trace and deferral notes).
+   the double session serialization. The 2026-11-21 pass memoized
+   `syncStateFingerprint` by immutable `(sessions, settings)` identity, removing
+   the repeated in-run traversals. At 10,000 solves the production stop path is
+   still dominated by synchronous full-collection persistence (median 79–174 ms to
+   idle across two runs); incremental storage is the next step. The ~500 KB
+   cubing.js chunk on the production startup path via Training's static `KPattern`
+   import remains a separate measured follow-up.
 4. **Design incremental storage separately**, including migration, crash recovery,
    failure and cross-tab safety, before replacing whole-collection writes. The
    reviewable design is in
@@ -52,6 +54,20 @@ follow-ups are below.
 5. **Complete external validation**: owner-dependent OAuth, explicitly authorized
    live Drive, physical devices/assistive technology, and a recheck of the dated
    build dependency advisory before choosing a compatible fix.
+6. **Training history backup, portable large backups and Training Drive
+   sync** — delivered 2026-11-20. Native backup/restore includes the complete
+   checked Training store with replace-only restore, and the checked gzip path
+   handles native files above the legacy 10 MB compact limit within 16 MB
+   encoded / 64 MB decoded bounds. Training also has a separate `cubelab-training-*` Drive file
+   family: manual backup, replace-only restore and optional merge-based sync
+   with `cubelab:training-sync:v1`, tombstones, conflict review and separate
+   retention. Solve snapshots and csTimer imports still exclude Training, and
+   the solve Drive cap remains unchanged at 10 MB. Designs and the implementation
+   record are in
+   [TRAINING_HISTORY_BACKUP_DESIGN.md](docs/development/TRAINING_HISTORY_BACKUP_DESIGN.md)
+   and [TRAINING_DRIVE_SYNC_PLAN.md](docs/development/TRAINING_DRIVE_SYNC_PLAN.md).
+   Retained boundary: live Google Drive, physical devices, provider concurrency
+   and Firefox/WebKit Training Drive flows remain unverified.
 
 Detailed entry points and the profiling matrix live in [STATUS.md](STATUS.md).
 

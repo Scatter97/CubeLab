@@ -49,6 +49,9 @@ import {
   recordPendingCompletion,
 } from '../lib/pendingCompletion'
 
+// Shared so consumers' memo dependencies stay stable when no custom events
+// have been defined.
+const EMPTY_CUSTOM_EVENTS: CustomEventDefinition[] = []
 
 export interface UseSessionsResult {
   sessions: Session[]
@@ -176,6 +179,14 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
   )
 
   useEffect(() => {
+    if (!initialWrite.current && data === lastPersistedDataRef.current) {
+      // A destructive mutation already wrote these exact bytes before
+      // publishing them. Do not rewrite the same collection, but keep the
+      // status truthful after a previous failed write recovers.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setStorageOk(true)
+      return
+    }
     // Do not report a storage failure before the first user action: some
     // browsers block storage until a gesture, while the session still works in
     // memory. Subsequent writes surface the real status.
@@ -441,10 +452,15 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
   const deleteSession = useCallback((id: string): boolean => {
     const next = deleteSessionFromData(dataRef.current, id)
     if (!next) return false
-
+    // Persist before publishing so a failed write cannot hide a session whose
+    // deletion was never saved.
+    if (!persistSessions(next)) {
+      setStorageOk(false)
+      return false
+    }
     applyData(next)
     return true
-  }, [applyData])
+  }, [applyData, persistSessions])
 
   const deleteAllSessions = useCallback((): boolean => {
     const next = deleteAllSessionsInData(
@@ -585,7 +601,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
 
   return {
     sessions: orderedSessions,
-    customEvents: data.customEvents ?? [],
+    customEvents: data.customEvents ?? EMPTY_CUSTOM_EVENTS,
     ...(data.sessionOrder ? { sessionOrder: data.sessionOrder } : {}),
     ...(data.sessionTransfers && data.sessionTransfers.length > 0
       ? { sessionTransfers: data.sessionTransfers }

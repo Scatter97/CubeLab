@@ -2,7 +2,8 @@
 import type { StorageLike } from '../storage'
 import { createId } from '../id'
 import { MAX_SESSION_NAME_LENGTH, resolveSessionName, sessionNameKey, suggestSessionName } from '../sessionNames'
-import { loadTraining, saveTraining } from './storage'
+import { loadTraining, saveTraining, deserializeTrainingData } from './storage'
+import { assertTrainingData } from './schema'
 import { addCalibrationSample, beginCalibration, completeCalibration, decideTrainingActivation, isUsableTrainingCalibration, latestTrainingCalibration, recognitionCount, type CalibrationDraft } from './calibration'
 import { appendTrainingAttempt, correctTrainingAttribution, correctTrainingResult, createTrainingAttempt, finishTrainingVisit, removeArchivedTrainingSession } from './records'
 import { acknowledgeTrainingReport, activeTrainingSession, beginTrainingSession, transitionTrainingVisit, type TrainingVisitEvent } from './visits'
@@ -10,7 +11,8 @@ import { getTrainingDomainSettings } from './settings'
 import { trainingOutcome } from './results'
 import { algorithmSnapshot, availableAlgorithm, prepareTrainingSetup } from './runtime'
 import { preferredAlgorithmSnapshot, resolveCapturedAlgorithm } from './algorithmSelection'
-import type { TrainingAlgorithmOverrides, TrainingAlgorithmSnapshot, TrainingAttempt, TrainingCalibrationSnapshot, TrainingCaseId, TrainingCategoryId, TrainingCustomAlgorithm, TrainingData, TrainingDomainSettings, TrainingReportDestination, TrainingSessionConfiguration, TrainingSetId, TrainingSetupSnapshot } from './types'
+import { browserTrainingDeletionLedger, type TrainingDeletionLedger } from '../trainingDeletion'
+import type { TrainingAlgorithmOverrides, TrainingAlgorithmSnapshot, TrainingAttempt, TrainingCalibrationSnapshot, TrainingCaseId, TrainingCategoryId, TrainingCustomAlgorithm, TrainingData, TrainingDomainSettings, TrainingPreset, TrainingReportDestination, TrainingSessionConfiguration, TrainingSetId, TrainingSetupSnapshot } from './types'
 import { STANDARD_CASE_BY_ID } from './catalog/standardCases'
 
 export interface TrainingSessionDraft {
@@ -39,11 +41,19 @@ export interface TrainingControllerState {
   readonly renewalRecommended: boolean
   readonly idlePrompt: number | null
   readonly closedSessionName?: string
+  /** Increments when a whole saved store is adopted (restore/sync). */
+  readonly storeEpoch: number
 }
+
+export type TrainingBackupSnapshot =
+  | { readonly status: 'ready'; readonly data: TrainingData }
+  | { readonly status: 'absent' }
+  | { readonly status: 'blocked'; readonly reason: string }
 interface Options {
   storage?: StorageLike | null
   now?: () => number
   generate?: typeof prepareTrainingSetup
+  deletionLedger?: TrainingDeletionLedger
 }
 interface AttemptContext {
   id: string
@@ -66,6 +76,8 @@ interface AttemptDeletion {
 interface PendingOperation {
   readonly archiveDeleteId?: string
   readonly restoredAttempt?: TrainingAttempt
+  /** Re-asserts deletion intent before a delayed retry writes the candidate. */
+  readonly beforeRetry?: () => boolean
   readonly onSaved: () => void
 }
 
@@ -78,6 +90,7 @@ export class TrainingController {
   private readonly storage: StorageLike | null | undefined
   private readonly now: () => number
   private readonly generate: typeof prepareTrainingSetup
+  private readonly deletionLedger: TrainingDeletionLedger
   private generation = 0
   private busy = false
   private context: AttemptContext | null = null
@@ -93,15 +106,112 @@ export class TrainingController {
     this.storage = options.storage
     this.now = options.now ?? Date.now
     this.generate = options.generate ?? prepareTrainingSetup
+    this.deletionLedger = options.deletionLedger ?? browserTrainingDeletionLedger
     const loaded = loadTraining(this.storage)
     if (loaded.ok) this.expectedRaw = loaded.raw
     this.savedData = loaded.ok ? loaded.data : null
     this.state = { data: loaded.ok ? loaded.data : null, error: loaded.ok ? null : loaded.error,
       pendingSave: false, needsContinuity: false, category: null, setup: null, preparing: false,
-      calibration: null, sample: null, lastResultId: loaded.ok ? loaded.data.attempts.at(-1)?.id ?? null : null, renewalRecommended: false, idlePrompt: null }
+      calibration: null, sample: null, lastResultId: loaded.ok ? loaded.data.attempts.at(-1)?.id ?? null : null, renewalRecommended: false, idlePrompt: null, storeEpoch: 0 }
   }
   getSnapshot = () => this.state
   getSavedData = () => this.savedData
+  /**
+   * Last committed store for a complete native backup. `absent` is distinct
+   * from an unreadable store so the caller can omit an untouched key but must
+   * block instead of silently exporting a partial backup.
+   */
+  getBackupSnapshot = (): TrainingBackupSnapshot => {
+    if (this.state.data === null || this.savedData === null) {
+      return {
+        status: 'blocked',
+        reason:
+          this.state.error ??
+          'Training data could not be read. Restore Training storage before exporting a complete backup.',
+      }
+    }
+    if (this.state.pendingSave) {
+      return {
+        status: 'blocked',
+        reason:
+          'A Training save is pending. Retry the save before exporting a complete backup.',
+      }
+    }
+    if (this.state.needsContinuity) {
+      return {
+        status: 'blocked',
+        reason:
+          'Training is waiting for a resume or end decision. Resolve it before exporting a complete backup.',
+      }
+    }
+    if (this.state.data.activeVisitId !== null) {
+      return {
+        status: 'blocked',
+        reason:
+          'An active Training session is open. Finish or end it before exporting a complete backup.',
+      }
+    }
+    if (this.expectedRaw === null) return { status: 'absent' }
+    return { status: 'ready', data: this.savedData }
+  }
+  /**
+   * Adopts the exact bytes a durable replacement already wrote. This must not
+   * call saveTraining or write a second time. No imported visit is resumed.
+   */
+  adoptSavedTraining = (data: TrainingData, raw: string): boolean => {
+    let validated: TrainingData
+    try {
+      assertTrainingData(data)
+      validated = deserializeTrainingData(raw)
+      if (
+        validated.activeVisitId !== null ||
+        validated.visits.some((visit) => visit.endedAt === null)
+      ) {
+        throw new Error(
+          'Imported Training history must not contain an active or unfinished session.',
+        )
+      }
+    } catch (error) {
+      this.patch({
+        error:
+          error instanceof Error
+            ? `Imported Training history could not be adopted. ${error.message}`
+            : 'Imported Training history could not be adopted.',
+      })
+      return false
+    }
+
+    this.expectedRaw = raw
+    this.savedData = validated
+    this.generation += 1
+    this.retryTarget = undefined
+    this.busy = false
+    this.context = null
+    this.calibrationRunning = false
+    this.calibrationId = null
+    this.pendingBegin = null
+    this.recovered = true
+    this.namedActivityAt = null
+    this.attemptDeletion = null
+    this.pendingOperation = null
+    this.patch({
+      data: validated,
+      error: null,
+      pendingSave: false,
+      needsContinuity: false,
+      category: null,
+      setup: null,
+      preparing: false,
+      calibration: null,
+      sample: null,
+      lastResultId: validated.attempts.at(-1)?.id ?? null,
+      renewalRecommended: false,
+      idlePrompt: null,
+      closedSessionName: undefined,
+      storeEpoch: this.state.storeEpoch + 1,
+    })
+    return true
+  }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private patch(change: Partial<TrainingControllerState>) {
     this.state = { ...this.state, ...change }
@@ -123,6 +233,10 @@ export class TrainingController {
   retrySave = () => {
     if (this.busy) return
     if (this.state.pendingSave && this.state.data) {
+      if (this.pendingOperation?.beforeRetry && !this.pendingOperation.beforeRetry()) {
+        this.patch({ error: 'Deletion metadata could not be saved. The pending change was not committed.' })
+        return
+      }
       if (this.commit(this.state.data)) {
         if (this.state.calibration?.status === 'complete' && this.state.data.calibrations.some(c => c.id === this.calibrationId)) this.patch({ calibration: null })
         if (this.state.category && !this.state.calibration && !this.state.preparing && !this.state.setup) void this.prepare()
@@ -185,7 +299,7 @@ export class TrainingController {
     this.patch({ renewalRecommended: decision.state === 'ready' && decision.renewalRecommended })
     return decision.state === 'ready'
   }
-  beginSession = async ({ name, categoryId, caseIds, algorithmOverrides }: TrainingSessionDraft) => {
+  beginSession = async ({ name, categoryId, caseIds }: TrainingSessionDraft) => {
     const { data } = this.state
     if (this.busy || !data || !this.writable() || this.pendingBegin || data.activeVisitId) return
     if (data.visits.some(visit => visit.session && visit.lifecycle?.reportPending)) return
@@ -199,12 +313,7 @@ export class TrainingController {
     const cases: TrainingSessionConfiguration['cases'][number][] = []
     for (const caseId of new Set(caseIds)) {
       if (STANDARD_CASE_BY_ID.get(caseId)?.setId !== setId) continue
-      const override = data.preferences.algorithmTracking ? algorithmOverrides?.[caseId] : undefined
-      const algorithm = override ? resolveCapturedAlgorithm(data, caseId, override)?.snapshot : preferredAlgorithmSnapshot(data, caseId)
-      if (override && !algorithm) {
-        this.patch({ error: 'A session algorithm is no longer available. Choose a verified revision in Edit cases.' })
-        return
-      }
+      const algorithm = preferredAlgorithmSnapshot(data, caseId)
       if (algorithm) cases.push({ caseId, algorithm })
     }
     const decision = decideTrainingActivation({ event: 'select-mode', categoryId, caseIds: cases.map(choice => choice.caseId),
@@ -297,16 +406,42 @@ export class TrainingController {
 
   deleteArchivedSession = (id: string) => {
     if (this.busy || !this.writable()) return false
+    const data = this.state.data!
+    const visit = data.visits.find((candidate) => candidate.id === id)
+    if (!visit) return false
+    const attempts = data.attempts.filter((attempt) => attempt.visitId === id)
+    const attemptIds = attempts.map((attempt) => attempt.id)
+    // The visit and all attempt tombstones are written in one storage write.
+    // A partial ledger state must never outlive a reported failed deletion.
+    const recordDeletion = () =>
+      this.deletionLedger.recordArchivedSessionDeletion(visit, attempts)
+    if (!recordDeletion()) {
+      this.patch({ error: 'Training deletion metadata could not be saved. The session was not deleted.' })
+      return false
+    }
+    const revoke = () =>
+      this.deletionLedger.revokeArchivedSessionDeletion(id, attemptIds)
     let next: TrainingData | null
-    try { next = removeArchivedTrainingSession(this.state.data!, id) } catch (error) {
+    try { next = removeArchivedTrainingSession(data, id) } catch (error) {
+      if (!revoke()) {
+        this.patch({ error: 'Training deletion metadata could not be revoked. Synchronization is paused until the ledger is repaired.' })
+        return false
+      }
       this.patch({ error: error instanceof Error ? error.message : 'Training session could not be deleted.' })
       return false
     }
-    if (!next) return false
-    this.pendingOperation = { archiveDeleteId: id, onSaved: () => {
+    if (!next) {
+      revoke()
+      return false
+    }
+    this.pendingOperation = { archiveDeleteId: id, beforeRetry: recordDeletion, onSaved: () => {
       if (this.attemptDeletion?.attempt.visitId === id) this.attemptDeletion = null
     } }
-    return this.commit(next)
+    const saved = this.commit(next)
+    if (!saved && !revoke()) {
+      this.patch({ error: 'Training deletion metadata could not be revoked. Synchronization is paused until the ledger is repaired.' })
+    }
+    return saved
   }
 
   private idleInterval(data: TrainingData) {
@@ -445,10 +580,11 @@ export class TrainingController {
     // Activity before the timer starts closes an expired visit and starts another.
     if (!visit && !this.visit({ type: 'select-category', categoryId: category, newVisitId: createId(), at: this.now() })) return false
     const current = this.state.data!
-    const algorithmTracking = current.preferences.algorithmTracking === true
+    // Algorithm tracking is temporarily retired: every new attempt is case-only.
+    const algorithmTracking = false
     this.context = { id: createId(), setup: structuredClone(setup), visitId: current.activeVisitId!,
       algorithmTracking,
-      preferredAlgorithm: !algorithmTracking ? null : visit ? setup.generatorAlgorithm : preferredAlgorithmSnapshot(current, setup.generated.caseId),
+      preferredAlgorithm: null,
       calibration: category.endsWith('recognition') ? structuredClone(latestTrainingCalibration(current, setup.generated.setId as TrainingSetId)) : null }
     this.busy = true
     return true
@@ -562,7 +698,7 @@ export class TrainingController {
     if (this.busy || !this.writable()) return
     const data = this.state.data!
     const saved = this.commit({ ...data, preferences: { ...data.preferences, domain,
-      ...(algorithmTracking === undefined ? {} : { algorithmTracking }), sets: {
+      ...(algorithmTracking === undefined ? {} : { algorithmTracking: false }), sets: {
       ...data.preferences.sets, [setId]: { ...data.preferences.sets[setId], recognition: renewal },
     } } })
     this.activity()
@@ -581,9 +717,10 @@ export class TrainingController {
   }
   correctAttribution = (id: string, algorithm: TrainingAlgorithmSnapshot | null) => {
     const data = this.state.data
-    if (!data?.preferences.algorithmTracking) return
-    const attempt = data.attempts.find(item => item.id === id)
-    if (!attempt || attempt.algorithmTracking === false || (algorithm && !resolveCapturedAlgorithm(data, attempt.caseId, algorithm))) return
+    const attempt = data?.attempts.find(item => item.id === id)
+    // Tracking is prospective; an attempt that was attributed while tracking
+    // was on remains correctable even if the global preference is now off.
+    if (!data || !attempt || attempt.algorithmTracking === false || (algorithm && !resolveCapturedAlgorithm(data, attempt.caseId, algorithm))) return
     this.updateAttempt(correctTrainingAttribution(attempt, algorithm, Math.max(this.now(), attempt.createdAt)))
   }
   deleteAttempt = (id: string, onSaved?: (deleted: DeletedTrainingAttempt) => void) => {
@@ -607,17 +744,25 @@ export class TrainingController {
       return false
     }
     const token = { id }
+    const recordDeletion = () => this.deletionLedger.recordAttemptDeletion(attempt)
+    if (!recordDeletion()) {
+      this.patch({ error: 'Training deletion metadata could not be saved. The attempt was not deleted.' })
+      return false
+    }
     this.pendingOperation = {
+      beforeRetry: recordDeletion,
       onSaved: () => {
         this.attemptDeletion = { token, attempt, index, visitIndex }
         onSaved?.(token)
       },
     }
-    return this.commit({
+    const saved = this.commit({
       ...data, ...counters,
       attempts: data.attempts.toSpliced(index, 1),
       visits: data.visits.map(v => v === visit ? { ...v, attemptIds: v.attemptIds.toSpliced(visitIndex, 1) } : v),
     })
+    if (!saved) this.deletionLedger.revokeAttemptDeletion(attempt.id)
+    return saved
   }
   undoDeleteAttempt = (token: DeletedTrainingAttempt, onSaved?: () => void) => {
     if (this.busy || !this.writable() || this.attemptDeletion?.token !== token) return
@@ -625,18 +770,25 @@ export class TrainingController {
     const data = this.state.data!
     const visit = data.visits.find(v => v.id === attempt.visitId)
     if (!visit || (visit.session && visit.endedAt !== null) || data.attempts.some(a => a.id === attempt.id)) return
+    if (!this.deletionLedger.revokeAttemptDeletion(attempt.id)) {
+      this.patch({ error: 'Training deletion metadata could not be updated. Undo was not applied.' })
+      return false
+    }
     this.pendingOperation = {
       restoredAttempt: attempt,
+      beforeRetry: () => this.deletionLedger.revokeAttemptDeletion(attempt.id),
       onSaved: () => {
         this.attemptDeletion = null
         onSaved?.()
       },
     }
-    return this.commit({
+    const saved = this.commit({
       ...data,
       attempts: data.attempts.toSpliced(index, 0, attempt),
       visits: data.visits.map(v => v === visit ? { ...v, attemptIds: v.attemptIds.toSpliced(visitIndex, 0, attempt.id) } : v),
     })
+    if (!saved) this.deletionLedger.recordAttemptDeletion(attempt)
+    return saved
   }
   acknowledgeReport = (id: string) => {
     if (this.busy || !this.writable()) return
@@ -652,12 +804,57 @@ export class TrainingController {
       kind: 'user' as const, createdAt: previous?.createdAt ?? this.now(), updatedAt: this.now() }
     this.commit({ ...data, presets: [...data.presets.filter(p => p.id !== preset.id), preset] })
   }
-  deletePreset = (id: string) => {
-    if (this.busy || !this.writable()) return
+  deletePreset = (id: string): TrainingPreset | null => {
+    if (this.busy || !this.writable()) return null
     const data = this.state.data!
-    this.commit({ ...data, presets: data.presets.filter(p => p.id !== id), preferences: { ...data.preferences, sets: {
+    const preset = data.presets.find((candidate) => candidate.id === id)
+    if (!preset) return null
+    const recordDeletion = () => this.deletionLedger.recordPresetDeletion(preset)
+    if (!recordDeletion()) {
+      this.patch({ error: 'Training deletion metadata could not be saved. The preset was not deleted.' })
+      return null
+    }
+    this.pendingOperation = { beforeRetry: recordDeletion, onSaved: () => undefined }
+    const saved = this.commit({ ...data, presets: data.presets.filter(p => p.id !== id), preferences: { ...data.preferences, sets: {
       oll: { ...data.preferences.sets.oll, selectedPresetId: null }, pll: { ...data.preferences.sets.pll, selectedPresetId: null },
     } } })
+    if (!saved) {
+      this.deletionLedger.revokePresetDeletion(id)
+      return null
+    }
+    return preset
+  }
+  restorePreset = (preset: TrainingPreset): boolean => {
+    if (this.busy || !this.writable()) return false
+    const data = this.state.data!
+    if (data.presets.some((candidate) => candidate.id === preset.id)) return true
+    if (!this.deletionLedger.revokePresetDeletion(preset.id)) {
+      this.patch({ error: 'Training deletion metadata could not be updated. The preset was not restored.' })
+      return false
+    }
+    const saved = this.commit({
+      ...data,
+      presets: [...data.presets, preset],
+      preferences: {
+        ...data.preferences,
+        sets: {
+          oll: {
+            ...data.preferences.sets.oll,
+            selectedPresetId:
+              data.preferences.sets.oll.selectedPresetId ??
+              (preset.setId === 'oll' ? preset.id : null),
+          },
+          pll: {
+            ...data.preferences.sets.pll,
+            selectedPresetId:
+              data.preferences.sets.pll.selectedPresetId ??
+              (preset.setId === 'pll' ? preset.id : null),
+          },
+        },
+      },
+    })
+    if (!saved) this.deletionLedger.recordPresetDeletion(preset)
+    return saved
   }
   applyPreset = async (id: string) => {
     if (this.busy || !this.writable()) return

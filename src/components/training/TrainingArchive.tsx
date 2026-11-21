@@ -47,11 +47,11 @@ export default function TrainingArchive({ data, controller, request, error, pend
     {!request.reviewId ? <TrainingDialog title="Practice history" onClose={onClose}>
       {error && !pendingSave ? <p role="alert">{error}</p> : null}
       <div className="training-actions">
-        <label>Algorithm set <select value={set} onChange={event => { setSet(event.target.value as typeof set); setLimit(20) }}>
+        <label>Set <select value={set} onChange={event => { setSet(event.target.value as typeof set); setLimit(20) }}>
           <option value="all">All sets</option><option value="oll">OLL</option><option value="pll">PLL</option>
         </select></label>
         <label>Practice type <select value={mode} onChange={event => { setMode(event.target.value as typeof mode); setLimit(20) }}>
-          <option value="all">All types</option><option value="execution">Execution</option><option value="recognition">Recognition</option>
+          <option value="all">All types</option><option value="execution">Execution</option><option value="recognition">Recognition (BETA)</option>
         </select></label>
         <label>Date range <select value={days} onChange={event => { setDays(Number(event.target.value)); setLimit(20) }}>
           <option value={0}>All dates</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option>
@@ -64,7 +64,7 @@ export default function TrainingArchive({ data, controller, request, error, pend
     </TrainingDialog> : null}
     {review ? <TrainingReportsDialog data={data} controller={controller} reviewId={review}
       onOpenAttempt={setAttemptId} onClose={closeReview} /> : null}
-    {attempt ? <AttemptDetailsDialog data={data} controller={controller} attempt={attempt}
+    {attempt ? <AttemptDetailsDialog controller={controller} attempt={attempt}
       locked onDelete={() => false} onClose={() => setAttemptId(null)} /> : null}
     {deleteTarget ? <ConfirmDialog open eyebrow="Practice history" title={`Delete ${deleteTarget.session?.name}?`}
       description={`This permanently deletes the session and its ${deleteTarget.attemptIds.length} saved ${deleteTarget.attemptIds.length === 1 ? 'attempt' : 'attempts'}.`}

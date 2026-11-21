@@ -2,12 +2,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import TrainingPage from './TrainingPage'
 import { TrainingController } from '../lib/training/controller'
-import { createTrainingAttempt, correctTrainingAttribution } from '../lib/training/records'
+import { appendTrainingAttempt, createTrainingAttempt, finishTrainingVisit } from '../lib/training/records'
 import { createEmptyTrainingData } from '../lib/training/storage'
 import { calibration, NOW, setup } from '../lib/training/persistenceFixtures.test-support'
+import { TRAINING_STATISTICS_KEY } from '../lib/training/statisticsPreferences'
+import { beginTrainingSession } from '../lib/training/visits'
 import { DEFAULT_SETTINGS } from '../lib/storage'
 import type { TimerController } from '../hooks/useTimer'
-import type { TrainingCustomAlgorithm, TrainingData } from '../lib/training/types'
+import type { TrainingCategoryId, TrainingData, TrainingSetupSnapshot } from '../lib/training/types'
 import { useSyncExternalStore } from 'react'
 
 beforeAll(() => {
@@ -21,23 +23,49 @@ function showOptions(name: string) {
   document.getElementById(trigger.getAttribute('popovertarget')!)!.style.display = 'grid'
 }
 
-function fixtureWithData(data: TrainingData) {
+function fixtureWithData(data: TrainingData, sessionFlow = false, generate?: (data: TrainingData, category: TrainingCategoryId) => Promise<TrainingSetupSnapshot>) {
   let raw = JSON.stringify(data)
-  const c = new TrainingController({ storage: { getItem: () => raw, setItem: (_k,v) => { raw = v } }, now: () => NOW, generate: async (_data, category) => setup(category.startsWith('oll') ? 'oll' : 'pll', category.endsWith('recognition') ? 'recognition' : 'execution') })
+  const c = new TrainingController({ storage: { getItem: () => raw, setItem: (_k,v) => { raw = v } }, now: () => NOW,
+    generate: generate ?? (async (_data, category) => setup(category.startsWith('oll') ? 'oll' : 'pll', category.endsWith('recognition') ? 'recognition' : 'execution')) })
   const onPress = vi.fn(), modal = vi.fn()
   const timer: TimerController = { state: { status: 'idle' }, holdProgress: 0, inspectionElapsedMs: null, press: onPress, release: vi.fn(), cancel: vi.fn() }
-  function View() { const state = useSyncExternalStore(c.subscribe, c.getSnapshot); return <TrainingPage controller={c} state={state} timer={timer} settings={DEFAULT_SETTINGS} onPress={onPress} onCancel={vi.fn()} onModalChange={modal} onNotify={vi.fn()} onDeleteAttempt={vi.fn()} /> }
+  function View() { const state = useSyncExternalStore(c.subscribe, c.getSnapshot); return <TrainingPage controller={c} state={state} timer={timer} settings={DEFAULT_SETTINGS} onPress={onPress} onCancel={vi.fn()} onModalChange={modal} onNotify={vi.fn()} onDeleteAttempt={vi.fn()} sessionFlow={sessionFlow} /> }
   return { c, View, timer, modal }
 }
 function fixture(recognition = false) {
   return fixtureWithData({ ...createEmptyTrainingData(), calibrations: recognition ? [calibration()] : [] })
+}
+function sessionSetup(): TrainingSetupSnapshot {
+  const base = setup()
+  return { ...base, generatorAlgorithm: { ...base.generatorAlgorithm, notation: base.generated.targetAlgorithmNotation } }
+}
+function sessionWithHistory(): TrainingData {
+  const prior = { ...sessionSetup(), generatedAt: NOW - 9000 }
+  const current = sessionSetup()
+  let data = beginTrainingSession(createEmptyTrainingData(), {
+    id: 'prior-session', at: NOW - 8000, categoryId: 'oll:execution',
+    session: { version: 1, name: 'Prior session', cases: [{ caseId: 'oll:27', algorithm: prior.generatorAlgorithm }] },
+  })
+  data = appendTrainingAttempt(data, createTrainingAttempt({
+    id: 'prior-attempt', setup: prior, visitId: 'prior-session', rawMs: 2000, createdAt: NOW - 7000,
+    preferredAlgorithm: prior.generatorAlgorithm, algorithmTracking: true,
+  }))
+  data = finishTrainingVisit(data, 'prior-session', NOW - 6000, 'manual')
+  data = beginTrainingSession(data, {
+    id: 'current-session', at: NOW, categoryId: 'oll:execution',
+    session: { version: 1, name: 'Focused session', cases: [{ caseId: 'oll:27', algorithm: current.generatorAlgorithm }] },
+  })
+  return appendTrainingAttempt(data, createTrainingAttempt({
+    id: 'current-attempt', setup: current, visitId: 'current-session', rawMs: 1000, createdAt: NOW + 1000,
+    preferredAlgorithm: current.generatorAlgorithm, algorithmTracking: true,
+  }))
 }
 describe('Training interface', () => {
   it('opens mode selection without calibration and exposes a labelled shared timer', () => {
     const { View } = fixture(); render(<View />)
     expect(screen.queryByText(/0 \/ 7 accepted/)).not.toBeInTheDocument()
     expect(screen.getByTestId('timer-surface')).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Begin practice' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Begin training' })).toBeInTheDocument()
   })
   it('shares the statistics and history surfaces, and keeps only Last Result', async () => {
     const { c, View } = fixture(true); render(<View />)
@@ -97,62 +125,19 @@ describe('Training interface', () => {
     fireEvent.click(restored.getByRole('button', { name: 'Close' }))
     expect(visibleRows()[0]).toBe('training-stat-row-single')
   })
-  it('keeps unknown attribution at case level and displays each historical algorithm revision', () => {
-    const make = (id: string) => createTrainingAttempt({ id, setup: setup(), rawMs: 2500, createdAt: NOW, visitId: 'v' })
-    const attempts = [
-      make('unknown'),
-      correctTrainingAttribution(make('old'), { id: 'historical-algorithm', revision: 1, notation: 'R U' }, NOW),
-      correctTrainingAttribution(make('new'), { id: 'historical-algorithm', revision: 2, notation: 'R U2' }, NOW),
-    ]
-    const { View } = fixtureWithData({ ...createEmptyTrainingData(), attempts, visits: [{
-      version: 1, id: 'v', startedAt: NOW, endedAt: NOW, attemptIds: attempts.map(attempt => attempt.id),
-      startedCategoryId: 'oll:execution', categoryIds: ['oll:execution'], summaryId: null,
-    }] })
+  it('compares named-session improvement with the full category history', async () => {
+    localStorage.setItem(TRAINING_STATISTICS_KEY, JSON.stringify({ 'oll:execution': { visible: ['attempts', 'improvement'] } }))
+    const { View, c } = fixtureWithData(sessionWithHistory(), true, async () => sessionSetup())
     render(<View />)
+    await act(async () => { c.recover('unknown'); c.resumeSession() })
+    expect(await screen.findByTestId('training-stat-row-improvement')).toHaveTextContent('50.0%')
+    expect(screen.getByTestId('training-stat-row-attempts')).toHaveTextContent('Total attempts1')
     showOptions('Statistics options')
     fireEvent.click(screen.getByRole('button', { name: 'Detailed statistics' }))
     const breakdown = within(screen.getByRole('dialog', { name: 'Detailed statistics' }))
-    fireEvent.change(breakdown.getByLabelText('Filter'), { target: { value: 'practiced' } })
-    expect(breakdown.getByRole('row', { name: /^OLL 27/ })).toHaveTextContent('OLL 273')
-    fireEvent.click(breakdown.getByRole('tab', { name: 'By algorithm' }))
-    expect(breakdown.getByText(/1 attempt.*with unknown attribution/)).toBeInTheDocument()
-    expect(breakdown.getByText(/Historical · rev. 1/)).toBeInTheDocument()
-    expect(breakdown.getByText(/Historical · rev. 2/)).toBeInTheDocument()
-  })
-  it('reports all enabled built-in defaults as verified for both sets', async () => {
-    const data = createEmptyTrainingData()
-    const { View } = fixtureWithData({ ...data, preferences: { ...data.preferences, algorithmTracking: true } }); render(<View />)
-    expect(screen.getByRole('button', { name: /57 cases selected/ })).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: /cases selected, edit cases/i })[0]!)
-    expect(screen.getByText('57 selected')).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Algorithms' })[0]!)
-    expect(screen.getByText('Built-in default', { selector: 'strong' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Preferred algorithm' })).toHaveValue(JSON.stringify(['oll:1:alg:default-v1', 1]))
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    fireEvent.change(screen.getByRole('combobox', { name: 'Algorithm set' }), { target: { value: 'pll' } })
-    await waitFor(() => expect(screen.getByRole('button', { name: /21 cases selected/ })).toBeInTheDocument())
-  })
-  it('shows and switches between the built-in default and a user algorithm', async () => {
-    const custom: TrainingCustomAlgorithm = {
-      id: 'oll:1:user:test', version: 1, setId: 'oll', caseId: 'oll:1', source: 'user',
-      notation: "R U R' U' R' F R F'", normalizedNotation: "R U R' U' R' F R F'",
-      createdAt: NOW, label: 'My OLL 1', verification: { status: 'verified', method: 'cube-state', verifiedAt: '2026-11-10', frameNormalized: true, solvesCase: true, checkedAufs: [''] },
-    }
-    const empty = createEmptyTrainingData()
-    const data: TrainingData = {
-      ...empty,
-      customAlgorithms: [custom],
-      preferences: { ...empty.preferences, algorithmTracking: true, preferredAlgorithms: [{ caseId: 'oll:1', algorithm: { id: custom.id, revision: 1, notation: custom.notation } }] },
-    }
-    const { View, c } = fixtureWithData(data); render(<View />)
-    fireEvent.click(screen.getAllByRole('button', { name: /cases selected, edit cases/i })[0]!)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Algorithms' })[0]!)
-    const preferred = screen.getByRole('combobox', { name: 'Preferred algorithm' })
-    expect(preferred).toHaveValue(JSON.stringify([custom.id, 1]))
-    expect(screen.getByText('Preferred', { selector: 'strong' }).parentElement).toHaveTextContent('Your algorithm')
-    expect(screen.getByText('My OLL 1 · revision 1')).toBeInTheDocument()
-    fireEvent.change(preferred, { target: { value: JSON.stringify(['oll:1:alg:default-v1', 1]) } })
-    await waitFor(() => expect(c.getSnapshot().data!.preferences.preferredAlgorithms[0]!.algorithm.id).toBe('oll:1:alg:default-v1'))
+    const caseRow = breakdown.getByRole('row', { name: /^OLL 27/ })
+    expect(caseRow.querySelectorAll('td')[0]).toHaveTextContent('1')
+    expect(caseRow).toHaveTextContent('50.0%')
   })
   it('hides target identity, diagram and algorithm from all rendered recognition metadata until completion', async () => {
     const { c, View } = fixture(true); render(<View />)

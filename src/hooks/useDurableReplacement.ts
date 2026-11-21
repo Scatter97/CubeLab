@@ -5,6 +5,10 @@ import type { TimerState } from '../timer/machine'
 import type { UseSyncResult } from './useSync'
 import type { DriveBackupState } from '../lib/driveStorage'
 import type { SyncStorageData } from '../lib/syncStorage'
+import type { TrainingData } from '../lib/training/types'
+import type { TrainingSaveResult } from '../lib/training/storage'
+import type { TrainingSyncStorageData } from '../lib/trainingSyncStorage'
+import { saveTrainingSyncStorage } from '../lib/trainingSyncStorage'
 import type {
   ReplacementKind,
   ReplacementKey,
@@ -39,6 +43,13 @@ export interface DurableReplacementPlan {
   settingsData?: Settings
   syncStorage: SyncStorageData
   driveState?: DriveBackupState
+  /** Complete checked Training store; omitted by Drive and csTimer imports. */
+  trainingData?: TrainingData
+  /**
+   * Cleared Training sync provenance for a replace-only Training restore.
+   * Kept in the same journal so stale tombstones cannot survive the restore.
+   */
+  trainingSyncStorage?: TrainingSyncStorageData
   successMessage: string
   failurePrefix: string
   onSuccess: () => void
@@ -52,6 +63,12 @@ export interface UseDurableReplacementOptions {
   stageSettings: (settings: Settings) => boolean
   replaceSessions: (data: SessionsData) => void
   replaceSettings: (settings: Settings) => void
+  /** Checked wholesale Training writer; returns the exact stored bytes. */
+  stageTraining?: (data: TrainingData) => TrainingSaveResult
+  /** Adopts already-written Training bytes without writing again. */
+  replaceTraining?: (data: TrainingData, raw: string) => void
+  /** Local Training state that must be finished before a Training restore. */
+  trainingBlockedReason?: () => string | null
   onNotify: (message: string) => void
 }
 
@@ -74,6 +91,9 @@ export function useDurableReplacement(
     stageSettings,
     replaceSessions,
     replaceSettings,
+    stageTraining,
+    replaceTraining,
+    trainingBlockedReason,
     onNotify,
   } = options
 
@@ -88,6 +108,19 @@ export function useDurableReplacement(
           `${plan.failurePrefix}: wait for the current synchronization to finish.`,
         )
         return false
+      }
+      if (plan.trainingData && (!stageTraining || !replaceTraining)) {
+        onNotify(
+          `${plan.failurePrefix}: Training history cannot be replaced in this build. Nothing was replaced.`,
+        )
+        return false
+      }
+      if (plan.trainingData) {
+        const reason = trainingBlockedReason?.()
+        if (reason) {
+          onNotify(`${plan.failurePrefix}: ${reason} Nothing was replaced.`)
+          return false
+        }
       }
       const existing = loadReplacementJournal()
       if (existing.status === 'invalid') {
@@ -121,6 +154,13 @@ export function useDurableReplacement(
             `${plan.failurePrefix}: timing or synchronization started before the replacement could commit.`,
           )
           return false
+        }
+        if (plan.trainingData) {
+          const reason = trainingBlockedReason?.()
+          if (reason) {
+            onNotify(`${plan.failurePrefix}: ${reason} Nothing was replaced.`)
+            return false
+          }
         }
 
         const pendingCompletion = loadPendingCompletion()
@@ -160,6 +200,8 @@ export function useDurableReplacement(
         const keys: ReplacementKey[] = ['sessions', 'sync']
         if (plan.settingsData) keys.push('settings')
         if (plan.driveState !== undefined) keys.push('drive')
+        if (plan.trainingData) keys.push('training')
+        if (plan.trainingSyncStorage) keys.push('trainingSync')
         const begun = beginReplacement(plan.kind, keys)
         if (!begun.ok) {
           onNotify(`${plan.failurePrefix}: ${begun.error}`)
@@ -189,6 +231,20 @@ export function useDurableReplacement(
         if (plan.driveState && !saveDriveBackupState(plan.driveState)) {
           return fail('the Drive backup status could not be saved.')
         }
+        let trainingRaw: string | null = null
+        if (plan.trainingData) {
+          const staged = stageTraining!(plan.trainingData)
+          if (!staged.ok) {
+            return fail('the Training history could not be saved.')
+          }
+          trainingRaw = staged.raw
+        }
+        if (
+          plan.trainingSyncStorage &&
+          !saveTrainingSyncStorage(plan.trainingSyncStorage)
+        ) {
+          return fail('the Training synchronization records could not be cleared.')
+        }
         if (!markReplacementCommitted(journal)) {
           return fail('the durable commit marker could not be saved.')
         }
@@ -202,6 +258,9 @@ export function useDurableReplacement(
         )
         replaceSessions(sessionsData)
         if (plan.settingsData) replaceSettings(plan.settingsData)
+        if (plan.trainingData && trainingRaw !== null) {
+          replaceTraining!(plan.trainingData, trainingRaw)
+        }
         plan.onSuccess()
 
         // The committed collection is durable. Remove only the exact buffered
@@ -225,11 +284,14 @@ export function useDurableReplacement(
       onNotify,
       replaceSessions,
       replaceSettings,
+      replaceTraining,
       settings,
       stageSessions,
       stageSettings,
+      stageTraining,
       sync,
       timerStatusRef,
+      trainingBlockedReason,
     ],
   )
 }

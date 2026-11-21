@@ -223,7 +223,7 @@ test.describe('statistics panel', () => {
         }),
       )
       .toEqual({
-        version: 11,
+        version: 12,
         metrics: {
           current: true,
           best: true,

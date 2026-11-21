@@ -17,7 +17,10 @@
 6. Update `PROJECT_MEMORY.md` after completed implementation phases, important verified findings, or approved design changes.
 7. Keep the immediate next task and phase status accurate.
 
-Do not duplicate the complete Training specification in this file.
+Do not duplicate the complete Training specification in this file. Algorithm
+revision tracking is temporarily retired (2026-11-21): new attempts are
+case-only and stored tracking data is stripped at every Training ingress.
+Do not reintroduce the tracking UI without a new owner request.
 
 Current code and tests establish implementation; dated verification establishes
 what was exercised. [ROADMAP.md](ROADMAP.md) lists the retained layout, performance,
@@ -40,12 +43,14 @@ the 2026-11-18 audit). No nvm path or fixed Node patch release is required. See
 Playwright, KDE and Wayland guidance. The browser application remains portable;
 preserve other platforms' setup instructions.
 
-The implemented product includes 12 built-in events plus user-defined custom events,
+The implemented product includes 12 built-in events plus a MISC catch-all (custom
+events are retired and migrate to MISC),
 first-run onboarding, inspection, named sessions, solve comments/actions,
 configurable trimmed statistics, Time Trend/PB details, the lazy Analytics
 dashboard, the OLL/PLL Training workspace, floating scramble/chart tools, native
-JSON backup, additive csTimer import, optional Drive sync, light/dark/system
-themes and an offline-capable PWA. Sessions use schema **v7**; settings use **v11**. Storage-key
+JSON/checked-gzip backup, additive csTimer import, optional solve and Training
+Drive sync, light/dark/system themes and an offline-capable PWA. Sessions use
+schema **v7**; settings use **v12**; Training remains **v1**. Storage-key
 suffixes remain `v1`; do not confuse key names with payload schema versions.
 
 | Area | Owner |
@@ -55,8 +60,9 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | Timer transitions and inspection penalties | `src/timer/machine.ts`, `src/hooks/useTimer.ts` |
 | Live readout and delayed insight presentation | `src/hooks/useRunningElapsed.ts`, `src/hooks/usePostPaintValue.ts` |
 | Sessions, competition rounds, merge/split transfers, ordering, summaries, settings and storage validation | `src/lib/sessions.ts`, `src/lib/competition.ts`, `src/lib/sessionTransfers.ts`, `src/hooks/useSessions.ts`, `src/hooks/useSettings.ts`, `src/lib/storage.ts`, `src/lib/dates.ts` |
-| Custom events, csTimer event mapping and reassignment | `src/lib/events.ts`, `src/lib/customEvents.ts`, `src/components/CustomEventsDialog.tsx` |
-| Backup and csTimer parsing | `src/lib/backup.ts`, `src/lib/csTimerImport.ts` |
+| MISC/legacy event migration, csTimer event mapping | `src/lib/events.ts`, `src/lib/customEvents.ts` (legacy rules), `src/lib/csTimerImport.ts` |
+| Backup and csTimer parsing | `src/lib/backup.ts`, `src/lib/portableBackup.ts`, `src/lib/training/backupSection.ts`, `src/lib/csTimerImport.ts` |
+| Training Drive backup, merge sync and deletion provenance | `src/lib/trainingDrive.ts`, `src/lib/trainingSync.ts`, `src/lib/trainingSyncStorage.ts`, `src/lib/trainingDeletion.ts`, `src/hooks/useTrainingDriveBackup.ts`, `src/hooks/useTrainingSync.ts` |
 | Sync orchestration, replacement recovery and pure merges | `src/hooks/useSync.ts`, `src/hooks/useDriveBackup.ts`, `src/lib/sync.ts`, `src/lib/replacement.ts`, `src/lib/startupRecovery.ts`, `src/lib/pendingCompletion.ts` |
 | Display release version and release commands | `src/release.json`, `src/lib/version.ts`, `scripts/release.mjs` |
 | Statistics, trimming, session summaries and trend data | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts`, `src/lib/sessions.ts` |
@@ -94,16 +100,21 @@ adaptation/rendering in components. The architecture skill gives the fuller map.
   occur at 8/12 seconds elapsed, with direction-aware labels.
 - **Maintain persistence compatibility.** Validate before mutation. Editable startup must use the checked session snapshot; never autosave a fallback after a failed read. Preserve unreadable bytes and use the recovery gate. Native session/solve dates must fit JavaScript Date before import/restore. Schema changes
   need migrations and tests; older settings migrate with documented defaults.
-  Native backup imports replace only after confirmation; csTimer imports add
-  sessions and preserve existing settings. Invalid supported csTimer rows fail
-  before preview/confirmation. Retain the 10 MB import cap unless separately
-  authorized and tested.
+  Native backup imports replace only after confirmation and may include the
+  optional Training section; csTimer imports add sessions and preserve existing
+  settings. Invalid supported csTimer rows fail
+  before preview/confirmation. Retain the 10 MB uncompressed native import cap
+  and the checked gzip 16 MB encoded / 64 MB decoded bounds; solve Drive uploads
+  and csTimer imports keep their separate 10 MB caps. Training remains schema v1.
 - **Keep sync conservative.** Preserve immutable device snapshots, all-snapshot
   validation, shared write locking, timer-active/in-flight guards, exact reviewed
   value/timestamp approvals and durable deletion/Undo provenance. Selection
   metadata must follow the chosen ID through envelope parsing and cloud adoption.
-  Never describe the protocol as atomic or guaranteed against all data loss.
-  Use the sync skill for the detailed contracts and regression workflow.
+  Keep Training's `cubelab-training-*` family and `cubelab:training-sync:v1`
+  ledger separate from solve snapshots, filenames, cleanup and `cubelab:sync:v1`.
+  Never let solve cleanup select Training files or Training cleanup select solve
+  files. Never describe either protocol as atomic or guaranteed against all data
+  loss. Use the sync skill for the detailed contracts and regression workflow.
 - **Use the event registry.** `src/lib/events.ts` owns event IDs and scramble/3D
   mappings; use official `cubing.js` scrambles. N×N puzzles use scramble-derived
   2D nets and the standard palette in `src/lib/cubeColors.ts`; non-cube puzzles
@@ -192,6 +203,17 @@ that harness to ordinary checks/CI.
 
 Always report exactly which commands/tests ran, which were intentionally skipped,
 and why.
+
+## Versioning
+
+The displayed release version lives only in `src/release.json` and is formatted as
+`MAJOR.FEATURE.YYMMDD:PATCH` (for example `0.01.261121:1`). `YYMMDD` is the
+intentional release date in `America/Toronto`; `PATCH` is the Nth patch for that
+day. Increment `PATCH` for small bug fixes or UI maintenance. Increment
+`FEATURE` when user-visible features are added and reset `PATCH` to 1. Do not
+increment `MAJOR` without explicit administrator approval. Update the release
+record (and therefore the footer plus Settings → About) whenever a requested
+version changes; ordinary commits, tests and builds do not otherwise bump it.
 
 ## Documentation and delivery
 

@@ -1,6 +1,6 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-19 against the implementation and the latest recorded
+**Reviewed:** 2026-11-21 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
@@ -20,10 +20,17 @@ These are current boundaries; dated repair details are in the
   Zen Browser, but was not reproduced on Playwright Chromium 152 or Firefox 157; the new
   regression compares rendered sticker colors across five round trips in both
   engines.
-- **Stop performance evidence is limited.** Historical measurements used 7,000
-  synthetic solves, sync/audio off and isolated Firefox/Chromium. Zen Browser,
-  enabled sync, 10,000 solves and physical display latency were not established.
-  Chart/statistics completion can lag the first stopped result.
+- **Stop performance evidence is limited.** Production Chromium preview
+  observations on 2026-11-21 measured keydown-to-idle phase at 4.5–9.5 ms with no
+  solves, 12.4–13.5 ms at 1,000 and 70–196 ms at 10,000 across runs. The 10k
+  fixture intentionally carries per-field sync metadata (4.6 MB): median ~89 ms
+  phase, ~45 ms `JSON.stringify`, ~38 ms `localStorage.setItem`, with the rest
+  React render/other. The same history without sync metadata is 1.44 MB and
+  measured ~44 ms median. Variance comes from serialization, storage IO,
+  compaction and GC. Persistence still writes the complete collection
+  synchronously; enabled sync, audio, physical display latency, 100,000 solves in
+  a browser and Zen/Firefox/WebKit were not established. Chart/statistics
+  completion can lag the first stopped result.
 - **Session total time is a rounded hour display.** Completed sessions show
   hours to two decimals in the timer footer; a short session can therefore read
   `0.00 h` even when it contains valid solves. The underlying millisecond sum
@@ -41,9 +48,13 @@ These are current boundaries; dated repair details are in the
   the stopping height. If the viewport cannot fit that minimum and the Solves
   floor, Statistics scrolls internally rather than hiding an average.
 - **Saving still writes the full collection.** Browser storage serialization and
-  writes are synchronous. Enabled sync still calculates full fingerprints;
-  statistics/chart data rebuild after changes. Future caching or incremental
-  persistence needs exact invalidation and durability/recovery tests.
+  writes are synchronous. Sync fingerprints memoize the latest immutable
+  `(sessions, settings)` identity pair, so repeated boundary checks in one run
+  reuse the traversal; a changed reference still recomputes. Statistics/chart
+  data rebuild after changes. Destructive session mutations
+  persist once before publishing and skip the follow-up autosave, and an absent
+  custom-event collection uses a shared stable empty reference. Future caching or
+  incremental persistence needs exact invalidation and durability/recovery tests.
 - **Analytics runs on the main thread.** The page is lazy loaded, calculation
   results are memoized, dense chart lines are downsampled and the filtered
   solve-list dialog is virtualized. A synthetic 100,000-solve correctness case
@@ -66,7 +77,7 @@ These are current boundaries; dated repair details are in the
   Distribution edge intervals group values beyond the central 98%, so the
   first/last x-axis ranges can be wider than the selected interval; all values
   remain counted and drillable. Sub-X presets are offered for built-in events
-  only; custom events keep free-form entry. The Sub-X chart/table split is
+  only; MISC keep free-form entry. The Sub-X chart/table split is
   session-local presentation state and resets to its default on reload. Practice
   activity shows the complete filtered range and scrolls horizontally when it is
   very long; it no longer silently limits itself to 52 weeks. Desktop Analytics
@@ -78,8 +89,9 @@ These are current boundaries; dated repair details are in the
   keyboard selection, type-ahead, Escape/outside dismissal, viewport-aware
   positioning and focus restoration, and menus opened inside dialogs remain in
   the dialog's focus containment. Browser automation and axe scans do not replace
-  a physical screen-reader, switch-control or touch validation pass. Native date
-  inputs remain platform controls.
+  a physical screen-reader, switch-control or touch validation pass. Native color
+  inputs remain platform controls; Analytics custom dates use the themed range
+  calendar.
 - **Fingerprints have limits.** Render-time pending detection relies on immutable
   React state references; in-place mutations can leave the display stale.
   In-flight guards recompute content fingerprints, but 32-bit FNV-1a is not a
@@ -115,38 +127,96 @@ These are current boundaries; dated repair details are in the
 
 ## Training
 
-- **Local-only persistence.** Training is mounted under the existing active-tab
-  Web Lock and uses checked v1 reads/guarded writes. Ordinary backups, Drive,
-  retention and replacement formats have not been extended. The full **Reset All
-  Site Data** action clears the local Training store along with other
-  CubeLab-owned data; ordinary solve/session resets leave Training untouched.
-  Clearing browser storage loses Training; its recovery-copy download preserves
-  both the in-memory candidate and checked external snapshot but is not a native
-  backup importer or an automatic conflict merge.
+- **Local-first persistence with separate cloud paths.** Training is mounted
+  under the existing active-tab Web Lock and uses checked v1 reads/guarded
+  writes. Native JSON backups include the complete checked Training store when
+  the key exists, and restore it replace-only after confirmation. Export blocks
+  rather than omitting Training while its store is unreadable, a save is pending,
+  a continuity decision is unresolved or a visit is active. The Drive
+  dialog also offers manual Training cloud backup and replace-only restore using
+  separate immutable `cubelab-training-*` files (16 MB compact JSON) and an
+  optional merge-based Training Drive sync. Solve snapshots, solve filenames,
+  `cubelab:sync:v1` and the solve 10 MB cap never include Training. Training
+  merge covers attempts, ended visits, calibrations, presets, coarse preferences
+  and high-water recognition counts, with durable
+  attempt/session/preset tombstones and Undo revocation. Automatic Training
+  cleanup keeps each device's newest snapshot plus files within the configured
+  count/age limits (default 10 snapshots and 30 days); manual Training upload
+  cleanup keeps the newest five own files. Local Training history is not pruned
+  or aggregated. A replace-only Training restore from native or manual Drive
+  clears stale Training tombstones, conflicts and approvals while keeping the
+  Training device ID and preferences. The full **Reset All Site Data** action clears the local
+  Training store and `cubelab:training-sync:v1` along with other CubeLab-owned
+  data, but does not delete remote Training files; ordinary solve/session resets
+  leave Training untouched. Clearing browser storage loses Training; its
+  recovery-copy download preserves both the in-memory candidate and checked
+  external snapshot but is not a native backup importer or an automatic conflict
+  merge. Native Training restore is blocked while Training Drive sync is enabled,
+  and phase-one replace-only cloud restore is blocked in the same state. Native
+  restore is also blocked while Training has an active session, pending save or
+  continuity decision. A valid backup can replace unreadable local Training
+  bytes through the replacement journal; imported sessions are never resumed
+  automatically. An exported session that ended with an undelivered report can
+  reopen that report after restore through the existing Training rules, but its
+  visit is not resumed.
+- **Training convergence is eventual and field-granularity is coarse.**
+  Devices must run again to see each other's latest Training file. Preferences
+  merge as one whole `preferences` field with editor/timestamp metadata, so two
+  devices editing different preferences at the same time produce one reviewable
+  conflict rather than independent field merges. Equal-timestamp equal-value
+  rows deduplicate, but a same-ID custom algorithm or calibration with different
+  content requires exact approval when manual review is on; with automatic
+  resolution the deterministic local/newer rule is recorded, not claimed as
+  consensus. Deletion provenance lives only in `cubelab:training-sync:v1`;
+  clearing it cannot reconstruct old deletions, and an older client can still
+  reintroduce a record it never saw deleted. There is no push delivery,
+  read-after-write guarantee, or cross-file transaction. Live Drive, physical
+  devices, provider concurrency, Firefox/WebKit Training Drive flows and the
+  full test suite are not verified.
+- **Training publish and ledger recovery are conservative.** A local Training or
+  ledger change during an upload aborts the stale publish and retries; it is not
+  merged into the in-flight file. A malformed partial ledger blocks writes and
+  preserves its bytes rather than repairing itself, and a persisted `syncing`
+  status is normalized to pending or disabled on load. Unreadable or oversized
+  remote Training snapshots are skipped with a warning and must be deleted
+  individually; no automatic repair is claimed.
 - **Failed writes cannot promise durability.** The exact candidate stays in
   memory, additional attempts are blocked, navigation retains a visible warning,
   and an unsaved-exit prompt is requested until retry succeeds. Browsers can
   suppress exit prompts, and crashes/forced termination can still discard an
   unsaved candidate. No corrupt bytes or changed external snapshot is overwritten.
+- **Portable backup limits.** Native backups stay readable or compact JSON up to
+  10 MB and otherwise use checked gzip with a 16 MB encoded and 64 MB decoded
+  cap. Files above those bounds, corrupt/truncated gzip,
+  invalid UTF-8 and invalid backup or Training records are rejected before
+  mutation. Older CubeLab builds cannot read `.json.gz`; restore them with a
+  current build. Drive snapshots and csTimer imports keep their separate 10 MB
+  cap and never include Training.
 - **Deletion Undo is temporary.** Training offers Undo for the latest saved
   attempt deletion through the same six-second notification used by Timer.
   A reload, dismissal, or replacement notification can end that opportunity.
-  Typed deletion of an archived session is permanent.
+  Preset deletion offers Undo inside the case dialog; closing that dialog ends
+  the opportunity. Typed deletion of an archived session writes the visit and
+  attempt tombstones in one ledger write and is permanent.
 - **Recognition timing splits are estimates.** An estimate needs the attempt's
   captured calibration, a saved algorithm identity and enough matching
   Execution history in the session's saved window. Reports show coverage and
   leave unavailable values blank. Legacy visits without a saved comparison
   policy retain their measured results.
-- **Tracking is prospective.** Attempts recorded while tracking is off
-  remain case-only after re-enabling. Setup-generation metadata still
-  identifies the verified generator and does not establish which algorithm
-  the user executed. Existing attributed attempts retain their revision.
+- **Algorithm revision tracking is retired.** Every loaded attempt is rewritten
+  to case-only: custom algorithms, preferred revisions, `algorithmTracking` flags
+  and attribution are removed at local load, native backup import, Drive adoption
+  and Training sync. Timing, setups, visits, calibrations and case statistics are
+  preserved. The feature is intentionally absent rather than greyed out and may
+  be reintroduced later.
 - **Browser continuity has limits.** Named sessions offer an explicit
   resume/end choice after reload or ambiguous reopening. Browser lifecycle
   events do not reliably establish site closure. When ending a recovered
   session without a reliable close time, CubeLab uses the last saved activity.
   The required report and its destination survive reload after a successful
   end write. A previously saved report remains available in Practice history.
+  A pre-named-session legacy visit is end-only: CubeLab offers **End visit**
+  rather than reopening it as interactive named practice.
 - **Persisted verification is metadata.** Loading validates structure/history,
   not physical execution. Runtime built-in and user algorithms and every new setup
   are mathematically reverified. Success is manually reported by stopping; DNF can
@@ -159,7 +229,9 @@ These are current boundaries; dated repair details are in the
   inferring its target from the setup itself. No smart-cube observation is made.
 - **Comparisons and large histories.** Visit improvement requires eligible
   successes for matching cases or algorithm revisions in the latest visit and
-  its saved baseline. Missing estimates and empty trim windows show a dash.
+  its saved baseline. Improvement compares against the full category history,
+  while displayed attempt counts and listed statistics remain session-scoped.
+  Missing estimates and empty trim windows show a dash.
   The Attempts list windows histories above 200 rows, with Show all available
   for browser search and sequential navigation. Best rolling averages scan
   category history when attempts change. The isolated 8,000-attempt production
@@ -173,8 +245,9 @@ These are current boundaries; dated repair details are in the
   deliberately positioned floating desktop panel can still cover digits.
 - **Built-in defaults and provenance.** All 57 OLL and 21 PLL cases have a
   verified default, available without user entry. The 37 additional PLL variants
-  are not included. Defaults are read-only; user preferences/custom algorithms
-  are stored separately. The owner removed CubeLab's internal bundling restriction,
+  are not included. Defaults are read-only. Algorithm revision tracking is
+  temporarily retired, so custom algorithm storage is not part of the current
+  workflow. The owner removed CubeLab's internal bundling restriction,
   but no explicit third-party redistribution permission was established. The
   catalog contains only the 78 owner-approved short functional move sequences,
   independently normalized/verified and assembled with source provenance, not a
@@ -204,8 +277,9 @@ These are current boundaries; dated repair details are in the
   Tool-panel visibility and geometry remain local persisted UI state but are not
   requested during setup. Other global and session preferences are synchronized.
 - **Completion summaries use current local counts.** They are not a historical
-  audit. A reload during the three-second completion screen opens the timer
-  directly because the completed decision is already durable.
+  audit. A reload during the completion summary opens the timer directly because
+  the completed decision is already durable. The summary advances after about two
+  seconds and also offers **Skip to timer**.
 - **The full site reset is bounded by browser storage APIs.** It removes only
   CubeLab-prefixed localStorage/sessionStorage keys, CubeLab-named IndexedDB
   databases, CubeLab/scoped Workbox caches, this application's exact `sw.js`
@@ -299,16 +373,17 @@ These are current boundaries; dated repair details are in the
   labelled same-event recovery session instead of mixing events. Native and
   manual backups include that materialized solve, but clearing this browser's
   local recovery/sync storage can still discard the only pending copy.
-- **Custom event definitions use the same eventual-merge boundary.** Stable IDs
-  and event tombstones prevent duplicates and keep deletion intent, but an older
-  client that does not understand `custom:` events or event tombstones may still
-  publish without them. Keep every syncing browser on a current build.
+- **MISC replaces custom events.** Unknown or `custom:` event IDs normalize to
+  `misc` at every ingress, and stored custom definitions are dropped. An older
+  client can still publish `custom:` IDs; a current client folds them into MISC.
+  Keep every syncing browser on a current build for consistent labels.
 - **Session order is last-writer-wins, not review-gated.** Concurrent reorders
   converge deterministically and never remove sessions, but the losing order is
   not surfaced as a manual conflict. Equal-timestamp ties use editor-ID and
   serialized-ID order, so an unusual mix of both orders can result until a user
   reorders again. Reordering lives inside the session selector and supports
-  pointer drag handles, arrow-key reordering, and accessible Up/Down controls.
+  pointer drag handles and arrow-key reordering on the handle; separate Up/Down
+  buttons are retired.
 - **Delete all sessions preserves recovery semantics.** Session and solve
   tombstones prevent every solve known to the deleting device from returning.
   A solve created only on another offline device and never merged can still
@@ -340,22 +415,27 @@ These are current boundaries; dated repair details are in the
 
 - Native CubeLab JSON imports replace local data after confirmation; csTimer
   imports add sessions and retain existing settings. Neither implements a general
-  local-file merge by solve ID. The import cap remains 10 MB. Export prefers
-  readable JSON and falls back to compact JSON; if the complete payload still
-  exceeds the cap, the export is blocked with the measured size and no file is
-  created. Manual and automatic Drive uploads apply the same check. A collection
-  that cannot fit the unchanged cap has no full-backup path until it is reduced
-  or a future format is designed; solves and metadata are never silently
-  omitted.
+  local-file merge by solve ID. Uncompressed imports remain capped at 10 MB;
+  native files above the compact 10 MB form use checked gzip with 16 MB encoded
+  and 64 MB decoded limits. Legacy `.json` backups remain readable, and a native
+  file without a Training section leaves local Training untouched. Solve Drive
+  uploads (manual and automatic) apply the unchanged 10 MB check and never include
+  Training; Training uses its separate 16 MB file family. Onboarding's additive
+  import remains sessions-only and ignores a Training section. A collection that
+  cannot fit the relevant cap has no
+  full-backup path until it is reduced; solves, settings and Training records are
+  never silently omitted.
 - **Replacement recovery uses separate local-storage keys, not a transaction.**
   Native import, additive csTimer import and Drive restore capture previous
-  sessions/settings/sync/drive values in a local journal, write every candidate,
-  then record a commit marker before showing success. A prepared journal is
-  rolled back at startup only while this tab owns the same origin-wide Web Lock
-  used by the writer; a browser without Web Locks keeps the editable app closed
-  rather than guessing that the other writer is dead. A committed journal only
-  needs journal cleanup and
-  can open normally. Failed prepared rollback/cleanup, or a malformed or
+  sessions/settings/sync/drive values in a local journal; a native import that
+  contains Training also captures and stages that key. CubeLab records a commit
+  marker before showing success. A prepared journal is rolled back at startup
+  only while this tab owns the same origin-wide Web Lock used by the writer; a
+  browser without Web Locks keeps the editable app closed rather than guessing
+  that the other writer is dead. A committed journal only needs journal cleanup
+  and can open normally. Rollback skips a key whose failed write already left the
+  captured bytes in place, so a still-failing quota does not falsely report an
+  incomplete rollback. Failed prepared rollback/cleanup, or a malformed or
   unreadable record, keeps the editable application closed behind an explicit
   retry state; no session hooks, autosave, timing controls or imports run in that
   state. A cross-tab replacement committed during a solve is deferred until idle,
@@ -378,11 +458,18 @@ These are current boundaries; dated repair details are in the
   downloading and rejecting it. Editing the collection, resetting sync state,
   or using **Sync now** retries. Reducing the data or exporting after it fits the
   10 MB limit is the recovery path.
+- **Solve Drive snapshots never include Training.** The 10 MB solve Drive cap,
+  solve wire format, solve filenames, solve merge rules and solve restore behavior
+  are unchanged. Training has a separate file family and independent sync state;
+  Training cleanup cannot select solve files and solve cleanup cannot select
+  Training files. A compressed native backup is a local file, not a Drive
+  snapshot. See the Training limitations for its merge, tombstone, conflict and
+  retention boundaries.
 - Invalid rows, durations, or provided dates in csTimer sessions that contain
   solves reject the file before preview. Valid session metadata that omits
   `opt.scrType` uses csTimer’s `333` default; explicitly supplied unsupported
-  identifiers become stable custom events, and missing or malformed metadata is
-  imported as unavailable rather than converted to 3×3. Empty sessions are
+  identifiers import into MISC, and missing or malformed metadata is imported as
+  unavailable rather than converted to 3×3. Empty sessions are
   imported, with import time as the fallback when their dates are missing or
   unusable. Missing solve dates retain the established
   session-date/current-time fallback.
@@ -396,10 +483,26 @@ These are current boundaries; dated repair details are in the
   csTimer default handling or mappings change; repairs remain a separately
   reviewed operation. The whole session moves together, so intentionally mixed
   events are not supported.
-- **Custom events have no scramble generator or 3D/2D visualization.** They show
-  the configured placeholder for new solves. Imported csTimer solves keep their
-  original scramble text. Solve duration is never used to infer an event, and
-  deleting a referenced custom event is blocked until its sessions are reassigned.
+- **MISC has no scramble generator or 3D/2D visualization.** It shows a neutral
+  placeholder when no scramble is stored. Imported csTimer solves and migrated
+  custom-event solves keep their original scramble text. Solve duration is never
+  used to infer an event.
+
+## Tools and appearance
+
+- **Online Battle is serverless and manual.** Peers exchange one invitation code
+  and one answer code, then connect over WebRTC with a public STUN server used
+  only for NAT discovery. Room ID/password are shared secrets checked by both
+  peers, not authenticated encryption. Strict NATs, firewalls or blocked STUN may
+  prevent a connection; there is no TURN relay, matchmaking, ranked result,
+  backend persistence or reconnect protocol. Codes should be shared only with the
+  opponent.
+- **Custom colors are user-supplied.** The color pickers accept six-digit hex
+  values; CubeLab does not audit contrast for arbitrary custom combinations.
+  Hold-to-preview shows the timer states, but low-contrast color choices remain
+  the user's responsibility.
+- **Metronome timing is browser-scheduled.** It uses Web Audio oscillators with a
+  browser interval and is intended for practice feel, not laboratory timing.
 
 ## External validation and build tooling
 

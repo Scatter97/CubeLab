@@ -1,8 +1,9 @@
 # CubeLab Training — Persistent Project Memory
 
 **Status:** Active source of truth for the CubeLab Training feature
-**Last updated:** 2026-11-18 (environment/repository re-check; Training feature
-status remains 2026-11-11)
+**Last updated:** 2026-11-20 (Training native backup, portable gzip, separate
+Drive backup/merge sync and the follow-up safety/workspace decisions in
+E17–E19; earlier feature status remains dated 2026-11-11)
 **Current phase:** Phases 0–3B, the explicitly expanded **Phase 4A/4B/4C**, and
 the owner-authorized **built-in default OLL/PLL catalog** are implemented. The
 approved Training UI redesign is implemented in E15. Overhaul O1 adds the
@@ -12,29 +13,35 @@ in E16.4. O4 completes the lifecycle and report delivery in E16.5. O8 completes
 integrated synthetic verification in E16.10.
 Phase 4 includes the requested full UI, shared timer, calibration, category
 statistics, visit recovery and reports. **E12 controls the Phase 4 application
-behavior, E13 controls the default-algorithm catalog/preference behavior and
-E15 controls the current Training UI**,
+behavior, E13 controls the default-algorithm catalog/preference behavior, E15
+controls the current Training UI, E17–E19 control Training history backup,
+Drive and the latest follow-ups**,
 superseding earlier statements that Training is unmounted, that practice requires
-user-provided algorithms, or that this scope must wait for historical Phases 5–7.
+user-provided algorithms, that this scope must wait for historical Phases 5–7, or
+that Training history has no backup or Drive path.
 The 78 approved SVGs and earlier domain mathematics are unchanged. The owner
 removed the internal F12 bundling restriction on 2026-11-10; all 78 approved
 defaults are bundled using an independently assembled functional-sequence
 catalog. Third-party redistribution permission remains unestablished and is
-documented in E13/F12. Training remains local-only and excluded from ordinary
-backup/Drive.
+documented in E13/F12. Training history is included in native portable backup
+and has a separate Training Drive backup/merge family; solve snapshots and solve
+sync still exclude Training.
 
-> **Reading note (2026-11-18):** Later sections preserve dated decisions and
-> checkpoints. The current status above and E16 supersede older statements that
-> Training has no named sessions, that Phase 4 has not started, or that
-> application/timer integration remains future work. The “Historical repository
-> status” section is a 2026-11-08 snapshot, not the current checkout.
+> **Reading note (2026-11-20):** Later sections preserve dated decisions and
+> checkpoints. The current status above and E16–E19 supersede older statements
+> that Training has no named sessions, that Phase 4 has not started, that
+> application/timer integration remains future work, or that Training history has
+> no backup path. The “Historical repository status” section is a 2026-11-08
+> snapshot, not the current checkout.
 
-**Immediate next task:** No overhaul phase remains. O1 through O8 are complete.
+**Immediate next task:** No overhaul phase remains. O1 through O8 are complete,
+and native Training backup plus separate Drive backup/merge sync are implemented.
 See [overhaul progress](overhaul/CURRENT_PROGRESS.md) for the handoff. Owner
 review and any release, publication, live Drive, Firefox/WebKit, physical-device
-or larger-history profiling work need separate authorization. The legal,
-persistence/export and release prerequisites remain open.
-Preserve unrelated onboarding work.
+or larger-history profiling work need separate authorization. Automatic local
+Training retention/aggregation, a solve Drive protocol above 10 MB, live
+multi-device validation and release decisions remain open. The legal
+provenance limitation also remains. Preserve unrelated onboarding work.
 **Working entry point:** [CURRENT_STATUS.md](./CURRENT_STATUS.md) — read it first;
 this file is the authoritative full specification.
 
@@ -729,7 +736,8 @@ Architecture proposals here are **PROPOSED** unless marked otherwise.
 
 ### D5. Sessions, statistics, custom events, and Analytics findings
 
-- `SessionsData` uses schema v6 in `cubelab:sessions:v1`.
+- `SessionsData` uses schema v7 in `cubelab:sessions:v1` (competition sessions
+  with derived rounds).
 - Sessions own an event, solves, preferences, custom events, ordering, and
   transfer records.
 - `src/hooks/useSessions.ts` autosaves sessions and handles custom events.
@@ -747,7 +755,7 @@ Architecture proposals here are **PROPOSED** unless marked otherwise.
 
 ### D6. Settings, persistence, backup, and sync findings
 
-- `Settings` uses schema v11 in `cubelab:settings:v1`.
+- `Settings` uses schema v12 in `cubelab:settings:v1`.
 - `SETTINGS_FIELD_KEYS` in `src/lib/settingsMerge.ts` defines synchronized
   settings fields.
 - `src/hooks/useSettings.ts` handles field-level cross-tab adoption and defers
@@ -764,12 +772,12 @@ Architecture proposals here are **PROPOSED** unless marked otherwise.
   application hooks; only one current-build editable tab is allowed.
 - Phase 0 recommended a separate `cubelab:training:v1` schema instead of adding
   training fields to `Settings`. This is **PROPOSED**, not final.
-- Native backup can likely add an optional `training` section without bumping
-  the backup version; older readers ignore unknown fields. This is **PROPOSED**
-  and needs validation.
+- Native backup now includes an optional checked `training` section (E17).
+  Training Drive backup/restore and merge sync are implemented separately (E18).
 - Drive sync for Training is a protocol extension with retention, size,
-  tombstone, and conflict implications. V1 inclusion is **UNRESOLVED**; Phase 0
-  recommended local + native backup and deferring Drive sync.
+  tombstone, and conflict implications. It was **UNRESOLVED** in Phase 0 and is
+  **RESOLVED 2026-11-20 by E18** as a separate file family and ledger; solve
+  snapshots still exclude Training.
 
 ### D7. Proposed cube-state construction
 
@@ -3159,7 +3167,8 @@ E9.15's Gb/Gd visual exceptions remain historical; E9.16 removed the head
 overlaps and E9.17 centred the corner lines. G-perms remain dense at 64 px.
 
 **Architecture inspected before implementation:** `storage.ts` uses browser
-localStorage, stable `v1` key suffixes, sessions payload v6 and settings v11.
+localStorage, stable `v1` key suffixes, sessions payload v6 at this checkpoint
+(current sessions schema is v7) and settings v11.
 Checked session startup blocks editing on failed/invalid reads; legacy solve
 migration is allowed only when the current session key is absent. Native backup
 v1 and sync envelopes contain ordinary sessions/settings and protocol metadata;
@@ -3382,7 +3391,8 @@ converted. Calibrations retain immutable completion order and history (ties use
 later completion); visits retain identity, captured policy and ended boundaries.
 Recognition totals cannot be removed/lowered or omit new recognition completions,
 including DNFs. Deleted attempts must not lower renewal counts. No new reset or
-attempt-deletion UI/path was added. Ordinary sessions v6, settings v11, backup v1,
+attempt-deletion UI/path was added. Ordinary sessions used v6 at this
+checkpoint (now v7), settings v11, backup v1,
 sync envelopes and browser data remain untouched.
 
 **Verification:** exact commands, final results and development regressions are
@@ -3708,8 +3718,9 @@ git diff --check
   advisable, and this record is not legal advice.
 - The 37 additional PLL variants remain excluded. Future alternatives need a
   separate authorization/curation decision.
-- Training remains local-only and excluded from ordinary backup/Drive. Built-in
-  definitions are application assets, not user records.
+- At the E13 checkpoint Training was local-only and excluded from ordinary
+  backup/Drive. E17/E18 later added native backup and a separate Training Drive
+  file family. Built-in definitions are application assets, not user records.
 - Firefox/WebKit, physical hardware, assistive technology and live Drive were not
   re-exercised for this change; Chromium covered the affected workflows.
 - No commit, push, deployment or publication was performed.
@@ -3820,8 +3831,8 @@ generations cannot restore a setup after a superseding selection or inactivity.
 A known-case retry generates the requested case directly. Completion reports
 sample review, saved attempt or unsaved attempt. While a correction or delete
 is pending, Attempt Details shows the last saved record and exposes recovery
-inside the dialog. The report notice opens Practice History directly, and
-Attempt Details closes back to the opener inside a report.
+inside the dialog. At the E15 checkpoint, the report notice opened Practice
+History directly, and Attempt Details closed back to the opener inside a report.
 
 The shared ToolPanel projects preferred geometry against current bounds without
 rewriting it. Pointer cancellation restores the pre-gesture state. Last Result
@@ -3894,9 +3905,12 @@ O1 implements this in `types.ts`, `schema.ts`, `records.ts`, `visits.ts`,
 `storage.ts` and `controller.ts` under `src/lib/training/`. The checked store
 requires a saved Begin before attempts or end, preserves the captured
 configuration, and protects ended named attempts from edits, deletion and
-stale Undo. Legacy automatic transitions and report dismissal act on automatic
-visits. For future delivery, `pendingTrainingReports` and
-`acknowledgeTrainingReport` accept `'session'` to address named reports.
+stale Undo. At the O1 checkpoint, legacy automatic transitions and report
+dismissal acted on automatic visits; current builds finalize an unfinished
+pre-named-session visit end-only (E19) and do not ship the old interactive
+legacy Setup/calibration/Timer report-notice path. For future delivery,
+`pendingTrainingReports` and `acknowledgeTrainingReport` accept `'session'` to
+address named reports.
 The previous build's visit validator does not accept the new `manual` end
 reason. Compatibility covers reading earlier v1 history in the new build.
 
@@ -3929,10 +3943,12 @@ slots. O3 will resolve and validate the final name when practice begins.
 
 Normal Training navigation opens the Hub. It reads the checked Training
 preferences and holds its name, set, per-set practice types and case selections
-in component state. The case dialog applies to that draft, and cancelling
-discards the dialog edits. The Hub reads category statistics from Training
-history. Draft edits are discarded on leaving or reloading the Hub. The Hub
-has no timer input or setup generation and does not persist its edits.
+in component state. The case dialog applies case selection to that draft, and
+cancelling discards the dialog's selection edits; algorithm, difficult-case and
+preset changes save immediately (E19). The Hub reads category statistics from
+Training history. Draft edits are discarded on leaving or reloading the Hub. The
+Hub has no timer input or setup generation and does not persist its selection
+edits until Apply.
 
 Until O3, **Open practice workspace** gives explicit access to the E15 flow
 with its saved settings. Its same-tab reload behavior is preserved with a
@@ -4006,7 +4022,9 @@ session's saved pre-start window. An attempt-count policy selects the prior
 case window before identity and outcome filtering. A missing identity or
 negative subtraction leaves the split unavailable. Means use only available
 values and display their coverage among successful attempts. Reports do not
-write or change timing records.
+write or change timing records. E19 clarifies that the displayed Visit
+improvement uses the full category history while the session counts and other
+session statistics stay session-scoped.
 
 #### E16.7. O6a archive and checked deletion — 2026-11-11
 
@@ -4067,12 +4085,155 @@ incomplete accessible name on the Algorithms revision toggle. Firefox/WebKit,
 physical hardware, assistive technology, live Drive and the 7,000–10,000-solve
 profiling matrix were not exercised.
 
+### E17. Native Training history backup and portable gzip — 2026-11-20
+
+The owner-approved [design](../development/TRAINING_HISTORY_BACKUP_DESIGN.md) is
+implemented. Training schema and key remain v1/`cubelab:training:v1`. Native
+backup v1 gains an optional top-level `training` section containing the complete
+checked store. The parser rejects the whole file for an unsupported section
+version, invalid record, dangling reference or unfinished visit, then deep-clones
+the section. Drive snapshots and csTimer imports never include Training.
+
+Export uses the controller's last committed snapshot and only when the store is
+readable and idle (no pending save, continuity decision or active visit). Export
+omits the section only when the key is genuinely absent; an unreadable store
+blocks the complete backup. Restore is replace-only after the existing native
+confirmation, which now reports local and backup attempts/sessions/calibrations.
+An absent section leaves local Training untouched. A Training restore is blocked
+while local Training has an active visit, continuity decision or pending save; a
+valid file may still replace unreadable local bytes.
+
+The existing replacement journal adds a `training` key. Sessions, settings,
+sync, Drive and Training are staged in that order, the commit marker follows all
+writes, and only then does `TrainingController.adoptSavedTraining` update
+`expectedRaw`, `savedData` and public state without a second write. Rollback skips
+a key whose failed write already equals the captured bytes, so a still-failing
+quota does not report a false incomplete rollback. Imported visits stay ended and
+are not resumed. Startup recovery handles old journals without a Training entry.
+
+Native export remains readable/compact JSON up to 10 MB. Above that it writes
+checked gzip (`.json.gz`) with 16 MB encoded and 64 MB decoded caps; compression
+and decompression use browser `CompressionStream`/`DecompressionStream`, never
+base64 or a dependency. Import detects gzip by magic bytes, streams with a byte
+counter, rejects corrupt/truncated gzip and invalid UTF-8/JSON/backup/Training
+before mutation, and keeps legacy `.json` importable. Drive and csTimer keep
+their unchanged 10 MB cap.
+
+Verification used synthetic fixtures and mock Drive. `training-backup.spec.ts`
+covers a small Training round trip with Hub/Practice history/report/Algorithms,
+a no-Training file that leaves Training unchanged, an explicit blocked restore,
+a failed Training write that rolls back all keys, and a 10,500-attempt compressed
+export/import (10,512,989 decoded / 129,205 encoded bytes in the browser sample).
+No live Drive, Firefox/WebKit, physical hardware or real user data was used. At
+the E17 checkpoint Drive Training sync and local retention/aggregation remained
+future work; E18 subsequently delivered the separate Training Drive protocol.
+Automatic local retention/aggregation remains open (F10).
+
+### E18. Training Drive backup and merge synchronization — 2026-11-20
+
+Implemented both phases of
+[TRAINING_DRIVE_SYNC_PLAN.md](../development/TRAINING_DRIVE_SYNC_PLAN.md) as a
+data-safety feature, not a UI-only addition. Solve `SyncEnvelope`,
+`cubelab-backup-*` files, `cubelab:sync:v1`, solve snapshots, solve cleanup and
+the solve 10 MB cap are unchanged. Training schema/key remain v1 and
+`cubelab:training:v1`.
+
+**Phase 1.** Training cloud files use
+`cubelab-training-<sanitizedDeviceId>-<uuid>.json` and optional transport methods
+`listTrainingBackups`/`uploadTrainingBackup`. The envelope validates the complete
+checked Training store through `parseTrainingBackupSection`, rejects open visits,
+ignores an optional Phase 2 `sync` field, and enforces 16 MB compact JSON before
+parsing. Upload requires an idle timer and a ready controller snapshot, writes a
+new immutable file, then best-effort removes older own files keeping five.
+Restore previews counts/date range and requires typed `RESTORE TRAINING`. The new
+`training-restore` journal captures only the `training` key, stages checked bytes,
+records the commit marker, then calls `adoptSavedTraining`; startup recovery uses
+the existing journal path. Active/pending/continuity/replacement/Undo states block
+both actions. Solve sync never lists, uploads or merges Training.
+
+**Phase 2.** `TrainingDriveSnapshot` may carry a version-1 `sync` envelope while
+Phase 1 files remain readable. `cubelab:training-sync:v1` is a separate ledger:
+independent device ID, enable/manual-conflict/retention preferences, Training
+tombstones and Undo revocations, coarse field updates, exact conflict approvals
+and the last revision/fingerprint. `trainingSync.ts` is a pure merge: attempts by
+ID with correction-timestamp tie rules, only ended visits, acknowledgement
+monotonic true→false, append-only calibrations, presets by `updatedAt`, immutable
+custom algorithms, whole-`preferences` field updates, recognition high-water
+`max`, unknown additive JSON preservation, open-visit rejection and complete
+`assertTrainingData` validation. Invalid merged stores are not adopted/published.
+`trainingDeletion.ts` records attempt/session/preset tombstones before local
+destruction, revokes them on failed writes and Undo, and re-asserts them before a
+delayed retry. Archived-session deletion writes its visit and attempt tombstones
+in one ledger write. `useTrainingSync` has independent enable/disable, manual
+sync, startup-after-idle and after-session-end triggers; it never uploads per
+attempt and blocks on active timing/Training, pending save, continuity, calibration
+draft, replacement journal, pending solve recovery, native import and missing
+connection for automatic runs. Manual conflicts require exact local/remote
+approvals; automatic decisions use deterministic last-writer rules. Training
+retention always keeps the newest snapshot per device and can remove superseded
+snapshots beyond configurable count/age limits (default keep 10 / 30 days);
+manual upload cleanup keeps the newest five own snapshots. Only Training files are
+selected. Native Training restore and Phase 1 replace-only restore are blocked
+while Training sync is enabled.
+
+Measured Node/jsdom 8,001-attempt path (compact 8,040,706 bytes): merge median
+209.3 ms, fingerprint 123.3 ms, serialization 118.9 ms, parse/validation
+226.9 ms, stage plus controller adoption 422.8 ms; mock transport upload/download
+were 2.7/0.01 ms. These are not network or physical-device thresholds. Chromium
+mock-Drive coverage exercised two isolated devices, deletion/Undo, exact conflict
+approval, native-restore blocking, independent solve sync, disable behavior and a
+4,000-attempt payload inside the cap. Live Drive, `validate:drive`, physical
+devices, provider concurrency and Firefox/WebKit Training Drive flows were not
+exercised. See [STATUS.md](../../STATUS.md#training-drive-backup-and-sync--2026-11-20).
+
+### E19. Training backup and sync follow-ups — 2026-11-20
+
+The current checkout is `b77f7a0`. The Training backup/Drive implementation and
+these follow-ups are uncommitted working-tree changes; `562b4f7` is a historical
+committed baseline. This entry supersedes E17/E18 where they describe restore
+provenance, sync concurrency, remote-file handling, retention or legacy visits.
+
+- **Restore provenance.** Native and manual replace-only Training restore call
+  `clearTrainingSyncProvenance`: tombstones, field updates, conflicts, approvals,
+  last revision/fingerprint and the last sync result are cleared while the
+  Training device ID and sync preferences are preserved. The replacement journal
+  includes the `trainingSync` ledger key, so rollback restores its prior bytes.
+- **Sync safety.** A run aborts with a retryable pending state and one deferred
+  retry when local Training or the ledger's tombstones, field updates or conflicts
+  change during upload. A malformed/partial ledger rejects the whole ledger,
+  blocks writes and keeps the original bytes. A stale `syncing` status normalizes
+  to pending or disabled. Invalid or oversized remote Training files are skipped
+  with a warning and can be deleted in the Drive dialog. Manual backup and merge
+  sync share one Training device ID; a genuinely fresh device adopts remote
+  preferences.
+- **Deletion and attribution.** Archived-session deletion records the visit and
+  attempt tombstones in one ledger write. Preset deletion has Undo and revokes its
+  tombstone. Historical attribution recorded while tracking was on can be
+  corrected after tracking is turned off; attempts recorded while tracking was off
+  remain case-only.
+- **Workspace and statistics.** The Hub case dialog treats case selection as a
+  draft: algorithm, difficult-case and preset changes save immediately, and its
+  controls disable while the Hub is locked. Named-session Visit improvement
+  compares against the full category history while counts and other session
+  statistics remain session-scoped. D5 is corrected to sessions schema v7.
+- **Legacy and retention.** Pre-named-session visits are end-only; no interactive
+  legacy Training Setup, calibration or Timer report-notice flow is a current
+  shipped path. Ended legacy history remains reviewable. Retention always keeps
+  the newest Training snapshot for every device and supports configurable
+  count/age cleanup (default keep 10 / 30 days); manual upload cleanup keeps the
+  newest five own snapshots.
+
+These follow-ups are part of the uncommitted working tree. The dated verification
+in E17/E18 and STATUS.md covers the underlying backup/Drive delivery, not each
+follow-up separately; do not describe these follow-ups as independently verified.
+
 ## F. Important unresolved decisions
 
 These matters were unresolved at Phase 0. **F1 is resolved (2026-11-08; see
 Section E4), F7 is resolved (2026-11-08; see Section E5), F13 is resolved
 (2026-11-08; see Section E9), the approval part of F3 is resolved by the
-Phase 2A/2B owner decisions and final E9 verification (see E6, E6.7 and E9), and
+Phase 2A/2B owner decisions and final E9 verification (see E6, E6.7 and E9),
+F5 is resolved by E18, and
 F12's internal gate was removed by the owner on 2026-11-10 (E13).** F6/F8/F9/F11
 are resolved by the Phase 3B owner decisions in E11. Third-party redistribution
 permission in F12 remains a documented legal risk, not a granted licence. Other
@@ -4084,12 +4245,12 @@ remaining rows are unresolved; do not present them as finalized.
 | F2 | CubeSkills algorithm redistribution permission | Not pursued for algorithm data — the owner selected the Heroor/Tao sources in Phase 2A. In the Phase 2C redesign the owner selected CubeSkills-style OLL/PLL diagrams only as **internal visual references**; no CubeSkills artwork or algorithm data is bundled | Retain historical record. Do not copy CubeSkills artwork or content; E13 records the separate algorithm-data provenance limitation |
 | F3 | Algorithm catalog sourcing and approval process | Historical approvals retained (E6/E6.7). Final independent review (E9) mathematically verifies all **78/78** selected defaults using B for OLL 56: 57 OLL and 21 PLL, plus 37/37 additional PLL variants separately. Phase 2C case identities and all 78 static diagrams are complete. The owner removed the internal restriction and E13 now bundles the 78 defaults as an independently assembled functional-sequence catalog. The 37 additional PLL variants remain excluded | Keep the E13 provenance/legal limitation visible; do not add the extra variants without separate authorization |
 | F4 | Algorithm visibility during execution-only training | Phase 0 recommended showing target algorithm and hiding case diagram; not approved | Owner decision; recognition mode must still hide target |
-| F5 | Training cloud-sync inclusion in V1 | Phase 0 recommended local + native backup and deferring Drive sync | Owner decision; if included, design retention/tombstones/size/sync protocol |
+| F5 | Training cloud-sync inclusion in V1 | **RESOLVED 2026-11-20 (E18)** — Training uses a separate `cubelab-training-*` file family, manual replace-only backup/restore, and optional merge sync with its own `cubelab:training-sync:v1` ledger, tombstones, conflicts and retention. Solve snapshots still exclude Training | Keep solve and Training protocols separate; live Drive and physical multi-device verification remain outstanding |
 | F6 | Calibration reference-state fidelity | **RESOLVED 2026-11-09 (E11)** — fixed inverse precursor setup from solved, time precursor only, exactly seven positive valid samples/median; no random AUF/cases | Future UI must preserve this protocol |
 | F7 | Reuse `cubing.js` directly vs specialized cubie model | **RESOLVED 2026-11-08** — thin CubeLab wrapper over the `cubing.js` 3x3x3 KPuzzle/KPattern; no second simulator (E5) | None for Phase 1. Re-run Phase 1 coverage if the cubing.js definition/API changes |
 | F8 | Calibration activation and renewal | **RESOLVED 2026-11-09 (E11)** — mandatory initial recognition calibration per set, optional due renewal by default, shared forced-renewal toggle OFF, captured thresholds, deletion-safe counters; explicit missing/invalid/below/DNF states | Application/timer integration was subsequently implemented in E12/E16; retained as decision history |
 | F9 | Report baselines and trimming | **RESOLVED 2026-11-09 (E11)** — configurable previous X days/attempts (90 days default); case/category matching, explicit insufficient history, 5% symmetric ceiling trimming; recalculated reports with captured policy | Descriptive comparisons with explicit matched coverage; no significance claim |
-| F10 | Training data retention/size policy | Raw attempts can pressure localStorage/10 MB backup cap | Decide retention/aggregation/separate export before cloud sync |
+| F10 | Training data retention/size policy | **PARTIALLY RESOLVED 2026-11-20 (E18/E19)** — native portable backups bound gzip at 16 MB encoded / 64 MB decoded; Training Drive files cap compact JSON at 16 MB. Remote retention always keeps the newest snapshot per device and supports configurable count/age cleanup (default keep 10 / 30 days); manual upload cleanup keeps the newest five own snapshots. No automatic local pruning or aggregation is implemented | Decide local retention/aggregation before making larger long-term storage claims; remote Training retention is best effort only |
 | F11 | Training inspection/penalties | **RESOLVED 2026-11-09 (E11)** — no inspection or +2; successful raw duration or DNF; exclude DNFs from successful metrics | Manual DNF UI and shared-timer integration were subsequently implemented and tested in E12/E16 |
 | F12 | Redistribution rights for the approved Heroor OLL and Tao PLL algorithm data | **OWNER GATE REMOVED 2026-11-10; THIRD-PARTY PERMISSION STILL UNESTABLISHED.** Heroor has a README-only MIT claim and no LICENSE file; Tao has an MIT software license but credits AlgDb for other algorithms. E13 bundles only the 78 owner-approved functional sequences as an independently assembled catalog, records source provenance, and asserts no third-party redistribution licence. This is a risk-reduction approach, not a grant of rights (see E13.2) | Obtain written permission or legal review if broader redistribution is required; retain provenance/attribution and do not add the 37 extra variants without separate authorization |
 | F13 | Exact OLL 56 default and renewed verification | **RESOLVED 2026-11-08 (E9)** — owner explicitly approved B, `r U r' (U R U' R')2 r U' r'`; it verifies as OLL 56 `1212\|1010` with F2L preserved. Earlier A/D break F2L; historical C solves OLL 54. Earlier approvals and the transcription error remain preserved in E8/E9 | None for the OLL 56 default. Keep the superseded strings only as history; do not reintroduce them |
@@ -4595,10 +4756,11 @@ and data integration/recovery gates are complete.
 
 ## H. Historical repository status (2026-11-08)
 
-**Current (2026-11-18):** branch `master`, HEAD `562b4f7`, with no pre-existing
-working-tree changes before the documentation/environment audit. The onboarding
-and Training implementation described below is committed in the current
-baseline. Current setup guidance is in
+**Current checkout (2026-11-20):** branch `master`, HEAD `b77f7a0`. The Training
+backup/Drive implementation and its follow-ups are uncommitted working-tree
+changes. `562b4f7` is the historical committed baseline described below, not the
+current repository. The onboarding and Training implementation up to that
+baseline is committed there. Current setup guidance is in
 [docs/development/ARCH_LINUX.md](../../docs/development/ARCH_LINUX.md).
 See [STATUS.md](../../STATUS.md) for current verification.
 
@@ -4752,7 +4914,7 @@ unresolved; no algorithm records, Phase 3, commit, push, deploy or publication.
 
 - At the 2026-11-08 snapshot, the onboarding implementation was **uncommitted**.
   It touched core application wiring (`App.tsx`, `bootstrap.tsx`), settings,
-  backup, sync, CSS, tests, and docs. It is committed in the current baseline
+  backup, sync, CSS, tests, and docs. It is committed in the historical baseline
   (`562b4f7`); preserve current changes rather than reverting to that snapshot.
 - Training integration must inspect the current working-tree files, not just the
   committed baseline.
@@ -4773,18 +4935,23 @@ unresolved; no algorithm records, Phase 3, commit, push, deploy or publication.
 
 ## I. Immediate next task
 
-**Overhaul O1 through O8 are complete.** Integrated verification and
-documentation are complete; no overhaul phase remains. There is no next
+**Overhaul O1 through O8 are complete.** Native Training backup/restore, portable
+gzip, manual replace-only Training Drive backup/restore and merge-based Training
+Drive sync are implemented. Integrated verification and documentation are
+complete for the overhaul; no overhaul phase remains. There is no next
 implementation task without owner authorization. Start from the
 [progress tracker](overhaul/CURRENT_PROGRESS.md) if a follow-up is requested.
-E15 records the existing practice workspace. E12 records the Phase 4 UI/timer/persistence boundaries.
-E13 records the 78 default algorithms, preference resolution, provenance and
-legal limitation. E16.10 records the integrated verification scope and limits.
-Review STATUS.md for exact verification. The owner removed the
-internal F12 restriction, but third-party redistribution permission remains
-unestablished; obtain legal review/permission before broader redistribution. The
-remaining backup/recovery/retention/performance/release prerequisites still need
-separate authorization. Do not begin Phase 5, commit, push, deploy or publish
+E15 records the existing practice workspace. E12 records the Phase 4
+UI/timer/persistence boundaries. E13 records the 78 default algorithms,
+preference resolution, provenance and legal limitation. E16.10 records the
+integrated verification scope and limits. E17–E19 record backup, Drive, restore
+provenance, sync safety and the latest workspace/deletion decisions. Review
+STATUS.md for exact verification. The owner removed the internal F12 restriction,
+but third-party redistribution permission remains unestablished; obtain legal
+review/permission before broader redistribution. Automatic local Training
+retention/aggregation, a solve Drive protocol above 10 MB, live Drive and
+physical multi-device validation, and release decisions still need separate
+authorization. Do not begin Phase 5, commit, push, deploy or publish
 automatically. Preserve unrelated working changes.
 
 ### Phase 1 — COMPLETE (2026-11-08)
@@ -4853,7 +5020,8 @@ Phase 4 and O1–O8 were subsequently implemented (E12/E16).
 Phase 3A records/storage are in E10. Phase 3B pure calculations, compatible
 extensions, approved policies, verification and remaining integration are in E11.
 Expanded Phase 4 is complete (E12) and the 78 built-in defaults are complete
-(E13). F4/F5/F10 retain their documented boundaries; F12's internal gate was
+(E13). F4/F10 retain their documented boundaries; F5 is partially resolved by
+native backup only (E17). F12's internal gate was
 removed but third-party permission remains unestablished. Existing ordinary data
 and all approved diagrams are preserved.
 
@@ -4902,6 +5070,33 @@ Future OpenCode sessions must follow these rules:
     required attribution.** Do not bundle unlicensed content.
 
 ---
+
+### E20. Algorithm-tracking retirement and Settings merge — 2026-11-21
+
+The owner requested a temporary removal of algorithm revision tracking while
+the feature is reimplemented. Current behavior:
+
+- `stripRetiredAlgorithmTracking` is the single sanitizer. It clears
+  `customAlgorithms`, `preferredAlgorithms`, `algorithmTracking` and every
+  attempt's `preferredAlgorithmAtStart`/attribution to
+  `{ kind: 'unknown', markedAt: null }`. Timing, setup snapshots, calibrations,
+  visits, presets and case statistics remain.
+- The sanitizer runs during local load (`migrateTrainingData`), native backup
+  import, Training Drive backup and the final Training sync merge. New attempts
+  are forced case-only in `TrainingController.beginAttempt`, regardless of any
+  archived preference.
+- The algorithm editor, revision charts, attribution correction, revision
+  minimum counts and all tracking copy are removed from the UI. The built-in
+  verified default still generates every setup; users need no algorithm setup.
+- Training settings moved into the main Settings dialog (trim, inactivity,
+  baseline, per-set renewal, upcoming-case display). The standalone
+  `TrainingSettingsDialog` was removed. Calibration remains available from the
+  Training workspace.
+- The Hub uses OLL/PLL and Execution/Recognition switches; Recognition is
+  labelled BETA. **Begin practice** is renamed **Begin training**.
+- Training schema remains v1. Sanitizing an already stored v1 record is
+  lossy by explicit owner request; there is no recovery of erased algorithmic
+  attribution from the local store.
 
 ## K. Change log
 

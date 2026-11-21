@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { stripRetiredAlgorithmTracking } from './training/retiredAlgorithmTracking'
 import { DEFAULT_SETTINGS } from './storage'
 import type { SessionsData, Solve } from '../types'
 import {
@@ -12,6 +13,14 @@ import {
   serializeBackup,
   serializeBackupChecked,
 } from './backup'
+import {
+  MAX_PORTABLE_BACKUP_BYTES,
+  MAX_PORTABLE_JSON_BYTES,
+} from './backupLimits'
+import { summarizeTrainingData } from './training/backupSection'
+import { closedTrainingHistory } from './training/persistenceFixtures.test-support'
+import { createTrainingVisit } from './training/records'
+import { createEmptyTrainingData } from './training/storage'
 
 function solve(overrides: Partial<Solve> = {}): Solve {
   return {
@@ -480,12 +489,18 @@ describe('custom event backups', () => {
     }
     const backup = createBackup(data, DEFAULT_SETTINGS)
     const result = parseBackup(serializeBackup(backup))
-    expect(result).toEqual({ ok: true, backup })
+    expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.backup.sessions).toEqual(data)
+    expect(result.backup.sessions.customEvents).toBeUndefined()
+    expect(result.backup.sessions.sessions[0]!.event).toBe('misc')
+    expect(result.backup.sessions.sessions[0]!.solves[0]).toMatchObject({
+      event: 'misc',
+      scramble: 'custom scramble',
+      importSource: { scrType: 'fto', sessionNumber: 1, solveIndex: 0 },
+    })
   })
 
-  it('preserves empty scrambles and unknown event IDs', () => {
+  it('preserves empty scrambles while folding unknown event IDs into MISC', () => {
     const data: SessionsData = {
       activeSessionId: 'unknown-session',
       sessions: [
@@ -508,12 +523,12 @@ describe('custom event backups', () => {
 
     const backup = createBackup(data, DEFAULT_SETTINGS)
     const result = parseBackup(serializeBackup(backup))
-    expect(result).toEqual({ ok: true, backup })
+    expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.backup.sessions).toEqual(data)
-    expect(result.backup.sessions.sessions[0]!.event).toBe('333bf')
+    expect(result.backup.sessions.customEvents).toBeUndefined()
+    expect(result.backup.sessions.sessions[0]!.event).toBe('misc')
     expect(result.backup.sessions.sessions[0]!.solves[0]).toMatchObject({
-      event: '333bf',
+      event: 'misc',
       scramble: '',
     })
   })
@@ -660,5 +675,190 @@ describe('backup session ordering', () => {
       'session-1',
     ])
     expect(result.backup.sessions.sessions[0]?.solves[0]?.id).toBe('solve-2')
+  })
+})
+
+describe('Training history backup section', () => {
+  function trainingBackup() {
+    const base = closedTrainingHistory()
+    const training = {
+      ...base,
+      recognitionCounts: { oll: 5, pll: 3 },
+      preferences: {
+        ...base.preferences,
+        algorithmTracking: true,
+        preferredAlgorithms: [
+          {
+            caseId: 'oll:27' as const,
+            algorithm: {
+              id: 'user:oll:27:1',
+              revision: 1,
+              notation: "R U R' U R U2 R'",
+            },
+          },
+        ],
+        categories: {
+          ...base.preferences.categories,
+          'oll:recognition': { recognitionMetric: 'estimated' as const },
+        },
+      },
+      presets: [
+        {
+          version: 1 as const,
+          id: 'mine',
+          name: 'My selection',
+          setId: 'oll' as const,
+          caseIds: ['oll:27'] as const,
+          includeSetupMoves: true,
+          kind: 'user' as const,
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_001_000,
+        },
+      ],
+      customAlgorithms: [
+        {
+          id: 'user:oll:27:1',
+          version: 1,
+          setId: 'oll' as const,
+          caseId: 'oll:27' as const,
+          source: 'user' as const,
+          notation: "R U R' U R U2 R'",
+          normalizedNotation: "R U R' U R U2 R'",
+          label: 'Mine',
+          createdAt: 1_700_000_000_000,
+          verification: null,
+        },
+      ],
+    }
+    return {
+      training,
+      backup: createBackup(
+        sessions(),
+        DEFAULT_SETTINGS,
+        new Date('2026-11-20T00:00:00.000Z'),
+        undefined,
+        training,
+      ),
+    }
+  }
+
+  it('round-trips the complete checked Training store', () => {
+    const { training, backup } = trainingBackup()
+    expect(backup.training).toEqual({ version: 1, data: stripRetiredAlgorithmTracking(training) })
+    const result = parseBackup(serializeBackup(backup))
+    expect(result).toEqual({ ok: true, backup })
+    if (!result.ok) return
+    expect(result.backup.training).toEqual({ version: 1, data: stripRetiredAlgorithmTracking(training) })
+    expect(summarizeTrainingData(result.backup.training!.data)).toMatchObject({
+      attempts: 1,
+      sessions: 1,
+      calibrations: 1,
+      customAlgorithms: 0,
+      presets: 1,
+    })
+    expect(result.backup.training?.data.recognitionCounts).toEqual({
+      oll: 5,
+      pll: 3,
+    })
+    expect(
+      result.backup.training?.data.preferences.categories['oll:recognition'],
+    ).toEqual({ recognitionMetric: 'estimated' })
+  })
+
+  it('omits Training unless it is passed explicitly', () => {
+    const backup = createBackup(sessions(), DEFAULT_SETTINGS)
+    expect('training' in backup).toBe(false)
+    const result = parseBackup(serializeBackup(backup))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.backup.training).toBeUndefined()
+    expect(MAX_BACKUP_BYTES).toBe(10 * 1024 * 1024)
+    expect(MAX_PORTABLE_BACKUP_BYTES).toBe(16 * 1024 * 1024)
+    expect(MAX_PORTABLE_JSON_BYTES).toBe(64 * 1024 * 1024)
+  })
+
+  it('deep-clones the Training section so later edits cannot alter the backup', () => {
+    const { training, backup } = trainingBackup()
+    const mutable = training as unknown as {
+      attempts: { rawMs: number }[]
+    }
+    mutable.attempts[0]!.rawMs = 99_999
+    expect(backup.training?.data.attempts[0]?.rawMs).toBe(1_234)
+  })
+
+  it('keeps older backups without a Training section readable', () => {
+    const { backup } = trainingBackup()
+    const payload = JSON.parse(serializeBackup(backup)) as Record<string, unknown>
+    delete payload.training
+    const result = parseBackup(JSON.stringify(payload))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.backup.training).toBeUndefined()
+    expect(result.backup.sessions.sessions).toHaveLength(2)
+  })
+
+  it('rejects a future Training schema version', () => {
+    const { backup } = trainingBackup()
+    const payload = {
+      ...backup,
+      training: { ...backup.training!, version: 2 },
+    }
+    const result = parseBackup(JSON.stringify(payload))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('unsupported Training schema version')
+    expect(result.error).toContain('did not change your local data')
+  })
+
+  it('rejects an unfinished Training visit instead of restoring it', () => {
+    const visit = createTrainingVisit('oll:execution', 1_700_000_000_000, 'open-visit')
+    const data = {
+      ...createEmptyTrainingData(),
+      visits: [visit],
+      activeVisitId: visit.id,
+    }
+    const payload = {
+      ...createBackup(sessions(), DEFAULT_SETTINGS),
+      training: { version: 1, data },
+    }
+    const result = parseBackup(JSON.stringify(payload))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('unfinished Training session')
+  })
+
+  it.each([
+    [
+      'an invalid attempt duration',
+      (data: any) => {
+        data.attempts[0].rawMs = -1
+      },
+      'rawms',
+    ],
+    [
+      'a dangling attempt visit reference',
+      (data: any) => {
+        data.attempts[0].visitId = 'missing'
+      },
+      'visit',
+    ],
+    [
+      'a future record version',
+      (data: any) => {
+        data.visits[0].version = 2
+      },
+      'version',
+    ],
+  ])('rejects the whole backup for %s', (_label, mutate, expected) => {
+    const { backup } = trainingBackup()
+    const data = JSON.parse(JSON.stringify(backup.training!.data))
+    mutate(data)
+    const result = parseBackup(
+      JSON.stringify({ ...backup, training: { version: 1, data } }),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.toLowerCase()).toContain(expected)
+    expect(result.error).toContain('did not change your local data')
   })
 })

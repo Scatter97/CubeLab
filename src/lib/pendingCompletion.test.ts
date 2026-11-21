@@ -224,7 +224,7 @@ describe('pending completion buffer', () => {
     ).toEqual(recovered?.solves)
   })
 
-  it('keeps replacement custom-event definitions alongside recovered ones', () => {
+  it('folds buffered custom-event solves into MISC while keeping definitions merged', () => {
     const fto = definition()
     const extra = definition({ id: 'custom:extra', name: 'Extra puzzle' })
     const replacementFto = definition({
@@ -265,7 +265,7 @@ describe('pending completion buffer', () => {
     const recovered = applied.sessions.find(
       (entry) => entry.id === 'recovered:session-a',
     )
-    expect(recovered).toMatchObject({ event: 'custom:fto' })
+    expect(recovered).toMatchObject({ event: 'misc' })
     expect(recovered?.solves.map((entry) => entry.id)).toEqual([
       'custom-buffered',
     ])

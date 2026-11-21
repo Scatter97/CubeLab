@@ -13,8 +13,16 @@ import {
   nextCustomAverageSize,
 } from '../lib/statDefinitions'
 import { ChevronRightIcon, CloseIcon } from './Icons'
+import { BetaBadge } from './BetaBadge'
+import { AppearanceControls } from './AppearanceControls'
 import { Select } from './Select'
 import type { CustomAverageSetting, Settings } from '../types'
+import type { TrainingData, TrainingSetId } from '../lib/training/types'
+import type { TrainingDomainSettings } from '../lib/training/types'
+import {
+  assertTrainingDomainSettings,
+  getTrainingDomainSettings,
+} from '../lib/training/settings'
 import type { DrawScrambleMode } from '../hooks/useDrawScrambleMode'
 
 const INSPECTION_DIRECTION_OPTIONS = [
@@ -40,19 +48,6 @@ const ALERT_CHANNEL_OPTIONS = [
 const WARNING_DISPLAY_OPTIONS = [
   { value: 'timer', label: 'Timer surface' },
   { value: 'screen', label: 'Entire screen' },
-] as const
-
-const THEME_OPTIONS = [
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'system', label: 'System' },
-] as const
-
-const ACCENT_OPTIONS = [
-  { value: 'green', label: 'Green' },
-  { value: 'blue', label: 'Blue' },
-  { value: 'violet', label: 'Violet' },
-  { value: 'amber', label: 'Amber' },
 ] as const
 
 const PRECISION_OPTIONS = [
@@ -107,6 +102,14 @@ interface SettingsDialogProps {
   onRequestResetAllSiteData: () => void
   /** Current Google Drive synchronization state for the Developer section. */
   developerSyncStatus: string
+  /** Training settings are merged into the main Settings dialog. */
+  trainingData?: TrainingData | null
+  showUpcomingCase?: boolean
+  onShowUpcomingCaseChange?: (value: boolean) => boolean
+  onUpdateTrainingSettings?: (
+    domain: TrainingDomainSettings,
+    renewals: Record<TrainingSetId, { renewalDays: number; renewalAttempts: number }>,
+  ) => boolean
   onClose: () => void
 }
 
@@ -128,6 +131,10 @@ export function SettingsDialog({
   deleteAllSessionsDisabledReason,
   onRequestResetAllSiteData,
   developerSyncStatus,
+  trainingData = null,
+  showUpcomingCase = false,
+  onShowUpcomingCaseChange,
+  onUpdateTrainingSettings,
   onClose,
 }: SettingsDialogProps) {
   const { dialogRef, handleKeyDown } = useModalDialog(open)
@@ -165,6 +172,10 @@ export function SettingsDialog({
           deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
           onRequestResetAllSiteData={onRequestResetAllSiteData}
           developerSyncStatus={developerSyncStatus}
+          trainingData={trainingData}
+          showUpcomingCase={showUpcomingCase}
+          onShowUpcomingCaseChange={onShowUpcomingCaseChange}
+          onUpdateTrainingSettings={onUpdateTrainingSettings}
           onClose={onClose}
         />
       ) : null}
@@ -189,6 +200,10 @@ function SettingsContent({
   deleteAllSessionsDisabledReason,
   onRequestResetAllSiteData,
   developerSyncStatus,
+  trainingData = null,
+  showUpcomingCase = false,
+  onShowUpcomingCaseChange,
+  onUpdateTrainingSettings,
   onClose,
 }: Omit<SettingsDialogProps, 'open'>) {
   const updateCustomAverages = (next: CustomAverageSetting[]): string | null => {
@@ -492,6 +507,27 @@ function SettingsContent({
 
             <div className="settings-row settings-row-spaced">
               <div className="settings-row-copy">
+                <label className="settings-row-label" htmlFor="hide-even-seconds">
+                  Hide even seconds
+                </label>
+                <span className="settings-row-description">
+                  Blanks the whole-second part while it is even. Saved times are
+                  unchanged.
+                </span>
+              </div>
+              <input
+                id="hide-even-seconds"
+                data-testid="hide-even-seconds"
+                type="checkbox"
+                checked={settings.hideEvenTimerSeconds}
+                onChange={(event) =>
+                  onChange({ hideEvenTimerSeconds: event.target.checked })
+                }
+              />
+            </div>
+
+            <div className="settings-row settings-row-spaced">
+              <div className="settings-row-copy">
                 <label
                   className="settings-row-label"
                   htmlFor="session-solve-progress"
@@ -542,29 +578,13 @@ function SettingsContent({
               <h3 id="settings-appearance-title">Appearance</h3>
             </div>
 
-            <label className="settings-field">
-              <span className="settings-field-label">Theme</span>
-              <Select
-                testId="theme-setting"
-                value={settings.theme}
-                options={THEME_OPTIONS}
-                onChange={(value) =>
-                  onChange({ theme: value as Settings['theme'] })
-                }
-              />
-            </label>
-
-            <label className="settings-field">
-              <span className="settings-field-label">Accent color</span>
-              <Select
-                testId="accent-color"
-                value={settings.accentColor}
-                options={ACCENT_OPTIONS}
-                onChange={(value) =>
-                  onChange({ accentColor: value as Settings['accentColor'] })
-                }
-              />
-            </label>
+            <AppearanceControls
+              settings={settings}
+              onChange={onChange}
+              testIdPrefix="settings-appearance"
+              themeTestId="theme-setting"
+              accentTestId="accent-color"
+            />
           </section>
 
           <section className="settings-section" aria-labelledby="settings-statistics-title">
@@ -820,7 +840,10 @@ function SettingsContent({
               data-testid="settings-drive-button"
             >
               <span className="settings-data-copy">
-                <span className="settings-data-title">Google Drive backup</span>
+                <span className="settings-data-title settings-data-title-with-badge">
+                  Google Drive backup
+                  <BetaBadge />
+                </span>
                 <span className="settings-data-description">
                   Sync with your Google account
                 </span>
@@ -857,10 +880,6 @@ function SettingsContent({
                   <span className="settings-developer-heading">
                     Developer options
                   </span>
-                  <span className="settings-badge">Advanced</span>
-                </span>
-                <span className="settings-row-description">
-                  Destructive maintenance with typed confirmation.
                 </span>
               </span>
               <ChevronRightIcon
@@ -879,7 +898,7 @@ function SettingsContent({
                 </div>
                 <p className="settings-row-description">
                   Removes every solve from every session. Session names, event
-                  assignments, custom events, preferences, and settings remain.
+                  assignments, preferences, and settings remain.
                   Cannot be undone without a backup.
                 </p>
                 <button
@@ -919,7 +938,7 @@ function SettingsContent({
                 </div>
                 <p className="settings-row-description">
                   Deletes all sessions and solves, then creates one empty{' '}
-                  <strong>Session 1</strong>. Settings and custom events remain.
+                  <strong>Session 1</strong>. Settings remain.
                   Deletion records prevent sync from restoring the data; remote
                   snapshots are retained. Cannot be undone without a backup.
                 </p>
@@ -973,6 +992,15 @@ function SettingsContent({
             </div>
           </details>
 
+          {trainingData && onUpdateTrainingSettings ? (
+            <TrainingSettingsSection
+              data={trainingData}
+              showUpcomingCase={showUpcomingCase}
+              onShowUpcomingCaseChange={onShowUpcomingCaseChange}
+              onUpdate={onUpdateTrainingSettings}
+            />
+          ) : null}
+
           <section className="settings-section" aria-labelledby="settings-about-title">
             <div className="settings-section-heading">
               <h3 id="settings-about-title">About</h3>
@@ -986,20 +1014,11 @@ function SettingsContent({
                 <dt>Timer</dt>
                 <dd>12 WCA events · official scrambles</dd>
               </div>
-              <div>
-                <dt>Data</dt>
-                <dd>Local-first · no accounts or telemetry</dd>
-              </div>
-              <div>
-                <dt>Offline</dt>
-                <dd>Installable PWA with offline scrambles</dd>
-              </div>
             </dl>
           </section>
         </div>
 
         <footer className="settings-footer">
-          <span className="settings-footer-note">Changes save automatically.</span>
           <button
             type="button"
             className="button button-secondary"
@@ -1102,5 +1121,200 @@ function CustomAverageRow({
         </p>
       ) : null}
     </div>
+  )
+}
+
+interface TrainingSettingsSectionProps {
+  data: TrainingData
+  showUpcomingCase: boolean
+  onShowUpcomingCaseChange?: (value: boolean) => boolean
+  onUpdate: (
+    domain: TrainingDomainSettings,
+    renewals: Record<TrainingSetId, { renewalDays: number; renewalAttempts: number }>,
+  ) => boolean
+}
+
+function TrainingSettingsSection({
+  data,
+  showUpcomingCase,
+  onShowUpcomingCaseChange,
+  onUpdate,
+}: TrainingSettingsSectionProps) {
+  const [domain, setDomain] = useState(() =>
+    getTrainingDomainSettings(data.preferences),
+  )
+  const [renewals, setRenewals] = useState(() => ({
+    oll: data.preferences.sets.oll.recognition,
+    pll: data.preferences.sets.pll.recognition,
+  }))
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const save = () => {
+    try {
+      assertTrainingDomainSettings(domain)
+      for (const renewal of [renewals.oll, renewals.pll]) {
+        if (
+          !Number.isSafeInteger(renewal.renewalDays) ||
+          renewal.renewalDays < 1 ||
+          !Number.isSafeInteger(renewal.renewalAttempts) ||
+          renewal.renewalAttempts < 1
+        ) {
+          throw new Error('Recalibration thresholds must be positive whole numbers.')
+        }
+      }
+      if (!onUpdate(domain, renewals)) {
+        setError('Training settings could not be saved. Check Training storage.')
+        setMessage('')
+        return
+      }
+      setError('')
+      setMessage('Training settings saved.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Invalid settings.')
+      setMessage('')
+    }
+  }
+
+  return (
+    <section className="settings-section" aria-labelledby="settings-training-title">
+      <div className="settings-section-heading">
+        <h3 id="settings-training-title">Training</h3>
+        <span className="settings-badge">OLL / PLL</span>
+      </div>
+
+      {onShowUpcomingCaseChange ? (
+        <div className="settings-row">
+          <div className="settings-row-copy">
+            <span className="settings-row-label">Show upcoming case</span>
+            <span className="settings-row-description">
+              Shows the case name and diagram before an execution attempt.
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            checked={showUpcomingCase}
+            aria-label="Show upcoming case"
+            data-testid="settings-training-upcoming-case"
+            onChange={(event) => {
+              if (!onShowUpcomingCaseChange(event.target.checked)) {
+                setError('Could not save the display preference.')
+              }
+            }}
+          />
+        </div>
+      ) : null}
+
+      <label className="settings-field">
+        <span className="settings-field-label">Rolling average trim per side (%)</span>
+        <input
+          type="number"
+          min={0}
+          max={49.99}
+          step={0.1}
+          value={domain.trimPercent}
+          onChange={(event) =>
+            setDomain({ ...domain, trimPercent: Number(event.target.value) })
+          }
+        />
+      </label>
+
+      <label className="settings-field">
+        <span className="settings-field-label">Inactivity timeout (minutes)</span>
+        <input
+          type="number"
+          min={1}
+          value={domain.inactivityMinutes}
+          onChange={(event) =>
+            setDomain({ ...domain, inactivityMinutes: Number(event.target.value) })
+          }
+        />
+      </label>
+
+      <label className="settings-field">
+        <span className="settings-field-label">Historical baseline</span>
+        <Select
+          testId="settings-training-baseline"
+          value={domain.baseline.kind}
+          options={[
+            { value: 'days', label: 'Previous days' },
+            { value: 'attempts', label: 'Previous attempts per case' },
+          ]}
+          onChange={(value) =>
+            setDomain({
+              ...domain,
+              baseline: { ...domain.baseline, kind: value as 'days' | 'attempts' },
+            })
+          }
+        />
+      </label>
+
+      <label className="settings-field">
+        <span className="settings-field-label">Baseline count</span>
+        <input
+          type="number"
+          min={1}
+          value={domain.baseline.count}
+          onChange={(event) =>
+            setDomain({
+              ...domain,
+              baseline: { ...domain.baseline, count: Number(event.target.value) },
+            })
+          }
+        />
+      </label>
+
+      {(['oll', 'pll'] as const).map((setId) => (
+        <fieldset className="settings-fieldset" key={setId}>
+          <legend className="settings-field-label">
+            {setId.toUpperCase()} recalibration
+          </legend>
+          <label className="settings-field">
+            <span className="settings-field-label">After days</span>
+            <input
+              type="number"
+              min={1}
+              value={renewals[setId].renewalDays}
+              onChange={(event) =>
+                setRenewals({
+                  ...renewals,
+                  [setId]: {
+                    ...renewals[setId],
+                    renewalDays: Number(event.target.value),
+                  },
+                })
+              }
+            />
+          </label>
+          <label className="settings-field">
+            <span className="settings-field-label">After recognition attempts</span>
+            <input
+              type="number"
+              min={1}
+              value={renewals[setId].renewalAttempts}
+              onChange={(event) =>
+                setRenewals({
+                  ...renewals,
+                  [setId]: {
+                    ...renewals[setId],
+                    renewalAttempts: Number(event.target.value),
+                  },
+                })
+              }
+            />
+          </label>
+        </fieldset>
+      ))}
+
+      <p className="settings-note">
+        Training history stays in this browser and in its separate backup/sync
+        files. Recalibration is available from the Training workspace.
+      </p>
+      {error ? <p className="settings-inline-error" role="alert">{error}</p> : null}
+      {message ? <p className="settings-note" role="status">{message}</p> : null}
+      <button type="button" className="button button-secondary" onClick={save}>
+        Save Training settings
+      </button>
+    </section>
   )
 }

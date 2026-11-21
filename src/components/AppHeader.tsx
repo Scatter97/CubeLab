@@ -1,3 +1,4 @@
+import { BetaBadge } from './BetaBadge'
 import { CubeMark, SettingsIcon } from './Icons'
 import { getEventLabel } from '../lib/events'
 
@@ -37,6 +38,7 @@ export function AppHeader({
         <span className="brand-copy">
           <span className="brand-name">
             Cube<span>Lab</span>
+            <BetaBadge className="brand-beta" />
           </span>
 
         </span>

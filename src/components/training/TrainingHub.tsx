@@ -1,19 +1,16 @@
-import { downloadTrainingRecovery } from './downloadTrainingRecovery'
 import { useMemo, useState } from 'react'
 import { MAX_SESSION_NAME_LENGTH, suggestSessionName } from '../../lib/sessionNames'
 import { availableAlgorithm } from '../../lib/training/algorithmSelection'
 import { trainingCategoryName, type TrainingController } from '../../lib/training/controller'
 import { trainingTime } from '../../lib/training/format'
 import { trainingStatistics } from '../../lib/training/stats'
-import type { TrainingAlgorithmOverrides, TrainingCaseId, TrainingData } from '../../lib/training/types'
+import type { TrainingCaseId, TrainingData } from '../../lib/training/types'
 import { CaseSelectionDialog } from './CaseSelectionDialog'
-import { TrainingSetSelect } from './TrainingSetup'
 import { selectedTrainingCasesLabel, trainingSelectionMessage } from './trainingSelectionPresentation'
-import { readShowUpcomingCase, saveTrainingPresentation, TRAINING_UPCOMING_CASE_KEY } from '../../lib/training/statisticsPreferences'
-import { TrainingSettingsDialog } from './TrainingSettingsDialog'
 import { TrainingSaveRecovery, TrainingSaveRecoveryProvider } from './TrainingSaveRecovery'
 import { trainingArchiveVisits } from '../../lib/training/archive'
 import { TrainingArchiveRows } from './TrainingArchiveRows'
+import { downloadTrainingRecovery } from './downloadTrainingRecovery'
 
 export default function TrainingHub({ data, controller, locked, error, onOpenHistory, onOpenAlgorithms, hidden, pendingSave }: {
   data: TrainingData
@@ -31,9 +28,7 @@ export default function TrainingHub({ data, controller, locked, error, onOpenHis
     oll: data.preferences.sets.oll,
     pll: data.preferences.sets.pll,
   }))
-  const [overrides, setOverrides] = useState<{ oll: TrainingAlgorithmOverrides; pll: TrainingAlgorithmOverrides }>({ oll: {}, pll: {} })
-  const [dialog, setDialog] = useState<'cases' | 'settings' | null>(null)
-  const [showUpcomingCase, setShowUpcomingCase] = useState(readShowUpcomingCase)
+  const [dialog, setDialog] = useState<'cases' | null>(null)
   const { includeSetupMoves, enabledCaseIds } = sets[setId]
   const mode = includeSetupMoves ? 'recognition' : 'execution'
   const categoryId = `${setId}:${mode}` as const
@@ -47,9 +42,8 @@ export default function TrainingHub({ data, controller, locked, error, onOpenHis
     [data, enabledCaseIds])
   const selectionMessage = trainingSelectionMessage(enabledCaseIds.length, usableCount, includeSetupMoves)
 
-  function applyCases(caseIds: readonly TrainingCaseId[], recognition: boolean, algorithmOverrides: TrainingAlgorithmOverrides) {
+  function applyCases(caseIds: readonly TrainingCaseId[], recognition: boolean) {
     setSets(previous => ({ ...previous, [setId]: { ...previous[setId], enabledCaseIds: caseIds, includeSetupMoves: recognition } }))
-    setOverrides(previous => ({ ...previous, [setId]: algorithmOverrides }))
     setDialog(null)
   }
 
@@ -71,38 +65,45 @@ export default function TrainingHub({ data, controller, locked, error, onOpenHis
                 }} />
             </label>
             <div className="training-hub-category">
-              <label className="training-hub-field">
-                Algorithm set
-                <TrainingSetSelect setId={setId} onChange={setSetId} />
-              </label>
-              <label className="training-hub-field">
-                Practice type
-                <select className="training-select" value={mode} aria-describedby="training-hub-mode-description"
-                  onChange={event => {
-                    const recognition = event.target.value === 'recognition'
-                    setSets(previous => ({
-                      ...previous, [setId]: { ...previous[setId], includeSetupMoves: recognition },
-                    }))
-                  }}>
-                  <option value="execution">Execution</option>
-                  <option value="recognition">Recognition</option>
-                </select>
-              </label>
+              <fieldset className="training-hub-switch">
+                <legend>Algorithm set</legend>
+                <div className="competition-kind-toggle">
+                  {(['oll', 'pll'] as const).map(option => (
+                    <button type="button" key={option} className={`button button-secondary button-small${setId === option ? ' is-active' : ''}`}
+                      aria-pressed={setId === option} onClick={() => setSetId(option)}>
+                      {option.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="training-hub-switch">
+                <legend>Practice type</legend>
+                <div className="competition-kind-toggle">
+                  {(['execution', 'recognition'] as const).map(option => (
+                    <button type="button" key={option} className={`button button-secondary button-small${mode === option ? ' is-active' : ''}`}
+                      aria-pressed={mode === option}
+                      aria-describedby="training-hub-mode-description"
+                      onClick={() => {
+                        setSets(previous => ({
+                          ...previous, [setId]: { ...previous[setId], includeSetupMoves: option === 'recognition' },
+                        }))
+                      }}>
+                      {option === 'execution' ? 'Execution' : 'Recognition (BETA)'}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
             </div>
             <p className="training-muted" id="training-hub-mode-description">Recognition includes setup moves.</p>
             <div className="training-hub-cases">
               <span>{selectedTrainingCasesLabel(enabledCaseIds.length)}</span>
-              <button type="button" className="button button-secondary" onClick={() => setDialog('cases')}>Edit cases</button>
+              <button type="button" className="button button-secondary" disabled={locked} onClick={() => setDialog('cases')}>Edit cases</button>
             </div>
             {selectionMessage ? <p className="training-muted" role="status">{selectionMessage}</p> : null}
             <div className="training-hub-workspace">
               {error && !pendingSave ? <p role="alert">{error}</p> : null}
               <button type="button" className="button button-primary" disabled={locked || usableCount < (includeSetupMoves ? 2 : 1)}
-                onClick={() => { void controller.beginSession({ name, categoryId, caseIds: enabledCaseIds, algorithmOverrides: overrides[setId] }) }}>Begin practice</button>
-              <div className="training-actions">
-                <button type="button" className="text-button" disabled={locked} onClick={() => setDialog('settings')}>Training settings</button>
-              </div>
-            </div>
+                onClick={() => { void controller.beginSession({ name, categoryId, caseIds: enabledCaseIds }) }}>Begin training</button>            </div>
           </section>
           <section className="panel training-hub-panel" aria-labelledby="training-hub-stats-title">
             <div className="training-hub-cases">
@@ -126,14 +127,7 @@ export default function TrainingHub({ data, controller, locked, error, onOpenHis
           {recent.length ? <TrainingArchiveRows data={data} visits={recent} onReview={onOpenHistory} /> : <p className="training-muted">Completed sessions appear here.</p>}
         </section>
       </div>
-      {dialog === 'cases' ? <CaseSelectionDialog data={data} setId={setId} controller={controller} onClose={() => setDialog(null)}
-        draft={{ caseIds: enabledCaseIds, includeSetupMoves, algorithmOverrides: overrides[setId], onApply: applyCases }} /> : null}
-      {dialog === 'settings' ? <TrainingSettingsDialog data={data} controller={controller} setId={setId}
-        showUpcomingCase={showUpcomingCase} onShowUpcomingCaseChange={value => {
-          if (!saveTrainingPresentation(TRAINING_UPCOMING_CASE_KEY, value)) return false
-          setShowUpcomingCase(value)
-          return true
-        }} sessionFlow canRecalibrate={false} onClose={() => setDialog(null)} /> : null}
-    </main>
+      {dialog === 'cases' ? <CaseSelectionDialog data={data} setId={setId} controller={controller} locked={locked} onClose={() => setDialog(null)}
+        draft={{ caseIds: enabledCaseIds, includeSetupMoves, onApply: applyCases }} /> : null}    </main>
   </TrainingSaveRecoveryProvider>
 }

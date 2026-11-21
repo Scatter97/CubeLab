@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { chooseTestOption } from './interactions'
 
 // Onboarding itself must be tested from a genuinely empty browser profile. The
 // shared Playwright storage state suppresses setup for every existing suite.
@@ -177,6 +178,7 @@ test('Start Fresh creates one usable empty session per selected event and skips 
   ).toBeVisible()
   await expect(page.getByTestId('onboarding-main-333')).toBeChecked()
   await page.getByTestId('onboarding-settings-continue').click()
+  await page.getByTestId('onboarding-appearance-continue').click()
   await expect(
     page.getByRole('heading', { name: 'Turn on Sync?' }),
   ).toBeVisible()
@@ -242,9 +244,9 @@ test('csTimer import keeps imported sessions, solves and settings without event 
   await expect(page.getByRole('button', { name: 'Import 3 sessions' })).toBeVisible()
   await expect(page.getByText('Main 3x3')).toBeVisible()
   await expect(page.getByText('Two')).toBeVisible()
-  await expect(page.getByText('FTO', { exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'MISC', exact: true })).toBeVisible()
   await expect(
-    page.getByText(/Unknown puzzle types stay on their own event/),
+    page.getByText(/Unknown puzzle types are grouped into/),
   ).toBeVisible()
   await page.getByTestId('onboarding-import-confirm').click()
 
@@ -254,9 +256,12 @@ test('csTimer import keeps imported sessions, solves and settings without event 
   await expect(page.getByTestId('onboarding-main-222')).toBeVisible()
   await page.getByTestId('onboarding-main-card-222').click()
   const inspection = page.getByRole('switch', { name: 'WCA inspection' })
-  await inspection.click()
+  if ((await inspection.getAttribute('aria-checked')) !== 'true') {
+    await inspection.click()
+  }
   await expect(inspection).toHaveAttribute('aria-checked', 'true')
   await page.getByTestId('onboarding-settings-continue').click()
+  await page.getByTestId('onboarding-appearance-continue').click()
   await expect(
     page.getByRole('heading', { name: 'Turn on Sync?' }),
   ).toBeVisible()
@@ -284,13 +289,9 @@ test('csTimer import keeps imported sessions, solves and settings without event 
   ).toEqual([
     ['Main 3x3', '333', 2],
     ['Two', '222', 1],
-    ['FTO', expect.stringMatching(/^custom:cstimer:fto-/), 1],
+    ['FTO', 'misc', 1],
   ])
-  expect(sessions.customEvents).toHaveLength(1)
-  expect(sessions.customEvents[0]).toMatchObject({
-    id: expect.stringMatching(/^custom:cstimer:fto-/),
-    name: 'csTimer: fto',
-  })
+  expect(sessions.customEvents).toBeUndefined()
   expect(sessions.activeSessionId).toBe(
     sessions.sessions.find(
       (session: { event: string }) => session.event === '222',
@@ -305,7 +306,7 @@ test('csTimer import keeps imported sessions, solves and settings without event 
   expect((await storedSessions(page)).sessions).toHaveLength(3)
 })
 
-test('returning user restores cloud sessions, custom events and settings, then only asks for device-local options', async ({
+test('returning user restores cloud sessions, folds custom events into MISC and restores settings, then only asks for device-local options', async ({
   page,
 }) => {
   await page.goto('/')
@@ -346,7 +347,11 @@ test('returning user restores cloud sessions, custom events and settings, then o
       (session: { id: string }) => session.id === 'cloud-333',
     ).solves,
   ).toHaveLength(3)
-  expect(sessions.customEvents?.[0]).toMatchObject({ id: 'custom:fto', name: 'FTO' })
+  expect(sessions.customEvents).toBeUndefined()
+  expect(
+    sessions.sessions.find((session: { id: string }) => session.id === 'cloud-fto')
+      .event,
+  ).toBe('misc')
   const settings = await storedSettings(page)
   expect(settings.settings.theme).toBe('dark')
   expect(settings.settings.inspectionEnabled).toBe(true)
@@ -366,6 +371,7 @@ test('fresh setup detects existing cloud data and can stay local without overwri
   await page.getByTestId('onboarding-event-card-222').click()
   await page.getByTestId('onboarding-events-continue').click()
   await page.getByTestId('onboarding-settings-continue').click()
+  await page.getByTestId('onboarding-appearance-continue').click()
   await page.getByTestId('onboarding-connect-google').click()
 
   await expect(
@@ -528,6 +534,7 @@ test('reopened setup preserves existing solves and does not create duplicate ses
   await page.getByTestId('onboarding-start-fresh').click()
   await page.getByTestId('onboarding-events-continue').click()
   await page.getByTestId('onboarding-settings-continue').click()
+  await page.getByTestId('onboarding-appearance-continue').click()
   await page.getByTestId('onboarding-maybe-later').click()
   await expect(
     page.getByRole('heading', { name: "You're all set!" }),
@@ -553,6 +560,7 @@ test('reopened setup preserves existing solves and does not create duplicate ses
 test('onboarding screens have no serious accessibility violations in light and dark', async ({
   page,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   const serious = async () => {
     const results = await new AxeBuilder({ page })
       .disableRules(['label-content-name-mismatch'])
@@ -572,11 +580,14 @@ test('onboarding screens have no serious accessibility violations in light and d
   expect(await serious()).toEqual([])
 
   await page.getByTestId('onboarding-events-continue').click()
-  await page.getByText('Dark', { exact: true }).click()
   await page.getByRole('heading', { name: 'Set up CubeLab' }).waitFor()
   expect(await serious()).toEqual([])
 
   await page.getByTestId('onboarding-settings-continue').click()
+  await chooseTestOption(page, 'onboarding-appearance-theme', 'dark')
+  await page.getByRole('heading', { name: 'Make it yours' }).waitFor()
+  expect(await serious()).toEqual([])
+  await page.getByTestId('onboarding-appearance-continue').click()
   await page.getByRole('heading', { name: 'Turn on Sync?' }).waitFor()
   expect(await serious()).toEqual([])
 
@@ -600,6 +611,7 @@ test('a failed optional Google connection does not block the local setup', async
   await page.getByTestId('onboarding-start-fresh').click()
   await page.getByTestId('onboarding-events-continue').click()
   await page.getByTestId('onboarding-settings-continue').click()
+  await page.getByTestId('onboarding-appearance-continue').click()
   await page.getByTestId('onboarding-connect-google').click()
   await expect(
     page.getByRole('heading', { name: 'Synchronization did not complete' }),
@@ -666,9 +678,13 @@ test('onboarding respects reduced motion and fits a mobile viewport', async ({
     ),
   ).toBe(true)
   await page.getByTestId('onboarding-events-continue').click()
-  await page.getByText('Dark', { exact: true }).click()
   await expect(
     page.getByRole('heading', { name: 'Set up CubeLab' }),
+  ).toBeVisible()
+  await page.getByTestId('onboarding-settings-continue').click()
+  await chooseTestOption(page, 'onboarding-appearance-theme', 'dark')
+  await expect(
+    page.getByRole('heading', { name: 'Make it yours' }),
   ).toBeVisible()
   expect(
     await page.evaluate(

@@ -1,8 +1,10 @@
 # CubeLab feature and behavior inventory
 
-Source audit: **2026-11-18**, application baseline **`562b4f7`**. The inventory
-was originally compiled on 2026-11-04; this revision checks it against the current
-source and updates the documented schema and environment details. It describes
+Source audit: **2026-11-21**, application baseline **`b77f7a0`** plus the
+uncommitted 2026-11-20 Training backup/sync and 2026-11-21 UI/MISC/tools changes.
+The inventory was originally compiled on 2026-11-04; this revision checks it
+against the current source and updates the documented schema, defaults, MISC
+migration, backup and Drive boundaries. It describes
 implemented features, not proposed future work. It includes visible controls,
 settings defaults, persistence scope, interaction rules, and data behavior.
 The source links identify the owning implementation; this inventory is not a
@@ -18,7 +20,7 @@ verified local development environment.
 - [First-run onboarding](#first-run-onboarding)
 - [Timer, input, inspection and feedback](#timer-input-inspection-and-feedback)
 - [Puzzles and scrambles](#puzzles-and-scrambles)
-- [Sessions and custom events](#sessions-and-custom-events)
+- [Sessions and MISC events](#sessions-and-misc-events)
 - [Solve history and actions](#solve-history-and-actions)
 - [Statistics and calculation behavior](#statistics-and-calculation-behavior)
 - [Floating tools and Time Trend](#floating-tools-and-time-trend)
@@ -49,6 +51,8 @@ verified local development environment.
   and distributes spare row height; mobile shows every enabled statistic.
 - A bottom-right display version identifies the running build. It is separate
   from storage and backup schema versions.
+- A small uppercase, tilted **BETA** pill sits by the cube mark in the header,
+  and the same inline pill marks **Settings → Data → Google Drive backup**.
 - Toasts report actions, failures and available follow-up actions such as Undo
   or Review Merge. Empty, loading and error states are part of each relevant flow.
 
@@ -58,46 +62,60 @@ Training was added in the explicitly expanded Phase 4 scope (2026-11-09).
 It reuses the timer machine, input handling, readout and floating Tools frame.
 
 - Four permanent categories combine OLL or PLL with Execution or Recognition.
-  The Hub restores saved selections and **Begin practice** captures one named
-  session, including a case pool and an algorithm revision for each case.
+  The Hub restores saved selections and **Begin training** captures one named
+  session with a case pool and a verified built-in algorithm for each case.
 - All 78 approved static diagrams, independent enabled selections, mathematical
   family filters, select all/clear, difficult cases and user preset CRUD.
-- User-provided algorithms are verified before setup generation; preferred
-  algorithms, revisions, assumed/corrected/Unknown attribution remain separate
-  from the setup generator. All 57 OLL and 21 PLL cases also have a read-only
-  verified built-in default, switchable with custom algorithms without copying
-  defaults into user storage. The 37 additional PLL variants remain excluded.
+- Algorithm revision tracking is temporarily retired. The setup generator still
+  uses each case's verified built-in default and never copies it into user
+  storage. The 37 additional PLL variants remain excluded.
 - Execution needs one enabled usable case, recognition two; no extra cases are
   added. Verified setup generation stays inside that pool and avoids repeats
   when possible. Recognition hides target names, diagrams and algorithms.
 - Shared manual keyboard/touch timing, no inspection or +2. OLL ends at
   orientation even with PLL remaining; PLL permits AUF. Completed attempts never
-  become ordinary solves. Execution retry stays in the current session.
+  become ordinary solves. Execution retry stays in the current session. Escape
+  cancels a hold or inspection and does not discard a running attempt.
 - Initial recognition calibration is explicit, uses fixed inverse precursor
   setups and seven positive samples/median, with review/retry/cancel. Independent
   medians and captured due thresholds retain historical estimates. Default
   seven-day/100-attempt renewal gates the next Recognition session. Global
-  Training settings also control trimming, inactivity and historical baselines.
+  Main Settings → Training controls trimming, inactivity and historical baselines.
 - Current session, Statistics and Attempts share Timer's sidebar styling and
-  resize behavior. Attempts and statistics use the active session. Each
+  resize behavior. Attempts and statistics use the active session, and attempt
+  counts stay session-scoped. Visit-improvement comparisons use the full
+  category history. Each
   category keeps its own statistics order and visibility.
   Recognition can show Raw or Estimated timing. Detailed statistics has
-  searchable case and algorithm-revision views.
+  searchable case view.
 - Attempts windows long histories and opens the saved attempt, including DNF
-  and attribution corrections and immediate deletion with Undo. Practice History retains
+  result corrections and immediate deletion with Undo. Practice History retains
   recalculated visit reports. End and leave ask for confirmation, and the
   inactivity prompt waits for a choice. Nonempty ends open the exact report
-  before returning to the Hub or queued destination.
+  before returning to the Hub or queued destination. A pre-named-session legacy
+  visit is end-only and is not reopened as interactive practice.
 - Reports include an inspectable attempt-order chart, signed historical
   comparison and estimated Recognition components with coverage. The Hub
   lists recent sessions. Practice history provides filters, read-only review
-  and typed deletion of acknowledged named sessions.
+  and typed deletion of acknowledged named sessions; deletion writes the visit
+  and every attempt tombstone in one Training-sync ledger write before the local
+  removal. Deleting a saved preset offers Undo.
+- Native backup/restore includes the complete checked Training store with
+  replace-only restore; portable native files above the compact 10 MB form use
+  checked gzip. Training also has separate manual Drive backup and replace-only
+  restore, and optional merge-based Drive sync; manual upload and sync share the
+  Training device ID. A replace-only Training restore from either source clears
+  stale Training tombstones, conflicts and approvals while keeping that device ID
+  and preferences. Unreadable or oversized remote Training files are skipped with
+  a warning and can be deleted individually. Solve snapshots, csTimer imports and
+  solve cleanup never include or list Training.
 - Analytics → Algorithms shows Training progression, volume, DNF rate and
   case performance for the selected set and practice type. Solves remains
   the default Analytics view.
-- Optional revision tracking is off by default. When enabled, **Edit cases**
-  offers verified preferred algorithms and session overrides. Every attempt
-  counts toward its case, and revision charts use saved attribution only.
+- Algorithm revision tracking is temporarily retired. Every attempt is
+  case-only; stored custom algorithms, preferred revisions and attribution are
+  erased at load while case totals, timing, setups and visits remain. The former
+  algorithm editor and revision charts are not shown.
 - Last Result is the Training floating panel. It keeps draggable, resizable
   geometry, minimizes while running and restores on completion. Narrow and
   short layouts dock it below the readout.
@@ -107,26 +125,28 @@ It reuses the timer machine, input handling, readout and floating Tools frame.
 - Onboarding opens before the editable timer only when this browser has no saved
   decision and no meaningful local history. An untouched auto-created
   placeholder is not meaningful; stored settings, sync identity, Drive metadata,
-  solves, named sessions, custom events, ordering or transfer records are.
+  solves, named sessions, ordering or transfer records are.
   Existing users therefore keep opening directly into CubeLab after an update.
 - The intro offers **Start Fresh**, **Import from csTimer**, and **Already Use
   CubeLab?** plus a persistent **Skip Setup**. The decision is stored in
   `cubelab:onboarding:v1`; an interrupted path stores a non-sensitive draft and
   resumes without persisting OAuth tokens.
 - **Start Fresh** stages event cards (3×3 selected by default; at least one event),
-  common timer/appearance preferences and a Main Event. On completion it creates
-  exactly one empty session per selected event, reuses the untouched 3×3
+  timer preferences, a Main Event, and a separate Appearance step with theme,
+  accent-preset and custom color controls. The hold-time step shows milliseconds,
+  supports a custom value, and provides a hold/start/stop test surface. On
+  completion it creates exactly one empty session per selected event, reuses the untouched 3×3
   placeholder where possible, preserves every meaningful existing session and
   activates the Main Event session. No session is written merely by selecting a
   card, and retries reuse the same staged identities.
-- **Import from csTimer** uses the existing parser, validation, preview, custom
-  event mapping and additive import path. It skips event selection, never adds
+- **Import from csTimer** uses the existing parser, validation, preview, MISC
+  mapping and additive import path. It skips event selection, never adds
   empty event sessions, preserves imported names/solves/penalties/scrambles and
   lets the Main Event choose only events represented by the import. A durable
   import checkpoint prevents a resumed setup from importing the same file twice.
 - **Already Use CubeLab?** uses the existing Google Drive transport and sync
   merge. It lists and validates cloud snapshots before enabling sync, reports
-  real found/restored counts, restores sessions, solves, custom events, ordering,
+  real found/restored counts, restores sessions, solves, ordering,
   settings, tombstones and selection metadata through the established sync
   protocol, and never treats sign-in as restoration success. If no data is found,
   it offers another account, Start Fresh, or csTimer import. Conflicts continue
@@ -139,9 +159,9 @@ It reuses the timer machine, input handling, readout and floating Tools frame.
   device-only onboarding choice is the Draw Scramble 2D/net versus 3D view;
   synchronized settings (including inspection, timer input, theme, scaling,
   statistics and analytics preferences) are not asked for again.
-- Every path ends in a non-interactive summary that reports actual counts and the
-  Main Event, then fades out after about three seconds and opens the timer with
-  the correct session active. Reduced-motion preferences remove the transition.
+- Every path ends in a summary that reports actual counts and the Main Event,
+  then opens the timer after about two seconds. A **Skip to timer** button
+  dismisses it immediately; reduced-motion preferences remove the transition.
 - **Settings → Data → Setup assistant** reopens the flow non-destructively. It
   never deletes sessions or solves, reuses existing empty event sessions, keeps
   synchronized settings unless the user changes them, and requires an explicit
@@ -230,15 +250,15 @@ Owners: [timer machine](src/timer/machine.ts), [timer hook](src/hooks/useTimer.t
 - 2D nets are scramble-derived for N×N cubes; colors are U white, D yellow,
   F green, B blue, R red, L orange. Non-cube events explain that 2D is unavailable.
 - 3D uses the event's `cubing.js` PG3D puzzle, rather than substituting a cube.
-- Custom events show their configured placeholder or the default custom-event
-  placeholder; they have no generated scramble or 2D/3D visualization. Imported
-  solves keep their original scramble text.
+- MISC shows a neutral placeholder when no scramble is stored and has no
+  generated scramble or 2D/3D visualization. Imported solves keep their original
+  scramble text. Legacy custom-event IDs normalize to MISC on load.
 
 Owners: [events](src/lib/events.ts), [scramble queue](src/hooks/useScramble.ts),
 [scramble component](src/components/ScramblePanel.tsx),
 [tool panel](src/components/ToolPanel.tsx).
 
-## Sessions and custom events
+## Sessions and MISC events
 
 ### Session lifecycle
 
@@ -269,8 +289,10 @@ Owners: [events](src/lib/events.ts), [scramble queue](src/hooks/useScramble.ts),
   accessible Up/Down move controls. Reordering does not select another session.
 - Session ordering persists locally, round-trips in native backups and syncs as
   an ID-based ordering record; additions are appended without dropping sessions.
-- Session settings gear exposes name, event, session overrides, custom-event
-  management, merge/split, clear and delete. Controls lock during active timing.
+- Session settings gear exposes name, event, type, session overrides,
+  merge/split, clear and delete in the same field layout as the creator.
+  The session selector is portalled above the page and dragged rows follow the
+  pointer; separate move buttons are retired. Controls lock during active timing.
 - Merge accepts one or more same-event sources and one destination, previews
   names/counts/resulting total, preserves every solve field/ID, removes sources
   after transfer and makes the destination active. Incompatible events are
@@ -298,25 +320,19 @@ Owners: [events](src/lib/events.ts), [scramble queue](src/hooks/useScramble.ts),
   completed count/time; +2 counts as completed and adds two seconds.
   Summaries update after solves, penalty edits, delete/Undo, import and switching.
 
-### Custom-event management
+### MISC migration
 
-- Create and rename definitions, and edit an optional scramble placeholder.
-  Stable IDs start with `custom:`. Selectors mark custom events as `(custom)`.
-- Names are nonempty, limited to 40 characters, and cannot duplicate another
-  custom name or a built-in event name. Placeholders are limited to 120 characters.
-- Custom events participate in normal timing, inspection, sessions, statistics,
-  PB tracking, Analytics, backup and sync, separately from built-in events.
-- Deleting a definition is blocked while a session or solve references it.
-  Reassignment provides a confirmed way to move whole sessions to another event.
-- Imported csTimer identifiers generate stable definitions reused on repeat
-  import. Automatic correction can use retained csTimer provenance; older
-  imports without that provenance require explicit session reassignment.
-- Custom-event edits and deletions are merged by stable ID during sync.
+- **MISC** is the only catch-all event. It appears in event pickers and has no
+  generator or diagram.
+- Legacy `custom:` sessions and solves, and unsupported csTimer identifiers,
+  normalize to `misc` during local load, backup import, Drive adoption and sync.
+  Stored scramble text and import provenance are retained.
+- The custom-event manager, custom definitions and custom event picker entries
+  are retired. A stale `customEvents` collection is dropped on load.
 
 Owners: [sessions](src/lib/sessions.ts),
 [session settings](src/components/SessionSettingsDialog.tsx),
-[custom events](src/components/CustomEventsDialog.tsx),
-[custom-event rules](src/lib/customEvents.ts).
+[event rules](src/lib/events.ts).
 
 ## Solve history and actions
 
@@ -379,7 +395,10 @@ Owners: [statistics](src/lib/stats.ts), [trimming](src/lib/averageTrimming.ts),
 ### Shared floating panel
 
 - Current tool button opens/closes the panel. Function selector offers **Draw
-  Scramble** and **Time Trend**; Draw Scramble is the initial selected tool.
+  Scramble**, **Time Trend**, **Confirm Time**, **Statistics**, **Time
+  Distribution**, **Daily Stats**, **Metronome** and **Online Battle**;
+  Draw Scramble is the initial selected tool. The first Draw Scramble open asks
+  for a 2D net or 3D cube and remembers the choice.
 - Drag by the header and resize from the corner. Geometry is constrained to
   the timer area; saved position/size is committed at the end of the gesture.
 - Open state and geometry persist on this browser. Tool selection itself is
@@ -413,7 +432,9 @@ Owners: [statistics](src/lib/stats.ts), [trimming](src/lib/averageTrimming.ts),
   selections, axes and viewport controls are transient component state.
 
 Owners: [tool panel](src/components/ToolPanel.tsx),
-[Time Trend](src/components/TimeTrend.tsx), [trend calculations](src/lib/timeTrend.ts),
+[Time Trend](src/components/TimeTrend.tsx), [session tools](src/components/SessionTools.tsx),
+[online battle](src/components/BattleTool.tsx),
+[trend calculations](src/lib/timeTrend.ts),
 [historical PB dialog](src/components/PBStatsDialog.tsx).
 
 ## Analytics
@@ -425,7 +446,8 @@ Owners: [tool panel](src/components/ToolPanel.tsx),
   Tabs support arrows, Home/End and focus-following selection.
 - Global filters: event (initial active event or all events), session type
   (all/practice/competition), sessions (all/none/partial/individual), date (all
-  time, today, 7/30/90 days, year, custom start/end), last matching solves (all,
+  time, today, 7/30/90 days, year, or a custom range chosen in a themed
+  floating calendar), last matching solves (all,
   5, 12, 50, 100, 500, 1000), penalty (all/normal/+2/DNF). Reset returns to
   initial-event scope. Narrow screens collapse the controls behind a Filters
   disclosure with an active-count badge.
@@ -450,6 +472,8 @@ Owners: [tool panel](src/components/ToolPanel.tsx),
   invalidate stale interval selections. Row/point selection opens read-only
   details with event, session, effective/raw result, penalty, date, scramble and
   notes. Empty scope disables View solves.
+- Analytics and Training lazy-route loading uses structural skeletons, not
+  spinner-only loading text.
 - Compact empty charts avoid full-height blank plots and hide stale legends.
   Empty-to-populated charts reattach resize observation.
 - Desktop uses bounded internal scrolling; mobile, short viewports and increased
@@ -496,7 +520,7 @@ storage keys to the user; keys here make the inventory auditable.
 
 | Control / stored key | Default | Choices and behavior |
 | --- | --- | --- |
-| Inspection / `inspectionEnabled` | Off | Enable first-press inspection before timing. |
+| Inspection / `inspectionEnabled` | On | Enable first-press inspection before timing. |
 | Inspection timer / `inspectionCountDirection` | Down | Down/up; changes readout and warning wording, not elapsed limits. |
 | Timer updates / `timerUpdateMode` | Live | Live animation, every 0.1 s, whole seconds; saved timing remains precise. |
 | Hold duration / `holdDurationMs` | 300 ms | 0–10,000 ms, UI step 50 ms; affects readiness of a new hold. |
@@ -514,6 +538,8 @@ storage keys to the user; keys here make the inventory auditable.
 | Warning display / `inspectionWarningVisualScope` | Timer | Timer surface/entire screen pulse. |
 | Theme / `theme` | Light | Light/dark/system; applied before first paint, system follows OS theme. |
 | Accent / `accentColor` | Green | Green/blue/violet/amber across themed controls and surfaces. |
+| Custom colors / `appearance` | None | Optional hex accent, page background, timer surface and timer digits layered over the theme; includes a hold-to-preview timer surface. |
+| Hide even seconds / `hideEvenTimerSeconds` | Off | Masks the whole-second part while it is even; saved times are unchanged. |
 | Visible cards / `statVisibility` | Single, mo3, ao5, ao12 on | Each of the 11 built-in statistic keys independently visible; remaining seven initially off. |
 | Custom averages / `customAverages` | Empty | Up to five `{id, size, visible}` entries; valid integer size 3–10,000, excluding built-in average sizes and duplicates; add/edit/show/hide/remove. |
 | Statistic row metrics / `statMetricVisibility` | Current and Best on; Target/BPA/WPA off | Independently show or hide Current, Best, Target, BPA and WPA in each statistic row. |
@@ -526,7 +552,10 @@ storage keys to the user; keys here make the inventory auditable.
 | Analytics / `analytics` | All sections visible | Ordered `sections` entries (`id`, `visible`, legacy `wide`) and `subXTargetsMs` per event; edited on Analytics. |
 
 Settings sections are **Timer, Alerts, Display, Appearance, Statistics,
-Scramble, Data, Developer options and About**. Data shows local-data status and
+Scramble, Data, Training, Developer options and About**. The Training section
+edits the separate checked Training store (domain trimming, inactivity,
+baselines, per-set renewal thresholds and the device-local upcoming-case view);
+it is not part of the solve Settings schema or solve sync envelope. Data shows local-data status and
 opens Backup & restore or Google Drive. Developer options is collapsed initially
 and contains the typed-confirmation Danger Zone: solve reset, session deletion
 and full local site reset. About identifies the application. They are not
@@ -568,7 +597,7 @@ session-summary display and Analytics preferences remain global.
 
 ### Sub-X defaults and presets
 
-Targets and presets below are in **seconds**. Custom events default to 20 seconds
+Targets and presets below are in **seconds**. MISC defaults to 20 seconds
 and have free entry without built-in presets. All target edits accept 1–3600
 seconds and up to three decimal places; strict `< target` defines success.
 
@@ -589,26 +618,44 @@ seconds and up to three decimal places; strict `< target` defines success.
 
 ## Backup, import and destructive actions
 
-### Native JSON backup and restore
+### Native JSON and gzip backup and restore
 
-- Backup & restore exports a readable local JSON download containing sessions,
-  solves, custom events, active session, session order, partial-split ownership
-  records and application Settings.
-  Export itself does not upload to a server.
+- Backup & restore exports a local native file (readable or compact JSON, or
+  checked gzip when large) containing sessions, solves, active
+  session, session order, partial-split ownership records, application Settings,
+  and the complete checked Training store when that local key exists. Export
+  itself does not upload to a server. It blocks rather than omitting Training
+  while the store is unreadable, a save is pending, a continuity decision is
+  unresolved or a visit is active.
+- Readable JSON is kept when it fits the 10 MB reader limit. Larger files use
+  compact JSON; when the compact form is also above 10 MB, a current browser
+  writes checked gzip (`.json.gz`) within 16 MB encoded and 64 MB decoded bounds.
+  The produced file is decompressed and validated again before download. Missing
+  compression support or an exceeded bound blocks export with the measured size
+  instead of producing a file the reader would reject. Legacy uncompressed
+  `.json` backups remain importable.
 - Native import validates application marker, version, sessions, solve fields,
-  matching session/solve events, custom definitions and settings before mutation.
-  Empty-session backups are valid. Native parsing sanitizes individual invalid
-  session/solve entries and applies supported settings defaults/migrations;
+  matching session/solve events, custom definitions, settings and any optional
+  Training section before mutation. Gzip is detected from the file bytes, not the
+  name. Empty-session backups are valid. Native parsing sanitizes individual
+  invalid session/solve entries and applies supported settings defaults/migrations;
   it does not promise strict rejection of every malformed individual row.
   Invalid markers/versions, no valid collection/settings, mixed session/solve
-  events, or a malformed optional sync envelope reject the whole backup.
+  events, corrupt/oversized compressed input, or a malformed optional sync or
+  Training section reject the whole backup.
 - Preview/confirmation explains current and incoming data; native restore
   replaces local sessions/settings only after confirmation. Cancel does nothing.
-- File limit is 10 MB. Rejected input produces an inline error without mutation;
-  accepted sanitized input is still subject to replacement confirmation.
-  Device UI preferences and local review audit are outside the native backup
-  payload. The parser accepts valid optional sync envelopes for compatibility;
-  ordinary local export does not include that envelope.
+  A Training section is replace-only, reports local and backup attempt/session/
+  calibration counts, and leaves local Training untouched when absent. Active
+  Training, a pending save or an unresolved continuity decision blocks a Training
+  restore. Imported Training visits must all be ended and are never resumed.
+- Rejected input produces an inline error without mutation; accepted sanitized
+  input is still subject to replacement confirmation. Device UI preferences and
+  local review audit are outside the native backup payload. The parser accepts
+  valid optional sync envelopes for compatibility; ordinary local export does not
+  include that envelope. Native exports omit `importMode`; csTimer conversion sets
+  it to `add` for additive application. Solve Drive snapshots keep their separate
+  10 MB cap and never include Training.
 
 ### Additive csTimer import
 
@@ -621,12 +668,13 @@ seconds and up to three decimal places; strict `< target` defines success.
   Names are bounded to CubeLab's limit and preview matches final imported names.
 - Converts supported scramble identifiers to built-in events. Valid metadata
   omitting `opt.scrType` uses csTimer's 333 default. Explicit unsupported types
-  become stable custom events; unavailable/malformed metadata is not guessed 3×3.
+  import into MISC; unavailable/malformed metadata is not guessed 3×3.
 - Preserves raw time, penalty, scramble, comment, original date and source
   session/solve/type provenance, including explicit/default/unavailable type.
 - Malformed rows/lists, invalid durations and invalid provided dates in sessions
   with solves reject before preview. Missing solve dates use available session
   date/current-time fallback; unusable empty-session dates use import time.
+- csTimer input keeps its separate 10 MB cap and never reads or writes Training.
 - Previously imported history is not silently reclassified when mappings change.
 
 ### Destructive actions and guards
@@ -635,7 +683,9 @@ seconds and up to three decimal places; strict `< target` defines success.
 | --- | --- | --- |
 | Delete one solve | Action menu; Undo offered | Removes that solve with durable deletion metadata; Undo revokes deletion. |
 | Clear session | Type `CLEAR THIS SESSION` | Removes its solves, retains session. |
-| Delete session | Type `DELETE THIS SESSION` | Removes session/solves, leaves an active session available. |
+| Delete session | Type `DELETE THIS SESSION` | Persists the collection before publishing the removal and records durable deletion metadata; a failed write keeps the session and revokes its deletion record. |
+| Delete archived Training session | Type `DELETE` | Writes the visit and all attempt tombstones in one Training-sync ledger write, then removes the ended session/attempts. |
+| Delete Training preset | Preset action; Undo offered | Removes the preset with durable deletion intent; Undo restores the preset and revokes the tombstone. |
 | Reset All Solve Data | Type `DELETE ALL SOLVES` | Clears solves across sessions; preserves session names/events/preferences, custom definitions and application settings. |
 | Delete All Sessions | Type `DELETE ALL SESSIONS` | Removes all sessions/solves and creates empty active Session 1; retains settings/custom definitions. |
 | Reset All Site Data | Type `RESET` | Disables sync, blocks Drive access, clears CubeLab-owned local/session storage, IndexedDB, caches, the scoped service worker and local Google authorization, then reloads into first-visit onboarding. Google Drive files are not deleted or replaced; reconnect explicitly. |
@@ -645,11 +695,14 @@ seconds and up to three decimal places; strict `< target` defines success.
 
 - Storage/sync safety and active-timing guards can disable destructive controls.
   Bulk reset/deletion records known solve/session tombstones even when sync is off.
+  Destructive session mutations persist their checked collection once before
+  publishing it; the same bytes are not rewritten by the follow-up autosave.
 - Resets do not delete remote Drive snapshots; solve/session reset publications
   skip cleanup. The full site reset never uploads, deletes or replaces Drive
   files. A blocked IndexedDB deletion or unreadable storage reports partial
   failure and offers retry; browser-managed HTTP cache and Google Identity
-  Services cookies are outside page-script control.
+  Services cookies are outside page-script control. Reset progress and failure
+  dialogs are part of the global modal input guard.
   Unknown solves created solely on another offline device can later be recovered,
   rather than being falsely claimed erased everywhere.
 
@@ -678,6 +731,12 @@ automatic sync; reconnecting explicitly enables it again.
 | Automatic cleanup / `snapshotCleanupEnabled` | On | Cleanup only after successful all-snapshot merge/publication. |
 | Keep per device / `snapshotKeepPerDevice` | 10 | 3, 5, 10, 20, 50 snapshots. |
 | Maximum age / `snapshotMaxAgeDays` | 30 days | 7, 30, 90, 180, 365 days. |
+
+Training Drive sync keeps its own preferences in `cubelab:training-sync:v1`:
+disabled until explicitly enabled, startup sync on when enabled, manual conflict
+review on, automatic cleanup on, and the same default count/age limits (10
+snapshots per device and 30 days). Manual Training uploads separately keep the
+newest five own Training files. These settings are independent of solve sync.
 
 ### Merge and publication behavior
 
@@ -738,23 +797,73 @@ automatic sync; reconnecting explicitly enables it again.
 - Remote-backup deletion includes legacy files, reports partial failures, and
   leaves local sessions/settings intact. Cleanup is best effort.
 
+### Training Drive backup and sync
+
+- Training uses a separate immutable `cubelab-training-<deviceId>-<uuid>.json`
+  family and envelope. The complete checked Training store is capped at 16 MB
+  compact JSON before parsing. Manual upload and merge sync share the Training
+  device ID. Solve snapshots, solve sync state, solve cleanup and the solve 10 MB
+  cap never include or list Training. Phase-one Training files without merge
+  metadata remain readable.
+- **Training history backup** is manual; restore is replace-only. Upload requires
+  an idle timer and a ready, non-pending Training store. Restore previews counts and date
+  range, requires typed `RESTORE TRAINING`, stages a Training-only durable
+  replacement, and blocks active/pending/continuity states, unresolved
+  replacement/Undo recovery and a running solve sync. It never resumes a visit.
+  A replace-only Training restore from native or manual Drive clears stale
+  Training tombstones, conflicts and approvals while keeping the Training device
+  ID and preferences.
+- **Training synchronization** merges attempts, ended visits, calibrations,
+  presets, coarse whole-`preferences` updates and high-water recognition counts. Deletions use attempt/visit/preset tombstones
+  with explicit Undo revocation. A fresh device adopts remote preferences rather
+  than treating local defaults as an edit. Automatic work runs after a session
+  ends (not per attempt) and on startup when enabled, and waits for an idle timer,
+  closed Training store and no pending save, continuity decision, replacement
+  journal, solve recovery or native import.
+- A publish aborts and retries when local Training or the sync ledger changes
+  during upload. Malformed partial ledgers block writes and preserve their bytes;
+  a persisted `syncing` status returns to pending or disabled on load. Unreadable
+  or oversized remote Training files are skipped with a warning and can be
+  deleted individually from the dialog.
+- Training conflicts are separate from solve conflicts. Manual review requires
+  exact local/remote approval and blocks publication or adoption. Training cleanup
+  keeps each device's newest snapshot plus files within the configured count/age
+  limits (default 10 and 30 days); manual upload cleanup keeps the newest five of
+  this device. Training cleanup only selects Training files.
+- Native Training restore and phase-one replace-only restore are blocked while
+  Training Drive sync is enabled. Disabling it stops automatic work but keeps
+  local history and remote files. Clearing `cubelab:training-sync:v1` loses
+  deletion provenance and conflict approvals; **Reset All Site Data** does not
+  delete remote Training files. This is eventual merge, not consensus or a
+  cross-file transaction.
+
 Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
-[sync orchestration](src/hooks/useSync.ts), [backup transport hook](src/hooks/useDriveBackup.ts),
-[merge](src/lib/sync.ts), [local sync preferences](src/lib/syncStorage.ts),
-[retention](src/lib/snapshotRetention.ts).
+[solve sync orchestration](src/hooks/useSync.ts), [solve backup transport hook](src/hooks/useDriveBackup.ts),
+[solve merge](src/lib/sync.ts), [local sync preferences](src/lib/syncStorage.ts),
+[solve retention](src/lib/snapshotRetention.ts),
+[Training Drive envelope](src/lib/trainingDrive.ts),
+[manual Training backup/restore](src/hooks/useTrainingDriveBackup.ts),
+[Training merge](src/lib/trainingSync.ts),
+[Training ledger](src/lib/trainingSyncStorage.ts),
+[Training sync orchestration](src/hooks/useTrainingSync.ts),
+[Training deletion provenance](src/lib/trainingDeletion.ts).
 
 ## Persistence, accessibility and platform behavior
 
 - No application backend or telemetry; records are in browser storage unless
   exported or explicitly synchronized. Browser/origin changes do not share local
   storage automatically.
-- Sessions schema v7, Settings schema v11; storage key suffixes remain v1.
-  Validation and migrations preserve supported older data. Legacy single-session
-  migration imports its supported 3×3 records into Session 1.
+- Sessions schema v7, Settings schema v12, Training schema v1 and native backup
+  v1; storage key suffixes remain v1. `cubelab:training-sync:v1` is a separate
+  ledger. Validation and migrations preserve supported older data. Legacy
+  single-session migration imports its supported 3×3 records into Session 1.
 - Persistence failures are surfaced; corrupt/unsafe state is not a reason to
   silently clear user history. Same-origin tabs reconcile session/settings edits,
   defer external adoption while timing, and merge newly recorded solves by ID.
   This does not provide transactional simultaneous destructive editing.
+  Destructive session mutations persist once before publishing instead of
+  immediately autosaving the same bytes again. An absent legacy custom-event collection
+  uses a shared stable empty list, so unrelated consumers are not invalidated.
 - Light/dark palettes, four accents, system-theme following and pre-paint theme
   bootstrap; interface scales without changing saved solve data.
 - Custom combobox/listbox controls support arrows, Home/End, Enter, Space within
@@ -791,12 +900,13 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
 | Timing/inspection/input | [machine tests](src/timer/machine.test.ts), [timer hook tests](src/hooks/useTimer.test.ts), [timer browser flows](e2e/timer.spec.ts), [response flows](e2e/timer-response.spec.ts) |
 | First-run onboarding | [state/session helpers](src/lib/onboarding.test.ts), [component flow](src/components/Onboarding.test.tsx), [browser paths](e2e/onboarding.spec.ts) |
 | Sessions/settings/summaries | [session rules](src/lib/sessions.test.ts), [Settings UI](src/components/SettingsDialog.test.tsx), [session settings UI](src/components/SessionSettingsDialog.test.tsx), [session browser flows](e2e/session-management.spec.ts) |
-| Custom events/imports | [custom events](src/lib/customEvents.test.ts), [csTimer parser](src/lib/csTimerImport.test.ts), [custom-event flows](e2e/custom-events.spec.ts) |
+| MISC/imports | [event rules](src/lib/events.test.ts), [csTimer parser](src/lib/csTimerImport.test.ts), [tools flow](e2e/tools.spec.ts) |
 | Statistics/trimming | [statistics](src/lib/stats.test.ts), [trimming](src/lib/averageTrimming.test.ts), [format](src/lib/format.test.ts), [browser trimming](e2e/average-trimming.spec.ts) |
 | Scramble/tools/trends | [scrambles](src/lib/scramble.test.ts), [tool panel](src/components/ToolPanel.test.tsx), [Time Trend](src/components/TimeTrend.test.tsx), [trend calculations](src/lib/timeTrend.test.ts), [trend browser flows](e2e/time-trend.spec.ts) |
 | Analytics | [calculations](src/lib/analytics.test.ts), [settings](src/lib/analyticsSettings.test.ts), [page](src/components/AnalyticsPage.test.tsx), [browser flows](e2e/analytics.spec.ts) |
-| Training | [domain modules](src/lib/training/), [page tests](src/components/TrainingPage.test.tsx), [browser flows](e2e/training.spec.ts), [integrated flows](e2e/training-integrated.spec.ts) |
-| Persistence/backup/sync | [storage](src/lib/storage.test.ts), [backup](src/lib/backup.test.ts), [sync hook](src/hooks/useSync.test.ts), [merge stress](src/lib/sync.stress.test.ts), [cross-tab timing](e2e/cross-tab-timing.spec.ts) |
+| Training | [domain modules](src/lib/training/), [page tests](src/components/TrainingPage.test.tsx), [deletion provenance](src/lib/trainingDeletion.test.ts), [native backup section](src/lib/training/backupSection.ts), [browser flows](e2e/training.spec.ts), [integrated flows](e2e/training-integrated.spec.ts), [native backup flows](e2e/training-backup.spec.ts) |
+| Training Drive | [envelope/retention](src/lib/trainingDrive.test.ts), [manual backup hook](src/hooks/useTrainingDriveBackup.test.tsx), [merge](src/lib/trainingSync.test.ts), [ledger](src/lib/trainingSyncStorage.test.ts), [sync hook](src/hooks/useTrainingSync.test.tsx), [manual browser flow](e2e/training-drive-backup.spec.ts), [two-device flow](e2e/training-drive-sync.spec.ts) |
+| Persistence/backup/sync | [storage](src/lib/storage.test.ts), [backup](src/lib/backup.test.ts), [portable backup](src/lib/portableBackup.test.ts), [sync hook](src/hooks/useSync.test.ts), [merge stress](src/lib/sync.stress.test.ts), [cross-tab timing](e2e/cross-tab-timing.spec.ts) |
 | Theme/accessibility | [theme tests](src/lib/theme.test.ts), [browser accessibility](e2e/accessibility.spec.ts) |
 
 For ongoing maintenance, update this file when a control, default, persisted

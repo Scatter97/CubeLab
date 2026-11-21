@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, SESSIONS_STORAGE_KEY, SETTINGS_STORAGE_KEY, SOLVES_ST
 import { TRAINING_STORAGE_KEY, createEmptyTrainingData, deserializeTrainingData, serializeTrainingData, migrateTrainingData, loadTraining, saveTraining } from './storage'
 import { createTrainingAttempt, createTrainingVisit, appendTrainingAttempt } from './records'
 import { NOW, setup, calibration } from './persistenceFixtures.test-support'
+import { stripRetiredAlgorithmTracking } from './retiredAlgorithmTracking'
 
 class MemoryStorage implements StorageLike {
   values = new Map<string, string>()
@@ -54,7 +55,9 @@ describe('checked Training persistence', () => {
     const s = new MemoryStorage()
     expect(saveTraining(data, null, s).ok).toBe(true)
     const loaded = loadTraining(s)
-    expect(loaded.ok && loaded.data).toEqual(data)
+    expect(loaded.ok && loaded.data).toEqual(stripRetiredAlgorithmTracking(data))
+    expect(loaded.ok && loaded.data.customAlgorithms).toEqual([])
+    expect(loaded.ok && loaded.data.preferences.preferredAlgorithms).toEqual([])
     expect(loaded.ok && loaded.data.preferences.sets.pll.includeSetupMoves).toBe(false)
   })
 
@@ -62,7 +65,7 @@ describe('checked Training persistence', () => {
     const data = populated()
     const a = data.attempts[0]!
     const changed = { ...data, calibrations: [], preferences: { ...data.preferences, preferredAlgorithms: [{ caseId: a.caseId, algorithm: { id: 'new', revision: 2, notation: null } }] } }
-    expect(deserializeTrainingData(serializeTrainingData(changed)).attempts[0]).toEqual(a)
+    expect(deserializeTrainingData(serializeTrainingData(changed)).attempts[0]).toEqual({ ...a, algorithmTracking: false })
   })
 
   it.each(['{broken', '', 'null', '{}', '{"version":0}', '{"version":2}'])('preserves malformed/unsupported bytes %s and blocks writes', (raw) => {
@@ -209,7 +212,7 @@ describe('checked Training persistence', () => {
     expect(saveTraining(populated(), null, s).ok).toBe(true)
     for (const [key, raw] of before) expect(s.getItem(key)).toBe(raw)
     expect(loadSessionsForStartup(s).data.sessions[0]!.solves).toEqual(sessions.sessions[0]!.solves)
-    expect(loadSessionsForStartup(s).data.customEvents).toEqual(sessions.customEvents)
+    expect(loadSessionsForStartup(s).data.customEvents).toBeUndefined()
     expect(serializeBackup(createBackup(sessions, DEFAULT_SETTINGS, new Date(NOW)))).toBe(backupBefore)
     expect(parseBackup(backupBefore).ok).toBe(true)
     const trainingRaw = s.getItem(TRAINING_STORAGE_KEY)
