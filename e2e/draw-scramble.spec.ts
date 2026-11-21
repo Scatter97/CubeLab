@@ -165,7 +165,13 @@ test('first open asks for the 2D net or 3D cube and remembers the choice', async
   await page.getByTestId('current-tool-button').click()
   const prompt = page.getByTestId('draw-scramble-mode-prompt')
   await expect(prompt).toBeVisible()
-  await prompt.getByRole('button', { name: '3D cube' }).click()
+  const switchGroup = prompt.getByRole('group', { name: 'Scramble drawing style' })
+  await switchGroup.getByRole('button', { name: '3D cube' }).click()
+  await expect(
+    switchGroup.getByRole('button', { name: '3D cube' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('tool-panel')).toHaveAttribute('data-mode', 'net')
+  await prompt.getByRole('button', { name: 'Confirm' }).click()
   await expect(prompt).toHaveCount(0)
   await expect(page.getByTestId('tool-panel')).toHaveAttribute('data-mode', '3d')
   await page.reload()

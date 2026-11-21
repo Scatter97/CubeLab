@@ -249,6 +249,7 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
   const [modePromptOpen, setModePromptOpen] = useState(
     () => Boolean(onSelectMode) && !hasChosenDrawScrambleMode(),
   )
+  const [promptMode, setPromptMode] = useState<DrawScrambleMode>(mode)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLElement | null>(null)
@@ -525,14 +526,33 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
           modePromptOpen ? (
             <div className="draw-scramble-mode-prompt" data-testid="draw-scramble-mode-prompt">
               <p>How should scrambles be drawn?</p>
-              <div className="draw-scramble-mode-choices">
-                <button type="button" className="button button-primary button-small" onClick={() => chooseDrawMode('net')}>
+              <div
+                className="pill-switch draw-scramble-mode-switch"
+                role="group"
+                aria-label="Scramble drawing style"
+              >
+                <button
+                  type="button"
+                  aria-pressed={promptMode === 'net'}
+                  onClick={() => setPromptMode('net')}
+                >
                   2D net
                 </button>
-                <button type="button" className="button button-secondary button-small" onClick={() => chooseDrawMode('3d')}>
+                <button
+                  type="button"
+                  aria-pressed={promptMode === '3d'}
+                  onClick={() => setPromptMode('3d')}
+                >
                   3D cube
                 </button>
               </div>
+              <button
+                type="button"
+                className="button button-primary button-small"
+                onClick={() => chooseDrawMode(promptMode)}
+              >
+                Confirm
+              </button>
               <span>You can change this later in Settings → Scramble.</span>
             </div>
           ) : customEvent ? (
