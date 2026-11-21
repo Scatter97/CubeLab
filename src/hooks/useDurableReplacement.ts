@@ -32,7 +32,7 @@ import {
   loadPendingCompletion,
 } from '../lib/pendingCompletion'
 import {
-  loadSyncStorage,
+  loadSyncStorageChecked,
   saveSyncStorage,
   type Tombstone,
 } from '../lib/syncStorage'
@@ -173,14 +173,14 @@ export function useDurableReplacement(
             ? pendingCompletion.completion
             : null
         let tombstones: readonly Tombstone[]
-        try {
-          tombstones = loadSyncStorage().runtime.tombstones
-        } catch {
+        const syncRead = loadSyncStorageChecked()
+        if (!syncRead.ok) {
           onNotify(
-            `${plan.failurePrefix}: the deletion records could not be read.`,
+            `${plan.failurePrefix}: ${syncRead.message} Nothing was replaced.`,
           )
           return false
         }
+        tombstones = syncRead.data.runtime.tombstones
         // A completion accepted by another tab while this candidate was being
         // prepared belongs to the replacement outcome too. Apply it before the
         // candidate is staged so the commit is complete on disk.

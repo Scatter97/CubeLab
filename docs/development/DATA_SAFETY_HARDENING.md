@@ -164,4 +164,29 @@ Sections below are updated as each phase is verified.
   (6 files, 78 tests passed), including injected failures at every listed
   transition and crash-before/after-commit recovery.
 
+## Phase 3 — checked cross-tab adoption (verified 2026-11-21)
+
+- `useSync` cross-tab session events use `loadSessionsChecked`; corrupt,
+  unsupported or missing external bytes are ignored (missing is not an empty
+  collection). Timer deferral and pending-completion reconciliation are
+  unchanged.
+- Committed replacement adoption validates sessions, settings and sync
+  provenance together before publishing any of them. A failure leaves every
+  prior collection and reconciliation baseline intact and surfaces the reason.
+- `loadSyncStorageChecked` validates the v1 ledger, device identity, tombstones,
+  conflicts, audit entries, redirects, pending names and settings field updates
+  without writing. `saveSyncStorage` refuses to overwrite an unreadable or
+  partly invalid existing ledger. `useSync` starts in a failed/blocked state
+  when the ledger is invalid, prevents sync publication and never creates
+  deletion tombstones from a failed read.
+- `useDurableReplacement` also requires checked sync provenance before opening a
+  journal, so import/restore cannot overwrite provenance it could not read.
+- Verification: `npm run typecheck`, `npm run lint` and
+  `npm test -- src/hooks/useDurableReplacement.test.ts src/lib/syncStorage.test.ts
+  src/hooks/useSync.test.ts` (3 files, 95 tests passed), plus the Phase 1/2
+  focused suites. The new cases cover corrupt/future external data, repeated
+  invalid events, committed replacement with one invalid collection, timer
+  deferral, and unreadable sync provenance.
+
+
 

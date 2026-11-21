@@ -3,6 +3,7 @@ import {
   createDefaultSyncStorage,
   getSyncDeviceId,
   loadSyncStorage,
+  loadSyncStorageChecked,
   parseSyncStorageData,
   resetDeviceIdCacheForTests,
   saveSyncStorage,
@@ -218,5 +219,65 @@ describe('conflict audit history', () => {
       localValue: null,
       remoteValue: true,
     })
+  })
+})
+
+describe('checked synchronization provenance', () => {
+  it('distinguishes absent bytes from invalid provenance without writing', () => {
+    const storage = memoryStorage()
+    const loaded = loadSyncStorageChecked(storage)
+    expect(loaded).toMatchObject({ ok: true, raw: null })
+    expect(storage.values.has(SYNC_STORAGE_KEY)).toBe(false)
+
+    storage.values.set(SYNC_STORAGE_KEY, '{bad')
+    const invalid = loadSyncStorageChecked(storage)
+    expect(invalid).toMatchObject({
+      ok: false,
+      reason: 'invalid-json',
+      raw: '{bad',
+    })
+    expect(storage.values.get(SYNC_STORAGE_KEY)).toBe('{bad')
+  })
+
+  it.each([
+    ['a future version', JSON.stringify({ version: 2, preferences: {}, runtime: { deviceId: 'd' } }), 'unsupported-version'],
+    ['a missing device ID', JSON.stringify({ version: 1, preferences: {}, runtime: {} }), 'invalid-schema'],
+    ['a malformed tombstone', JSON.stringify({
+      version: 1,
+      preferences: {},
+      runtime: {
+        deviceId: 'device-a',
+        tombstones: [{ kind: 'solve', id: '', deletedAt: 1, deletedByDeviceId: 'a' }],
+      },
+    }), 'invalid-schema'],
+    ['a malformed conflict', JSON.stringify({
+      version: 1,
+      preferences: {},
+      runtime: {
+        deviceId: 'device-a',
+        conflicts: [{ kind: 'solve' }],
+      },
+    }), 'invalid-schema'],
+  ])('rejects %s and preserves the raw bytes', (_label, raw, reason) => {
+    const storage = memoryStorage({ [SYNC_STORAGE_KEY]: raw })
+    expect(loadSyncStorageChecked(storage)).toMatchObject({
+      ok: false,
+      reason,
+      raw,
+    })
+    expect(storage.values.get(SYNC_STORAGE_KEY)).toBe(raw)
+  })
+
+  it('never overwrites unreadable provenance with a fresh ledger', () => {
+    const storage = memoryStorage({ [SYNC_STORAGE_KEY]: '{bad' })
+    expect(saveSyncStorage(createDefaultSyncStorage('device-a'), storage)).toBe(false)
+    expect(storage.values.get(SYNC_STORAGE_KEY)).toBe('{bad')
+  })
+
+  it('still writes a checked current ledger', () => {
+    const storage = memoryStorage()
+    const data = createDefaultSyncStorage('device-a')
+    expect(saveSyncStorage(data, storage)).toBe(true)
+    expect(loadSyncStorageChecked(storage)).toMatchObject({ ok: true })
   })
 })

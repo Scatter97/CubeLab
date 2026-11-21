@@ -547,3 +547,38 @@ describe('useDurableReplacement', () => {
     expect(localStorage.getItem('cubelab:replacement:v1')).toBeNull()
   })
 })
+
+describe('useDurableReplacement provenance guard', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    saveSessions(sessions('Previous'))
+    saveSettings(DEFAULT_SETTINGS)
+    saveSyncStorage(createDefaultSyncStorage('device-test'))
+  })
+
+  it('blocks every candidate write when sync provenance cannot be validated', async () => {
+    const corrupt = '{not valid provenance'
+    localStorage.setItem('cubelab:sync:v1', corrupt)
+    const beforeSessions = localStorage.getItem('cubelab:sessions:v1')
+    const { result, onNotify } = setup()
+    let replaced = true
+    await act(async () => {
+      replaced = await result.current({
+        kind: 'native-import',
+        sessionsData: sessions('Candidate'),
+        settingsData: { ...DEFAULT_SETTINGS, theme: 'dark' },
+        syncStorage: createDefaultSyncStorage('device-candidate'),
+        successMessage: 'Imported',
+        failurePrefix: 'Import blocked',
+        onSuccess: vi.fn(),
+      })
+    })
+    expect(replaced).toBe(false)
+    expect(onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('provenance'),
+    )
+    expect(localStorage.getItem('cubelab:sessions:v1')).toBe(beforeSessions)
+    expect(localStorage.getItem('cubelab:sync:v1')).toBe(corrupt)
+    expect(localStorage.getItem('cubelab:replacement:v1')).toBeNull()
+  })
+})

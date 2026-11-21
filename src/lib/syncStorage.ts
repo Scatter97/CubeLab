@@ -503,6 +503,139 @@ interface SyncStorageReader {
   setItem?(key: string, value: string): void
 }
 
+export type CheckedSyncStorageFailureReason =
+  | 'unavailable'
+  | 'read-error'
+  | 'invalid-json'
+  | 'invalid-schema'
+  | 'unsupported-version'
+
+export type CheckedSyncStorageResult =
+  | { ok: true; data: SyncStorageData; raw: string | null }
+  | {
+      ok: false
+      reason: CheckedSyncStorageFailureReason
+      raw: string | null | undefined
+      message: string
+    }
+
+function isStrictSyncStorage(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (value.version !== SYNC_STORAGE_VERSION) return false
+  if (!isRecord(value.runtime)) return false
+  if (
+    typeof value.runtime.deviceId !== 'string' ||
+    value.runtime.deviceId.length === 0
+  ) {
+    return false
+  }
+  const arrayChecks: Array<[unknown, (entry: unknown) => boolean]> = [
+    [value.runtime.tombstones, isTombstone],
+    [value.runtime.conflicts, isConflict],
+    [value.runtime.conflictAudit, isConflictAuditEntry],
+    [value.runtime.sessionRedirects, isSessionRedirect],
+    [
+      value.runtime.pendingDuplicateNames,
+      (entry) => typeof entry === 'string' && entry.trim().length > 0,
+    ],
+  ]
+  for (const [candidate, validate] of arrayChecks) {
+    if (candidate === undefined) continue
+    if (!Array.isArray(candidate) || !candidate.every(validate)) return false
+  }
+  if (value.runtime.settingsFieldUpdates !== undefined) {
+    if (!isRecord(value.runtime.settingsFieldUpdates)) return false
+    if (
+      !Object.values(value.runtime.settingsFieldUpdates).every(isFieldUpdate)
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * Strict provenance reader. It never writes and never converts a malformed
+ * ledger into a fresh writable one. `raw: null` is a genuinely absent key.
+ */
+export function loadSyncStorageChecked(
+  storage: SyncStorageReader | null = getDefaultStorage(),
+): CheckedSyncStorageResult {
+  if (!storage) {
+    return {
+      ok: false,
+      reason: 'unavailable',
+      raw: undefined,
+      message:
+        'Synchronization provenance could not be read because browser storage is unavailable.',
+    }
+  }
+  let raw: string | null
+  try {
+    raw = storage.getItem(SYNC_STORAGE_KEY)
+  } catch {
+    return {
+      ok: false,
+      reason: 'read-error',
+      raw: undefined,
+      message:
+        'Synchronization provenance could not be read. The original record has been kept.',
+    }
+  }
+  if (raw === null) {
+    return { ok: true, data: createDefaultSyncStorage(), raw }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {
+      ok: false,
+      reason: 'invalid-json',
+      raw,
+      message:
+        'Synchronization provenance is not valid JSON. The original record has been kept and sync writes are paused.',
+    }
+  }
+  if (!isRecord(parsed) || typeof parsed.version !== 'number') {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'Synchronization provenance has an unsupported format. The original record has been kept and sync writes are paused.',
+    }
+  }
+  if (parsed.version !== SYNC_STORAGE_VERSION) {
+    return {
+      ok: false,
+      reason: 'unsupported-version',
+      raw,
+      message: `Synchronization provenance uses schema v${parsed.version}, which this build cannot safely edit. The original record has been kept and sync writes are paused.`,
+    }
+  }
+  if (!isStrictSyncStorage(parsed)) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'Synchronization provenance could not be validated. The original record has been kept and sync writes are paused.',
+    }
+  }
+  const data = parseSyncStorageData(parsed)
+  if (!data) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'Synchronization provenance could not be validated. The original record has been kept and sync writes are paused.',
+    }
+  }
+  return { ok: true, data, raw }
+}
+
 export function loadSyncStorage(storage: SyncStorageReader | null = getDefaultStorage()): SyncStorageData {
   if (!storage) return createDefaultSyncStorage()
   const raw = storage.getItem(SYNC_STORAGE_KEY)
@@ -540,9 +673,20 @@ export function getSyncDeviceId(storage?: SyncStorageReader | null): string {
 
 export function saveSyncStorage(
   data: SyncStorageData,
-  storage: { setItem(key: string, value: string): void } | null = getDefaultStorage(),
+  storage: SyncStorageReader | null = getDefaultStorage(),
 ): boolean {
-  if (!storage || isSiteResetInProgress()) return false
+  if (!storage?.setItem || isSiteResetInProgress()) return false
+  try {
+    const existing = storage.getItem(SYNC_STORAGE_KEY)
+    if (existing !== null) {
+      // Never replace unreadable or partly invalid provenance with a fresh
+      // ledger. The caller must surface the failure and keep the raw record.
+      const parsed: unknown = JSON.parse(existing)
+      if (!isStrictSyncStorage(parsed)) return false
+    }
+  } catch {
+    return false
+  }
   try {
     storage.setItem(SYNC_STORAGE_KEY, JSON.stringify(data))
     return true
