@@ -530,6 +530,7 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
                 className="pill-switch draw-scramble-mode-switch"
                 role="group"
                 aria-label="Scramble drawing style"
+                data-selected-index={promptMode === 'net' ? 0 : 1}
               >
                 <button
                   type="button"

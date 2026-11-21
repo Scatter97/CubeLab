@@ -44,8 +44,8 @@ Implemented the 50-item request list. Release version is now
   no-scramble category at local load, backup import, Drive adoption and sync.
 - Scramble failure shows the error and a **Regenerate scramble** action.
 - The default tool panel is 220×250; it crops clear of the readout when space is
-  tight. First Draw Scramble open uses a 2D net / 3D cube pill switch with a
-  Confirm action and persists the choice.
+  tight. First Draw Scramble open uses an animated 2D net / 3D cube pill switch
+  with a Confirm action and persists the choice.
 - Added Confirm Time, Statistics, Time Distribution, Daily Stats, Metronome and
   serverless Online Battle tools. Battle uses manual WebRTC invitation/answer
   codes with room ID/password validation; no backend or account is involved.
@@ -98,7 +98,7 @@ Implemented the 50-item request list. Release version is now
 npm run typecheck                         # passed
 npm run lint                              # passed; existing App ref, SessionPanel purity and archived-probe warnings
 npm test                                  # 117 files, 1,507 tests passed (SVG generator now has an explicit 30 s timeout)
-npm run build                             # passed; PWA 80 precache entries (4,007.38 KiB)
+npm run build                             # passed; PWA 80 precache entries (4,007.85 KiB)
 git diff --check                          # passed
 CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- --project=chromium --workers=4 --retries=0
 # 266 passed, 2 failed: fake-clock inspection-while-holding cases under parallel load;
