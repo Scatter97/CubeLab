@@ -97,6 +97,7 @@ import {
   type SiteResetStorageResult,
 } from './lib/siteReset'
 import { loadDriveBackupState } from './lib/driveStorage'
+import { requestStoragePersistence } from './lib/storagePersistence'
 import { loadSyncStorage } from './lib/syncStorage'
 import {
   addPendingSolveRestore,
@@ -507,6 +508,9 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
         settings.alertVolume,
       )
       advanceScramble()
+      // Ask after the accepted solve has been scheduled and never block the
+      // timing path on a browser permission API.
+      void requestStoragePersistence().catch(() => undefined)
     },
     [
       addSolve,
@@ -781,6 +785,7 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
 
   const handleOnboardingMarkComplete = useCallback(() => {
     markOnboardingDecision('completed')
+    void requestStoragePersistence().catch(() => undefined)
   }, [])
 
   const handleOpenOnboardingFromSettings = useCallback(() => {
@@ -2950,6 +2955,7 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
         deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
         onRequestResetAllSiteData={handleOpenSiteReset}
         developerSyncStatus={developerSyncStatus}
+        lastSyncAt={sync.lastSyncAt}
         trainingData={training.state.data}
         showUpcomingCase={trainingShowUpcomingCase}
         onShowUpcomingCaseChange={handleTrainingUpcomingCaseChange}

@@ -11386,3 +11386,36 @@ select option {
 .recovery-confirm-field code {
   font-family: var(--font-mono);
 }
+
+/* Settings → Data storage health */
+.storage-health {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.storage-health .settings-row {
+  padding: 4px 0;
+}
+
+.storage-health-note,
+.storage-health-status {
+  margin: 6px 0 0;
+  font-size: var(--type-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.storage-health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.storage-health-actions .settings-data-button {
+  width: auto;
+  margin-top: 0;
+}

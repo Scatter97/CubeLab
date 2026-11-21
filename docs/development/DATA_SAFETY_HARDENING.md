@@ -217,6 +217,28 @@ Sections below are updated as each phase is verified.
   tampered-archive rejection, archive preview/confirmation, failed removal and
   typed destructive confirmation.
 
+## Phase 5 — storage persistence and data health (verified 2026-11-21)
+
+- `src/lib/storagePersistence.ts` wraps `navigator.storage.persisted()`,
+  `persist()` and `estimate()` defensively. Unsupported, throwing and rejected
+  calls stay distinct from a denial. Persistence is requested at most once per
+  profile (marker `cubelab:persistence-request:v1`), after a first accepted solve
+  or onboarding completion, without blocking the timing path. Settings exposes a
+  forced request button when not granted.
+- Settings → Data now shows persistent-storage status, browser usage/quota,
+  the last completed local recovery archive, the last successful Drive sync,
+  the last Drive backup file (when tracked) and a recovery-copy export. It
+  explicitly states that synchronization is not an independent backup.
+- Quota failures retain the last durable collection/settings and the verified
+  archive; `storageOk` is surfaced as a warning. Archive, settings and session
+  writes never substitute empty data on failure.
+- Verification: `npm run typecheck`, `npm run lint`,
+  `npm test -- src/lib/storagePersistence.test.ts
+  src/components/StorageHealthPanel.test.tsx src/components/SettingsDialog.test.tsx
+  src/lib/storage.test.ts` (4 files, 102 tests passed), plus the archive quota
+  case from Phase 2.
+
+
 
 
 
