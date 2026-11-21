@@ -166,7 +166,13 @@ test('first open asks for the 2D net or 3D cube and remembers the choice', async
   const prompt = page.getByTestId('draw-scramble-mode-prompt')
   await expect(prompt).toBeVisible()
   const switchGroup = prompt.getByRole('group', { name: 'Scramble drawing style' })
+  expect(
+    await switchGroup.evaluate(
+      (element) => getComputedStyle(element, '::before').transitionDuration,
+    ),
+  ).not.toBe('0s')
   await switchGroup.getByRole('button', { name: '3D cube' }).click()
+  await expect(switchGroup).toHaveAttribute('data-selected-index', '1')
   await expect(
     switchGroup.getByRole('button', { name: '3D cube' }),
   ).toHaveAttribute('aria-pressed', 'true')
