@@ -18,6 +18,7 @@ export type ReplacementKind =
   | 'drive-restore'
   | 'additive-import'
   | 'training-restore'
+  | 'upgrade'
 
 export type ReplacementKey =
   | 'sessions'
@@ -89,7 +90,8 @@ function parseJournal(value: unknown): ReplacementJournal | null {
     (value.kind !== 'native-import' &&
       value.kind !== 'drive-restore' &&
       value.kind !== 'additive-import' &&
-      value.kind !== 'training-restore') ||
+      value.kind !== 'training-restore' &&
+      value.kind !== 'upgrade') ||
     (value.phase !== 'prepared' && value.phase !== 'committed') ||
     typeof value.createdAt !== 'number' ||
     !Number.isFinite(value.createdAt) ||

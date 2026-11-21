@@ -7,6 +7,7 @@ import {
   parseSettingsData,
   saveSettings,
   SETTINGS_STORAGE_KEY,
+  SETTINGS_STORAGE_VERSION,
   type SettingsSnapshot,
 } from '../lib/storage'
 import { SETTINGS_FIELD_KEYS } from '../lib/settingsMerge'
@@ -85,13 +86,21 @@ export function useSettings(
   const pendingExternalRef = useRef<Settings | null>(null)
 
   useEffect(() => {
+    if (
+      initialWrite.current &&
+      (snapshot.raw === undefined ||
+        snapshot.sourceVersion === SETTINGS_STORAGE_VERSION)
+    ) {
+      initialWrite.current = false
+      return
+    }
     const success = saveSettings(settings)
     if (initialWrite.current) {
       initialWrite.current = false
       return
     }
     setSettingsStorageOk(success)
-  }, [settings])
+  }, [settings, snapshot.raw, snapshot.sourceVersion])
 
   const mergeExternal = useCallback((loaded: Settings) => {
     setSettings((previous) => {

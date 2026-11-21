@@ -137,3 +137,31 @@ Sections below are updated as each phase is verified.
   src/lib/startupDataSafety.test.tsx src/hooks/useSync.test.ts` (4 files,
   168 tests passed).
 
+## Phase 2 — verified upgrade archives (verified 2026-11-21)
+
+- `src/lib/upgradeArchive.ts` stores exact pre-upgrade key bytes in IndexedDB
+  (`cubelab-upgrade-archive`) or, only when IndexedDB cannot be opened, in
+  CubeLab-owned localStorage keys. Archive records carry format/version, unique
+  ID, time, app version, source versions, included keys, present-vs-absent
+  state, exact strings, per-entry checksums and an overall manifest. A write is
+  re-read and verified before it is accepted.
+- Retention keeps the two newest verified archives plus the newest completed
+  last-known-good checkpoint. Failed cleanup never deletes the only copy.
+- `src/lib/startupMigration.ts` runs under the lifetime active-tab lock after
+  replacement and pending-completion recovery. It reads strictly, archives,
+  re-reads the archive, validates the complete candidate, starts the existing
+  replacement journal (`kind: 'upgrade'`), writes both candidates, verifies the
+  exact bytes, records the commit marker, revalidates schemas, and only then
+  clears the journal. A failure before/after any boundary restores or retains a
+  recoverable state; already-current canonical records are not rewritten.
+- The replacement journal is the only transaction marker. Prepared upgrades roll
+  back at startup; committed upgrades roll forward. The archive is separate and
+  is never treated as a substitute for the journal.
+- Verification: `npm run typecheck`, `npm run lint` and
+  `npm test -- src/lib/upgradeArchive.test.ts src/lib/startupMigration.test.ts
+  src/lib/startupRecovery.test.ts src/hooks/useSettings.test.ts
+  src/hooks/useSessions.test.ts src/lib/startupDataSafety.test.tsx`
+  (6 files, 78 tests passed), including injected failures at every listed
+  transition and crash-before/after-commit recovery.
+
+
