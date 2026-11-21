@@ -38,18 +38,13 @@ import type { UseSyncResult } from '../hooks/useSync'
 import type { DrawScrambleMode } from '../hooks/useDrawScrambleMode'
 import type { SessionsData, Settings } from '../types'
 import { loadSyncStorage } from '../lib/syncStorage'
-import { CheckIcon, ChevronRightIcon, CubeIcon } from './Icons'
+import { CheckIcon, ChevronRightIcon, CubeMark } from './Icons'
+import { AppearanceControls } from './AppearanceControls'
 
 const TIMER_UPDATE_OPTIONS = [
   { value: 'live', label: 'Live' },
   { value: 'tenths', label: '0.1 s' },
   { value: 'seconds', label: 'Seconds' },
-] as const
-
-const THEME_OPTIONS = [
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'system', label: 'System' },
 ] as const
 
 const DRAW_SCRAMBLE_OPTIONS = [
@@ -58,9 +53,9 @@ const DRAW_SCRAMBLE_OPTIONS = [
 ] as const
 
 const HOLD_OPTIONS = [
-  { value: 150, label: 'Quick' },
-  { value: 300, label: 'Standard' },
-  { value: 500, label: 'Deliberate' },
+  { value: 150, label: 'Quick · 0.15 s' },
+  { value: 300, label: 'Standard · 0.30 s' },
+  { value: 500, label: 'Deliberate · 0.50 s' },
 ] as const
 
 type SyncOutcome =
@@ -379,18 +374,7 @@ export function Onboarding({
                     ? 'The last synchronization failed.'
                     : null
   const selectedEventSet = useMemo(() => new Set(selectedEvents), [selectedEvents])
-  const holdOptions = useMemo(() => {
-    const options: Array<{ value: number; label: string }> = HOLD_OPTIONS.map(
-      (option) => ({ ...option }),
-    )
-    if (!options.some((option) => option.value === settings.holdDurationMs)) {
-      options.push({
-        value: settings.holdDurationMs,
-        label: `${settings.holdDurationMs} ms`,
-      })
-    }
-    return options
-  }, [settings.holdDurationMs])
+  const holdOptions = useMemo(() => HOLD_OPTIONS.map((option) => ({ ...option })), [])
 
   const handleToggleEvent = (eventId: string) => {
     setEventError(null)
@@ -444,11 +428,11 @@ export function Onboarding({
   useEffect(() => {
     if (stage !== 'complete') return
     setExiting(false)
-    const exitTimer = window.setTimeout(() => setExiting(true), 2_650)
+    const exitTimer = window.setTimeout(() => setExiting(true), 1_750)
     completionTimerRef.current = window.setTimeout(() => {
       completionTimerRef.current = null
       onFinish()
-    }, 3_000)
+    }, 2_000)
     return () => {
       window.clearTimeout(exitTimer)
       if (completionTimerRef.current !== null) {
@@ -457,6 +441,14 @@ export function Onboarding({
       }
     }
   }, [onFinish, stage])
+
+  const finishNow = () => {
+    if (completionTimerRef.current !== null) {
+      window.clearTimeout(completionTimerRef.current)
+      completionTimerRef.current = null
+    }
+    onFinish()
+  }
 
   const commitFreshSetup = useCallback(async (): Promise<FreshSessionSetup | null> => {
     if (!draftRef.current || draftRef.current.path !== 'fresh') return null
@@ -487,7 +479,11 @@ export function Onboarding({
       mainEvent,
       createdSessionIdsByEvent: setup.sessionIdsByEvent,
       localCommitted: true,
-      stage: draftRef.current.stage === 'sync' ? 'sync' : 'settings',
+      stage: draftRef.current.stage === 'sync'
+        ? 'sync'
+        : draftRef.current.stage === 'appearance'
+          ? 'appearance'
+          : 'settings',
     })
     return setup
   }, [mainEvent, onCommitSetup, patchDraft, selectedEvents])
@@ -869,6 +865,14 @@ export function Onboarding({
     const currentDraft = draftRef.current
     if (!currentDraft) return
     setActionError(null)
+    patchDraft({ stage: 'appearance', mainEvent })
+    setStage('appearance')
+  }, [mainEvent, patchDraft])
+
+  const handleAppearanceContinue = useCallback(async () => {
+    const currentDraft = draftRef.current
+    if (!currentDraft) return
+    setActionError(null)
     if (currentDraft.path === 'cstimer') {
       const committed = await commitImportedSetup()
       if (!committed) return
@@ -877,6 +881,10 @@ export function Onboarding({
     }
     setStage('sync')
   }, [commitImportedSetup, mainEvent, patchDraft])
+
+  const handleBackFromAppearance = () => {
+    setStage('settings')
+  }
 
   const handleBackFromSettings = () => {
     const path = draftRef.current?.path
@@ -942,7 +950,6 @@ export function Onboarding({
           return
         }
         const analyzed = analyzeCsTimerBackup(raw, {
-          existingCustomEvents: sessionsData.customEvents ?? [],
           existingSessionNames: existingImportNames,
         })
         if (!analyzed.ok) {
@@ -960,7 +967,7 @@ export function Onboarding({
         if (readId === importReadRef.current) setBusy(false)
       }
     },
-    [existingImportNames, sessionsData.customEvents],
+    [existingImportNames],
   )
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -990,7 +997,6 @@ export function Onboarding({
     try {
       const { parseCsTimerBackup } = await import('../lib/csTimerImport')
       const parsed = parseCsTimerBackup(importRaw, settings, {
-        existingCustomEvents: sessionsData.customEvents ?? [],
         existingSessionNames: existingImportNames,
       })
       if (!parsed.ok) {
@@ -1106,8 +1112,8 @@ export function Onboarding({
     draft?.path === 'returning'
       ? ['Google', 'Restore', 'Device']
       : draft?.path === 'cstimer'
-        ? ['Import', 'Settings', 'Sync']
-        : ['Events', 'Settings', 'Sync']
+        ? ['Import', 'Settings', 'Appearance', 'Sync']
+        : ['Events', 'Settings', 'Appearance', 'Sync']
   const progressStageIndex =
     draft?.path === 'returning'
       ? stage === 'signin'
@@ -1119,7 +1125,9 @@ export function Onboarding({
         ? 0
         : stage === 'settings'
           ? 1
-          : 2
+          : stage === 'appearance'
+            ? 2
+            : 3
   const showProgress =
     stage !== 'welcome' && stage !== 'complete' && draft !== null
 
@@ -1132,7 +1140,9 @@ export function Onboarding({
           ? 'Import from csTimer'
           : stage === 'settings'
             ? 'Set up CubeLab'
-            : stage === 'sync'
+            : stage === 'appearance'
+              ? 'Make it yours'
+              : stage === 'sync'
               ? 'Turn on Sync?'
               : stage === 'signin'
                 ? 'Welcome Back'
@@ -1150,7 +1160,9 @@ export function Onboarding({
     >
       <div className="onboarding-topbar">
         <div className="onboarding-brand">
-          <CubeIcon size={18} />
+          <span className="brand-mark">
+            <CubeMark size={24} />
+          </span>
           <span>CubeLab</span>
         </div>
         {mode === 'reopen' ? (
@@ -1215,9 +1227,11 @@ export function Onboarding({
                       ? 'Bring your csTimer sessions and solves into CubeLab.'
                       : stage === 'settings'
                         ? 'A few preferences now. Everything stays changeable in Settings.'
-                        : stage === 'sync'
-                          ? 'Keep your solves and settings backed up and synchronized across your devices.'
-                          : stage === 'signin'
+                        : stage === 'appearance'
+                          ? 'Choose a theme and tune every color. Hold the preview to try the timer states.'
+                          : stage === 'sync'
+                            ? ''
+                            : stage === 'signin'
                             ? 'Sign in to restore your CubeLab data.'
                             : stage === 'restore'
                               ? 'Checking Google Drive and merging your existing data safely.'
@@ -1339,8 +1353,7 @@ export function Onboarding({
                 </p>
               ) : (
                 <p className="onboarding-note">
-                  At least one event stays selected. Custom events remain
-                  available in CubeLab.
+                  At least one event stays selected.
                 </p>
               )}
               <div className="onboarding-actions">
@@ -1412,15 +1425,9 @@ export function Onboarding({
                   </div>
                   {importPreview.hasUnknown ? (
                     <p className="onboarding-note is-warning">
-                      {importPreview.newCustomEventCount > 0
-                        ? `${countLabel(
-                            importPreview.newCustomEventCount,
-                            'custom event',
-                            'custom events',
-                          )} will be created. `
-                        : ''}
-                      Unknown puzzle types stay on their own event and are
-                      never treated as 3×3.
+                      Unknown puzzle types are grouped into{' '}
+                      <strong>MISC</strong> and are never treated as 3×3. MISC
+                      sessions have no generated scramble.
                     </p>
                   ) : null}
                   {importNotice ? (
@@ -1461,7 +1468,7 @@ export function Onboarding({
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".json,.txt,application/json,text/plain"
+                    accept=".txt,text/plain"
                     hidden
                     data-testid="onboarding-import-file"
                     onChange={handleFileChange}
@@ -1476,8 +1483,7 @@ export function Onboarding({
                     onDrop={handleDrop}
                   >
                     <p>
-                      Drop a csTimer <code>.txt</code> or <code>.json</code> file
-                      here, or choose one.
+                      Drop a csTimer <code>.txt</code> file here, or choose one.
                     </p>
                     <button
                       type="button"
@@ -1488,10 +1494,6 @@ export function Onboarding({
                     >
                       {busy ? 'Reading…' : 'Choose csTimer file'}
                     </button>
-                    <p className="onboarding-note">
-                      Up to 10 MB. Sessions are appended; existing CubeLab data
-                      and settings are kept.
-                    </p>
                   </div>
                   {importNotice ? (
                     <p className="onboarding-note" role="status">
@@ -1588,6 +1590,28 @@ export function Onboarding({
                       </label>
                     ))}
                   </div>
+                  <label className="onboarding-custom-hold">
+                    <span>Custom hold time</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10000}
+                      step={50}
+                      value={settings.holdDurationMs}
+                      aria-label="Custom hold time in milliseconds"
+                      data-testid="onboarding-custom-hold"
+                      onChange={(event) =>
+                        onChangeSettings({
+                          holdDurationMs: Math.max(
+                            0,
+                            Math.min(10000, Number(event.target.value || 0)),
+                          ),
+                        })
+                      }
+                    />
+                    <span>ms</span>
+                  </label>
+                  <HoldTestArea holdDurationMs={settings.holdDurationMs} />
                 </fieldset>
 
                 <fieldset className="onboarding-choice-group">
@@ -1612,27 +1636,6 @@ export function Onboarding({
                   </div>
                 </fieldset>
 
-                <fieldset className="onboarding-choice-group">
-                  <legend>Appearance</legend>
-                  <div className="onboarding-segments">
-                    {THEME_OPTIONS.map((option) => (
-                      <label
-                        key={option.value}
-                        className="onboarding-segment"
-                      >
-                        <input
-                          type="radio"
-                          name="onboarding-theme"
-                          checked={settings.theme === option.value}
-                          onChange={() =>
-                            onChangeSettings({ theme: option.value })
-                          }
-                        />
-                        <span>{option.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
               </div>
 
               <fieldset className="onboarding-choice-group onboarding-main-event">
@@ -1663,10 +1666,6 @@ export function Onboarding({
                     Import a csTimer file to choose a Main Event.
                   </p>
                 )}
-                <p className="onboarding-note">
-                  This is the session CubeLab opens first. You can change it
-                  anytime.
-                </p>
               </fieldset>
 
               <div className="onboarding-actions">
@@ -1685,6 +1684,35 @@ export function Onboarding({
                   disabled={busy}
                   data-testid="onboarding-settings-continue"
                 >
+                  Continue
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {stage === 'appearance' ? (
+            <div className="onboarding-step">
+              <AppearanceControls
+                settings={settings}
+                onChange={onChangeSettings}
+                testIdPrefix="onboarding-appearance"
+              />
+              <div className="onboarding-actions">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={handleBackFromAppearance}
+                  disabled={busy}
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => void handleAppearanceContinue()}
+                  disabled={busy}
+                  data-testid="onboarding-appearance-continue"
+                >
                   {busy ? 'Saving…' : 'Continue'}
                 </button>
               </div>
@@ -1696,18 +1724,26 @@ export function Onboarding({
               <div className="onboarding-sync-state" data-testid="onboarding-sync">
                 {syncOutcome === 'idle' ? (
                   <>
-                    <p className="onboarding-sync-lead">
-                      {connected
-                        ? 'Google Drive is connected.'
-                        : 'Connect Google Drive to back up this setup.'}
-                    </p>
+                    <div className="onboarding-sync-card">
+                      <span className="onboarding-google-mark" aria-hidden="true">
+                        G
+                      </span>
+                      <div className="onboarding-sync-card-copy">
+                        <strong>Google Drive</strong>
+                        <span>
+                          {connected
+                            ? 'Connected. Synchronize this device now.'
+                            : 'Back up and sync across your devices.'}
+                        </span>
+                      </div>
+                    </div>
                     {connectedSyncLabel ? (
                       <p className="onboarding-note">{connectedSyncLabel}</p>
                     ) : null}
-                    <div className="onboarding-actions is-start">
+                    <div className="onboarding-sync-choices">
                       <button
                         type="button"
-                        className="button button-primary"
+                        className="button button-primary onboarding-sync-choice"
                         onClick={() => void handleConnectForSync()}
                         disabled={busy}
                         data-testid="onboarding-connect-google"
@@ -1716,12 +1752,12 @@ export function Onboarding({
                       </button>
                       <button
                         type="button"
-                        className="button button-secondary"
+                        className="button button-secondary onboarding-sync-choice"
                         onClick={() => void handleMaybeLater()}
                         disabled={busy}
                         data-testid="onboarding-maybe-later"
                       >
-                        Maybe Later
+                        Maybe later
                       </button>
                     </div>
                   </>
@@ -1885,7 +1921,11 @@ export function Onboarding({
                   <button
                     type="button"
                     className="button button-secondary"
-                    onClick={handleBackFromSettings}
+                    onClick={() =>
+                      setStage(
+                        draft?.path === 'returning' ? 'welcome' : 'appearance',
+                      )
+                    }
                     disabled={
                       busy ||
                       syncOutcome === 'found' ||
@@ -2092,7 +2132,7 @@ export function Onboarding({
           ) : null}
 
           {stage === 'complete' && completion ? (
-            <div className="onboarding-complete" role="status">
+            <div className="onboarding-complete">
               <span className="onboarding-complete-icon" aria-hidden="true">
                 <CheckIcon size={22} />
               </span>
@@ -2100,7 +2140,7 @@ export function Onboarding({
                 You're all set!
               </h1>
               <p>Your CubeLab setup is ready.</p>
-              <dl className="onboarding-summary">
+              <dl className="onboarding-summary" aria-live="polite">
                 {completion.path === 'fresh' ? (
                   <>
                     <div>
@@ -2152,10 +2192,170 @@ export function Onboarding({
                   </dd>
                 </div>
               </dl>
+              <button
+                type="button"
+                className="button button-primary onboarding-complete-dismiss"
+                data-testid="onboarding-complete-dismiss"
+                onClick={finishNow}
+              >
+                Skip to timer
+              </button>
             </div>
           ) : null}
         </section>
       </main>
+    </div>
+  )
+}
+
+/**
+ * A small self-contained hold/start/stop trainer for the onboarding hold-time
+ * step. It mirrors the real timer's hold gate without mounting the application
+ * timer or recording a solve.
+ */
+function HoldTestArea({ holdDurationMs }: { holdDurationMs: number }) {
+  const [phase, setPhase] = useState<'idle' | 'holding' | 'ready' | 'running' | 'result'>(
+    'idle',
+  )
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const phaseRef = useRef(phase)
+  const holdTimeoutRef = useRef<number | null>(null)
+  const frameRef = useRef<number | null>(null)
+  const startedAtRef = useRef(0)
+
+  const setPhaseSafe = (next: typeof phase) => {
+    phaseRef.current = next
+    setPhase(next)
+  }
+
+  const cancelFrame = () => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current)
+      frameRef.current = null
+    }
+  }
+
+  const clearHold = () => {
+    if (holdTimeoutRef.current !== null) {
+      window.clearTimeout(holdTimeoutRef.current)
+      holdTimeoutRef.current = null
+    }
+  }
+
+  useEffect(
+    () => () => {
+      clearHold()
+      cancelFrame()
+    },
+    [],
+  )
+
+  // oxlint-disable-next-line react/purity -- animation-frame timing is inherently impure
+  const tick = () => {
+    frameRef.current = null
+    if (phaseRef.current !== 'running') return
+    // oxlint-disable-next-line react/purity -- rAF timing is inherently impure
+    setElapsedMs(performance.now() - startedAtRef.current)
+    frameRef.current = window.requestAnimationFrame(tick)
+  }
+
+  const begin = () => {
+    if (phaseRef.current === 'holding' || phaseRef.current === 'ready') return
+    if (phaseRef.current === 'running') {
+      cancelFrame()
+      setPhaseSafe('result')
+      return
+    }
+    if (phaseRef.current === 'result') {
+      setElapsedMs(0)
+      setPhaseSafe('idle')
+      return
+    }
+    setElapsedMs(0)
+    setPhaseSafe('holding')
+    holdTimeoutRef.current = window.setTimeout(() => {
+      holdTimeoutRef.current = null
+      if (phaseRef.current === 'holding') setPhaseSafe('ready')
+    }, Math.max(0, holdDurationMs))
+  }
+
+  const release = () => {
+    if (phaseRef.current !== 'holding' && phaseRef.current !== 'ready') return
+    clearHold()
+    if (phaseRef.current !== 'ready') {
+      setPhaseSafe('idle')
+      return
+    }
+    startedAtRef.current = performance.now()
+    setElapsedMs(0)
+    setPhaseSafe('running')
+    frameRef.current = window.requestAnimationFrame(tick)
+  }
+
+  const cancel = () => {
+    clearHold()
+    cancelFrame()
+    if (phaseRef.current === 'running') return
+    setElapsedMs(0)
+    setPhaseSafe('idle')
+  }
+
+  const label =
+    phase === 'holding'
+      ? 'Keep holding…'
+      : phase === 'ready'
+        ? 'Ready — release to start'
+        : phase === 'running'
+          ? 'Running — press to stop'
+          : phase === 'result'
+            ? 'Press to try again'
+            : 'Hold here, or press and hold Space'
+
+  return (
+    <div className="onboarding-hold-test">
+      <button
+        type="button"
+        className={`onboarding-hold-surface is-${phase}`}
+        aria-label="Hold to start test"
+        aria-describedby="onboarding-hold-test-help"
+        data-testid="onboarding-hold-test"
+        onPointerDown={(event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return
+          event.preventDefault()
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+          begin()
+        }}
+        onPointerUp={(event) => {
+          event.preventDefault()
+          release()
+        }}
+        onPointerCancel={cancel}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            cancel()
+            return
+          }
+          if (event.key !== ' ') return
+          event.preventDefault()
+          event.stopPropagation()
+          if (!event.repeat) begin()
+        }}
+        onKeyUp={(event) => {
+          if (event.key !== ' ') return
+          event.preventDefault()
+          event.stopPropagation()
+          release()
+        }}
+        onBlur={cancel}
+      >
+        {phase === 'running' || phase === 'result'
+          ? `${(elapsedMs / 1000).toFixed(2)} s`
+          : '12.34'}
+      </button>
+      <span className="onboarding-note" id="onboarding-hold-test-help" role="status">
+        {label}
+      </span>
     </div>
   )
 }

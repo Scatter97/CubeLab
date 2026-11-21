@@ -2,6 +2,7 @@ import { pendingTrainingReports } from '../../lib/training/visits'
 import type { TrainingController, TrainingControllerState } from '../../lib/training/controller'
 import type { TrainingData, TrainingSetId } from '../../lib/training/types'
 import { TrainingActions } from './TrainingActions'
+import { Select } from '../Select'
 import { selectedTrainingCasesLabel, trainingSelectionMessage } from './trainingSelectionPresentation'
 
 interface Props {
@@ -11,18 +12,17 @@ interface Props {
   eligible: number
   locked: boolean
   openCases: () => void
-  openSettings: () => void
   openReports: () => void
 }
 
 export function TrainingSetSelect({ setId, onChange }: { setId: TrainingSetId; onChange: (setId: TrainingSetId) => void }) {
-  return <select className="training-select" value={setId} data-timer-space-ignore
-    onChange={event => onChange(event.target.value as TrainingSetId)}>
-    <option value="oll">OLL</option><option value="pll">PLL</option>
-  </select>
+  return <Select className="compact-select training-select" value={setId} testId="training-set-select"
+    ariaLabel="Algorithm set"
+    options={[{ value: 'oll', label: 'OLL' }, { value: 'pll', label: 'PLL' }]}
+    onChange={value => onChange(value as TrainingSetId)} />
 }
 
-export function TrainingSetup({ data, state, controller, eligible, locked, openCases, openSettings, openReports }: Props) {
+export function TrainingSetup({ data, state, controller, eligible, locked, openCases, openReports }: Props) {
   const setId = data.preferences.selectedSetId
   const prefs = data.preferences.sets[setId]
   const count = prefs.enabledCaseIds.length
@@ -37,7 +37,6 @@ export function TrainingSetup({ data, state, controller, eligible, locked, openC
         <h2>Training Setup</h2>
         <TrainingActions label={reports ? `Training options, ${reports} new reports` : 'Training options'}
           disabled={locked} indicator={reports} focusFallback>{close => <>
-          <button type="button" className="text-button" onClick={() => { close(); openSettings() }}>Training settings</button>
           <button type="button" className="text-button" onClick={() => { close(); openReports() }}>
             Practice history{reports ? ` (${reports} new)` : ''}
           </button>

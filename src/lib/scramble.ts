@@ -2,7 +2,7 @@ import {
   DEFAULT_CUSTOM_EVENT_PLACEHOLDER,
   getCustomEventDefinition,
   getEventDefinition,
-  isCustomEventId,
+  isUnscrambledEvent,
   type ScrambleFormat,
 } from './events'
 import type { PuzzleEvent } from '../types'
@@ -35,10 +35,10 @@ function scrambleFormat(event: PuzzleEvent): ScrambleFormat {
  * scramble always matches the persisted value.
  */
 export async function generateScramble(event: PuzzleEvent = '333'): Promise<string> {
-  // Custom events intentionally have no generator. Return the user's
+  // MISC and legacy custom events intentionally have no generator. Return the
   // placeholder immediately so no cubing.js worker is loaded for them.
   const custom = getCustomEventDefinition(event)
-  if (isCustomEventId(event)) {
+  if (isUnscrambledEvent(event)) {
     return custom?.placeholder.trim() || DEFAULT_CUSTOM_EVENT_PLACEHOLDER
   }
 

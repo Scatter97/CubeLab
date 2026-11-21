@@ -49,6 +49,29 @@ function sessionsData(overrides: Partial<SessionsData> = {}): SessionsData {
 }
 
 describe('remote backup snapshots', () => {
+  it('never lists or reads the separate Training file family', async () => {
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    await transport.uploadTrainingBackup!(
+      JSON.stringify({ app: 'CubeLab', format: 'cubelab-training-backup' }),
+      'device-a',
+    )
+    const solveBackup = createBackup(
+      sessionsData({ sessions: [session({ solves: [solve()] })] }),
+      DEFAULT_SETTINGS,
+      new Date('2026-01-01T00:00:00.000Z'),
+      createSyncEnvelope('device-a', 1, [], []),
+    )
+    await transport.uploadDeviceBackup!(JSON.stringify(solveBackup), 'device-a')
+
+    const files = await listRemoteBackups(transport)
+    expect(files).toHaveLength(1)
+    expect(files[0]!.name).toContain('cubelab-backup-')
+    const snapshots = await readRemoteBackups(transport, files)
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0]!.backup.sessions.sessions[0]!.solves).toHaveLength(1)
+  })
+
   it('reads and orders every device snapshot by envelope time', async () => {
     const transport = createMemoryDriveTransport()
     await transport.connect()

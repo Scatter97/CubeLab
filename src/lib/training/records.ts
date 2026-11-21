@@ -58,6 +58,8 @@ export function createTrainingAttempt(input: CreateTrainingAttemptInput): Traini
 
 /** Explicit correction only; the original preferred assumption remains captured. */
 export function correctTrainingAttribution(attempt: TrainingAttempt, algorithm: TrainingAlgorithmSnapshot | null, at = Date.now()): TrainingAttempt {
+  // Algorithm tracking is retired. Case-only attempts never gain attribution.
+  if (attempt.algorithmTracking === false) return attempt
   const record = {
     ...attempt,
     attribution: algorithm ? { kind: 'user-corrected', algorithm, correctedAt: at } : { kind: 'unknown', markedAt: at },

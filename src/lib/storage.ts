@@ -37,8 +37,7 @@ import {
 } from './analyticsSettings'
 import { createId } from './id'
 import { isDateTimestamp } from './dates'
-import { isStoredEventValue } from './events'
-import { parseCustomEvents } from './customEvents'
+import { normalizeStoredEvent } from './events'
 import {
   DEFAULT_SESSION_NAME,
   MAX_SOLVE_COMMENT_LENGTH,
@@ -64,15 +63,16 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 7
-export const SETTINGS_STORAGE_VERSION = 11
+export const SETTINGS_STORAGE_VERSION = 12
 
 export const DEFAULT_SETTINGS: Settings = {
-  inspectionEnabled: false,
+  inspectionEnabled: true,
   inspectionCountDirection: 'down',
   timerUpdateMode: 'live',
   holdDurationMs: 300,
   stopWithAnyKey: false,
   showTimerDecimalSmall: false,
+  hideEvenTimerSeconds: false,
   uiZoomPercent: 100,
   statsPanelHeightPercent: 36,
   scrambleAlignment: 'center',
@@ -85,6 +85,12 @@ export const DEFAULT_SETTINGS: Settings = {
   inspectionWarningVisualScope: 'timer',
   theme: 'light',
   accentColor: 'green',
+  appearance: {
+    accent: null,
+    background: null,
+    timerBackground: null,
+    timerText: null,
+  },
   statVisibility: {
     single: true,
     mo3: true,
@@ -123,6 +129,7 @@ function cloneDefaultSettings(): Settings {
       ...average,
     })),
     statMetricVisibility: { ...DEFAULT_SETTINGS.statMetricVisibility },
+    appearance: { ...DEFAULT_SETTINGS.appearance },
     statTargetsMs: {},
     analytics: createDefaultAnalyticsSettings(),
   }
@@ -209,7 +216,8 @@ export function parseSolve(value: unknown): Solve | null {
   if (!isRecord(value)) return null
   if (typeof value.id !== 'string' || value.id.length === 0) return null
   const rawEvent = value.event === undefined ? '333' : value.event
-  if (!isStoredEventValue(rawEvent)) return null
+  const event = normalizeStoredEvent(rawEvent)
+  if (!event) return null
   if (
     typeof value.rawMs !== 'number' ||
     !Number.isFinite(value.rawMs) ||
@@ -225,7 +233,7 @@ export function parseSolve(value: unknown): Solve | null {
 
   return {
     id: value.id,
-    event: rawEvent,
+    event,
     rawMs: value.rawMs,
     penalty: value.penalty,
     scramble: value.scramble,
@@ -346,9 +354,7 @@ function parseSession(value: unknown): Session | null {
     event:
       value.event === undefined
         ? '333'
-        : isStoredEventValue(value.event)
-          ? value.event
-          : '333',
+        : normalizeStoredEvent(value.event) ?? '333',
     ...(value.isAutoCreatedDefault === true ? { isAutoCreatedDefault: true } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -391,9 +397,7 @@ export function findSessionEventMismatches(value: unknown): string[] {
     const event =
       candidate.event === undefined
         ? '333'
-        : isStoredEventValue(candidate.event)
-          ? candidate.event
-          : '333'
+        : normalizeStoredEvent(candidate.event) ?? '333'
     if (!Array.isArray(candidate.solves)) continue
     for (const rawSolve of candidate.solves) {
       const solve = parseSolve(rawSolve)
@@ -475,9 +479,6 @@ export function parseSessionsData(value: unknown): SessionsData | null {
       : sessions[0]?.id
 
   if (!activeSessionId) return null
-  const customEvents = Array.isArray(value.customEvents)
-    ? parseCustomEvents(value.customEvents)
-    : undefined
   const parsedOrder = parseSessionOrdering(value.sessionOrder)
   const sessionOrder = parsedOrder
     ? {
@@ -491,7 +492,6 @@ export function parseSessionsData(value: unknown): SessionsData | null {
   return {
     activeSessionId,
     sessions: sessionOrder ? sortSessionsByOrder(sessions, sessionOrder) : sessions,
-    ...(customEvents ? { customEvents } : {}),
     ...(sessionOrder ? { sessionOrder } : {}),
     ...(sessionTransfers.length > 0 ? { sessionTransfers } : {}),
   }
@@ -630,6 +630,11 @@ export function parseSettingsData(value: unknown): Settings | null {
   if (typeof value.inspectionEnabled !== 'boolean') return null
 
   const inspectionEnabled = value.inspectionEnabled
+  const appearanceValue = isRecord(value.appearance) ? value.appearance : {}
+  const parseColor = (color: unknown): string | null =>
+    typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)
+      ? color.toLocaleLowerCase()
+      : null
 
   return {
     inspectionEnabled,
@@ -656,6 +661,10 @@ export function parseSettingsData(value: unknown): Settings | null {
       typeof value.showTimerDecimalSmall === 'boolean'
         ? value.showTimerDecimalSmall
         : DEFAULT_SETTINGS.showTimerDecimalSmall,
+    hideEvenTimerSeconds:
+      typeof value.hideEvenTimerSeconds === 'boolean'
+        ? value.hideEvenTimerSeconds
+        : DEFAULT_SETTINGS.hideEvenTimerSeconds,
     uiZoomPercent:
       typeof value.uiZoomPercent === 'number' &&
       Number.isFinite(value.uiZoomPercent) &&
@@ -709,6 +718,12 @@ export function parseSettingsData(value: unknown): Settings | null {
     theme: isValidThemePreference(value.theme)
       ? value.theme
       : DEFAULT_SETTINGS.theme,
+    appearance: {
+      accent: parseColor(appearanceValue.accent),
+      background: parseColor(appearanceValue.background),
+      timerBackground: parseColor(appearanceValue.timerBackground),
+      timerText: parseColor(appearanceValue.timerText),
+    },
     averageTrimBetter: isAverageTrimRule(value.averageTrimBetter) ? value.averageTrimBetter : DEFAULT_SETTINGS.averageTrimBetter,
     averageTrimWorse: value.averageTrimWorse === 'auto' || isAverageTrimRule(value.averageTrimWorse) ? value.averageTrimWorse : DEFAULT_SETTINGS.averageTrimWorse,
     showSessionSolveProgress:
@@ -861,7 +876,6 @@ export function serializeSessionsData(data: SessionsData): string {
     version: SESSIONS_VERSION,
     activeSessionId: data.activeSessionId,
     sessions: [...data.sessions],
-    ...(data.customEvents ? { customEvents: data.customEvents } : {}),
     ...(data.sessionOrder ? { sessionOrder: data.sessionOrder } : {}),
     ...(data.sessionTransfers && data.sessionTransfers.length > 0
       ? { sessionTransfers: data.sessionTransfers }

@@ -141,7 +141,7 @@ describe('parseCsTimerBackup', () => {
     }
   })
 
-  it('imports unknown explicit puzzle sessions as custom events, never as 3×3', () => {
+  it('imports unknown explicit puzzle sessions into MISC, never as 3×3', () => {
     const raw = cstimer({
       sessions: {
         session1: [row(1000, 'R U')],
@@ -166,12 +166,12 @@ describe('parseCsTimerBackup', () => {
       expect(analyzed.preview.totalSessions).toBe(2)
       expect(analyzed.preview.totalSolves).toBe(2)
       expect(analyzed.preview.hasUnknown).toBe(true)
-      expect(analyzed.preview.newCustomEventCount).toBe(1)
+      expect(analyzed.preview.newCustomEventCount).toBe(0)
       expect(analyzed.preview.mappings).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             sourceType: 'oll',
-            mapping: 'new-custom',
+            mapping: 'misc',
           }),
         ]),
       )
@@ -185,24 +185,17 @@ describe('parseCsTimerBackup', () => {
       (session) => session.name === 'unknown',
     )!
     expect(known.event).toBe('333')
-    expect(unknown.event).not.toBe('333')
-    expect(unknown.event).toMatch(/^custom:cstimer:/)
+    expect(unknown.event).toBe('misc')
     expect(unknown.solves[0]!.event).toBe(unknown.event)
     expect(unknown.solves[0]!.importSource).toMatchObject({
       provider: 'cstimer',
       scrType: 'oll',
       scrTypeSource: 'explicit',
     })
-    expect(result.backup.sessions.customEvents).toEqual([
-      expect.objectContaining({
-        id: unknown.event,
-        name: 'csTimer: oll',
-        source: { provider: 'cstimer', identifiers: ['oll'] },
-      }),
-    ])
+    expect(result.backup.sessions.customEvents).toBeUndefined()
   })
 
-  it('keeps distinct unknown types separate and reuses definitions on repeat imports', () => {
+  it('folds distinct unknown types into one MISC event on repeat imports', () => {
     const raw = cstimer({
       sessions: {
         session1: [row(1000, 'R U')],
@@ -223,20 +216,11 @@ describe('parseCsTimerBackup', () => {
     })
     const first = emptySessions(parseCsTimerBackup(raw, settings))
     const events = first.backup.sessions.sessions.map((session) => session.event)
-    expect(new Set(events).size).toBe(2)
-    expect(events).not.toContain('333')
-    const definitions = first.backup.sessions.customEvents!
-    expect(definitions).toHaveLength(2)
+    expect(events).toEqual(['misc', 'misc'])
+    expect(first.backup.sessions.customEvents).toBeUndefined()
 
-    const repeated = emptySessions(
-      parseCsTimerBackup(raw, settings, {
-        existingCustomEvents: definitions,
-      }),
-    )
-    expect(repeated.backup.sessions.sessions.map((session) => session.event)).toEqual(
-      events,
-    )
-    expect(repeated.backup.sessions.customEvents).toHaveLength(2)
+    const repeated = emptySessions(parseCsTimerBackup(raw, settings))
+    expect(repeated.backup.sessions.sessions.map((session) => session.event)).toEqual(events)
     expect(repeated.preview.newCustomEventCount).toBe(0)
   })
 
@@ -343,33 +327,7 @@ describe('parseCsTimerBackup', () => {
     },
   )
 
-  it('allows naming new custom events internally without exposing it in the preview', () => {
-    const raw = cstimer({
-      sessions: { session1: [row()] },
-      sessionData: {
-        '1': { name: 'odd', opt: { scrType: 'odd' }, date: [1700000000] },
-      },
-    })
-    const result = emptySessions(
-      parseCsTimerBackup(raw, settings, {
-        customEventNames: { odd: 'Odd puzzle' },
-      }),
-    )
-    expect(result.backup.sessions.customEvents?.[0]?.name).toBe('Odd puzzle')
-    expect(result.backup.sessions.sessions[0]!.event).toBe(
-      result.backup.sessions.customEvents?.[0]?.id,
-    )
-
-    const collision = emptySessions(
-      parseCsTimerBackup(raw, settings, {
-        customEventNames: { odd: '3×3' },
-      }),
-    )
-    expect(collision.backup.sessions.customEvents?.[0]?.name).toBe('3×3 (2)')
-    expect(collision.preview.sessions[0]!.name).toBe('odd')
-  })
-
-  it('all-unknown input still imports as custom events', () => {
+  it('all-unknown input still imports into MISC', () => {
     const raw = cstimer({
       sessions: { session1: [row()] },
       sessionData: {
@@ -378,7 +336,7 @@ describe('parseCsTimerBackup', () => {
     })
     const result = emptySessions(parseCsTimerBackup(raw, settings))
     expect(result.backup.sessions.sessions).toHaveLength(1)
-    expect(result.backup.sessions.sessions[0]!.event).not.toBe('333')
+    expect(result.backup.sessions.sessions[0]!.event).toBe('misc')
   })
 
   it('preserves numeric session names and final preview names', () => {
@@ -738,7 +696,7 @@ describe('csTimer numeric validation before preview and import', () => {
     }
   })
 
-  it('accepts empty-string scrambles, including for custom events', () => {
+  it('accepts empty-string scrambles, including for MISC events', () => {
     const input = JSON.stringify({
       session1: [[[0, 12000], '', 'empty scramble', 1700000000]],
       properties: {
@@ -757,7 +715,7 @@ describe('csTimer numeric validation before preview and import', () => {
 
     const result = emptySessions(parseCsTimerBackup(input, loadSettings()))
     const session = result.backup.sessions.sessions[0]!
-    expect(session.event).toMatch(/^custom:/)
+    expect(session.event).toBe('misc')
     expect(session.solves[0]).toMatchObject({
       event: session.event,
       scramble: '',

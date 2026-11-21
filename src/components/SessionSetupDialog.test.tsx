@@ -59,11 +59,12 @@ function chooseFormat(format: string) {
 describe('SessionSetupDialog naming', () => {
   it('updates a blank suggestion and keeps a typed name equal to a prior suggestion', () => {
     const { name, onCreate } = renderDialog()
-    expect(name).toHaveValue('')
+    expect(name).toHaveValue('3×3')
     expect(name).toHaveAttribute('placeholder', '3×3')
 
     selectEvent('222')
-    expect(name).toHaveAttribute('placeholder', '2×2')
+    expect(name).toHaveValue('2×2')
+    fireEvent.keyDown(name, { key: '2' })
     fireEvent.change(name, { target: { value: '2×2' } })
     selectEvent('333')
     expect(name).toHaveAttribute('placeholder', '3×3')
@@ -100,12 +101,12 @@ describe('SessionSetupDialog naming', () => {
       'Competition round format',
     )
     expect(screen.getByTestId('session-setup-format')).toHaveTextContent(
-      'Average of 5',
+      'ao5',
     )
 
     selectEvent('666')
     expect(screen.getByTestId('session-setup-format')).toHaveTextContent(
-      'Mean of 3',
+      'mo3',
     )
     chooseFormat('ao50')
     fireEvent.change(screen.getByRole('textbox', { name: 'Session name' }), {
@@ -120,7 +121,7 @@ describe('SessionSetupDialog naming', () => {
     )
 
     fireEvent.click(screen.getByTestId('session-setup-kind-practice'))
-    expect(screen.queryByTestId('session-setup-format')).not.toBeInTheDocument()
+    expect(screen.getByTestId('session-setup-format')).toBeDisabled()
   })
 
   it('cancels without creation and starts with an empty draft when reopened', () => {
@@ -134,7 +135,7 @@ describe('SessionSetupDialog naming', () => {
     update(false)
     update(true)
     const reopened = screen.getByRole('textbox', { name: 'Session name' })
-    expect(reopened).toHaveValue('')
+    expect(reopened).toHaveValue('3×3')
     expect(reopened).toHaveAttribute('placeholder', '3×3')
   })
 })

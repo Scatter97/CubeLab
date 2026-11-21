@@ -679,4 +679,22 @@ describe('legacy mutable backup conditional updates', () => {
     expect(second.etag).not.toBe(first.etag)
     expect(await memory.downloadBackup(first.id)).toBe('two')
   })
+
+  it('keeps the Training file family separate from solve snapshots', async () => {
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    const solve = await memory.uploadDeviceBackup!('solve', 'device-a')
+    const training = await memory.uploadTrainingBackup!('training', 'device-a')
+    expect(training.appProperties?.format).toBe('cubelab-training-backup')
+    expect(training.appProperties?.trainingVersion).toBe('1')
+    expect(solve.appProperties?.format).toBe('cubelab-backup')
+    expect(training.name).not.toBe(solve.name)
+    expect((await memory.listBackups!()).map((file) => file.id)).toEqual([
+      solve.id,
+    ])
+    expect((await memory.listTrainingBackups!()).map((file) => file.id)).toEqual([
+      training.id,
+    ])
+    expect((await memory.findBackup())?.id).toBe(solve.id)
+  })
 })

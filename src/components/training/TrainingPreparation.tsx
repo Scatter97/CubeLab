@@ -25,7 +25,7 @@ export function TrainingPreparation({ state, controller, selectedCategory, setId
   const protocol = calibration ? CALIBRATION_PROTOCOLS[calibration.setId] : null
   const visitActive = Boolean(state.data?.activeVisitId)
   const activated = Boolean(category && visitActive)
-  const action = preparing ? 'Preparing…' : !activated ? (category ? 'Resume practice' : 'Begin practice')
+  const action = preparing ? 'Preparing…' : !activated ? (category ? 'Resume practice' : 'Begin training')
     : error ? 'Retry setup' : 'Next setup'
   const setupError = eligible && !pendingSave ? error : null
 

@@ -21,7 +21,9 @@ and [`ROADMAP.md`](ROADMAP.md) for the retained follow-ups.
 The header switches between Timer, the read-only Analytics dashboard and
 Training. Training shares the manual timer interactions while keeping its
 attempts, calibration and practice visits separate from ordinary solves.
-Opening Analytics never changes stored solves.
+Opening Analytics never changes stored solves. A small uppercase, tilted
+**BETA** pill sits by the cube mark in the header, and the same inline pill
+marks **Settings → Data → Google Drive backup**.
 
 ## One active tab
 
@@ -48,17 +50,19 @@ including interaction rules, settings defaults, session overrides and persistenc
   (3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7, Pyraminx, Skewb, Square-1, Clock, or
   Megaminx), with a prefetched next scramble and explicit loading, failure, and
   retry states.
-- **Custom events** for puzzles without an official generator. Create, rename,
-  or delete a custom event from **Session settings → Manage custom events**,
-  choose an optional text placeholder shown instead of a scramble, and record
-  solves with the normal timer, inspection, sessions, statistics, Analytics, and
-  PB tracking. Custom-event solves remain separate from every built-in event.
+- **MISC event** for puzzle types CubeLab does not officially support. It is
+  available in every event picker with no generated scramble or 2D/3D diagram.
+  Existing custom-event sessions and solves are migrated into MISC on load;
+  their scramble text and csTimer provenance stay intact. Unsupported csTimer
+  identifiers also import into MISC.
 - **First-run onboarding** for a clean browser: start fresh with one ready empty
   session per selected event, import a csTimer backup without extra event setup,
   or restore an existing CubeLab setup through Google Drive. The optional sync
   step never blocks local use, returning users only confirm device-local display
-  options, and a three-second completion summary opens the timer automatically
-  with the Main Event active. **Settings → Data → Setup assistant** reopens the
+  options. The fresh setup separates **Settings** and **Appearance** into
+  ordered steps; the appearance step exposes theme, accent and custom color
+  controls. A short completion summary (about two seconds, with a skip action)
+  opens the timer automatically with the Main Event active. **Settings → Data → Setup assistant** reopens the
   flow non-destructively; existing users are not prompted after an update.
 - **Competition sessions** created from the normal session dialog. Choose
   Practice or Competition, then an immutable round format: ao5, ao12, ao50,
@@ -113,21 +117,29 @@ including interaction rules, settings defaults, session overrides and persistenc
   Horizontal navigation keeps the vertical scale fixed. Expanding is
   disabled during timing; the dialog contains keyboard focus and closes with
   Escape, returning focus to **Expand**.
+- **Additional floating tools** selected from the same **Function** menu:
+  **Confirm Time** adds a typed solve (`12.34` or `1:02.34`) with the current
+  scramble; **Statistics** summarizes the session; **Time Distribution** draws
+  a local histogram; **Daily Stats** groups solves by day; **Metronome** clicks
+  at a chosen interval (no BPM setting); and **Online Battle** pairs two peers
+  with manual WebRTC invitation/answer codes, a room ID and password, and a
+  shared-scramble race timer. No CubeLab backend is involved; codes must be
+  shared manually and strict NATs may block a direct connection.
+
 - **OLL / PLL Training** opens the **Training Hub**. It restores the saved set,
   practice type, and cases. Edit the session name and case selection as a
   draft and see statistics for the selected category. Opening the Hub or
   applying a case edit leaves practice history and saved preferences intact.
-  **Begin practice** saves a named session with the chosen category and one
-  algorithm revision per selected usable case. All 57 OLL and 21 PLL cases
-  include a verified built-in default. **Track algorithm revisions** in
-  Training Settings is off by default. Enable it to add and verify custom
-  algorithms, choose a preferred revision or override it for a session, and
-  record revision statistics on future attempts. Case totals include every
-  attempt. Existing revision charts remain available when tracking is off.
-  Every generated setup is cube-state verified.
+  **Begin training** saves a named session with the chosen category and a
+  verified built-in algorithm for each selected case. All 57 OLL and 21 PLL
+  cases work immediately without configuration. Algorithm revision tracking is
+  temporarily retired: attempts are always recorded case-only, and stored
+  custom algorithms, preferred revisions and historical attribution are erased
+  at load while timing, setups, visits and case statistics remain. Every
+  generated setup is cube-state verified.
   Execution needs one enabled case with a verified algorithm; recognition needs
-  two. **Show upcoming case** in Training Settings defaults on and controls the
-  name and diagram for both execution modes. Recognition hides the target
+  two. **Show upcoming case** in the main Settings dialog defaults on and
+  controls the name and diagram for both execution modes. Recognition hides the target
   until completion and uses the fixed FR insertion or Sune. Initial recognition calibration times seven repetitions of
   the fixed precursor. Missing or due calibration is required at Begin for
   the selected set. Invalid repetitions can be retried, and cancelling returns
@@ -136,17 +148,20 @@ including interaction rules, settings defaults, session overrides and persistenc
   End and navigation away ask for confirmation. A nonempty session opens its
   report before returning to the Hub or selected view. The inactivity prompt
   defaults to 15 minutes and waits while the timer is armed or running.
-  Reopening with unfinished practice offers a choice to continue or end.
-  The readout, Statistics, Attempts, and Last Result use the active session.
+  Reopening with unfinished practice offers a choice to continue or end; a
+  pre-named-session legacy visit is end-only and is not reopened as interactive
+  practice. Escape cancels a hold or inspection but never discards a running
+  attempt. The readout, Statistics, Attempts, and Last Result use the active
+  session, while visit-improvement comparisons use the full category history;
+  attempt counts remain session-scoped.
   The sidebar
   shares Timer's Statistics rows, windowed history and resizable split.
   **Customize** in Statistics options sets the visible rows, order, and Current/Best columns
   for each category. **Raw** and **Estimated** switch the recognition timing
-  series. **Detailed statistics** opens searchable case and algorithm-revision
-  views. Select an **Attempts** row to open the same action menu used by Timer.
+  series. **Detailed statistics** opens a searchable case view. Select an **Attempts** row to open the same action menu used by Timer.
   From it you can correct the result, copy the setup or attempt, open the compact
   **Attempt details** dialog, or delete the attempt. Attempt details shows the
-  case, time, setup and algorithm attribution. **Delete attempt** takes effect
+  case, time, setup and result. **Delete attempt** takes effect
   immediately and offers **Undo** in the notification.
   The floating **Last Result** shows the previous case and allows retrying and
   marking it difficult. It docks below the timer when space is tight.
@@ -154,8 +169,24 @@ including interaction rules, settings defaults, session overrides and persistenc
   Reports show measured times, comparisons, estimated Recognition components
   with coverage and a keyboard-inspectable attempt chart. Historical review
   is read-only. A typed **DELETE** removes an acknowledged archived session
-  and its attempts. Timing is manual
-  with success or DNF. Training stays local to the browser. See
+  and its attempts; its visit and attempt tombstones are written atomically to
+  the Training sync ledger before the local removal. Deleting a saved preset
+  offers Undo. Timing is manual
+  with success or DNF. Training history is included in native backup files,
+  which use checked gzip above the compact 10 MB form, and can be backed up or
+  synchronized separately to Google Drive. Manual upload and sync share the
+  Training device ID. A replace-only Training restore, native or manual Drive,
+  clears stale Training tombstones, conflicts and approvals while keeping that
+  device ID and preferences. The Drive dialog offers manual Training cloud
+  backup and replace-only restore using separate `cubelab-training-*` files,
+  plus optional merge-based Training synchronization with its own state,
+  tombstones, conflict
+  review and retention. Training sync aborts a stale publish and retries when
+  local Training or the ledger changes during an upload; malformed partial
+  ledgers block writes, and a persisted `syncing` status returns to pending or
+  disabled on load. Unreadable or oversized remote Training files are skipped
+  with a warning and can be deleted from the dialog. Solve Drive synchronization
+  never includes or lists Training. See
   [Training behavior](docs/training/CURRENT_STATUS.md).
 - **Analytics dashboard** opened from the header **Analytics** tab. Global event,
   session, date-range, latest-count, and penalty filters drive overview cards,
@@ -189,18 +220,21 @@ including interaction rules, settings defaults, session overrides and persistenc
   plus pointer controls on the timer surface. An optional **Stop with any key**
   setting stops a running solve with a non-modifier key. Timer keys are disabled
   while the Analytics page is open.
-- **Optional WCA inspection** with automatic `+2` and DNF penalties, a
-  count-down or count-up display, and independent optional warnings when the
-  **8 or 12 seconds have elapsed** (7 or 3 seconds remaining in count-down mode).
+- **Optional WCA inspection**, enabled by default for new installs, with
+  automatic `+2` and DNF penalties, a count-down or count-up display, and
+  independent optional warnings when the **8 or 12 seconds have elapsed** (7 or
+  3 seconds remaining in count-down mode).
 - **csTimer-inspired Settings dialog** with Timer, Alerts, Display, Appearance,
-  Statistics, Scramble, Data, a collapsed Developer options section,
+  Statistics, Scramble, Data, Training, a collapsed Developer options section,
   and About. It covers inspection direction and warnings, timer updates,
   Space-hold time, an optional any-key stop, visual/sound/haptic solve and DNF
-  alerts with adjustable volume, a light/dark/system theme, accent color,
-  visible statistics, independent row metrics, custom averages, display precision, display scaling,
-  optional current-session solve progress and total time, scramble presentation
-  (including the Draw Scramble 2D/3D visualization), local-data status, and
-  backup/restore access. Changes save automatically.
+  alerts with adjustable volume, a light/dark/system theme, accent presets plus
+  custom accent/background/timer colors with a hold-to-preview surface, an
+  optional hide-even-seconds readout, visible statistics, independent row
+  metrics, custom averages, display precision, display scaling, optional
+  current-session solve progress and total time, scramble presentation
+  (including the Draw Scramble 2D/3D visualization), Training domain/renewal
+  settings, local-data status, and backup/restore access.
   Enabled inspection warnings always pulse visually and announce a direction-aware
   label through the live region; there is no warning-text overlay. Sound and
   haptic follow the selected feedback channel. DNF feedback is slightly louder than solve
@@ -208,10 +242,10 @@ including interaction rules, settings defaults, session overrides and persistenc
 - **Named local sessions** with create, switch, rename, reorder, and a per-session
   settings gear for event correction, inspection override, clear, and confirmed
   delete. Each session has independent solves and statistics. The session
-  selector contains separate selection, drag-handle, and accessible
-  **Up**/**Down** move controls, so reordering never changes the active
-  session. Order persists locally, is included in backups, and synchronizes
-  across devices.
+  selector separates row selection from a drag handle; dragging or the handle's
+  arrow keys reorder sessions without changing the active one. The picker is
+  portalled above the page so it is never clipped by the sidebar. Order persists
+  locally, is included in backups, and synchronizes across devices.
 - **Configurable average trimming** in **Settings → Statistics**. Choose better
   and worse sides independently, with a 5% better-side default and **Auto** on
   the worse side. Options include 0/1 solve, 1%, 5%, 10%, 20%, and median.
@@ -233,19 +267,24 @@ including interaction rules, settings defaults, session overrides and persistenc
   intent is persisted before solves disappear: **Clear Session** blocks if its
   deletion record cannot be saved, and an Undo that cannot restore the solve
   immediately keeps a local recovery record that completes after reload or
-  storage recovery. An Undo interrupted before its deletion revocation commits
+  storage recovery. Deleting a whole session persists the collection before
+  publishing the removal; if that write fails, its durable deletion record is
+  revoked so a later sync cannot remove a session that is still visible.
+  Destructive session actions save once rather than immediately autosaving the
+  same collection again. An
+  Undo interrupted before its deletion revocation commits
   aborts and leaves the solve deleted; after that commit point, recovery finishes
   the restoration. If the original session was removed or changed event,
   recovery uses a clearly labelled compatible session instead of mixing events,
   and native/manual backups include the pending solve.
-- **JSON backup and restore** covering every session, solve, and setting. Imports
-  are validated and replace local data only after explicit confirmation.
+- **JSON backup and restore** covering every session, solve, setting and the
+  available Training history. Imports are validated and replace local data only
+  after explicit confirmation; large native backups use checked gzip.
 - **Developer options** in Settings are collapsed by default. **Danger Zone**
   provides three typed-confirmation actions: **Reset All Solve Data** removes
   every solve while keeping session names, event assignments, preferences,
-  custom event definitions, and application settings; **Delete All Sessions**
-  removes every session and solve, then creates one empty active **Session 1**
-  while preserving settings and custom-event definitions. These two record
+  and application settings; **Delete All Sessions** removes every session and
+  solve, then creates one empty active **Session 1** while preserving settings. These two record
   durable deletion metadata for synchronization. **Reset All Site Data** is the
   full local restart: it disables synchronization, blocks Drive access, clears
   CubeLab's localStorage/sessionStorage keys, CubeLab IndexedDB databases,
@@ -256,6 +295,8 @@ including interaction rules, settings defaults, session overrides and persistenc
   explicitly to use Drive again. Existing Google Drive snapshots are not deleted
   by any of these actions. A reset that cannot finish (for example, a blocked
   IndexedDB connection) reports the partial failure and offers a safe retry.
+  Reset progress and failure dialogs are part of the global modal input guard,
+  so timer keys cannot act behind them.
 - **csTimer `.txt` / `.json` import** detects the csTimer format automatically
   and shows a concise preview table of every session name and solve count,
   including empty sessions. Sessions are appended in csTimer `rank` order, with
@@ -265,8 +306,7 @@ including interaction rules, settings defaults, session overrides and persistenc
   `name(1)`, `name(2)`, and so on, while existing stored sessions keep their
   names. Valid omitted `opt.scrType` metadata uses csTimer’s `333` default;
   explicit supported identifiers map to built-in events, and explicit
-  unsupported identifiers become stable custom events that can be renamed later
-  in the custom-event manager. Missing or malformed metadata is not treated as
+  unsupported identifiers import into **MISC** with no generated scramble. Missing or malformed metadata is not treated as
   a 3×3 default. Imported solves retain penalties, scrambles, comments,
   original dates, and csTimer provenance (including whether the type was
   explicit or default). Empty sessions are imported with import time as the
@@ -274,14 +314,12 @@ including interaction rules, settings defaults, session overrides and persistenc
   for sessions with solves, malformed solve lists, or malformed rows reject the
   file with a session/solve error before preview or confirmation. Missing solve
   dates retain the existing session-date/current-time fallback; valid imports
-  add sessions and custom definitions while leaving existing settings and
-  history unchanged.
+  add sessions while leaving existing settings and history unchanged.
 - **Optional Google Drive synchronization** using device-owned snapshots,
   field-level merging for solves, session metadata, preferences, and global
-  settings, plus manual conflict review. Custom event definitions merge by stable
-  ID, including deletions, so repeated imports or cloud merges cannot create
-  duplicate events. It defers while the timer is active and never runs before you
-  explicitly connect a Google account.
+  settings, plus manual conflict review. Unsupported and legacy custom event
+  IDs normalize to MISC before merge. It defers while the timer is active and
+  never runs before you explicitly connect a Google account.
 - **Local-first persistence** with versioned, validated browser storage and
   automatic migration from the original single-session key.
 - **Installable PWA** with local timing and scramble generation available offline
@@ -347,23 +385,23 @@ The same palette and accent apply throughout the Settings dialog:
 
 ![CubeLab dark Settings dialog](docs/cubelab-dark-settings.png)
 
-### Custom events
+### MISC events
 
-Open **Session settings → Manage custom events** to create, rename, change the
-optional scramble placeholder, or delete a definition. Custom events are marked
-`(custom)` in every event selector, including the Analytics filter. Deleting is
-blocked while a session or solve still uses the event, so history is never
-silently moved or orphaned. The same dialog offers bulk session reassignment and
-an automatic correction path for solves that retain original csTimer metadata;
-correcting an event never changes solve times, timestamps, penalties, comments,
-or scrambles.
+**MISC** is the single catch-all event for unsupported puzzle types. It appears
+in every event picker but has no official scramble generator or 2D/3D
+visualization; existing scramble text is retained and a neutral placeholder is
+shown when the scramble is empty. Older custom-event sessions, solves and
+csTimer imports are migrated to MISC on load. The former custom-event manager is
+retired.
 
 ### Analytics
 
 The Analytics tab analyzes the current solve history without modifying it. Event,
 session type (All / Practice / Competition), session, date range,
 latest-solve count, and penalty filters apply to every analysis. A compact
-scope toolbar sits below the page title, and the statistics
+scope toolbar sits below the page title; choosing a **Custom** date range opens
+a themed floating range calendar instead of extra date dropdowns. Lazy loading
+shows structural skeletons rather than spinner-only text. and the statistics
 overview promotes the fastest single, current rolling averages, and total volume
 above a dense secondary metric grid. The dashboard shares WCA effective-time,
 +2/DNF, precision, and trimming rules with the timer statistics. The overview
@@ -446,6 +484,7 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Inspect a PB | Click its marker in either chart, or focus it and press **Enter**; close the stats dialog with **Close** or **Escape** |
 | Open Analytics | Use the header **Analytics** tab; it is unavailable while the timer is active |
 | Filter Analytics | Use the event, session-type, session, date-range, latest-count, and penalty controls above the dashboard |
+| Choose a custom Analytics date range | Pick **Custom…**, then choose the range in the floating calendar |
 | Inspect an Analytics point | Point at a chart for values, or focus it and use the arrow keys; press **Enter** to open the solve details |
 | Zoom or pan an Analytics chart | Scroll over the plot to zoom; drag to pan; use **Reset** to restore the full range |
 | Drill down from the distribution | Click a histogram bar to open those solves in the solve-list dialog; **Clear interval filter** removes it |
@@ -455,6 +494,10 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | View all filtered solves | Use **View solves** in the Analytics heading; select a row to inspect its solve details |
 | Zoom and pan Time Trend | Scroll ↕ for vertical zoom, ↔ (or Shift + wheel) for horizontal zoom; pinch for both; drag to pan; **Fit all** resets |
 | Explore solve-time trends | Select **Function → Time Trend**, then **Expand** for series, zoom, range navigation, and solve details |
+| Add a solve from a typed time | Select **Function → Confirm Time**, enter `12.34` or `1:02.34`, then **Add solve** |
+| Review session statistics or distribution | Select **Function → Statistics**, **Time Distribution**, or **Daily Stats** |
+| Start a metronome | Select **Function → Metronome**, set the interval in milliseconds, then **Start** |
+| Race another CubeLab user | Select **Function → Online Battle**; create a room or paste an invitation, exchange the answer code, then start the shared scramble |
 | Choose the Draw Scramble 2D net or 3D puzzle | Open **Settings → Scramble → Draw Scramble visualization** |
 | Copy or advance the scramble | Click either side of the scramble text when that action is enabled in **Settings → Scramble** |
 | Open Settings | Use the gear button in the header; it is unavailable while timing |
@@ -466,14 +509,18 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Choose solve/DNF and inspection feedback | Open **Settings → Alerts** and choose visual, sound, haptic, or a combination |
 | Adjust alert volume | Open **Settings → Alerts** and move the **Alert volume** slider |
 | Choose a light, dark, or system theme | Open **Settings → Appearance → Theme** |
-| Change the accent color | Open **Settings → Appearance** and choose green, blue, violet, or amber |
+| Change the accent color | Open **Settings → Appearance** and choose a preset or enter a custom hex color |
+| Customize page/timer colors | Open **Settings → Appearance**, edit the color fields, and hold the preview surface to test timer states |
+| Hide even seconds while running | Open **Settings → Display** and enable **Hide even seconds** |
+| Configure Training preferences | Open **Settings → Training** for trimming, inactivity, baselines, renewal and upcoming-case display |
 | Configure average trimming | Open **Settings → Statistics → Average trimming**; changes recalculate averages and average PBs |
 | Show or hide statistic cards, add custom averages, and choose precision | Open **Settings → Statistics** |
 | Switch session | Open the session selector, then choose a name with the pointer or arrow keys and <kbd>Enter</kbd> |
 | Create a competition | Choose **New session**, set **Competition**, then pick the round format |
 | Convert a competition to practice | Open the session settings gear and use **Convert to practice…** |
-| Create or rename a session | Use the buttons beside the session selector |
-| Reorder sessions | Open the session selector and use each row's accessible **Up**/**Down** buttons; this never changes the active session |
+| Create a session | Use **New session** beside the session selector |
+| Rename a session | Open the session settings gear and edit **Session name** |
+| Reorder sessions | Open the session selector; drag a row's handle, or focus it and press the arrow keys. This never changes the active session |
 | Close a dropdown | Click or tap outside it, or press <kbd>Esc</kbd>; focus returns to its trigger |
 | Correct a session's event | Open the session settings gear and choose an event; sessions with solves require confirmation |
 | Clear or delete a session | Open the session settings gear beside the select |
@@ -494,7 +541,7 @@ behavior.
 ### Display version and releases
 
 A subtle version label appears in the bottom-right footer; the current release
-record renders as `0.01.261104:1`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`,
+record renders as `0.01.261121:1`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`,
 and the date is the intentional release date in `America/Toronto`.
 
 [`src/release.json`](src/release.json) is the single source of release
@@ -521,7 +568,7 @@ schema versions.
 ### Sessions
 
 CubeLab starts with one local session named **Session 1**. **Create session**
-suggests the selected event's display name, including custom events. A name
+suggests the selected event's display name, including MISC. A name
 you type stays when you switch events. Clear the field or enter only spaces to
 use the suggestion. Suggestions use the first available name in order, such
 as **3×3**, **3×3 (2)**, and **3×3 (3)**. All current Timer sessions count, including
@@ -589,30 +636,48 @@ icon, and message highlighted in red.
 
 ### Backup and restore
 
-Open **Settings → Data → Backup & restore**. **Backup** exports a readable JSON
-file containing every session, every solve, custom event definitions, the active
-session, the session order, partial-split ownership records, and all settings.
-The file is created locally with the browser download API; CubeLab never uploads
-it.
+Open **Settings → Data → Backup & restore**. **Backup** exports a local native
+backup file containing every session, every solve, the
+active session, the session order, partial-split ownership records, all settings,
+and the complete checked Training history when that local key exists. The file is
+created locally with the browser download API; CubeLab never uploads it. Export
+blocks rather than omitting Training while its store is unreadable, a Training
+save is pending, a continuity decision is unresolved or a Training visit is
+active.
 
 Export keeps readable JSON when it fits the 10 MB reader limit and otherwise
-uses compact JSON. If the complete payload still exceeds the cap, CubeLab
-reports the measured size and creates no file instead of producing a backup its
-own reader would reject. Manual Drive backups and automatic snapshots use the
-same checked serializer; an oversized snapshot is not uploaded.
+uses compact JSON. If the complete compact JSON is also above 10 MB, a current
+browser creates a checked gzip file named
+`cubelab-backup-YYYY-MM-DD.json.gz`. Compressed files are limited to 16 MB
+encoded and 64 MB decoded; the produced file is decompressed and validated again
+before it is offered for download. If compression is unavailable or either
+bound would be exceeded, CubeLab reports the measured size and creates no file
+instead of producing a backup its own reader would reject. Legacy uncompressed
+`.json` files remain importable. Manual Drive backups and automatic snapshots
+keep their separate 10 MB cap; an oversized snapshot is not uploaded.
 
-Import validates the application marker, format version, sessions, solves,
-custom definitions, and settings before changing anything. Valid data replaces
-the local sessions and settings only after a confirmation dialog explains the
-current and incoming counts. Backups containing only empty sessions are valid.
-csTimer imports instead add new sessions and custom event definitions while
-leaving existing sessions and settings intact, after preview and confirmation.
+Import detects gzip from the file bytes, not its name. Native import validates
+the application marker, format version, sessions, solves, custom definitions,
+settings and any optional Training section before changing anything. Valid data
+replaces the local sessions and settings only after a confirmation dialog
+explains the current and incoming counts. If the file contains Training history,
+the confirmation also shows both local and backup attempt/session/calibration
+counts and states that local Training will be replaced. A file without a
+Training section leaves local Training exactly as it is. An active Training
+session, continuity decision, or pending Training save blocks a Training restore
+until it is resolved. A valid backup may replace an unreadable local Training
+key through the same rollback journal. Imported Training sessions are never
+resumed automatically. Backups containing only empty sessions are valid.
+csTimer imports instead add new sessions while
+leaving existing sessions and settings intact, after preview and confirmation;
+they never read or write Training.
 Additive imports preserve existing deletion records, session redirects, pending
 reviews, approvals and field metadata while marking the expanded collection for
 synchronization. Cancelling the confirmation leaves local data untouched.
-Imports are limited to 10 MB; invalid files produce an inline error and are not
-applied. Imports also reject sessions whose solves belong to a different puzzle
-event instead of storing data that would later block synchronization.
+Uncompressed imports are limited to 10 MB; invalid or oversized files produce an
+inline error and are not applied. Imports also reject sessions whose solves
+belong to a different puzzle event instead of storing data that would later
+block synchronization.
 
 Native backup imports and downloaded snapshots reject provided session/solve
 dates outside JavaScript's representable range before changing local data.
@@ -625,15 +690,18 @@ collections remain protected until the underlying data is corrected; retry does
 not invent dates or repair damaged records automatically.
 
 A replacement is staged through a local recovery journal before any committed
-key is overwritten. CubeLab writes the sessions, settings, sync base and restore
-status, records a durable commit marker, and only then updates the visible data
-and announces success. Startup recovery runs before the normal session and
-settings hooks mount. A prepared journal is rolled back only while holding the
-same origin-wide Web Lock used by the replacement coordinator; without Web Locks
-it stays pending rather than assuming another writer is gone. A committed journal
-only needs cleanup and may open normally. If rollback or journal cleanup fails,
-or the record is malformed or unreadable, CubeLab shows a retry-only recovery
-state with no editable collection, autosave or timing controls.
+key is overwritten. CubeLab writes the sessions, settings, sync base, restore
+status and optional Training history, records a durable commit marker, and only
+then updates the visible data and announces success. Startup recovery runs
+before the normal session and settings hooks mount. A prepared journal is
+rolled back only while holding the same origin-wide Web Lock used by the
+replacement coordinator; without Web Locks it stays pending rather than
+assuming another writer is gone. A committed journal only needs cleanup and may
+open normally. If rollback or journal cleanup fails, or the record is malformed
+or unreadable, CubeLab shows a retry-only recovery state with no editable
+collection, autosave or timing controls. A key whose failed write left its
+previous bytes intact is not rewritten during rollback, so a still-failing
+quota does not turn an otherwise complete rollback into a false failure.
 
 Other tabs ignore a prepared replacement. A committed replacement is adopted as
 one sessions/settings/sync/selection outcome; while the timer is armed, inspecting
@@ -642,8 +710,7 @@ session, event and scramble. Solves completed before that reconciliation, or
 while the candidate is still staged, are kept in a local-only completion buffer
 and replayed by stable solve ID. Replay reuses the original owner only when its
 event still matches; a removed or reclassified owner receives a labelled
-same-event recovery session, and replacement and buffered custom-event
-definitions are both retained. The buffer stores each solve under its own local
+same-event recovery session, and replacement and buffered MISC solves are both retained. The buffer stores each solve under its own local
 key so competing appends do not overwrite each other, and acknowledgement removes
 only the exact solve versions that became durable (or were superseded by a
 deliberate deletion). Newer appends remain for idempotent replay. The buffer is
@@ -665,7 +732,11 @@ Each browser now publishes a *new immutable snapshot* with a unique name,
 `cubelab-backup-<device-id>-<uuid>.json`, instead of replacing one file per
 device. Every run lists every page of app-data files, validates, and merges
 **all** CubeLab snapshots, including the legacy per-device names and the
-legacy fixed-name `cubelab-backup.json` from earlier releases. Because writes
+legacy fixed-name `cubelab-backup.json` from earlier releases. Drive snapshots
+contain sessions, solves, settings and synchronization metadata only; local
+Training history is never uploaded, restored from, merged, or deleted by solve
+Drive sync. The Drive cap remains 10 MB, and a compressed `.json.gz` native file is
+not a Drive snapshot. Because writes
 never overwrite an existing snapshot, simultaneous uploads from different devices
 (or from two browser profiles sharing one device identity) cannot destroy each
 other's snapshot. Later runs fold in all snapshots returned by a complete
@@ -683,6 +754,44 @@ persistent size limit, not a transient network retry. Deleting remote backups re
 every CubeLab snapshot, including legacy files, and reports partial failures
 instead of claiming complete success.
 
+**Training Drive backup and sync** is separate. The same dialog can upload a
+complete checked Training snapshot as an immutable
+`cubelab-training-<device-id>-<uuid>.json` file, capped at 16 MB compact JSON.
+Manual **Back up Training** uploads a complete checked snapshot; **Restore** is
+replace-only and is blocked
+while Training has an active visit, pending save, continuity decision or
+unresolved replacement, and it never resumes an imported visit. Manual backup
+and Training sync share the Training device ID. A replace-only restore, native
+or manual Drive, clears stale Training tombstones, conflicts and approvals in
+`cubelab:training-sync:v1` while keeping that device ID and preferences. Older
+phase-one files have no merge metadata and remain readable. Remote Training
+files that cannot be read or exceed the 16 MB cap are skipped with a warning and
+can be deleted individually from the dialog.
+
+Optional **Training Drive sync** uses `cubelab:training-sync:v1` and its own
+immutable Training file family. It merges attempts, ended visits, calibrations,
+presets, coarse preferences and high-water recognition counts;
+deletions use durable Training attempt/session/preset tombstones with explicit
+Undo revocation. Only ended visits are merged, and a fresh device adopts remote
+preferences instead of defending local defaults. Automatic sync waits for an idle
+timer, a closed Training store and no pending save, continuity decision,
+replacement journal, solve recovery or native import. It uploads after a session
+ends (not after every attempt) and on startup when enabled. A publish aborts and
+retries when local Training or the sync ledger changes during upload. Malformed
+partial ledgers block writes and preserve their bytes; a persisted `syncing`
+status becomes pending or disabled on load. Conflicts are
+reviewable separately from solve conflicts; manual review requires exact
+local/remote approval and blocks publication/adoption. Training cleanup keeps
+each device's newest snapshot plus files within the configured count and age
+limits (default 10 and 30 days), while manual upload cleanup keeps the newest
+five of this device. Training cleanup only
+selects Training files, and solve cleanup only selects solve files. Native
+Training restore and phase-one replace-only restore are blocked while Training
+Drive sync is enabled. Disabling it stops automatic work but keeps local history
+and remote files. Clearing `cubelab:training-sync:v1` loses deletion provenance
+and conflict approvals; **Reset All Site Data** does not delete remote Training
+files. This is eventual merge, not consensus or a cross-file transaction.
+
 Automatic synchronization is enabled only after the user connects Google Drive.
 It defaults to combined mode at 5 minutes or 10 solves, whichever comes first,
 with minimum values of 1 minute and 1 solve. Startup, exit, and reconnection
@@ -692,7 +801,7 @@ events collapsed over a short window. Failed automatic syncs retry with bounded
 backoff; when that budget is exhausted, CubeLab pauses automatic retries and
 asks you to use **Sync now**.
 
-There is no separate manual **Backup now** button and no
+For solve sessions, there is no separate manual **Backup now** button and no
 **Restore from Drive** button. Synchronization is the reconciliation path:
 **Sync now**, startup sync, and automatic scheduling all merge local and cloud
 sessions and solves. Sessions, solves, and tombstones merge by stable ID.
@@ -1061,7 +1170,7 @@ hold release with animation frames withheld, oversized export rejection, durable
 native/additive import staging and rollback, staged cross-tab replacement,
 active/prepared/rolled-back replacement ownership with reload, failed-startup
 recovery gating, committed-cleanup safety, malformed records, live-writer write
-lock coordination, and reload recovery. Axe scans cover the main view, Settings, and the dark theme. The nine existing browser skips are offline,
+lock coordination, and reload recovery. Axe scans cover the main view, Settings, and the dark theme. The ten existing browser skips are offline,
 touch hold-to-time and two CDP canvas/PG3D probes in Firefox/WebKit, plus cross-tab
 timing in WebKit. Non-cube player tests verify puzzle IDs and initialization
 status; they do not establish rendered-pixel correctness for every puzzle.
@@ -1103,6 +1212,8 @@ src/
   components/SplitSessionDialog.tsx   Solve/range selection, large-list windowing and split preview
   components/Select.tsx  Shared themed combobox/listbox with keyboard type-ahead
   lib/backup.ts          Versioned JSON backup creation and validation
+  lib/portableBackup.ts  Checked gzip native export/import and portable size caps
+  lib/training/backupSection.ts  Pure Training-section validation, cloning and summary
   lib/sync.ts            Solve/session/tombstone/redirect merge logic
   lib/sessionMetadata.ts Field-level session metadata merging
   lib/settingsMerge.ts   Field-level global-settings merging and provenance
@@ -1122,9 +1233,10 @@ src/
   components/PBStatsDialog.tsx  Read-only historical PB statistics
   lib/timeTrend.ts       Trend data, viewport math, and PB result windows
   components/ScrambleNet.tsx  2D unfolded-net renderer
-  lib/events.ts          Built-in/custom event registry, labels, and validation
-  lib/customEvents.ts    Custom definitions, csTimer mapping, merging, reassignment
-  components/CustomEventsDialog.tsx  Create/rename/delete events and safe reassignment
+  lib/events.ts          Built-in/MISC event registry, labels, and validation
+  lib/customEvents.ts    Legacy csTimer mapping/resolution retained for migration
+  components/SessionTools.tsx  Confirm time, stats, distribution, daily stats, metronome
+  components/BattleTool.tsx    Serverless manual-WebRTC battle room
   lib/statDefinitions.ts Built-in statistics and custom-average validation
   lib/stats.ts           Recorded singles/mo3 and shared trimmed rolling statistics
   lib/statInsights.ts    BPA/WPA and PB-based next-solve target calculations
@@ -1145,11 +1257,17 @@ src/
                          visits/reports and the checked Training controller/runtime
   hooks/useTraining.ts    Training startup continuity, inactivity and unsaved-exit protection
   components/TrainingPage.tsx Shared workspace and Training presentation
-  components/training/    Case/algorithm selection, calibration presentation, stats and reports
+  components/training/    Case selection, calibration presentation, stats and reports
   lib/alerts.ts          Web Audio, vibration, DNF gain, and inspection warnings
   lib/format.ts          Display formatting
-  hooks/useSync.ts       Merge orchestration, scheduling, retries, and conflicts
-  hooks/useDriveBackup.ts Drive connection, snapshot listing/deletion, and cleanup
+  hooks/useSync.ts       Solve merge orchestration, scheduling, retries, and conflicts
+  hooks/useDriveBackup.ts Solve Drive connection, snapshot listing/deletion, and cleanup
+  lib/trainingDrive.ts   Separate Training Drive envelope, listing, upload and retention
+  hooks/useTrainingDriveBackup.ts Manual Training cloud backup and replace-only restore
+  lib/trainingSync.ts    Pure Training merge, tombstones, field updates and conflicts
+  lib/trainingSyncStorage.ts Separate `cubelab:training-sync:v1` state
+  hooks/useTrainingSync.ts Automatic/manual Training Drive synchronization
+  lib/trainingDeletion.ts Durable Training attempt/session/preset deletion intent
   components/            Timer, scramble, sessions, stats, history, and dialogs
   components/SettingsDialog.tsx  Timer, Alerts, Display, Appearance, Statistics,
                                  Scramble, Data, and About preferences
@@ -1165,6 +1283,9 @@ src/
 e2e/timer.spec.ts        Production browser and offline tests
 e2e/analytics.spec.ts    Analytics filtering, drill-down, large history, responsive layout
 e2e/responsive-timer.spec.ts  Small portrait/landscape timer layout and touch actions
+e2e/training-backup.spec.ts  Training native backup/restore and compressed large-file coverage
+e2e/training-drive-backup.spec.ts  Manual Training cloud backup/restore and guards
+e2e/training-drive-sync.spec.ts  Two-device Training merge, deletion/Undo, conflict and large-file coverage
 ```
 
 The timer is a pure state machine driven by timestamped events. The React layer
@@ -1180,14 +1301,24 @@ Storage keys are versioned:
   metadata.
 - `cubelab:settings:v1` — local preferences.
 - `cubelab:training:v1` — schema v1 Training attempts, preferences, custom
-  algorithm revisions, calibration snapshots and automatic practice visits. The
+  case-only attempts, calibration snapshots and automatic practice visits. The
   app mounts its checked controller only after acquiring the active-tab lock.
   Reports recalculate from current attempts and captured visit policies. Invalid
   bytes block Training writes; failed saves retain the candidate and offer retry
-  or a recovery copy, without replacing external data. Training is excluded from
-  native backups, Drive sync and ordinary solve/session resets. Compatible v1
+  or a recovery copy, without replacing external data. Native backups include
+  the complete checked store when it exists and restore it replace-only after
+  confirmation. Manual Training cloud backup and replace-only restore use
+  separate `cubelab-training-*` files. Optional merge-based Training Drive sync
+  has its own state, tombstones and conflicts. Training remains excluded from solve
+  snapshots, csTimer imports and ordinary solve/session resets. Compatible v1
   history is retained without read-time migration. See
   [Training status](docs/training/CURRENT_STATUS.md).
+- `cubelab:training-sync:v1` — separate Training synchronization ledger:
+  independent device ID, enable/manual-conflict/retention preferences, Training
+  tombstones and Undo revocations, coarse field updates, exact conflict
+  approvals and the last Training fingerprint/revision. It never enters solve
+  envelopes, solve snapshots or solve cleanup. Clearing it keeps local Training
+  history but loses deletion provenance and conflict approvals.
 - `cubelab:training-last-result:layout:v1` stores Last Result geometry.
   `cubelab:training-statistics:v1` stores per-category display choices.
   `cubelab:training-sidebar-split:v1` stores the Training sidebar proportion.
@@ -1242,9 +1373,9 @@ format is read as practice without discarding the session. Corrupt session JSON
 falls back to the legacy record and then to a fresh empty session; a valid
 session collection is never silently discarded. The active session is normalized
 to an existing session on load. Sessions are stored at schema version 7; version
-1–6 records load unchanged, and the custom-event, import-provenance, ordering,
-split-transfer, competition-kind, format, and round fields are additive so no
-destructive migration is required. Missing field
+1–6 records load unchanged, and legacy custom-event IDs, import provenance,
+ordering, split-transfer, competition-kind, format, and round fields remain
+readable; unsupported event IDs normalize to MISC on load. Missing field
 metadata falls back to `updatedAt` only at merge time and is not written back as
 fabricated history.
 
@@ -1265,10 +1396,13 @@ rather than in the settings record, so the settings schema remains backward
 compatible.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
-exportedAt, sessions, settings, sync? }`. The parser validates the marker,
-version, sessions, solves, settings, and optional session ordering before the
-confirmation step. The optional sync envelope carries the cloud revision,
+exportedAt, sessions, settings, importMode?, sync?, training? }`. The parser
+validates the marker, version, sessions, solves, settings, optional session
+ordering, the optional sync envelope and any optional Training section before
+the confirmation step. Native exports omit `importMode`; additive csTimer
+imports set it to `add`. The optional sync envelope carries the cloud revision,
 tombstones, conflict records, session redirects, and settings field timestamps.
+The optional `training` section carries the complete checked Training store.
 
 ### Production worker note
 
@@ -1293,10 +1427,10 @@ snapshots; using Drive again requires an explicit new connection.
 ## Scope
 
 The delivered baseline includes the timer, WCA inspection and penalties, twelve
-built-in events plus custom events, named sessions, solve comments/actions,
+built-in events plus MISC, named sessions, solve comments/actions,
 configurable trimmed statistics, Time Trend/PB details, the Analytics dashboard,
-the OLL/PLL Training workspace, native JSON backup, additive csTimer import,
-optional Google Drive synchronization, light/dark/system themes, floating
+the OLL/PLL Training workspace, native JSON/checked-gzip backup, additive csTimer
+import, optional Google Drive synchronization, light/dark/system themes, floating
 scramble/chart tools, first-run onboarding, and the offline-capable PWA.
 
 Sessions support 3×3, 2×2, 4×4, 3×3 OH, 5×5, 6×6, 7×7, Pyraminx, Skewb,

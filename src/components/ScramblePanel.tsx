@@ -134,7 +134,7 @@ export function ScramblePanel({
           <div className="scramble-error" role="alert">
             <span>{error}</span>
             <button type="button" className="text-button" onClick={onRetry}>
-              Retry
+              Regenerate scramble
             </button>
           </div>
         ) : (
@@ -147,8 +147,11 @@ export function ScramblePanel({
 
       {error ? (
         <div className="scramble-footer">
+          <span className="scramble-footer-error" role="alert">
+            {error}
+          </span>
           <button type="button" className="text-button" onClick={onRetry}>
-            {scramble ? 'Retry next scramble' : 'Retry'}
+            Regenerate scramble
           </button>
         </div>
       ) : null}

@@ -1,7 +1,7 @@
 # CubeLab incremental session storage design
 
 **Status:** Design only. Not implemented; production writes remain whole-collection.
-**Last reviewed:** 2026-11-19
+**Last reviewed:** 2026-11-21
 **Owners:** `src/lib/storage.ts`, `src/hooks/useSessions.ts`, `src/lib/syncStorage.ts`,
 `src/lib/sync.ts`, `src/hooks/useSync.ts`
 
@@ -15,6 +15,15 @@ but write cost grows with history size:
 - enabled sync calculates a full content fingerprint;
 - a single solve edit rewrites every session and solve in the record.
 
+The 2026-11-21 production Chromium observation measured keydown-to-idle at
+70–196 ms with a 10,000-solve history carrying per-field sync metadata (4.6 MB),
+versus ~44 ms for the same history without that metadata (1.44 MB) and 4.5–9.5 ms
+with an empty history. At 10k the sync-heavy fixture spent roughly 45 ms in
+`JSON.stringify`, 38 ms in `localStorage.setItem` and ~15 ms in render/other
+(medians). The in-run sync fingerprint memo removes repeated identity-stable
+traversals, but synchronous full-collection persistence remains the dominant
+stop-path cost and is the reason this design is retained.
+
 This design reduces ordinary write cost without weakening validation, recovery,
 deletion provenance, exact pending detection or cross-tab ownership. It does not
 replace the existing snapshot until the migration, recovery and failure paths
@@ -23,8 +32,8 @@ have dedicated regression coverage.
 ## Current contract to preserve
 
 1. One editable tab owns `cubelab-active-tab` for the document lifetime.
-2. Current sessions are schema v6 at `cubelab:sessions:v1`; older v1–v5 records
-   load with defaults.
+2. Current sessions are schema v7 at `cubelab:sessions:v1`; older v1–v6 records
+   load unchanged.
 3. Unreadable current or legacy bytes stay untouched and block editing behind
    the recovery gate.
 4. A failed write retains the candidate and never publishes a fallback.
@@ -36,13 +45,16 @@ have dedicated regression coverage.
    collision-free equality proof.
 8. Native backups and Drive snapshots consume a validated collection snapshot,
    not an uncommitted journal.
+9. Training remains a separate v1 store at `cubelab:training:v1` with its own
+   `cubelab:training-sync:v1` ledger. This design does not change its schema,
+   native `training` backup section or Training Drive file family.
 
 ## Proposed layout
 
 Keep the existing snapshot key as the compatibility base:
 
 ```text
-cubelab:sessions:v1                 existing validated snapshot (schema v6)
+cubelab:sessions:v1                 existing validated snapshot (schema v7)
 cubelab:sessions:journal:v1         append-only mutation journal
 cubelab:sessions:journal-meta:v1    journal generation, base revision, length, checksum
 ```
@@ -122,12 +134,15 @@ pattern already used for native replacement should be reused, not duplicated.
 
 Compaction triggers should be size/count based, not timing based, so a burst of
 solves cannot bypass the bound. The exact threshold must be measured; start with
-a small synthetic benchmark and preserve the 10 MB import/export cap.
+a small synthetic benchmark and preserve the current native backup limits (10 MB
+compact JSON; 16 MB encoded / 64 MB decoded checked gzip) plus the separate 10 MB
+solve Drive and csTimer caps.
 
 ## Sync and backup interaction
 
 - Fingerprints include the snapshot revision plus journal content.
-- Native backup and Drive publication materialize the replayed collection.
+- Session native backup and Drive publication materialize the replayed
+  collection; the optional Training section remains separate.
 - The journal itself is local-only and is never uploaded as a sync envelope.
 - After a successful publication/compaction, the journal may be reset only if
   the exact published revision is durable and the pending/in-flight guards pass.
@@ -137,7 +152,7 @@ a small synthetic benchmark and preserve the 10 MB import/export cap.
 
 ## Migration and rollback
 
-- Existing schema v6 snapshot loads unchanged with an empty journal.
+- Existing schema v7 snapshot loads unchanged with an empty journal.
 - No read-time rewrite is required.
 - A build without journal support ignores the new keys and continues using the
   validated snapshot; this is the rollback path.
@@ -159,7 +174,7 @@ a small synthetic benchmark and preserve the 10 MB import/export cap.
 
 ## Required tests before implementation
 
-- Existing v1–v6 snapshot round trips and invalid-byte recovery.
+- Existing v1–v7 snapshot round trips and invalid-byte recovery.
 - Add/update/delete/undo replay, duplicate operation IDs, out-of-order sequences,
   wrong base revision and checksum corruption.
 - Solve-add while a session is deleted; split/transfer redirects; custom-event
@@ -176,6 +191,6 @@ a small synthetic benchmark and preserve the 10 MB import/export cap.
 ## Decision gates
 
 Implementation requires explicit approval and must preserve the current schema
-v6/backup v1/Drive formats until migration and rollback tests pass. Do not ship
+v7/backup v1/Drive formats until migration and rollback tests pass. Do not ship
 journal writes as the only copy, silently compact user data, or remove the
 snapshot recovery path.

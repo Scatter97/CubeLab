@@ -5,11 +5,9 @@ import {
   getEventDefinition,
   getEventLabel,
   getEventOptions,
-  isCustomEvent,
+  normalizeStoredEvent,
   isPuzzleEventValue,
-  isStoredEventValue,
   resetCustomEventDefinitionsForTests,
-  setCustomEventDefinitions,
 } from './events'
 
 afterEach(() => {
@@ -105,35 +103,16 @@ describe('event registry', () => {
     expect(getEventDefinition('unknown')).toBeUndefined()
   })
 
-  it('resolves custom event labels and marks them in selector options', () => {
-    setCustomEventDefinitions([
-      {
-        id: 'custom:fto',
-        name: 'FTO',
-        placeholder: 'No scramble',
-        createdAt: 1,
-        updatedAt: 1,
-      },
-      {
-        id: 'custom:other',
-        name: 'Other',
-        placeholder: '',
-        createdAt: 2,
-        updatedAt: 2,
-      },
-    ])
-    expect(getEventLabel('custom:fto')).toBe('FTO')
-    expect(getEventLabel('custom:missing')).toBe('custom:missing')
-    expect(isCustomEvent('custom:fto')).toBe(true)
-    expect(isCustomEvent('custom:missing')).toBe(false)
-    expect(isStoredEventValue('custom:fto')).toBe(true)
-    expect(isStoredEventValue('333bf')).toBe(true)
-    expect(isStoredEventValue('not valid')).toBe(true)
-    expect(isStoredEventValue('')).toBe(false)
-    expect(isStoredEventValue(undefined)).toBe(false)
-    expect(getEventOptions().slice(-2).map(formatEventOptionLabel)).toEqual([
-      'FTO (custom)',
-      'Other (custom)',
-    ])
+  it('exposes MISC and folds retired custom events into it', () => {
+    expect(getEventLabel('misc')).toBe('MISC')
+    expect(normalizeStoredEvent('custom:fto')).toBe('misc')
+    expect(normalizeStoredEvent('333bf')).toBe('misc')
+    expect(normalizeStoredEvent('333')).toBe('333')
+    expect(normalizeStoredEvent('')).toBeNull()
+    expect(normalizeStoredEvent(undefined)).toBeNull()
+    const last = getEventOptions().at(-1)
+    expect(last?.id).toBe('misc')
+    expect(last ? formatEventOptionLabel(last) : null).toBe('MISC')
+    expect(getEventOptions().some((option) => option.id.startsWith('custom:'))).toBe(false)
   })
 })

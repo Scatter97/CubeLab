@@ -13,6 +13,7 @@ import {
 } from './replacement'
 import type { DriveLockManager } from './driveCoordination'
 import { recoverReplacementAtStartup } from './startupRecovery'
+import { TRAINING_STORAGE_KEY } from './training/storage'
 
 class MemoryStorage implements StorageLike {
   readonly values = new Map<string, string>()
@@ -41,6 +42,7 @@ function seeded(): MemoryStorage {
   storage.setItem(SESSIONS_STORAGE_KEY, 'old-sessions')
   storage.setItem(SETTINGS_STORAGE_KEY, 'old-settings')
   storage.setItem(SYNC_STORAGE_KEY, 'old-sync')
+  storage.setItem(TRAINING_STORAGE_KEY, 'old-training')
   return storage
 }
 
@@ -127,6 +129,75 @@ describe('startup replacement recovery gate', () => {
     expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe('old-sessions')
     expect(storage.getItem(SETTINGS_STORAGE_KEY)).toBe('old-settings')
     expect(storage.getItem(SYNC_STORAGE_KEY)).toBe('old-sync')
+    expect(storage.getItem(REPLACEMENT_STORAGE_KEY)).toBeNull()
+  })
+
+  it('rolls back and cleans up a prepared Training key at startup', async () => {
+    const begun = beginReplacement(
+      'native-import',
+      ['sessions', 'training'],
+      storage,
+    )
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    storage.setItem(SESSIONS_STORAGE_KEY, 'candidate-sessions')
+    storage.setItem(TRAINING_STORAGE_KEY, 'candidate-training')
+
+    await expect(
+      recoverReplacementAtStartup({ storage, lockManager: immediateLocks }),
+    ).resolves.toEqual({
+      status: 'ready',
+      recovery: { status: 'rolled-back' },
+    })
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe('old-sessions')
+    expect(storage.getItem(TRAINING_STORAGE_KEY)).toBe('old-training')
+    expect(storage.getItem(REPLACEMENT_STORAGE_KEY)).toBeNull()
+  })
+
+  it('rolls back and cleans up a prepared Training-only replacement at startup', async () => {
+    const begun = beginReplacement('training-restore', ['training'], storage)
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    storage.setItem(TRAINING_STORAGE_KEY, 'candidate-training')
+    const result = await recoverReplacementAtStartup({
+      storage,
+      lockManager: immediateLocks,
+    })
+    expect(result).toEqual({ status: 'ready', recovery: { status: 'rolled-back' } })
+    expect(storage.getItem(TRAINING_STORAGE_KEY)).toBe('old-training')
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe('old-sessions')
+    expect(storage.getItem(REPLACEMENT_STORAGE_KEY)).toBeNull()
+  })
+
+  it('cleans up a committed Training-only outcome without rewriting it', async () => {
+    const begun = beginReplacement('training-restore', ['training'], storage)
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    storage.setItem(TRAINING_STORAGE_KEY, 'committed-training')
+    expect(markReplacementCommitted(begun.journal, storage)).toBe(true)
+    const result = await recoverReplacementAtStartup({
+      storage,
+      lockManager: immediateLocks,
+    })
+    expect(result).toEqual({ status: 'ready', recovery: { status: 'committed' } })
+    expect(storage.getItem(TRAINING_STORAGE_KEY)).toBe('committed-training')
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe('old-sessions')
+  })
+
+  it('cleans up a committed Training outcome without rewriting it', async () => {
+    const begun = beginReplacement('native-import', ['training'], storage)
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    storage.setItem(TRAINING_STORAGE_KEY, 'committed-training')
+    expect(markReplacementCommitted(begun.journal, storage)).toBe(true)
+
+    await expect(
+      recoverReplacementAtStartup({ storage, lockManager: immediateLocks }),
+    ).resolves.toEqual({
+      status: 'ready',
+      recovery: { status: 'committed' },
+    })
+    expect(storage.getItem(TRAINING_STORAGE_KEY)).toBe('committed-training')
     expect(storage.getItem(REPLACEMENT_STORAGE_KEY)).toBeNull()
   })
 

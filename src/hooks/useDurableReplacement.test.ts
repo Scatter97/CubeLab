@@ -29,6 +29,13 @@ import {
   recordPendingCompletion,
 } from '../lib/pendingCompletion'
 import type { TimerState } from '../timer/machine'
+import type { TrainingData } from '../lib/training/types'
+import {
+  stageTrainingSnapshot,
+  serializeTrainingData,
+  TRAINING_STORAGE_KEY,
+} from '../lib/training/storage'
+import { closedTrainingHistory } from '../lib/training/persistenceFixtures.test-support'
 
 function sessions(name: string): SessionsData {
   return {
@@ -75,6 +82,9 @@ function setup(options: {
   onAdopt?: UseSyncResult['adoptCommittedReplacement']
   stageSessions?: (data: SessionsData) => boolean
   replaceSessions?: (data: SessionsData) => void
+  stageTraining?: (data: TrainingData) => ReturnType<typeof stageTrainingSnapshot>
+  replaceTraining?: (data: TrainingData, raw: string) => void
+  trainingBlockedReason?: () => string | null
 } = {}) {
   const onNotify = options.onNotify ?? vi.fn()
   const sync = {
@@ -94,6 +104,9 @@ function setup(options: {
       stageSettings: (settings) => saveSettings(settings),
       replaceSessions: options.replaceSessions ?? vi.fn(),
       replaceSettings: vi.fn(),
+      stageTraining: options.stageTraining ?? ((data) => stageTrainingSnapshot(data)),
+      replaceTraining: options.replaceTraining,
+      trainingBlockedReason: options.trainingBlockedReason,
       onNotify,
     }),
   )
@@ -107,6 +120,7 @@ describe('useDurableReplacement', () => {
     saveSettings(DEFAULT_SETTINGS)
     saveSyncStorage(createDefaultSyncStorage('device-test'))
     saveDriveBackupState({ ...DEFAULT_DRIVE_STATE })
+    expect(stageTrainingSnapshot(closedTrainingHistory()).ok).toBe(true)
   })
 
   it('stages a Drive restore and commits its drive status before publishing', async () => {
@@ -332,6 +346,203 @@ describe('useDurableReplacement', () => {
     expect(onNotify).toHaveBeenCalledWith(
       expect.stringContaining('pending Undo recovery'),
     )
+    expect(loadSessions().sessions[0]?.name).toBe('Previous')
+    expect(localStorage.getItem('cubelab:replacement:v1')).toBeNull()
+  })
+
+  it('rolls back every captured key when the Training write fails', async () => {
+    const previousTrainingRaw = localStorage.getItem(TRAINING_STORAGE_KEY)
+    const previousDrive = loadDriveBackupState()
+    const replaceTraining = vi.fn()
+    const { result, onNotify } = setup({
+      stageTraining: () => ({
+        ok: false,
+        reason: 'write',
+        error: 'synthetic Training write failure',
+      }),
+      replaceTraining,
+    })
+    const candidate = sessions('Imported')
+    const nextSettings: Settings = { ...DEFAULT_SETTINGS, theme: 'dark' }
+    const nextSync = createResetBaseSyncStorage(
+      loadSyncStorage(),
+      candidate,
+      200_000,
+    )
+
+    let committed = true
+    await act(async () => {
+      committed = await result.current({
+        kind: 'native-import',
+        sessionsData: candidate,
+        settingsData: nextSettings,
+        syncStorage: nextSync,
+        driveState: { ...DEFAULT_DRIVE_STATE, lastRestoreAt: 999 },
+        trainingData: closedTrainingHistory(),
+        successMessage: 'Imported',
+        failurePrefix: 'Import blocked',
+        onSuccess: vi.fn(),
+      })
+    })
+
+    expect(committed).toBe(false)
+    expect(onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Training history could not be saved'),
+    )
+    expect(onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Nothing was replaced'),
+    )
+    expect(loadSessions().sessions[0]?.name).toBe('Previous')
+    expect(loadSettings().theme).toBe(DEFAULT_SETTINGS.theme)
+    expect(loadDriveBackupState()).toEqual(previousDrive)
+    expect(localStorage.getItem(TRAINING_STORAGE_KEY)).toBe(previousTrainingRaw)
+    expect(replaceTraining).not.toHaveBeenCalled()
+    expect(localStorage.getItem('cubelab:replacement:v1')).toBeNull()
+  })
+
+  it('adopts committed Training bytes only after the durable commit marker', async () => {
+    const training = closedTrainingHistory()
+    const raw = serializeTrainingData(training)
+    const replaceTraining = vi.fn()
+    const onSuccess = vi.fn()
+    const { result, onNotify } = setup({ replaceTraining, onSuccess })
+    const candidate = sessions('Imported')
+    const nextSync = createResetBaseSyncStorage(
+      loadSyncStorage(),
+      candidate,
+      200_000,
+    )
+
+    let committed = false
+    await act(async () => {
+      committed = await result.current({
+        kind: 'native-import',
+        sessionsData: candidate,
+        settingsData: DEFAULT_SETTINGS,
+        syncStorage: nextSync,
+        trainingData: training,
+        successMessage: 'Imported',
+        failurePrefix: 'Import blocked',
+        onSuccess,
+      })
+    })
+
+    expect(committed).toBe(true)
+    expect(onSuccess).toHaveBeenCalledTimes(1)
+    expect(onNotify).toHaveBeenCalledWith('Imported')
+    expect(replaceTraining).toHaveBeenCalledWith(training, raw)
+    expect(localStorage.getItem(TRAINING_STORAGE_KEY)).toBe(raw)
+    expect(loadSessions().sessions[0]?.name).toBe('Imported')
+    expect(localStorage.getItem('cubelab:replacement:v1')).toBeNull()
+  })
+
+  it('blocks a Training restore before any key changes when local Training is busy', async () => {
+    const previousTrainingRaw = localStorage.getItem(TRAINING_STORAGE_KEY)
+    const { result, onNotify } = setup({
+      replaceTraining: vi.fn(),
+      trainingBlockedReason: () => 'An active Training session is open.',
+    })
+
+    let committed = true
+    await act(async () => {
+      committed = await result.current({
+        kind: 'native-import',
+        sessionsData: sessions('Imported'),
+        settingsData: DEFAULT_SETTINGS,
+        syncStorage: createDefaultSyncStorage('device-test'),
+        trainingData: closedTrainingHistory(),
+        successMessage: 'Imported',
+        failurePrefix: 'Import blocked',
+        onSuccess: vi.fn(),
+      })
+    })
+
+    expect(committed).toBe(false)
+    expect(onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('An active Training session is open.'),
+    )
+    expect(loadSessions().sessions[0]?.name).toBe('Previous')
+    expect(localStorage.getItem(TRAINING_STORAGE_KEY)).toBe(previousTrainingRaw)
+    expect(localStorage.getItem('cubelab:replacement:v1')).toBeNull()
+  })
+
+  it('leaves local Training untouched when the plan has no Training section', async () => {
+    const previousTrainingRaw = localStorage.getItem(TRAINING_STORAGE_KEY)
+    const replaceTraining = vi.fn()
+    const { result } = setup({ replaceTraining })
+
+    let committed = false
+    await act(async () => {
+      committed = await result.current({
+        kind: 'native-import',
+        sessionsData: sessions('Imported'),
+        settingsData: DEFAULT_SETTINGS,
+        syncStorage: createDefaultSyncStorage('device-test'),
+        successMessage: 'Imported',
+        failurePrefix: 'Import blocked',
+        onSuccess: vi.fn(),
+      })
+    })
+
+    expect(committed).toBe(true)
+    expect(localStorage.getItem(TRAINING_STORAGE_KEY)).toBe(previousTrainingRaw)
+    expect(replaceTraining).not.toHaveBeenCalled()
+  })
+
+  it('repairs an unreadable Training key and restores its exact bytes on rollback', async () => {
+    localStorage.setItem(TRAINING_STORAGE_KEY, '{unreadable-training')
+    const replaceTraining = vi.fn()
+    const training = closedTrainingHistory()
+    const raw = serializeTrainingData(training)
+
+    const committedRun = setup({ replaceTraining })
+    let committed = false
+    await act(async () => {
+      committed = await committedRun.result.current({
+        kind: 'native-import',
+        sessionsData: sessions('Imported'),
+        settingsData: DEFAULT_SETTINGS,
+        syncStorage: createDefaultSyncStorage('device-test'),
+        trainingData: training,
+        successMessage: 'Imported',
+        failurePrefix: 'Import blocked',
+        onSuccess: vi.fn(),
+      })
+    })
+    expect(committed).toBe(true)
+    expect(localStorage.getItem(TRAINING_STORAGE_KEY)).toBe(raw)
+    expect(replaceTraining).toHaveBeenCalledWith(training, raw)
+
+    // A second attempt with a failing Training writer proves the journal kept
+    // the original unreadable bytes rather than a parsed empty fallback.
+    saveSessions(sessions('Previous'))
+    localStorage.setItem(TRAINING_STORAGE_KEY, '{unreadable-training')
+    const failingRun = setup({
+      stageTraining: () => ({
+        ok: false,
+        reason: 'write',
+        error: 'synthetic Training write failure',
+      }),
+      replaceTraining: vi.fn(),
+    })
+    let rolledBack = true
+    await act(async () => {
+      rolledBack = await failingRun.result.current({
+        kind: 'native-import',
+        sessionsData: sessions('Imported'),
+        settingsData: DEFAULT_SETTINGS,
+        syncStorage: createDefaultSyncStorage('device-test'),
+        trainingData: training,
+        successMessage: 'Imported',
+        failurePrefix: 'Import blocked',
+        onSuccess: vi.fn(),
+      })
+    })
+    expect(rolledBack).toBe(false)
+    expect(failingRun.onNotify).toHaveBeenCalledWith(
+      expect.stringContaining('Nothing was replaced'),
+    )
+    expect(localStorage.getItem(TRAINING_STORAGE_KEY)).toBe('{unreadable-training')
     expect(loadSessions().sessions[0]?.name).toBe('Previous')
     expect(localStorage.getItem('cubelab:replacement:v1')).toBeNull()
   })

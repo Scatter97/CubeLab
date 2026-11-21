@@ -5,7 +5,15 @@ import {
   type ChangeEvent,
 } from 'react'
 import type { Backup } from '../lib/backup'
-import { MAX_BACKUP_BYTES, parseBackup } from '../lib/backup'
+import { parseBackup } from '../lib/backup'
+import {
+  MAX_PORTABLE_BACKUP_BYTES,
+  readPortableBackupBytes,
+} from '../lib/portableBackup'
+import {
+  summarizeTrainingData,
+} from '../lib/training/backupSection'
+import type { TrainingData } from '../lib/training/types'
 import {
   analyzeCsTimerBackup,
   isCsTimerBackup,
@@ -14,7 +22,7 @@ import {
 import type { CsTimerImportPreview } from '../lib/csTimerImport'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { loadSettings } from '../lib/storage'
-import type { CustomEventDefinition, Session } from '../types'
+import type { Session } from '../types'
 import { CubeMark } from './Icons'
 
 interface DataDialogProps {
@@ -22,16 +30,39 @@ interface DataDialogProps {
   sessions: readonly Session[]
   sessionCount: number
   solveCount: number
-  customEvents: readonly CustomEventDefinition[]
+  /** Last committed local Training store, or null when it cannot be read. */
+  trainingData?: TrainingData | null
+  trainingUnreadable?: boolean
+  /** True only when a new native backup would include Training. */
+  trainingIncluded?: boolean
+  /** Non-null when Training currently prevents a complete native export. */
+  trainingExportBlockedReason?: string | null
+  /** Non-null when local Training must be finished before a Training restore. */
+  trainingImportBlockedReason?: string | null
   onClose: () => void
-  onExport: () => { ok: true } | { ok: false; error: string }
+  onExport: () => Promise<{ ok: true } | { ok: false; error: string }>
   onImport: (backup: Backup) => void
 }
 
 const countFormatter = new Intl.NumberFormat('en-US')
+const trainingDateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+})
 
 function formatCount(count: number): string {
   return countFormatter.format(count)
+}
+
+function formatTrainingRange(
+  first: number | null,
+  last: number | null,
+): string | null {
+  if (first === null || last === null) return null
+  const from = trainingDateFormatter.format(new Date(first))
+  const to = trainingDateFormatter.format(new Date(last))
+  return from === to ? `Attempts on ${from}` : `Attempts ${from} – ${to}`
 }
 
 function plural(count: number, singular: string, pluralForm: string): string {
@@ -52,7 +83,11 @@ export function DataDialog({
   sessions,
   sessionCount,
   solveCount,
-  customEvents,
+  trainingData = null,
+  trainingUnreadable = false,
+  trainingIncluded = false,
+  trainingExportBlockedReason = null,
+  trainingImportBlockedReason = null,
   onClose,
   onExport,
   onImport,
@@ -65,11 +100,16 @@ export function DataDialog({
   const readIdRef = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [isReading, setIsReading] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [csPreview, setCsPreview] = useState<CsTimerImportPreview | null>(null)
   const [csRaw, setCsRaw] = useState<string | null>(null)
   const [previewNotice, setPreviewNotice] = useState<string | null>(null)
 
   const previewOpen = csPreview !== null
+  const busy = isReading || isExporting
+  const localTraining = trainingData
+    ? summarizeTrainingData(trainingData)
+    : null
 
   useEffect(() => {
     if (previewOpen) {
@@ -87,6 +127,7 @@ export function DataDialog({
     readIdRef.current += 1
     setError(null)
     setIsReading(false)
+    setIsExporting(false)
     setCsPreview(null)
     setCsRaw(null)
     setPreviewNotice(null)
@@ -100,8 +141,8 @@ export function DataDialog({
 
     setError(null)
     setPreviewNotice(null)
-    if (file.size > MAX_BACKUP_BYTES) {
-      setError('That backup is larger than 10 MB.')
+    if (file.size > MAX_PORTABLE_BACKUP_BYTES) {
+      setError('That backup file is larger than 16 MB.')
       return
     }
 
@@ -109,14 +150,21 @@ export function DataDialog({
     readIdRef.current = readId
     setIsReading(true)
     try {
-      const raw = await file.text()
+      const bytes = new Uint8Array(await file.arrayBuffer())
       if (readId !== readIdRef.current) return
+      const portable = await readPortableBackupBytes(bytes)
+      if (readId !== readIdRef.current) return
+      if (!portable.ok) {
+        setError(portable.error)
+        return
+      }
+      const raw = portable.raw
 
       const result = parseBackup(raw)
       if (!result.ok) {
-        if (isCsTimerBackup(raw)) {
+        // A compressed file is never treated as a csTimer payload.
+        if (!portable.compressed && isCsTimerBackup(raw)) {
           const analyzed = analyzeCsTimerBackup(raw, {
-            existingCustomEvents: customEvents,
             existingSessionNames: sessions.map((session) => session.name),
           })
           if (!analyzed.ok) {
@@ -130,6 +178,12 @@ export function DataDialog({
         setError(result.error)
         return
       }
+      if (result.backup.training && trainingImportBlockedReason) {
+        setError(
+          `Training history cannot be replaced yet: ${trainingImportBlockedReason} The backup was not imported.`,
+        )
+        return
+      }
       onImport(result.backup)
     } catch {
       if (readId === readIdRef.current) setError('Could not read that file.')
@@ -138,10 +192,24 @@ export function DataDialog({
     }
   }
 
+  const handleExport = async () => {
+    if (busy) return
+    setError(null)
+    setPreviewNotice(null)
+    setIsExporting(true)
+    try {
+      const result = await onExport()
+      setError(result.ok ? null : result.error)
+    } catch {
+      setError('Backup not exported: the backup could not be created.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const handleConfirmCsImport = () => {
     if (!csRaw || !csPreview) return
     const result = parseCsTimerBackup(csRaw, loadSettings(), {
-      existingCustomEvents: customEvents,
       existingSessionNames: sessions.map((session) => session.name),
     })
     if (!result.ok) {
@@ -204,7 +272,7 @@ export function DataDialog({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json,.txt,application/json,text/plain"
+            accept=".json,.json.gz,.gz,.txt,application/json,application/gzip,application/x-gzip,text/plain"
             hidden
             data-testid="backup-file-input"
             onChange={handleFileChange}
@@ -304,9 +372,9 @@ export function DataDialog({
               </span>
               <h2 id="data-title">Your local data</h2>
               <p id="data-description">
-                Export every session and setting as a JSON file, or restore a
-                CubeLab backup. Importing replaces local sessions after
-                confirmation.
+                Export every session, setting and available Training history, or
+                restore a CubeLab backup. Importing replaces local sessions after
+                confirmation. Large backups are compressed automatically.
               </p>
 
               <div className="data-summary" aria-label="Current local data">
@@ -319,6 +387,36 @@ export function DataDialog({
                   {plural(solveCount, 'solve', 'solves')}
                 </span>
                 <span>Settings included</span>
+                {localTraining ? (
+                  <span data-testid="data-training-summary">
+                    Training: {formatCount(localTraining.attempts)}{' '}
+                    {plural(localTraining.attempts, 'attempt', 'attempts')} ·{' '}
+                    {formatCount(localTraining.sessions)}{' '}
+                    {plural(localTraining.sessions, 'session', 'sessions')} ·{' '}
+                    {formatCount(localTraining.calibrations)}{' '}
+                    {plural(
+                      localTraining.calibrations,
+                      'calibration',
+                      'calibrations',
+                    )}
+                  </span>
+                ) : (
+                  <span data-testid="data-training-summary">
+                    {trainingUnreadable
+                      ? 'Training history unreadable'
+                      : 'No Training history yet'}
+                  </span>
+                )}
+                {localTraining &&
+                localTraining.firstAttemptAt !== null &&
+                localTraining.lastAttemptAt !== null ? (
+                  <span data-testid="data-training-range">
+                    {formatTrainingRange(
+                      localTraining.firstAttemptAt,
+                      localTraining.lastAttemptAt,
+                    )}
+                  </span>
+                ) : null}
               </div>
 
               {error ? (
@@ -332,6 +430,7 @@ export function DataDialog({
                   type="button"
                   className="button button-secondary"
                   onClick={handleClose}
+                  disabled={busy}
                   autoFocus
                 >
                   Close
@@ -341,7 +440,7 @@ export function DataDialog({
                   type="button"
                   className="button button-secondary"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isReading}
+                  disabled={busy}
                   data-testid="import-backup"
                 >
                   {isReading ? 'Reading…' : 'Import backup'}
@@ -350,19 +449,27 @@ export function DataDialog({
                   type="button"
                   className="button button-primary"
                   onClick={() => {
-                    const result = onExport()
-                    setError(result.ok ? null : result.error)
+                    void handleExport()
                   }}
-                  disabled={isReading}
+                  disabled={busy}
+                  aria-busy={isExporting}
                   data-testid="export-backup"
                 >
-                  Export backup
+                  {isExporting ? 'Exporting…' : 'Export backup'}
                 </button>
               </div>
 
-              <p className="dialog-note">
-                Local JSON backups stay on this device. Google Drive
-                synchronization is a separate opt-in feature in Settings.
+              <p className="dialog-note" data-testid="training-backup-note">
+                {trainingUnreadable && !localTraining
+                  ? 'Training history is unreadable, so a complete backup is blocked until it is recovered. Local JSON backups stay on this device.'
+                  : trainingExportBlockedReason
+                    ? `Training history is not currently exportable: ${trainingExportBlockedReason}`
+                    : trainingIncluded
+                      ? 'Training history is included in new backups. Local JSON backups stay on this device.'
+                      : 'No Training history exists yet, so new backups omit it. Local JSON backups stay on this device.'}{' '}
+                Large backups are compressed automatically. The file can be
+                restored by a current CubeLab build. Google Drive synchronization
+                is a separate opt-in feature in Settings.
               </p>
             </>
           )}

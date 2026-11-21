@@ -6,6 +6,7 @@ import { trainingOutcome } from './results'
 import { removeArchivedTrainingSession } from './records'
 import { OLL_STANDARD_CASES, PLL_NAMED_CASES } from './catalog/standardCases'
 import { assertTrainingData } from './schema'
+import { stripRetiredAlgorithmTracking } from './retiredAlgorithmTracking'
 import { isSiteResetInProgress } from '../siteReset'
 import type { TrainingCaseId, TrainingData, TrainingPreferences, TrainingSetPreferences } from './types'
 
@@ -53,7 +54,10 @@ export function createEmptyTrainingData(): TrainingData {
  */
 export function migrateTrainingData(value: unknown): TrainingData {
   assertTrainingData(value)
-  return JSON.parse(JSON.stringify(value)) as TrainingData
+  const data = JSON.parse(JSON.stringify(value)) as TrainingData
+  const sanitized = stripRetiredAlgorithmTracking(data)
+  assertTrainingData(sanitized)
+  return sanitized
 }
 
 export function deserializeTrainingData(raw: string): TrainingData {
@@ -229,6 +233,49 @@ function writeTrainingSnapshot(storage: StorageLike, raw: string): TrainingSaveR
   } catch {
     return { ok: false, reason: 'write', error: 'Training data could not be saved. Keep the current in-memory data and retry.' }
   }
+}
+
+/**
+ * Wholesale-replacement writer for a checked native-backup section.
+ *
+ * Ordinary Training edits must use saveTraining's transition rules. A restore
+ * intentionally replaces the complete store, so this path validates the whole
+ * store and writes canonical bytes without comparing attempt-level transitions.
+ * The durable replacement journal captures the previous raw value for rollback,
+ * including unreadable bytes that a valid backup is allowed to repair.
+ */
+export function stageTrainingSnapshot(
+  data: TrainingData,
+  storage: StorageLike | null = browserStorage(),
+): TrainingSaveResult {
+  if (isSiteResetInProgress()) {
+    return {
+      ok: false,
+      reason: 'write',
+      error: 'CubeLab is resetting local site data. Training changes were not saved.',
+    }
+  }
+  if (!storage) {
+    return { ok: false, reason: 'unavailable', error: 'Training storage is unavailable.' }
+  }
+  if (data.activeVisitId !== null || data.visits.some((visit) => visit.endedAt === null)) {
+    return {
+      ok: false,
+      reason: 'invalid',
+      error: 'Imported Training history must not contain an active or unfinished session.',
+    }
+  }
+  let raw: string
+  try {
+    raw = serializeTrainingData(data)
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'invalid',
+      error: error instanceof Error ? error.message : 'Invalid Training data.',
+    }
+  }
+  return writeTrainingSnapshot(storage, raw)
 }
 
 /** Property order is not a historical mutation. Unknown JSON fields participate. */

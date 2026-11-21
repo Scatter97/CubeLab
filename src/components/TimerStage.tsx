@@ -23,6 +23,15 @@ function splitDecimalTime(value: string): ReactNode {
   )
 }
 
+/** Masks the whole-second part when it is even; minutes and decimals remain. */
+function maskEvenSeconds(value: string): string {
+  const match = /^(.*?)(\d{1,2})(\.\d+)$/.exec(value)
+  if (!match) return value
+  const seconds = Number(match[2])
+  if (!Number.isFinite(seconds) || seconds % 2 !== 0) return value
+  return `${match[1]}${'-'.repeat(match[2]!.length)}${match[3]}`
+}
+
 interface TimerStageProps {
   state: TimerState
   eventLabel: string
@@ -37,6 +46,7 @@ interface TimerStageProps {
   inspectionEnabled: boolean
   inspectionCountDirection: InspectionCountDirection
   showTimerDecimalSmall?: boolean
+  hideEvenTimerSeconds?: boolean
   alert?: { tone: AlertTone; id: number; message?: string; visualTone?: AlertTone } | null
   inspectionWarningVisualScope?: InspectionWarningVisualScope
   /** Presentation-only overlay anchored inside the timer stage. */
@@ -95,6 +105,7 @@ export function TimerStage({
   inspectionEnabled,
   inspectionCountDirection,
   showTimerDecimalSmall = false,
+  hideEvenTimerSeconds = false,
   alert = null,
   inspectionWarningVisualScope = 'timer',
   overlay = null,
@@ -129,6 +140,7 @@ export function TimerStage({
 
   if (isRunning) {
     mainValue = formatTime(elapsedMs ?? 0)
+    if (hideEvenTimerSeconds) mainValue = maskEvenSeconds(mainValue)
     if (state.inspectionStartedAt !== null) {
       const penalty = penaltyForInspection(state.startedAt - state.inspectionStartedAt)
       if (penalty === '+2') {

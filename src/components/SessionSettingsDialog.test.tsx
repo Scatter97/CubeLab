@@ -66,7 +66,6 @@ function renderDialog(
       onSetSessionEvent={(id, event) =>
         overrides.onSetSessionEvent?.(id, event) ?? true
       }
-      onOpenEventManager={vi.fn()}
       onSetInspection={vi.fn()}
       onRequestClear={vi.fn()}
       onRequestDelete={vi.fn()}
@@ -83,9 +82,9 @@ describe('SessionSettingsDialog layout', () => {
     renderDialog()
     const dialog = screen.getByRole('dialog', { name: 'Session settings' })
     expect(dialog).not.toHaveTextContent('Unique within this browser')
-    expect(dialog).toHaveTextContent(
-      'Changing the event also updates existing solves in this session.',
-    )
+    expect(dialog).toHaveTextContent('Session typePractice')
+    expect(dialog).not.toHaveTextContent('Manage custom events')
+    expect(dialog).not.toHaveTextContent('Name, event, and essential session behavior')
     expect(dialog).toHaveTextContent('Global default · Off')
     expect(dialog).not.toHaveTextContent('Manage session')
     expect(within(dialog).getByTestId('session-merge')).toBeVisible()
@@ -111,8 +110,7 @@ describe('SessionSettingsDialog competition conversion', () => {
         canDelete={false}
         onRenameSession={() => true}
         onSetSessionEvent={() => true}
-        onOpenEventManager={vi.fn()}
-        onSetInspection={vi.fn()}
+          onSetInspection={vi.fn()}
         onRequestClear={vi.fn()}
         onRequestDelete={vi.fn()}
         onRequestMerge={vi.fn()}

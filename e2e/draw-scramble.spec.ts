@@ -2,6 +2,16 @@ import { expect, test } from '@playwright/test'
 import { CUBELAB_EVENTS } from '../src/lib/events'
 import { chooseTestOption } from './interactions'
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (localStorage.getItem('cubelab:settings:v1')) return
+    localStorage.setItem(
+      'cubelab:settings:v1',
+      JSON.stringify({ version: 12, settings: { inspectionEnabled: false } }),
+    )
+  })
+})
+
 async function waitForReady(page: import('@playwright/test').Page) {
   await page.goto('/')
   await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
@@ -144,6 +154,29 @@ function expectSamePalette(
 }
 
 
+
+test('first open asks for the 2D net or 3D cube and remembers the choice', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('draw-mode-test-started')) return
+    sessionStorage.setItem('draw-mode-test-started', '1')
+    localStorage.removeItem('cubelab:drawScrambleModeChosen:v1')
+  })
+  await waitForReady(page)
+  await page.getByTestId('current-tool-button').click()
+  const prompt = page.getByTestId('draw-scramble-mode-prompt')
+  await expect(prompt).toBeVisible()
+  await prompt.getByRole('button', { name: '3D cube' }).click()
+  await expect(prompt).toHaveCount(0)
+  await expect(page.getByTestId('tool-panel')).toHaveAttribute('data-mode', '3d')
+  await page.reload()
+  await waitForReady(page)
+  if (await page.getByTestId('tool-panel').count() === 0) {
+    await page.getByTestId('current-tool-button').click()
+  }
+  await expect(page.getByTestId('draw-scramble-mode-prompt')).toHaveCount(0)
+  await expect(page.getByTestId('tool-panel')).toHaveAttribute('data-mode', '3d')
+})
+
 test('3D Draw Scramble fills its canvas', async ({ page, browserName }) => {
   test.skip(
     browserName !== 'chromium',
@@ -222,7 +255,6 @@ test('Current Tool toggles the panel and the footer selects the tool', async ({
   expect(panelBox).not.toBeNull()
   if (stageBox && panelBox) {
     expect(panelBox.x).toBeGreaterThan(stageBox.x + stageBox.width / 2)
-    expect(panelBox.y).toBeGreaterThan(stageBox.y + stageBox.height / 2)
     expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(
       stageBox.x + stageBox.width,
     )
@@ -240,7 +272,7 @@ test('Current Tool toggles the panel and the footer selects the tool', async ({
   const menu = page.getByTestId('tool-select-menu')
   await expect(menu).toBeVisible()
   await expect(menu).toHaveClass(/is-up/)
-  await expect(menu.getByRole('menuitemradio')).toHaveCount(2)
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(8)
   await expect(
     menu.getByRole('menuitemradio', { name: 'Draw Scramble' }),
   ).toHaveAttribute('aria-checked', 'true')

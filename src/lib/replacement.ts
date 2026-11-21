@@ -6,6 +6,8 @@ import {
   type StorageLike,
 } from './storage'
 import { SYNC_STORAGE_KEY } from './syncStorage'
+import { TRAINING_STORAGE_KEY } from './training/storage'
+import { TRAINING_SYNC_STORAGE_KEY } from './trainingSyncStorage'
 import { isSiteResetInProgress } from './siteReset'
 
 export const REPLACEMENT_STORAGE_KEY = 'cubelab:replacement:v1'
@@ -15,8 +17,15 @@ export type ReplacementKind =
   | 'native-import'
   | 'drive-restore'
   | 'additive-import'
+  | 'training-restore'
 
-export type ReplacementKey = 'sessions' | 'settings' | 'sync' | 'drive'
+export type ReplacementKey =
+  | 'sessions'
+  | 'settings'
+  | 'sync'
+  | 'drive'
+  | 'training'
+  | 'trainingSync'
 
 export interface ReplacementJournal {
   version: typeof REPLACEMENT_VERSION
@@ -49,6 +58,8 @@ const REPLACEMENT_STORAGE_KEYS: Record<ReplacementKey, string> = {
   settings: SETTINGS_STORAGE_KEY,
   sync: SYNC_STORAGE_KEY,
   drive: DRIVE_STORAGE_KEY,
+  training: TRAINING_STORAGE_KEY,
+  trainingSync: TRAINING_SYNC_STORAGE_KEY,
 }
 
 function getDefaultStorage(): StorageLike | null {
@@ -77,7 +88,8 @@ function parseJournal(value: unknown): ReplacementJournal | null {
     value.operationId.length === 0 ||
     (value.kind !== 'native-import' &&
       value.kind !== 'drive-restore' &&
-      value.kind !== 'additive-import') ||
+      value.kind !== 'additive-import' &&
+      value.kind !== 'training-restore') ||
     (value.phase !== 'prepared' && value.phase !== 'committed') ||
     typeof value.createdAt !== 'number' ||
     !Number.isFinite(value.createdAt) ||
@@ -187,7 +199,7 @@ export function beginReplacement(
     return {
       ok: false,
       error:
-        'The previous sessions, settings or sync records could not be captured. Nothing was replaced.',
+        'The previous local records could not be captured. Nothing was replaced.',
     }
   }
 
@@ -241,6 +253,10 @@ export function rollbackReplacement(
   ][]) {
     const storageKey = REPLACEMENT_STORAGE_KEYS[key]
     try {
+      // A failed candidate write can leave the key at its previous value. Skip
+      // the write so a still-failing quota does not turn a successful restore
+      // of every other key into a misleading "could not restore" report.
+      if (storage.getItem(storageKey) === value) continue
       if (value === null) {
         if (!storage.removeItem) {
           ok = false

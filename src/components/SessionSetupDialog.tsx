@@ -61,7 +61,6 @@ export function SessionSetupDialog({
       ref={dialogRef}
       className="confirm-dialog session-settings-dialog"
       aria-labelledby="create-session-title"
-      aria-describedby="create-session-description"
       onKeyDown={handleKeyDown}
       onCancel={(event) => {
         event.preventDefault()
@@ -84,7 +83,12 @@ function SessionSetupContent({
   onClose,
   onCreate,
 }: SessionSetupContentProps) {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(() =>
+    suggestSessionName(
+      getEventLabel(defaultEvent),
+      sessions.map((session) => session.name),
+    ),
+  )
   const [event, setEvent] = useState<PuzzleEvent>(defaultEvent)
   const [kind, setKind] = useState<SessionKind>('practice')
   const [formatId, setFormatId] = useState<CompetitionFormatId>(() => {
@@ -96,6 +100,7 @@ function SessionSetupContent({
   )
   const [saveError, setSaveError] = useState<string | null>(null)
   const [nameTouched, setNameTouched] = useState(false)
+  const [nameEdited, setNameEdited] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const suggestedName = suggestSessionName(
@@ -142,12 +147,6 @@ function SessionSetupContent({
       <header className="settings-header">
         <div>
           <h2 id="create-session-title">Create new session</h2>
-          <p
-            id="create-session-description"
-            className="session-settings-meta"
-          >
-            Name, event, and essential session behavior
-          </p>
         </div>
         <button
           type="button"
@@ -175,9 +174,17 @@ function SessionSetupContent({
             value={name}
             placeholder={suggestedName}
             maxLength={MAX_SESSION_NAME_LENGTH}
+            onFocus={(eventTarget) => eventTarget.currentTarget.select()}
+            onKeyDown={(eventTarget) => {
+              const key = eventTarget.key
+              if (key.length === 1 && !eventTarget.ctrlKey && !eventTarget.metaKey && !eventTarget.altKey) {
+                setNameEdited(true)
+              }
+            }}
             onChange={(eventTarget) => {
               const nextName = eventTarget.target.value
               setName(nextName.trim() ? nextName : '')
+              setNameEdited(true)
               setSaveError(null)
               setNameTouched(true)
             }}
@@ -212,17 +219,48 @@ function SessionSetupContent({
               text: item.label,
             }))}
             onChange={(value) => {
-              setEvent(value)
+              const nextEvent = value as PuzzleEvent
+              setEvent(nextEvent)
               setFormatId(
-                competitionFormatId(defaultCompetitionFormat(value)) ?? 'ao5',
+                competitionFormatId(defaultCompetitionFormat(nextEvent)) ??
+                  'ao5',
               )
+              if (!nameEdited) {
+                setName(
+                  suggestSessionName(
+                    getEventLabel(nextEvent),
+                    sessions.map((session) => session.name),
+                  ),
+                )
+              }
               setSaveError(null)
             }}
           />
         </div>
 
         <div className="settings-field">
-          <span>Session type</span>
+          <span className="settings-field-heading-row">
+            Session type
+            <span className="settings-hint">
+              <button
+                type="button"
+                className="settings-hint-trigger"
+                aria-label="About session types"
+                aria-describedby="session-kind-hint"
+              >
+                ?
+              </button>
+              <span
+                className="settings-hint-bubble"
+                id="session-kind-hint"
+                role="tooltip"
+              >
+                Practice records free-form solves. Competition groups solves
+                into automatic WCA-style rounds with a fixed format. Practice
+                can never be converted back into competition.
+              </span>
+            </span>
+          </span>
           <div
             className="competition-kind-toggle"
             role="group"
@@ -232,7 +270,7 @@ function SessionSetupContent({
               <button
                 key={option}
                 type="button"
-                className="button button-secondary"
+                className={`button button-secondary${kind === option ? ' is-active' : ''}`}
                 aria-pressed={kind === option}
                 data-testid={`session-setup-kind-${option}`}
                 onClick={() => {
@@ -244,33 +282,27 @@ function SessionSetupContent({
               </button>
             ))}
           </div>
-          <p className="settings-row-description">
-            {kind === 'competition'
-              ? 'Solves fill WCA-style rounds automatically. The format is fixed for this session.'
-              : 'Free-form solves with the usual session statistics.'}
-          </p>
         </div>
 
-        {kind === 'competition' ? (
-          <div className="settings-field">
-            <span>Round format</span>
-            <Select
-              className="compact-select"
-              value={formatId}
-              ariaLabel="Competition round format"
-              testId="session-setup-format"
-              options={COMPETITION_FORMATS.map((format) => ({
-                value: format.id,
-                label: format.description,
-                text: format.label,
-              }))}
-              onChange={(value) => {
-                setFormatId(value as CompetitionFormatId)
-                setSaveError(null)
-              }}
-            />
-          </div>
-        ) : null}
+        <div className="settings-field">
+          <span>Round format</span>
+          <Select
+            className="compact-select"
+            value={formatId}
+            ariaLabel="Competition round format"
+            testId="session-setup-format"
+            disabled={kind !== 'competition'}
+            options={COMPETITION_FORMATS.map((format) => ({
+              value: format.id,
+              label: format.label,
+              text: format.description,
+            }))}
+            onChange={(value) => {
+              setFormatId(value as CompetitionFormatId)
+              setSaveError(null)
+            }}
+          />
+        </div>
 
         <div className="settings-row">
           <div className="settings-row-copy">
@@ -295,7 +327,6 @@ function SessionSetupContent({
       </div>
 
       <footer className="session-settings-footer">
-        <span>Nothing is saved until you create the session.</span>
         <button
           type="button"
           className="button button-secondary"

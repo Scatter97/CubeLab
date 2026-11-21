@@ -3,7 +3,7 @@ import { generateScramble } from '../lib/scramble'
 import {
   DEFAULT_CUSTOM_EVENT_PLACEHOLDER,
   getCustomEventDefinition,
-  isCustomEventId,
+  isUnscrambledEvent,
 } from '../lib/events'
 
 type Slots = [string | null, string | null]
@@ -33,7 +33,7 @@ export function useScramble(event: import('../types').PuzzleEvent = '333', enabl
   const [fillVersion, setFillVersion] = useState(0)
   const eventRef = useRef(event)
   const customEvent = getCustomEventDefinition(event)
-  const placeholder = isCustomEventId(event)
+  const placeholder = isUnscrambledEvent(event)
     ? customEvent?.placeholder.trim() || DEFAULT_CUSTOM_EVENT_PLACEHOLDER
     : null
 

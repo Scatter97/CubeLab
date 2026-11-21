@@ -12,6 +12,8 @@ export type BuiltInPuzzleEvent =
   | 'sq1'
   | 'clock'
   | 'minx'
+  /** Catch-all for unsupported puzzle types. It has no scramble generator. */
+  | 'misc'
 
 /**
  * A puzzle event ID. Built-in events are the literal union above; custom
@@ -138,6 +140,18 @@ export type InspectionCountDirection = 'down' | 'up'
 export type InspectionWarningVisualScope = 'timer' | 'screen'
 export type AccentColor = 'green' | 'blue' | 'violet' | 'amber'
 export type ThemePreference = 'light' | 'dark' | 'system'
+
+/** Optional device-synchronized custom colors. `null` uses the themed default. */
+export interface AppearanceColors {
+  /** Custom accent hex color. */
+  accent: string | null
+  /** Page/background hex color. */
+  background: string | null
+  /** Timer surface hex color. */
+  timerBackground: string | null
+  /** Timer digits hex color. */
+  timerText: string | null
+}
 export type AverageTrimRule = '0' | '1' | 'p1' | 'p5' | 'p10' | 'p20' | 'median'
 export interface AverageTrimming {
   better: AverageTrimRule
@@ -234,6 +248,8 @@ export interface Settings {
   holdDurationMs: number
   stopWithAnyKey: boolean
   showTimerDecimalSmall: boolean
+  /** Mask the whole-second digits while the running second is even. */
+  hideEvenTimerSeconds: boolean
   uiZoomPercent: number
   statsPanelHeightPercent: number
   scrambleAlignment: ScrambleAlignment
@@ -246,6 +262,8 @@ export interface Settings {
   inspectionWarningVisualScope: InspectionWarningVisualScope
   theme: ThemePreference
   accentColor: AccentColor
+  /** Custom colors layered over the selected theme and accent preset. */
+  appearance: AppearanceColors
   statVisibility: StatVisibility
   customAverages: CustomAverageSetting[]
   /** Independent Current/Best/Target/BPA/WPA visibility for statistics rows. */

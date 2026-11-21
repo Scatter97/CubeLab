@@ -24,6 +24,7 @@ import { AppHeader, type AppView } from './components/AppHeader'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ScramblePanel } from './components/ScramblePanel'
 import { ToolPanel } from './components/ToolPanel'
+import { AnalyticsSkeleton, TrainingSkeleton } from './components/ContentSkeletons'
 import { useDrawScrambleMode } from './hooks/useDrawScrambleMode'
 import { SessionPanel } from './components/SessionPanel'
 import { AppVersion } from './components/AppVersion'
@@ -39,7 +40,10 @@ import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
 import { useTheme } from './hooks/useTheme'
 import { useToolPanelOpen } from './hooks/useToolPanelOpen'
+import { readShowUpcomingCase, saveTrainingPresentation, TRAINING_UPCOMING_CASE_KEY } from './lib/training/statisticsPreferences'
+import type { TrainingDomainSettings, TrainingSetId } from './lib/training/types'
 import { useTraining } from './hooks/useTraining'
+import { useTrainingSync } from './hooks/useTrainingSync'
 import { activeTrainingSession } from './lib/training/visits'
 import { TrainingEndConfirmation } from './components/training/TrainingEndConfirmation'
 import { downloadTrainingRecovery } from './components/training/downloadTrainingRecovery'
@@ -59,13 +63,17 @@ import {
   type AlertTone,
 } from './lib/alerts'
 import {
-  backupFileName,
   createBackup,
-  serializeBackupChecked,
   type Backup,
 } from './lib/backup'
-import { getEventLabel, isCustomEventId } from './lib/events'
-import { unionCustomEvents, findImportedEventCorrections, getCustomEventDeleteError } from './lib/customEvents'
+import { preparePortableBackupExport } from './lib/portableBackup'
+import { summarizeTrainingData } from './lib/training/backupSection'
+import { stageTrainingSnapshot } from './lib/training/storage'
+import {
+  clearTrainingSyncProvenance,
+  loadTrainingSyncStorage,
+} from './lib/trainingSyncStorage'
+import { getEventLabel, isUnscrambledEvent } from './lib/events'
 import { formatSessionHours, formatSolveCount, formatStatValue, formatTime } from './lib/format'
 import { countSolves, getSessionMergeError, getSessionSummary, appendSessionsInOrder, isUntouchedDefaultSession } from './lib/sessions'
 import { getSessionStats } from './lib/stats'
@@ -156,11 +164,6 @@ const SplitSessionDialog = lazy(() =>
     default: module.SplitSessionDialog,
   })),
 )
-const CustomEventsDialog = lazy(() =>
-  import('./components/CustomEventsDialog').then((module) => ({
-    default: module.CustomEventsDialog,
-  })),
-)
 const Onboarding = lazy(() =>
   import('./components/Onboarding').then((module) => ({
     default: module.Onboarding,
@@ -225,8 +228,8 @@ interface TimerAlert {
   visualTone?: AlertTone
 }
 
-function downloadJsonFile(contents: string, fileName: string): void {
-  const blob = new Blob([contents], { type: 'application/json' })
+function downloadFile(contents: BlobPart, fileName: string, type: string): void {
+  const blob = new Blob([contents], { type })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -236,6 +239,25 @@ function downloadJsonFile(contents: string, fileName: string): void {
   anchor.click()
   anchor.remove()
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+}
+
+const trainingDateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+})
+
+const trainingCountFormatter = new Intl.NumberFormat('en-US')
+
+function formatTrainingCount(count: number): string {
+  return trainingCountFormatter.format(count)
+}
+
+function formatTrainingAttemptRange(first: number | null, last: number | null): string {
+  if (first === null || last === null) return ''
+  const from = trainingDateFormatter.format(new Date(first))
+  const to = trainingDateFormatter.format(new Date(last))
+  return from === to ? ` on ${from}` : ` from ${from} to ${to}`
 }
 
 export default function App({ initialSessions, initialOnboarding }: { initialSessions?: SessionsSnapshot; initialOnboarding?: OnboardingBootstrap } = {}) {
@@ -278,17 +300,10 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     setSessionEvent,
     mergeSessions,
     splitSession,
-    moveSession,
     moveSessionTo,
     deleteAllSessions,
     replaceSessions,
     stageSessions,
-    createCustomEvent,
-    renameCustomEvent,
-    setCustomEventPlaceholder,
-    deleteCustomEvent,
-    reassignSessionsEvent,
-    correctImportedEvents,
   } = useSessions(initialSessions)
   const solves = activeSession.solves
   const totalSolveCount = useMemo(() => countSolves(sessions), [sessions])
@@ -310,8 +325,30 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     adoptedFieldsRef: adoptedSettingsFieldsRef,
   } = useSettings()
   const storageHealthy = storageOk && settingsStorageOk
-  const resolvedTheme = useTheme(settings.theme)
+  const resolvedTheme = useTheme(settings.theme, settings.appearance)
   const training = useTraining()
+  const [trainingShowUpcomingCase, setTrainingShowUpcomingCase] = useState(() =>
+    readShowUpcomingCase(),
+  )
+  const handleTrainingUpcomingCaseChange = useCallback((value: boolean) => {
+    if (!saveTrainingPresentation(TRAINING_UPCOMING_CASE_KEY, value)) return false
+    setTrainingShowUpcomingCase(value)
+    return true
+  }, [])
+  const handleUpdateTrainingSettings = useCallback(
+    (
+      domain: TrainingDomainSettings,
+      renewals: Record<
+        TrainingSetId,
+        { renewalDays: number; renewalAttempts: number }
+      >,
+    ) => {
+      const oll = training.controller.updateSettings(domain, renewals.oll, 'oll', false)
+      const pll = training.controller.updateSettings(domain, renewals.pll, 'pll', false)
+      return Boolean(oll && pll)
+    },
+    [training.controller],
+  )
   const [view, setView] = useState<AppView>(() => {
     try {
       const previous = sessionStorage.getItem('cubelab:view:v1')
@@ -363,6 +400,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
   const siteResetRunIdRef = useRef<string | null>(null)
   const [currentTool, setCurrentTool] = useState<CurrentTool>(DEFAULT_TOOL)
   const savedTrainingData = training.controller.getSavedData()
+  const trainingBackupSnapshot = training.controller.getBackupSnapshot()
   const savedTrainingSession = activeTrainingSession(savedTrainingData)
   const trainingWorkspace = Boolean(training.state.category)
   const requiredReport = !savedTrainingData?.activeVisitId ? savedTrainingData?.visits.findLast(visit => visit.session && visit.lifecycle?.reportPending) : undefined
@@ -375,7 +413,6 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
   const [drawScrambleMode, setDrawScrambleMode] = useDrawScrambleMode()
   const [sessionSettingsOpen, setSessionSettingsOpen] = useState(false)
 
-  const [eventManagerOpen, setEventManagerOpen] = useState(false)
   const [mergeSessionsOpen, setMergeSessionsOpen] = useState(false)
   const [mergeInitialTargetId, setMergeInitialTargetId] = useState<
     string | null
@@ -578,6 +615,26 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     [showToast],
   )
 
+  const trainingImportBlockedReason = useCallback((): string | null => {
+    if (loadTrainingSyncStorage().preferences.enabled) {
+      return 'Training Drive sync is enabled. Disable it before importing or restoring a native Training backup so a replace-only restore cannot race an automatic merge.'
+    }
+    if (training.state.pendingSave) {
+      return 'A Training save is pending. Retry the save or download a recovery copy first.'
+    }
+    if (training.state.needsContinuity) {
+      return 'Training is waiting for a resume or end decision. Open Training and choose Resume session or End session first.'
+    }
+    if (training.state.data?.activeVisitId) {
+      return 'An active Training session is open. Finish or end it before importing Training history.'
+    }
+    return null
+  }, [
+    training.state.data?.activeVisitId,
+    training.state.needsContinuity,
+    training.state.pendingSave,
+  ])
+
   const sync = useSync({
     transport: driveTransport,
     sessions: syncSessionsData,
@@ -610,6 +667,29 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     syncRef.current = sync
   }, [sync])
 
+  const trainingSyncBlockedReason = useCallback((): string | null => {
+    if (pendingImport) {
+      return 'A native import is waiting for confirmation. Finish or cancel it first.'
+    }
+    if (pendingDriveRestore) {
+      return 'A Drive solve restore is waiting for confirmation. Finish or cancel it first.'
+    }
+    return null
+  }, [pendingDriveRestore, pendingImport])
+
+  const trainingSync = useTrainingSync({
+    transport: driveTransport,
+    controller: training.controller,
+    trainingState: training.state,
+    timerStatusRef,
+    blockedReason: trainingSyncBlockedReason,
+    onNotify: handleNotify,
+  })
+  const trainingSyncRef = useRef(trainingSync)
+  useLayoutEffect(() => {
+    trainingSyncRef.current = trainingSync
+  }, [trainingSync])
+
   useEffect(() => {
     return subscribeToSiteReset((signal) => {
       // Ignore our own broadcast; the initiating tab handles its phases
@@ -622,6 +702,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         // has already cleared storage.
         beginSiteResetGate()
         syncRef.current.updatePreferences({ enabled: false })
+        trainingSyncRef.current.updatePreferences({ enabled: false })
         driveTransport?.blockForReset?.()
         setRemoteSiteReset('begin')
         return
@@ -648,6 +729,12 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     stageSettings,
     replaceSessions,
     replaceSettings,
+    stageTraining: (data) => stageTrainingSnapshot(data),
+    replaceTraining: (data, raw) => {
+      training.controller.adoptSavedTraining(data, raw)
+      trainingSync.reload()
+    },
+    trainingBlockedReason: trainingImportBlockedReason,
     onNotify: handleNotify,
   })
 
@@ -751,16 +838,9 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
       const keptSessions = syncSessionsData.sessions.filter(
         (session) => !isUntouchedDefaultSession(session),
       )
-      const mergedCustomEvents = unionCustomEvents(
-        syncSessionsData.customEvents ?? [],
-        backup.sessions.customEvents ?? [],
-      )
       const base: SessionsData = {
         activeSessionId: imported[0]!.id,
         sessions: [...keptSessions],
-        ...(mergedCustomEvents.length > 0
-          ? { customEvents: mergedCustomEvents }
-          : {}),
         ...(syncSessionsData.sessionOrder
           ? { sessionOrder: syncSessionsData.sessionOrder }
           : {}),
@@ -910,10 +990,20 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     mergeSessionsOpen ||
     splitSessionSource !== null ||
     createSessionOpen ||
-    eventManagerOpen ||
-    pendingDriveRestore !== null
+    pendingDriveRestore !== null ||
+    siteResetOpen ||
+    siteResetPhase === 'resetting' ||
+    siteResetPhase === 'failed' ||
+    remoteSiteReset !== null
   const cancelTimerBase = timer.cancel
-  const timerCancel = useCallback(() => { cancelTimerBase(); training.controller.cancelAttempt() }, [cancelTimerBase, training.controller])
+  const timerCancel = useCallback(() => {
+    // Escape cancels a hold/inspection, never a running solve. The machine
+    // ignores cancel while running, so clear only the Training attempt context
+    // when the timer is not running; otherwise the stop would lose its attempt.
+    const running = timerStatusRef.current === 'running'
+    cancelTimerBase()
+    if (!running) training.controller.cancelAttempt()
+  }, [cancelTimerBase, training.controller])
   const timerPressBase = timer.press
   const timerPress = useCallback(
     (input: TimerInput) => {
@@ -1623,14 +1713,6 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     setSessionSettingsOpen(true)
   }, [timer.state.status])
 
-  const handleMoveSession = useCallback(
-    (id: string, direction: -1 | 1) => {
-      if (timer.state.status !== 'idle') return
-      moveSession(id, direction)
-    },
-    [moveSession, timer.state.status],
-  )
-
   const handleReorderSession = useCallback(
     (id: string, targetIndex: number) => {
       if (timer.state.status !== 'idle') return
@@ -1676,84 +1758,6 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     }
   }, [activeSession, convertSessionToPractice, showToast, sync])
 
-  const handleOpenEventManager = useCallback(() => {
-    if (timer.state.status !== 'idle') return
-    setSessionSettingsOpen(false)
-    setEventManagerOpen(true)
-  }, [timer.state.status])
-
-  const handleDeleteCustomEvent = useCallback(
-    (id: string): { ok: true } | { ok: false; error: string } => {
-      const currentData = {
-        activeSessionId,
-        sessions,
-        ...(customEvents.length > 0 ? { customEvents } : {}),
-      }
-      const validationError = getCustomEventDeleteError(currentData, id)
-      if (validationError) return { ok: false, error: validationError }
-      if (!sync.recordDeletion('event', id)) {
-        return {
-          ok: false,
-          error:
-            'Custom event deletion blocked: its deletion record could not be saved. Nothing was removed.',
-        }
-      }
-      const result = deleteCustomEvent(id)
-      if (!result.ok) {
-        const rolledBack = sync.restoreDeletion('event', id)
-        return {
-          ok: false,
-          error: rolledBack
-            ? result.error
-            : `${result.error} The deletion record is saved and will apply at the next synchronization.`,
-        }
-      }
-      showToast({ message: 'Custom event deleted' })
-      return result
-    },
-    [
-      activeSessionId,
-      customEvents,
-      deleteCustomEvent,
-      sessions,
-      showToast,
-      sync,
-    ],
-  )
-
-  const handleReassignSessionsEvent = useCallback(
-    (sessionIds: readonly string[], event: PuzzleEvent): boolean => {
-      const changed = reassignSessionsEvent(sessionIds, event)
-      if (changed) {
-        showToast({
-          message: `Reassigned ${sessionIds.length === 1 ? 'session' : `${sessionIds.length} sessions`} to ${getEventLabel(event)}`,
-        })
-      }
-      return changed
-    },
-    [reassignSessionsEvent, showToast],
-  )
-
-  const handleCorrectImportedEvents = useCallback((): number => {
-    const moved = correctImportedEvents()
-    if (moved > 0) {
-      showToast({
-        message: `Corrected ${moved === 1 ? '1 imported solve' : `${moved} imported solves`}`,
-      })
-    }
-    return moved
-  }, [correctImportedEvents, showToast])
-
-  const importedCorrectionCount = useMemo(
-    () =>
-      findImportedEventCorrections({
-        activeSessionId,
-        sessions,
-        ...(customEvents.length > 0 ? { customEvents } : {}),
-      }).length,
-    [activeSessionId, sessions, customEvents],
-  )
-
   const confirmDeleteSession = useCallback(() => {
     if (!sessionToDelete) return
     if (!sync.recordSessionDeletion(sessionToDelete)) {
@@ -1768,7 +1772,18 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     const deleted = deleteSession(sessionToDelete.id)
     setSessionToDelete(null)
     setSessionSettingsOpen(false)
-    if (deleted) showToast({ message: 'Session deleted' })
+    if (deleted) {
+      showToast({ message: 'Session deleted' })
+      return
+    }
+    // The collection write failed. Revoke the durable deletion intent written
+    // above so a later sync cannot delete a session the UI kept.
+    const revoked = sync.restoreDeletion('session', sessionToDelete.id)
+    showToast({
+      message: revoked
+        ? 'Session deletion failed. Nothing was removed.'
+        : 'Session deletion failed and its deletion record could not be revoked. Synchronize carefully before retrying.',
+    })
   }, [deleteSession, sessionToDelete, showToast, sync])
 
   const restoreHeaderSettingsFocus = useCallback(() => {
@@ -1847,9 +1862,9 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     restoreHeaderSettingsFocus()
   }, [restoreHeaderSettingsFocus])
 
-  const handleExport = useCallback(():
-    | { ok: true }
-    | { ok: false; error: string } => {
+  const handleExport = useCallback(async (): Promise<
+    { ok: true } | { ok: false; error: string }
+  > => {
     if (timer.state.status !== 'idle') {
       return {
         ok: false,
@@ -1858,6 +1873,14 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     }
 
     try {
+      const trainingSnapshot = training.controller.getBackupSnapshot()
+      if (trainingSnapshot.status === 'blocked') {
+        return {
+          ok: false,
+          error: `Backup not exported: ${trainingSnapshot.reason}`,
+        }
+      }
+
       const localData = {
         activeSessionId,
         sessions,
@@ -1882,18 +1905,31 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         }
         exportData = materialized.data
       }
-      const backup = createBackup(exportData, settings)
-      const serialized = serializeBackupChecked(backup, { validate: true })
+      const backup = createBackup(
+        exportData,
+        settings,
+        new Date(),
+        undefined,
+        trainingSnapshot.status === 'ready' ? trainingSnapshot.data : undefined,
+      )
+      const serialized = await preparePortableBackupExport(backup)
       if (!serialized.ok) {
         return { ok: false, error: `Backup not exported: ${serialized.error}` }
       }
-      downloadJsonFile(serialized.raw, backupFileName())
+      downloadFile(
+        serialized.bytes as BlobPart,
+        serialized.fileName,
+        serialized.compressed ? 'application/gzip' : 'application/json',
+      )
       setDataOpen(false)
-      showToast({
-        message: serialized.compact
-          ? 'Backup exported in compact form to stay under the size limit'
-          : 'Backup exported',
-      })
+      const trainingLabel =
+        trainingSnapshot.status === 'ready' ? ' with Training history' : ''
+      const formatLabel = serialized.compressed
+        ? ' as a compressed .json.gz file'
+        : serialized.compact
+          ? ' in compact form to stay under the size limit'
+          : ''
+      showToast({ message: `Backup exported${trainingLabel}${formatLabel}` })
       restoreHeaderSettingsFocus()
       return { ok: true }
     } catch {
@@ -1902,7 +1938,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         error: 'Backup not exported: the backup could not be built safely.',
       }
     }
-  }, [activeSessionId, sessions, customEvents, sessionOrder, sessionTransfers, settings, showToast, timer.state.status, restoreHeaderSettingsFocus])
+  }, [activeSessionId, sessions, customEvents, sessionOrder, sessionTransfers, settings, showToast, timer.state.status, restoreHeaderSettingsFocus, training.controller])
 
   const handleImportRequested = useCallback((backup: Backup) => {
     setDataOpen(false)
@@ -1914,17 +1950,10 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
 
     if (pendingImport.importMode === 'add') {
       const imported = pendingImport.sessions.sessions
-      const mergedCustomEvents = unionCustomEvents(
-        customEvents,
-        pendingImport.sessions.customEvents ?? [],
-      )
       const merged = appendSessionsInOrder(
         {
           activeSessionId: activeSessionId ?? imported[0]?.id ?? '',
           sessions: [...sessions],
-          ...(mergedCustomEvents.length > 0
-            ? { customEvents: mergedCustomEvents }
-            : {}),
           ...(syncSessionsData.sessionOrder
             ? { sessionOrder: syncSessionsData.sessionOrder }
             : {}),
@@ -1963,6 +1992,14 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
       sessionsData: pendingImport.sessions,
       settingsData: pendingImport.settings,
       syncStorage: nextSyncStorage,
+      trainingData: pendingImport.training?.data,
+      ...(pendingImport.training
+        ? {
+            trainingSyncStorage: clearTrainingSyncProvenance(
+              loadTrainingSyncStorage(),
+            ),
+          }
+        : {}),
       successMessage: 'Backup imported',
       failurePrefix: 'Backup import blocked',
       onSuccess: () => {
@@ -1975,7 +2012,6 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     pendingImport,
     activeSessionId,
     sessions,
-    customEvents,
     syncSessionsData.sessionOrder,
     syncSessionsData.sessionTransfers,
     restoreHeaderSettingsFocus,
@@ -2248,8 +2284,8 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             {totalSolveCount === 1 ? 'solve' : 'solves'} from{' '}
             <strong>{sessions.length}</strong>{' '}
             {sessions.length === 1 ? 'session' : 'sessions'} across every event,
-            including custom events. Session names, event assignments,
-            inspection and timer preferences, custom event definitions, and all
+            Session names, event assignments,
+            inspection and timer preferences, and all
             application settings stay intact. Statistics, PBs, averages,
             Analytics, and solve history reset because their solves are gone.
             This cannot be undone without a previous backup. Google Drive
@@ -2292,10 +2328,18 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
       }
 
       const currentSolveCount = countSolves(sessions)
+      const backupTraining = pendingImport.training
+        ? summarizeTrainingData(pendingImport.training.data)
+        : null
+      const localTraining = savedTrainingData
+        ? summarizeTrainingData(savedTrainingData)
+        : null
 
       return {
         eyebrow: 'Import backup',
-        title: 'Replace local sessions?',
+        title: backupTraining
+          ? 'Replace local sessions and Training?'
+          : 'Replace local sessions?',
         description: (
           <>
             Replace <strong>{formatSolveCount(currentSolveCount)}</strong> across{' '}
@@ -2310,7 +2354,47 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
                 ? '1 session'
                 : `${importedSessionCount} sessions`}
             </strong>
-            . Settings will also be restored. Export first if you need a copy.
+            . Settings will also be restored.{' '}
+            {backupTraining ? (
+              <>
+                Training history will be replaced: the backup contains{' '}
+                <strong>{formatTrainingCount(backupTraining.attempts)}</strong>{' '}
+                {backupTraining.attempts === 1 ? 'attempt' : 'attempts'},{' '}
+                <strong>{formatTrainingCount(backupTraining.sessions)}</strong>{' '}
+                {backupTraining.sessions === 1 ? 'saved session' : 'saved sessions'}{' '}
+                and <strong>{formatTrainingCount(backupTraining.calibrations)}</strong>{' '}
+                {backupTraining.calibrations === 1
+                  ? 'calibration'
+                  : 'calibrations'}
+                {formatTrainingAttemptRange(
+                  backupTraining.firstAttemptAt,
+                  backupTraining.lastAttemptAt,
+                )}
+                .{' '}
+                {localTraining ? (
+                  <>
+                    This replaces the local store ({formatTrainingCount(localTraining.attempts)}{' '}
+                    {localTraining.attempts === 1 ? 'attempt' : 'attempts'},{' '}
+                    {formatTrainingCount(localTraining.sessions)}{' '}
+                    {localTraining.sessions === 1 ? 'saved session' : 'saved sessions'}
+                    , {formatTrainingCount(localTraining.calibrations)}{' '}
+                    {localTraining.calibrations === 1
+                      ? 'calibration'
+                      : 'calibrations'}
+                    ).{' '}
+                  </>
+                ) : (
+                  <>
+                    Local Training history is unreadable, so the backup will
+                    replace it.{' '}
+                  </>
+                )}
+                Imported Training sessions stay ended and are not resumed.
+              </>
+            ) : (
+              <>This backup has no Training section, so local Training stays unchanged.</>
+            )}{' '}
+            Export first if you need a copy.
           </>
         ),
         cancelLabel: 'Cancel import',
@@ -2395,6 +2479,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     deleteAllOpen,
     pendingImport,
     resetAllOpen,
+    savedTrainingData,
     sessionToDelete,
     sessions,
     siteResetOpen,
@@ -2559,7 +2644,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     return (
       <div
         className={`${appShellClassName} onboarding-shell`}
-        data-accent={settings.accentColor}
+        data-accent={settings.appearance.accent ? 'custom' : settings.accentColor}
         data-theme={resolvedTheme}
         data-ui-zoom={settings.uiZoomPercent}
         style={appShellStyle}
@@ -2597,7 +2682,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
   return (
     <div
       className={appShellClassName}
-      data-accent={settings.accentColor}
+      data-accent={settings.appearance.accent ? 'custom' : settings.accentColor}
       data-theme={resolvedTheme}
       data-ui-zoom={settings.uiZoomPercent}
       style={appShellStyle}
@@ -2648,7 +2733,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             error={scrambleError}
             canRegenerate={
               !timerActive &&
-              !isCustomEventId(activeEvent) &&
+              !isUnscrambledEvent(activeEvent) &&
               !scrambleLoading &&
               scramble !== null
             }
@@ -2658,7 +2743,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             scrambleAction={effectiveSettings.scrambleAction}
             alignment={effectiveSettings.scrambleAlignment}
             limitHeight={effectiveSettings.scrambleLimitHeight}
-            placeholder={isCustomEventId(activeEvent)}
+            placeholder={isUnscrambledEvent(activeEvent)}
             activeTool={currentTool}
             toolPanelOpen={toolPanelOpen}
             onToggleToolPanel={() => setToolPanelOpen(!toolPanelOpen)}
@@ -2678,6 +2763,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
                 : 'Generating scramble…'
             }
             showTimerDecimalSmall={effectiveSettings.showTimerDecimalSmall}
+            hideEvenTimerSeconds={effectiveSettings.hideEvenTimerSeconds}
             inspectionEnabled={activeInspectionEnabled}
             inspectionCountDirection={effectiveSettings.inspectionCountDirection}
             alert={timerAlert}
@@ -2691,11 +2777,19 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
                   scramble={scramble}
                   event={activeEvent}
                   mode={drawScrambleMode}
+                  onSelectMode={setDrawScrambleMode}
                   activeTool={currentTool}
                   onSelectTool={setCurrentTool}
                   solves={insightSolves}
                   timerActive={timerActive || insightSolves !== solves}
                   trimming={averageTrimming}
+                  onAddManualSolve={(rawMs) => {
+                    addSolve(
+                      { rawMs, penalty: 'none', scramble: scramble ?? '' },
+                      activeEvent,
+                    )
+                    return true
+                  }}
                 />
               ) : null
             }
@@ -2749,12 +2843,9 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             sessions={visibleSessions}
             activeSessionId={activeSessionId}
             locked={timerActive}
-            onCreate={handleCreateSession}
             onRequestCreate={() => setCreateSessionOpen(true)}
-            onRename={handleRenameSession}
             onSelect={handleSelectSession}
             onOpenSessionSettings={handleOpenSessionSettings}
-            onMove={handleMoveSession}
             onReorder={handleReorderSession}
           />
 
@@ -2789,9 +2880,10 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         </aside>
       </main>
       ) : view === 'training' ? (
-        <Suspense fallback={<main role="status">Loading Training…</main>}>
+        <Suspense fallback={<TrainingSkeleton />}>
           {training.state.data && (!savedTrainingSession || !trainingWorkspace) ? (
-            <TrainingHub data={training.controller.getSavedData() ?? training.state.data} controller={training.controller}
+            <TrainingHub key={`training-hub-${training.state.storeEpoch}`}
+              data={training.controller.getSavedData() ?? training.state.data} controller={training.controller}
               hidden={trainingWorkspace} pendingSave={training.state.pendingSave}
               locked={Boolean(requiredReport || training.state.data.activeVisitId || training.state.needsContinuity || training.state.pendingSave)}
               error={training.state.error} onOpenHistory={reviewId => setTrainingArchive({ reviewId })}
@@ -2799,7 +2891,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
           ) : null}
           {trainingWorkspace || !training.state.data ? (
             <TrainingPage controller={training.controller} state={training.state} timer={timer} sessionFlow
-            settings={settings} onPress={timerPress} onCancel={handleCancel} onModalChange={setTrainingModalOpen} onNotify={handleNotify} onDeleteAttempt={handleDeleteTrainingAttempt}
+            settings={settings} onPress={timerPress} onCancel={handleCancel} onModalChange={setTrainingModalOpen} onNotify={handleNotify} onDeleteAttempt={handleDeleteTrainingAttempt} showUpcomingCase={trainingShowUpcomingCase}
             onRequestEnd={anchor => setTrainingEndRequest({ anchor, destination: 'training' })} lifecycleLocked={trainingLifecycleLocked}
             toastHostRef={setTrainingToastHost} />
           ) : null}
@@ -2812,11 +2904,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             onClick={() => showAnalyticsMode('algorithms')}>Algorithms</button>
         </nav>
         <Suspense
-          fallback={
-            <main className="analytics-page analytics-loading" role="status">
-              Loading analytics…
-            </main>
-          }
+          fallback={<AnalyticsSkeleton />}
         >
           {analyticsOpened.solves ? <AnalyticsPage
             sessions={sessions}
@@ -2852,6 +2940,10 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
         onRequestResetAllSiteData={handleOpenSiteReset}
         developerSyncStatus={developerSyncStatus}
+        trainingData={training.state.data}
+        showUpcomingCase={trainingShowUpcomingCase}
+        onShowUpcomingCaseChange={handleTrainingUpcomingCaseChange}
+        onUpdateTrainingSettings={handleUpdateTrainingSettings}
         onClose={() => setSettingsOpen(false)}
       />
 
@@ -2869,7 +2961,6 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         onRequestMerge={handleOpenMergeSessions}
         onRequestSplit={handleOpenSplitSession}
         onRequestConvertToPractice={requestConvertToPractice}
-        onOpenEventManager={handleOpenEventManager}
         onClose={() => setSessionSettingsOpen(false)}
       />
 
@@ -2890,7 +2981,19 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             sessions={sessions}
             sessionCount={sessions.length}
             solveCount={countSolves(sessions)}
-            customEvents={customEvents}
+            trainingData={
+              trainingBackupSnapshot.status === 'absent'
+                ? null
+                : savedTrainingData
+            }
+            trainingUnreadable={training.state.data === null}
+            trainingIncluded={trainingBackupSnapshot.status === 'ready'}
+            trainingExportBlockedReason={
+              trainingBackupSnapshot.status === 'blocked'
+                ? trainingBackupSnapshot.reason
+                : null
+            }
+            trainingImportBlockedReason={trainingImportBlockedReason()}
             onClose={handleCloseData}
             onExport={handleExport}
             onImport={handleImportRequested}
@@ -2913,6 +3016,9 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
             settings={settings}
             storageOk={storageHealthy}
             sync={sync}
+            training={training}
+            trainingSync={trainingSync}
+            timerStatusRef={timerStatusRef}
             onClose={handleCloseDrive}
             onNotify={(message) => showToast({ message })}
             onPendingRestore={handleDriveRestorePending}
@@ -2984,24 +3090,6 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
                   )
                 : null
             }
-          />
-        </Suspense>
-      ) : null}
-
-      {eventManagerOpen ? (
-        <Suspense fallback={<DialogLoadingFallback />}>
-          <CustomEventsDialog
-            open
-            customEvents={customEvents}
-            sessions={sessions}
-            correctionCount={importedCorrectionCount}
-            onCreate={createCustomEvent}
-            onRename={renameCustomEvent}
-            onSetPlaceholder={setCustomEventPlaceholder}
-            onDelete={handleDeleteCustomEvent}
-            onReassignSessions={handleReassignSessionsEvent}
-            onCorrectImported={handleCorrectImportedEvents}
-            onClose={() => setEventManagerOpen(false)}
           />
         </Suspense>
       ) : null}

@@ -12,7 +12,7 @@ import {
 import { createPortal } from 'react-dom'
 import { applyCubeFaceColors, type PuzzleGeometryColors } from '../lib/cubeColors'
 import { cubeNetForScramble } from '../lib/cubeNet'
-import { getEventDefinition, getEventLabel, isCustomEventId } from '../lib/events'
+import { getEventDefinition, getEventLabel, isUnscrambledEvent } from '../lib/events'
 import {
   TOOL_PANEL_MIN_HEIGHT,
   TOOL_PANEL_MIN_WIDTH,
@@ -23,6 +23,10 @@ import {
   type ToolPanelLayout,
 } from '../lib/toolPanelLayout'
 import type { DrawScrambleMode } from '../hooks/useDrawScrambleMode'
+import {
+  hasChosenDrawScrambleMode,
+  markDrawScrambleModeChosen,
+} from '../hooks/useDrawScrambleMode'
 import { useToolPanelLayout } from '../hooks/useToolPanelLayout'
 import { TOOL_OPTIONS, toolLabel, type CurrentTool } from '../lib/tools'
 import type { Solve } from '../types'
@@ -31,6 +35,14 @@ import { ScrambleNet } from './ScrambleNet'
 import { DEFAULT_AVERAGE_TRIMMING } from '../lib/averageTrimming'
 import type { AverageTrimming } from '../types'
 import { TimeTrend } from './TimeTrend'
+import { BattleTool } from './BattleTool'
+import {
+  ConfirmTimeTool,
+  DailyStatsTool,
+  DistributionTool,
+  MetronomeTool,
+  StatisticsTool,
+} from './SessionTools'
 
 interface TwistyPlayerElement extends HTMLElement {
   pause?: () => void
@@ -210,11 +222,13 @@ interface Props {
   scramble: string | null
   event: PuzzleEvent
   mode: DrawScrambleMode
+  onSelectMode?: (mode: DrawScrambleMode) => void
   activeTool: CurrentTool
   onSelectTool: (tool: CurrentTool) => void
   solves?: readonly Solve[]
   timerActive?: boolean
   trimming?: AverageTrimming
+  onAddManualSolve?: (rawMs: number) => boolean
 }
 
 type InteractionMode = 'drag' | 'resize'
@@ -230,8 +244,11 @@ interface InteractionState {
   scale: number
 }
 
-export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING, panelId, title, children, defaultSide = 'right', minimized = false, onToggleMinimized }: Props) {
+export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING, onAddManualSolve, panelId, title, children, defaultSide = 'right', minimized = false, onToggleMinimized }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [modePromptOpen, setModePromptOpen] = useState(
+    () => Boolean(onSelectMode) && !hasChosenDrawScrambleMode(),
+  )
   const menuRef = useRef<HTMLDivElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLElement | null>(null)
@@ -468,7 +485,7 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
   const size = definition?.cubeSize ?? null
   const puzzle = definition?.puzzleId ?? '3x3x3'
   const label = getEventLabel(event)
-  const customEvent = isCustomEventId(event)
+  const customEvent = isUnscrambledEvent(event)
   const net = useMemo(
     () =>
       activeTool === 'drawScramble' && mode === 'net' && scramble && size
@@ -476,6 +493,12 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
         : null,
     [activeTool, mode, scramble, size],
   )
+
+  const chooseDrawMode = (nextMode: DrawScrambleMode) => {
+    setModePromptOpen(false)
+    markDrawScrambleModeChosen()
+    onSelectMode?.(nextMode)
+  }
 
   return (
     <>
@@ -499,13 +522,26 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
       </div>
       {!minimized ? <><div className="scramble-draw-stage" style={{ position: 'relative' }}>
         {children ?? (activeTool === 'drawScramble' ? (
-          customEvent ? (
+          modePromptOpen ? (
+            <div className="draw-scramble-mode-prompt" data-testid="draw-scramble-mode-prompt">
+              <p>How should scrambles be drawn?</p>
+              <div className="draw-scramble-mode-choices">
+                <button type="button" className="button button-primary button-small" onClick={() => chooseDrawMode('net')}>
+                  2D net
+                </button>
+                <button type="button" className="button button-secondary button-small" onClick={() => chooseDrawMode('3d')}>
+                  3D cube
+                </button>
+              </div>
+              <span>You can change this later in Settings → Scramble.</span>
+            </div>
+          ) : customEvent ? (
             <p
               className="scramble-draw-status"
               role="status"
               data-testid="draw-scramble-unavailable"
             >
-              Scramble visualization is not available for the custom event {label}.
+              Scramble visualization is not available for {label}.
             </p>
           ) : mode === 'net' && size === null ? (
             <p className="scramble-draw-status" role="status" data-testid="draw-scramble-unavailable">
@@ -528,6 +564,23 @@ export function ToolPanel({ scramble, event, mode, activeTool, onSelectTool, sol
           )
         ) : activeTool === 'timeTrend' ? (
           <TimeTrend solves={solves} compact disabled={timerActive} trimming={trimming} />
+        ) : activeTool === 'confirmTime' ? (
+          <ConfirmTimeTool
+            event={event}
+            scramble={scramble}
+            disabled={timerActive || !onAddManualSolve}
+            onAdd={(rawMs) => onAddManualSolve?.(rawMs) ?? false}
+          />
+        ) : activeTool === 'statistics' ? (
+          <StatisticsTool solves={solves} />
+        ) : activeTool === 'distribution' ? (
+          <DistributionTool solves={solves} />
+        ) : activeTool === 'dailyStats' ? (
+          <DailyStatsTool solves={solves} />
+        ) : activeTool === 'metronome' ? (
+          <MetronomeTool />
+        ) : activeTool === 'battle' ? (
+          <BattleTool event={event} />
         ) : null)}
       </div>
       {!children ? <footer className="scramble-draw-footer">

@@ -10,6 +10,19 @@ import {
 
 const TIMER = '[data-testid="timer-surface"]'
 
+// Most timer-flow cases exercise the no-inspection path explicitly. Product
+// defaults now enable WCA inspection; seed the prior local preference unless a
+// case provides its own settings record.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (localStorage.getItem('cubelab:settings:v1')) return
+    localStorage.setItem(
+      'cubelab:settings:v1',
+      JSON.stringify({ version: 12, settings: { inspectionEnabled: false } }),
+    )
+  })
+})
+
 interface StoredSolve {
   id: string
   event: string
@@ -993,6 +1006,10 @@ test('mobile layout supports hold-to-time pointer controls', async ({
     isMobile: true,
   })
   const page = await context.newPage()
+  await context.addInitScript(() => {
+    if (localStorage.getItem('cubelab:settings:v1')) return
+    localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false } }))
+  })
 
   await page.goto('/')
   await waitForApp(page)
@@ -1034,6 +1051,10 @@ test('narrow mobile layout keeps settings, session, and solve-menu targets usabl
     isMobile: true,
   })
   const page = await context.newPage()
+  await context.addInitScript(() => {
+    if (localStorage.getItem('cubelab:settings:v1')) return
+    localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false } }))
+  })
 
   await page.goto('/')
   await waitForApp(page)
@@ -1356,7 +1377,7 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   await page.getByTestId('new-session').click()
   const input = page.getByRole('textbox', { name: 'Session name' })
   await expect(input).toBeVisible()
-  await expect(input).toHaveValue('')
+  await expect(input).toHaveValue('3×3')
   await expect(input).toHaveAttribute('placeholder', '3×3')
   await expect(input).toBeFocused()
 
@@ -1393,13 +1414,14 @@ test('named sessions create, switch, rename, delete, and persist', async ({
   expect(await selectedSessionName(page)).toBe('Session 1')
   await expect(page.getByTestId('solve-count')).toHaveText('1')
 
-  await page.getByTestId('rename-session').click()
-  const renameInput = page.getByRole('textbox', { name: 'Session name' })
+  await page.getByTestId('session-settings').click()
+  const renameDialog = page.getByRole('dialog', { name: 'Session settings' })
+  const renameInput = renameDialog.getByRole('textbox', { name: 'Session name' })
   await expect(renameInput).toHaveValue('Session 1')
   await renameInput.fill('Morning')
-  await page.getByTestId('save-session-name').click()
+  await renameInput.blur()
+  await renameDialog.getByTestId('session-settings-done').click()
   expect(await selectedSessionName(page)).toBe('Morning')
-  await expect(select).toBeFocused()
 
   await page.reload()
   await waitForApp(page)
@@ -1639,7 +1661,6 @@ test('session controls lock while the timer is active', async ({ page }) => {
   await holdSpace(page)
   await expect(select).toBeDisabled()
   await expect(page.getByTestId('new-session')).toBeDisabled()
-  await expect(page.getByTestId('rename-session')).toBeDisabled()
   await expect(page.getByTestId('session-settings')).toBeDisabled()
   await expect(page.getByTestId('settings-button')).toBeDisabled()
 
@@ -1917,8 +1938,10 @@ test('blocks an oversized export before creating a file and recovers after the l
   await expect(page.getByTestId('backup-error')).toContainText(
     'Backup not exported',
   )
+  // The inflated encoder can trip either the portable size guard or the
+  // mandatory decompressed read-back validation. Both must block the file.
   await expect(page.getByTestId('backup-error')).toContainText(
-    'backup limit was exceeded',
+    /backup limit was exceeded|could not be read back safely/,
   )
   expect(downloaded).toBe(false)
   await expect(dialog).toBeVisible()
@@ -1953,7 +1976,7 @@ test('scramble failure disables timing and offers retry', async ({ page }) => {
     /Scramble unavailable/,
   )
   await expect(
-    error.getByRole('button', { name: 'Retry', exact: true }),
+    error.getByRole('button', { name: 'Regenerate scramble', exact: true }),
   ).toBeVisible()
 })
 
@@ -2758,7 +2781,7 @@ test('csTimer preview keeps ranked names, empty sessions, and omitted default ty
   expect(added.map((session) => session.solves.length)).toEqual([0, 1, 2])
   expect(added[0]!.createdAt).toBeGreaterThan(0)
   expect(added[2]!.event).toBe('333')
-  expect(added[1]!.event).toMatch(/^custom:cstimer:/)
+  expect(added[1]!.event).toBe('misc')
   expect(
     added[2]!.solves.map((solve) => [
       solve.rawMs,

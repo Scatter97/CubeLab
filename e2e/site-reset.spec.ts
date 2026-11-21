@@ -213,6 +213,19 @@ test('the typed reset confirmation gates the exact phrase and Cancel keeps data'
     'All locally stored Google authentication and synchronization state',
   )
 
+  // The reset confirmation is a modal boundary: a held Space must not arm the
+  // timer behind it, even when focus is outside the text field.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+  })
+  await page.keyboard.down('Space')
+  await page.waitForTimeout(400)
+  await expect(page.getByTestId('timer-surface')).toHaveAttribute(
+    'data-phase',
+    'idle',
+  )
+  await page.keyboard.up('Space')
+
   const confirm = dialog.getByRole('button', { name: 'Reset All Data' })
   const input = dialog.getByTestId('confirm-text')
   await expect(confirm).toBeDisabled()

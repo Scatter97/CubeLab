@@ -23,7 +23,6 @@ interface SessionSettingsDialogProps {
   canDelete: boolean
   onRenameSession: (id: string, name: string) => boolean
   onSetSessionEvent: (id: string, event: PuzzleEvent) => boolean
-  onOpenEventManager: () => void
   onSetInspection: (enabled: boolean | undefined) => void
   onRequestClear: () => void
   onRequestDelete: () => void
@@ -82,7 +81,6 @@ function SessionSettingsContent({
   canDelete,
   onRenameSession,
   onSetSessionEvent,
-  onOpenEventManager,
   onSetInspection,
   onRequestClear,
   onRequestDelete,
@@ -171,130 +169,127 @@ function SessionSettingsContent({
       </header>
 
       <div className="session-settings-body">
-        <div className="session-settings-group">
-          <div className="session-settings-field">
-            <label htmlFor="session-name-setting" className="settings-field-label">
-              Session name
-            </label>
-            <input
-              id="session-name-setting"
-              type="text"
-              aria-invalid={Boolean(nameError)}
-              aria-describedby={nameError ? 'session-settings-name-error' : undefined}
-              value={name}
-              onChange={(event) => {
-                setName(event.target.value)
-                setNameError(null)
-              }}
-              onBlur={() => {
-                const trimmed = name.trim()
-                if (!trimmed) {
-                  setNameError('Enter a session name.')
-                  setName(session.name)
-                  return
-                }
-                const validationError = getSessionNameError(
-                  trimmed,
-                  allSessions,
-                  session.id,
-                )
-                if (validationError) {
-                  setNameError(validationError)
-                  return
-                }
-                const ok = onRenameSession(session.id, trimmed)
-                if (!ok) setNameError('Could not rename the session.')
-              }}
-            />
-            {nameError ? (
-              <p
-                id="session-settings-name-error"
-                role="alert"
-                className="settings-error"
-              >
-                {nameError}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="session-settings-field">
-            <label htmlFor="session-event-select" className="settings-field-label">
-              Event
-            </label>
-            <p className="settings-row-description">
-              Changing the event also updates existing solves in this session.
+        <div className="settings-field">
+          <span>Session name</span>
+          <input
+            id="session-name-setting"
+            type="text"
+            className="session-name-input"
+            aria-label="Session name"
+            aria-invalid={Boolean(nameError)}
+            aria-describedby={nameError ? 'session-settings-name-error' : undefined}
+            value={name}
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => {
+              setName(event.target.value)
+              setNameError(null)
+            }}
+            onBlur={() => {
+              const trimmed = name.trim()
+              if (!trimmed) {
+                setNameError('Enter a session name.')
+                setName(session.name)
+                return
+              }
+              const validationError = getSessionNameError(
+                trimmed,
+                allSessions,
+                session.id,
+              )
+              if (validationError) {
+                setNameError(validationError)
+                return
+              }
+              const ok = onRenameSession(session.id, trimmed)
+              if (!ok) setNameError('Could not rename the session.')
+            }}
+          />
+          {nameError ? (
+            <p
+              id="session-settings-name-error"
+              role="alert"
+              className="settings-error"
+            >
+              {nameError}
             </p>
-            <div className="session-settings-control-row">
-              <Select
-                id="session-event-select"
-                className="compact-select"
-                value={pendingEvent ?? selectedEvent}
-                ariaDescribedBy={
-                  pendingEvent ? 'session-event-confirmation' : undefined
-                }
-                testId="session-event-select"
-                options={getEventOptions().map((item) => ({
-                  value: item.id,
-                  label: formatEventOptionLabel(item),
-                  text: item.label,
-                }))}
-                onChange={(value) =>
-                  requestEventChange(value as PuzzleEvent)
-                }
-              />
-              <button
-                type="button"
-                className="button button-secondary button-small"
-                data-testid="manage-events"
-                onClick={onOpenEventManager}
-              >
-                Manage custom events
-              </button>
-            </div>
-            {eventError ? (
-              <p role="alert" className="settings-error">
-                {eventError}
+          ) : null}
+        </div>
+
+        <div className="settings-field">
+          <span>Puzzle event</span>
+          <Select
+            id="session-event-select"
+            className="compact-select"
+            value={pendingEvent ?? selectedEvent}
+            ariaDescribedBy={
+              pendingEvent ? 'session-event-confirmation' : undefined
+            }
+            testId="session-event-select"
+            options={getEventOptions().map((item) => ({
+              value: item.id,
+              label: formatEventOptionLabel(item),
+              text: item.label,
+            }))}
+            onChange={(value) => requestEventChange(value as PuzzleEvent)}
+          />
+          {eventError ? (
+            <p role="alert" className="settings-error">
+              {eventError}
+            </p>
+          ) : null}
+          {pendingEvent ? (
+            <div
+              className="session-event-confirmation"
+              id="session-event-confirmation"
+              role="group"
+              aria-label="Confirm session event change"
+            >
+              <p>
+                Change <strong>{session.name}</strong> from{' '}
+                <strong>{getEventLabel(selectedEvent)}</strong> to{' '}
+                <strong>{getEventLabel(pendingEvent)}</strong>?
               </p>
-            ) : null}
-            {pendingEvent ? (
-              <div
-                className="session-event-confirmation"
-                id="session-event-confirmation"
-                role="group"
-                aria-label="Confirm session event change"
-              >
-                <p>
-                  Change <strong>{session.name}</strong> from{' '}
-                  <strong>{getEventLabel(selectedEvent)}</strong> to{' '}
-                  <strong>{getEventLabel(pendingEvent)}</strong>?
-                </p>
-                <p className="settings-note">
-                  This reassigns {formatSolveCount(session.solves.length)} in
-                  this session. Solve IDs, raw times, penalties, scrambles,
-                  comments, dates, and import provenance are preserved.
-                </p>
-                <div className="session-event-confirmation-actions">
-                  <button
-                    type="button"
-                    className="button button-primary button-small"
-                    data-testid="confirm-session-event"
-                    autoFocus
-                    onClick={() => applyEventChange(pendingEvent)}
-                  >
-                    Confirm event change
-                  </button>
-                  <button
-                    type="button"
-                    className="button button-secondary button-small"
-                    data-testid="cancel-session-event"
-                    onClick={cancelEventChange}
-                  >
-                    Cancel
-                  </button>
-                </div>
+              <p className="settings-note">
+                This reassigns {formatSolveCount(session.solves.length)} in
+                this session. Solve IDs, raw times, penalties, scrambles,
+                comments, dates, and import provenance are preserved.
+              </p>
+              <div className="session-event-confirmation-actions">
+                <button
+                  type="button"
+                  className="button button-primary button-small"
+                  data-testid="confirm-session-event"
+                  autoFocus
+                  onClick={() => applyEventChange(pendingEvent)}
+                >
+                  Confirm event change
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary button-small"
+                  data-testid="cancel-session-event"
+                  onClick={cancelEventChange}
+                >
+                  Cancel
+                </button>
               </div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="settings-field">
+          <span>Session type</span>
+          <p className="session-settings-readonly">
+            {isCompetitionSession(session)
+              ? `Competition · ${competitionFormatLabel(session.competitionFormat)} rounds`
+              : 'Practice'}
+          </p>
+          {isCompetitionSession(session) ? (
+            <p className="settings-row-description">
+              Rounds are fixed to this format. Converting to practice is
+              one-way and cannot be recreated.
+            </p>
+          ) : null}
         </div>
 
         <div className="settings-row">

@@ -28,6 +28,7 @@ export type OnboardingStage =
   | 'events'
   | 'import'
   | 'settings'
+  | 'appearance'
   | 'sync'
   | 'signin'
   | 'restore'
@@ -129,6 +130,7 @@ function isStage(value: unknown): value is OnboardingStage {
     value === 'events' ||
     value === 'import' ||
     value === 'settings' ||
+    value === 'appearance' ||
     value === 'sync' ||
     value === 'signin' ||
     value === 'restore' ||

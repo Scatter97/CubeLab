@@ -104,7 +104,7 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   settings = await openSettings(page)
   await expect(settings.getByTestId('average-trim-better')).toContainText('1 solve')
   await expect(settings.getByTestId('average-trim-worse')).toContainText('Auto')
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(11)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(12)
   expect(await storedSolves(page)).toEqual(original)
 })
 

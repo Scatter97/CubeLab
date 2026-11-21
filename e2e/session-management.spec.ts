@@ -150,7 +150,7 @@ async function seed(page: Page, data: SeedData = seedData()) {
     if (sessionStorage.getItem('cubelab-session-seeded')) return
     sessionStorage.setItem('cubelab-session-seeded', '1')
     localStorage.setItem('cubelab:sessions:v1', JSON.stringify(payload))
-    localStorage.removeItem('cubelab:settings:v1')
+    localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false, holdDurationMs: 0 } }))
     localStorage.removeItem('cubelab:sync:v1')
   }, data)
 }
@@ -266,32 +266,31 @@ test.describe('session management', () => {
     const dialog = page.getByRole('dialog', { name: 'Create new session' })
     const name = dialog.getByRole('textbox', { name: 'Session name' })
     await newSession.click()
-    await expect(name).toHaveValue('')
+    await expect(name).toHaveValue('3×3')
     await expect(name).toHaveAttribute('placeholder', '3×3')
 
     await chooseTestOption(page, 'session-setup-event', '222')
-    await expect(name).toHaveAttribute('placeholder', '2×2')
-    await name.fill('2×2')
-    await chooseTestOption(page, 'session-setup-event', 'custom:fto')
     await expect(name).toHaveValue('2×2')
-    await expect(name).toHaveAttribute('placeholder', 'FTO (2)')
+    await name.fill('Morning')
+    await chooseTestOption(page, 'session-setup-event', 'misc')
+    await expect(name).toHaveValue('Morning')
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(dialog).toBeHidden()
     expect(await stored(page)).toEqual(before)
 
     await newSession.click()
-    await expect(name).toHaveValue('')
-    await expect(name).toHaveAttribute('placeholder', '3×3')
-    await chooseTestOption(page, 'session-setup-event', 'custom:fto')
+    await expect(name).toHaveValue('3×3')
+    await chooseTestOption(page, 'session-setup-event', 'misc')
+    await expect(name).toHaveValue('MISC')
     await name.fill('  ')
     await expect(name).toHaveValue('')
-    await expect(name).toHaveAttribute('placeholder', 'FTO (2)')
+    await expect(name).toHaveAttribute('placeholder', 'MISC')
     await dialog.getByRole('button', { name: 'Create session', exact: true }).click()
     await expect(dialog).toBeHidden()
     await expect.poll(async () => {
       const data = await stored(page)
       return data?.sessions.find((session) => session.id === data.activeSessionId)
-    }).toMatchObject({ name: 'FTO (2)', event: 'custom:fto' })
+    }).toMatchObject({ name: 'MISC', event: 'misc' })
   })
 
   test('corrects a solved session event with explicit confirmation and preserves every solve field', async ({
@@ -401,16 +400,12 @@ test.describe('session management', () => {
     await expect(rows.nth(0)).toContainText('Morning')
     await expect(rows.nth(1)).toContainText('Evening')
 
-    const moveUp = page.getByTestId('session-move-up-b')
-    await moveUp.focus()
-    await expect(moveUp).toBeFocused()
-    await page.keyboard.press('Enter')
+    const handle = page.getByTestId('session-drag-handle-b')
+    await handle.focus()
+    await page.keyboard.press('ArrowUp')
     await expect(rows.nth(0)).toContainText('Evening')
     await expect(rows.nth(1)).toContainText('Morning')
-    await expect(
-      page.getByTestId('session-move-up-b'),
-    ).toHaveAttribute('aria-disabled', 'true')
-    await expect(page.getByTestId('session-move-up-b')).toBeFocused()
+    await expect(handle).toBeFocused()
     await expect(trigger).toContainText('Morning')
     await expect(
       page.locator('[data-testid^="session-option-"]').filter({ hasText: 'Morning' }),
@@ -461,6 +456,7 @@ test.describe('session management', () => {
       { steps: 6 },
     )
     await expect(page.getByTestId('session-drop-indicator')).toBeVisible()
+    await expect(page.getByTestId('session-drag-ghost')).toContainText('Evening')
     await expect(
       panel.locator('[data-session-id="b"]'),
     ).toHaveClass(/is-dragging/)
@@ -766,7 +762,7 @@ test.describe('session management', () => {
     expect(wiped?.sessions[0]?.name).toBe('Session 1')
     expect(wiped?.sessions[0]?.solves).toEqual([])
     expect(wiped?.activeSessionId).toBe(wiped?.sessions[0]?.id)
-    expect(wiped?.customEvents?.map((entry) => entry.id)).toEqual(['custom:fto'])
+    expect(wiped?.customEvents).toBeUndefined()
     expect(await sessionNames(page)).toHaveLength(1)
     await expect(page.getByTestId('solve-count')).toHaveText('0')
     await expect(page.getByTestId('session-solve-progress')).toContainText(
@@ -1159,6 +1155,7 @@ test.describe('session management', () => {
         createdAt: now - 10_000,
       }
       localStorage.clear()
+      localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false, holdDurationMs: 0 } }))
       localStorage.setItem(
         'cubelab:sessions:v1',
         JSON.stringify({
@@ -1449,14 +1446,13 @@ test.describe('session management', () => {
       'sessions could not be saved',
     )
     expect(await stored(page)).toEqual(original)
+    // The failed sessions write left the original bytes in place. Rollback now
+    // skips rewriting that key, completes immediately, and clears the journal.
     expect(
-      await page.evaluate(() => {
-        const raw = localStorage.getItem('cubelab:replacement:v1')
-        return raw
-          ? (JSON.parse(raw) as { phase: string }).phase
-          : null
-      }),
-    ).toBe('prepared')
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
     await restoreStorage(page)
     await page.reload()
     await waitForApp(page)
@@ -1734,6 +1730,7 @@ test.describe('session management', () => {
         ],
       }
       localStorage.clear()
+      localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false, holdDurationMs: 0 } }))
       localStorage.setItem('cubelab:sessions:v1', JSON.stringify(candidate))
       localStorage.setItem(
         'cubelab:replacement:v1',
@@ -1847,6 +1844,7 @@ test.describe('session management', () => {
         ],
       }
       localStorage.clear()
+      localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false, holdDurationMs: 0 } }))
       localStorage.setItem('cubelab:sessions:v1', JSON.stringify(candidate))
       localStorage.setItem(
         'cubelab:replacement:v1',
@@ -1927,6 +1925,7 @@ test.describe('session management', () => {
           ],
         }
         localStorage.clear()
+      localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false, holdDurationMs: 0 } }))
         localStorage.setItem('cubelab:sessions:v1', JSON.stringify(candidate))
         localStorage.setItem(
           'cubelab:replacement:v1',
@@ -2113,6 +2112,7 @@ test.describe('session management', () => {
       sessionStorage.setItem('d5-v2-invalid-seed', '1')
       const now = Date.now()
       localStorage.clear()
+      localStorage.setItem('cubelab:settings:v1', JSON.stringify({ version: 12, settings: { inspectionEnabled: false, holdDurationMs: 0 } }))
       localStorage.setItem(
         'cubelab:sessions:v1',
         JSON.stringify({
@@ -2185,14 +2185,13 @@ test.describe('session management', () => {
     expect(
       await page.evaluate(() => localStorage.getItem('cubelab:settings:v1')),
     ).toBe(originalSettings)
+    // The sessions key retained its original bytes, so the rollback completes
+    // without rewriting it and the prepared journal is cleaned up immediately.
     expect(
-      await page.evaluate(() => {
-        const raw = localStorage.getItem('cubelab:replacement:v1')
-        return raw
-          ? (JSON.parse(raw) as { phase: string }).phase
-          : null
-      }),
-    ).toBe('prepared')
+      await page.evaluate(() =>
+        localStorage.getItem('cubelab:replacement:v1'),
+      ),
+    ).toBeNull()
     await restoreStorage(page)
 
     await page.reload()
@@ -2423,12 +2422,12 @@ test.describe('session management', () => {
     await expect(page.getByTestId('solve-count')).toHaveText('4')
   })
 
-  test('splits a selected range into a new custom-event session with copied settings', async ({
+  test('splits a selected range into a new MISC session with copied settings', async ({
     page,
   }) => {
     const custom = (id: string, createdAt: number): SeedSolve => ({
       ...solve(id, 12_000, 'none', createdAt - NOW),
-      event: 'custom:fto',
+      event: 'misc',
       comment: id === 'c2' ? 'Keep split comment' : '',
       importSource:
         id === 'c2'
@@ -2445,8 +2444,8 @@ test.describe('session management', () => {
       sessions: [
         {
           id: 'a',
-          name: 'FTO Practice',
-          event: 'custom:fto',
+          name: 'MISC Practice',
+          event: 'misc',
           createdAt: NOW - 90_000,
           updatedAt: NOW,
           inspectionEnabled: false,
@@ -2498,7 +2497,7 @@ test.describe('session management', () => {
     })
     await expect(split).toBeVisible()
     await expect(split.getByLabel('New session name')).toHaveValue(
-      'FTO Practice (split)',
+      'MISC Practice (split)',
     )
     await expect(split.getByTestId('split-selection-count')).toContainText(
       '0 of 4 selected',
@@ -2516,25 +2515,25 @@ test.describe('session management', () => {
     await expect(page.getByTestId('session-select')).toBeFocused()
 
     expect(await sessionNames(page)).toEqual([
-      'FTO Practice',
-      'FTO Practice (split)',
+      'MISC Practice',
+      'MISC Practice (split)',
       'Evening',
       'Empty',
     ])
     await expect(page.getByTestId('session-select')).toContainText(
-      'FTO Practice (split)',
+      'MISC Practice (split)',
     )
     await expect(page.getByTestId('solve-count')).toHaveText('2')
 
     const afterSplit = await stored(page)
     const source = afterSplit?.sessions.find((entry) => entry.id === 'a')
     const created = afterSplit?.sessions.find(
-      (entry) => entry.name === 'FTO Practice (split)',
+      (entry) => entry.name === 'MISC Practice (split)',
     )
     expect(source?.solves.map((entry) => entry.id)).toEqual(['c4', 'c1'])
     expect(created?.solves.map((entry) => entry.id)).toEqual(['c3', 'c2'])
     expect(created).toMatchObject({
-      event: 'custom:fto',
+      event: 'misc',
       inspectionEnabled: false,
       preferences: {
         timerUpdateMode: 'tenths',
@@ -2574,13 +2573,13 @@ test.describe('session management', () => {
     await page.reload()
     await waitForApp(page)
     expect(await sessionNames(page)).toEqual([
-      'FTO Practice',
-      'FTO Practice (split)',
+      'MISC Practice',
+      'MISC Practice (split)',
       'Evening',
       'Empty',
     ])
     await expect(page.getByTestId('session-select')).toContainText(
-      'FTO Practice (split)',
+      'MISC Practice (split)',
     )
 
     const settings = await openSettings(page)
@@ -2597,7 +2596,7 @@ test.describe('session management', () => {
     expect(backup.sessions.sessionTransfers).toHaveLength(1)
     expect(
       backup.sessions.sessions.find(
-        (entry) => entry.name === 'FTO Practice (split)',
+        (entry) => entry.name === 'MISC Practice (split)',
       )?.solves.map((entry) => entry.id),
     ).toEqual(['c3', 'c2'])
   })

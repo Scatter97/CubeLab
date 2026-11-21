@@ -3709,6 +3709,32 @@ describe('useSync output limits', () => {
     expect(upload).not.toHaveBeenCalled()
   })
 
+  it('never adds Training to a Drive snapshot', async () => {
+    enableSync()
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const upload = vi.spyOn(transport, 'uploadDeviceBackup')
+    const { result } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    await vi.waitFor(() => expect(result.current.phase).toBe('synced'))
+    expect(upload).toHaveBeenCalled()
+    const content = upload.mock.calls[0]![0]
+    const snapshot = JSON.parse(content) as Record<string, unknown>
+    expect(snapshot.training).toBeUndefined()
+    expect(snapshot.app).toBe('CubeLab')
+    expect(snapshot.format).toBe('cubelab-backup')
+    expect(new TextEncoder().encode(content).byteLength).toBeLessThanOrEqual(
+      10 * 1024 * 1024,
+    )
+  })
+
   it('pauses synchronization while another tab has a prepared replacement', async () => {
     enableSync()
     const transport = createMemoryDriveTransport()

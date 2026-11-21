@@ -113,7 +113,7 @@ export function avoidTimerOverlap(
   if (!overlaps(clamped, timer)) return clamped
 
   const gap = TOOL_PANEL_GAP
-  const candidates: ToolPanelLayout[] = [
+  let candidates: ToolPanelLayout[] = [
     { ...clamped, y: timer.y - clamped.height - gap },
     { ...clamped, y: timer.y + timer.height + gap },
     { ...clamped, x: timer.x - clamped.width - gap },
@@ -121,6 +121,57 @@ export function avoidTimerOverlap(
   ]
     .map((candidate) => clampToolPanelLayout(candidate, stage))
     .filter((candidate) => !overlaps(candidate, timer))
+
+  if (candidates.length === 0) {
+    // When the requested size cannot fit on any clear side, crop along one
+    // axis rather than painting over the readout. Width is preferred so the
+    // panel stays readable; the caller keeps its original requested layout.
+    const above = timer.y - gap
+    const below = stage.height - (timer.y + timer.height) - gap
+    if (above >= TOOL_PANEL_MIN_HEIGHT) {
+      const height = Math.min(clamped.height, above)
+      candidates.push(
+        clampToolPanelLayout(
+          { ...clamped, y: timer.y - height - gap, height },
+          stage,
+        ),
+      )
+    }
+    if (below >= TOOL_PANEL_MIN_HEIGHT) {
+      const height = Math.min(clamped.height, below)
+      candidates.push(
+        clampToolPanelLayout(
+          { ...clamped, y: timer.y + timer.height + gap, height },
+          stage,
+        ),
+      )
+    }
+    candidates = candidates.filter((candidate) => !overlaps(candidate, timer))
+  }
+
+  if (candidates.length === 0) {
+    const left = timer.x - gap
+    const right = stage.width - (timer.x + timer.width) - gap
+    if (left >= TOOL_PANEL_MIN_WIDTH) {
+      const width = Math.min(clamped.width, left)
+      candidates.push(
+        clampToolPanelLayout(
+          { ...clamped, x: timer.x - width - gap, width },
+          stage,
+        ),
+      )
+    }
+    if (right >= TOOL_PANEL_MIN_WIDTH) {
+      const width = Math.min(clamped.width, right)
+      candidates.push(
+        clampToolPanelLayout(
+          { ...clamped, x: timer.x + timer.width + gap, width },
+          stage,
+        ),
+      )
+    }
+    candidates = candidates.filter((candidate) => !overlaps(candidate, timer))
+  }
 
   if (candidates.length === 0) return clamped
   return candidates.reduce((best, candidate) => {

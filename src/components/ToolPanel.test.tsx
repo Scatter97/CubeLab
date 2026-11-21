@@ -75,9 +75,10 @@ describe('ToolPanel', () => {
     expect(menu).toHaveAttribute('aria-label', 'Function')
 
     const options = screen.getAllByRole('menuitemradio')
-    expect(options).toHaveLength(2)
+    expect(options).toHaveLength(8)
     expect(options.map((o) => o.textContent?.trim())).toContain('Draw Scramble✓')
     expect(options.map((o) => o.textContent?.trim())).toContain('Time Trend')
+    expect(options.map((o) => o.textContent?.trim())).toContain('Online Battle')
     expect(
       screen.getByRole('menuitemradio', { name: 'Draw Scramble' }),
     ).toHaveAttribute('aria-checked', 'true')

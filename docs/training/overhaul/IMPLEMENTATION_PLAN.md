@@ -15,8 +15,10 @@ which approved decisions this overhaul changes.
 
 - Opening Training lands on the **Training Hub**, with no timer, previous
   result, generated setup, or new session behind it. Restore the last selected
-  set, practice type, and cases. Keep selection as a draft until **Begin
-  practice**. Execution requires one usable case. Recognition requires two.
+  set, practice type, and cases. Keep case selection as a draft until **Begin
+  practice**; algorithm, difficult-case and preset changes save immediately, and
+  controls disable while the Hub is locked. Execution requires one usable case.
+  Recognition requires two.
 - Put the session name, OLL/PLL, Execution/Recognition, case count, **Edit
   cases**, and one primary **Begin practice** button together. Explain that
   Recognition includes setup moves. Place category-scoped basic stats and a
@@ -103,10 +105,11 @@ reopen or change the archive.
   setup calibration samples and the execution baseline serve different roles.
 - **Improvement.** Preserve the existing configurable historical window,
   with 90 days by default and a cutoff before the session starts. Compare
-  successful attempts in the same category and case. Require three matched
-  cases with at least three successful samples on each side for the overall
-  headline. A one-case drill gets a case-specific comparison with at least
-  five successes on each side. Show coverage and insufficient history
+  successful attempts in the same category and case against the full category
+  history; session counts and other statistics remain session-scoped. Require
+  three matched cases with at least three successful samples on each side for
+  the overall headline. A one-case drill gets a case-specific comparison with at
+  least five successes on each side. Show coverage and insufficient history
   explicitly. Use signed time change and text, for example **−5% faster** or
   **+8% slower**, with green/red as secondary cues. Report DNF separately.
 - **Archive deletion.** Reuse the existing typed `DELETE` confirmation.
@@ -195,9 +198,11 @@ block writing this plan or starting the foundation once requested.
   deletion and Undo, archived deletion, partial or failed saves, and old
   stored bytes. Verify the normal production build after mock browser runs.
   Follow the tiered checks in [AGENTS.md](../../../AGENTS.md).
-- Keep Training local-only. Existing Timer storage and sync semantics,
-  single-tab ownership, worker isolation, and immutable timing remain
-  constraints. Backup integration, release and publication are separate.
+- Keep Training storage separate from solve/session records and the solve
+  `SyncEnvelope`. Native backup and separate Training Drive backup/merge sync are
+  implemented; solve snapshots still exclude Training. Existing Timer storage
+  and sync semantics, single-tab ownership, worker isolation, and immutable
+  timing remain constraints. Release and publication are separate.
 - At every stop, update Current progress with the active phase, feature,
   files touched, checks run and results, unresolved decisions, and the
   smallest concrete next task. Keep durable design changes in project memory

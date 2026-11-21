@@ -1,9 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
 import { useDriveBackup } from '../hooks/useDriveBackup'
+import {
+  useTrainingDriveBackup,
+  type InvalidTrainingRemoteSnapshot,
+} from '../hooks/useTrainingDriveBackup'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { DriveFile, DriveTransport } from '../lib/driveTransport'
 import type { UseSyncResult } from '../hooks/useSync'
+import type { UseTrainingSyncResult } from '../hooks/useTrainingSync'
+import type { MutableRefObject } from 'react'
+import type { TimerState } from '../timer/machine'
+import type {
+  TrainingController,
+  TrainingControllerState,
+} from '../lib/training/controller'
+import type { TrainingBackupSummary } from '../lib/training/backupSection'
+import type { TrainingRemoteSnapshot } from '../lib/trainingDrive'
 import { AVERAGE_TRIM_OPTIONS } from '../lib/averageTrimming'
 import { CloseIcon } from './Icons'
 import { Select } from './Select'
@@ -105,6 +118,14 @@ function conflictKey(conflict: SyncConflict): string {
   return `${conflict.kind}:${conflict.id}:${conflict.field}`
 }
 
+function formatTrainingSyncValue(value: unknown): string {
+  if (value === undefined) return 'not set'
+  if (value === null) return 'null'
+  if (typeof value === 'string') return value.length > 100 ? `${value.slice(0, 97)}…` : value
+  const text = JSON.stringify(value)
+  return text.length > 100 ? `${text.slice(0, 97)}…` : text
+}
+
 /** How many conflicts render before the reviewer expands the list. */
 const CONFLICT_PAGE_SIZE = 5
 /** How many resolved decisions render before the history expands. */
@@ -131,6 +152,41 @@ function formatSnapshotTime(file: DriveFile): string {
 
 function totalSnapshotBytes(files: ReadonlyArray<DriveFile>): number {
   return files.reduce((total, file) => total + (file.size ?? 0), 0)
+}
+
+const trainingDateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+})
+const trainingCountFormatter = new Intl.NumberFormat('en-US')
+
+function formatTrainingCount(value: number): string {
+  return trainingCountFormatter.format(value)
+}
+
+function formatTrainingRange(
+  firstAttemptAt: number | null,
+  lastAttemptAt: number | null,
+): string {
+  if (firstAttemptAt === null || lastAttemptAt === null) return 'no attempts'
+  const from = trainingDateFormatter.format(new Date(firstAttemptAt))
+  const to = trainingDateFormatter.format(new Date(lastAttemptAt))
+  return from === to ? from : `${from} – ${to}`
+}
+
+function trainingSummaryLabel(summary: TrainingBackupSummary): string {
+  return `${formatTrainingCount(summary.attempts)} attempt${
+    summary.attempts === 1 ? '' : 's'
+  } · ${formatTrainingCount(summary.sessions)} saved session${
+    summary.sessions === 1 ? '' : 's'
+  } · ${formatTrainingCount(summary.calibrations)} calibration${
+    summary.calibrations === 1 ? '' : 's'
+  } · ${formatTrainingCount(summary.customAlgorithms)} custom algorithm${
+    summary.customAlgorithms === 1 ? '' : 's'
+  } · ${formatTrainingCount(summary.presets)} preset${
+    summary.presets === 1 ? '' : 's'
+  } · ${formatTrainingRange(summary.firstAttemptAt, summary.lastAttemptAt)}`
 }
 
 function conflictTitle(
@@ -189,6 +245,12 @@ interface DriveBackupDialogProps {
   settings: Settings
   storageOk: boolean
   sync: UseSyncResult
+  training: {
+    controller: TrainingController
+    state: TrainingControllerState
+  }
+  trainingSync: UseTrainingSyncResult
+  timerStatusRef: MutableRefObject<TimerState['status']>
   onClose: () => void
   onNotify: (message: string) => void
   onPendingRestore: (backup: import('../lib/backup').Backup) => void
@@ -202,6 +264,9 @@ export function DriveBackupDialog({
   settings,
   storageOk,
   sync,
+  training,
+  trainingSync,
+  timerStatusRef,
   onClose,
   onNotify,
   onPendingRestore,
@@ -221,6 +286,24 @@ export function DriveBackupDialog({
     onNotify,
     onConnected: () => sync.updatePreferences({ enabled: true }),
   })
+  const trainingDrive = useTrainingDriveBackup({
+    transport,
+    controller: training.controller,
+    trainingState: training.state,
+    sync,
+    timerStatusRef,
+    onNotify,
+    onRestored: () => {
+      trainingSync.reload()
+      onClose()
+    },
+  })
+  const [trainingRestoreTarget, setTrainingRestoreTarget] =
+    useState<TrainingRemoteSnapshot | null>(null)
+  const [trainingDeleteTarget, setTrainingDeleteTarget] =
+    useState<TrainingRemoteSnapshot | null>(null)
+  const [trainingInvalidDeleteTarget, setTrainingInvalidDeleteTarget] =
+    useState<InvalidTrainingRemoteSnapshot | null>(null)
   const [expandedSnapshotGroups, setExpandedSnapshotGroups] = useState<string[]>([])
   const [snapshotDeleteTarget, setSnapshotDeleteTarget] = useState<DriveFile | null>(
     null,
@@ -249,7 +332,15 @@ export function DriveBackupDialog({
     if (!open || !driveConnected) return
     void refreshSnapshotsRef.current()
   }, [open, driveConnected])
-
+  const refreshTrainingSnapshotsRef = useRef(trainingDrive.refreshSnapshots)
+  useEffect(() => {
+    refreshTrainingSnapshotsRef.current = trainingDrive.refreshSnapshots
+  }, [trainingDrive.refreshSnapshots])
+  const trainingDriveConnected = trainingDrive.connected
+  useEffect(() => {
+    if (!open || !trainingDriveConnected) return
+    void refreshTrainingSnapshotsRef.current()
+  }, [open, trainingDriveConnected])
   if (!open) return null
 
   const phase = drive.phase
@@ -1008,6 +1099,491 @@ export function DriveBackupDialog({
             </section>
 
             <section
+              className="settings-section"
+              aria-labelledby="training-drive-title"
+              data-testid="training-drive-section"
+            >
+              <div className="settings-section-heading">
+                <h3 id="training-drive-title">Training history backup</h3>
+                {trainingDrive.connected ? (
+                  <span className="settings-storage is-ok">
+                    <span className="status-dot" aria-hidden="true" />
+                    {trainingDrive.snapshots.length} file
+                    {trainingDrive.snapshots.length === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+              </div>
+
+              <p className="settings-note">
+                Manual cloud backup and replace-only restore of Training history.
+                This is separate from solve synchronization and is not
+                multi-device merge sync. Training files never appear in the solve
+                snapshot list, and solve sync never uploads Training.
+              </p>
+
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Local Training</span>
+                  <span
+                    className="settings-row-description"
+                    data-testid="training-local-summary"
+                  >
+                    {trainingDrive.localSummary
+                      ? trainingSummaryLabel(trainingDrive.localSummary)
+                      : 'Training history is unreadable. Restore a valid backup or repair local storage first.'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">
+                    Back up Training to Drive
+                  </span>
+                  <span className="settings-row-description">
+                    Uploads a new immutable snapshot. Older snapshots from this
+                    device are cleaned up best-effort, keeping the newest five.
+                    Requires an idle timer and closed Training history.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="button button-primary button-small"
+                  data-testid="training-backup-upload"
+                  disabled={
+                    !trainingDrive.canUpload || busy || trainingDrive.busy
+                  }
+                  onClick={() => void trainingDrive.upload()}
+                >
+                  {trainingDrive.phase === 'uploading'
+                    ? 'Backing up…'
+                    : 'Back up Training'}
+                </button>
+              </div>
+
+              {!trainingDrive.configured ? (
+                <p className="settings-note" data-testid="training-drive-unavailable">
+                  Training cloud backup is unavailable for this build or Drive
+                  transport.
+                </p>
+              ) : null}
+              {trainingDrive.uploadBlockedReason ? (
+                <p
+                  className="settings-note"
+                  data-testid="training-upload-blocked"
+                >
+                  {trainingDrive.uploadBlockedReason}
+                </p>
+              ) : null}
+              {trainingDrive.error ? (
+                <p
+                  className="settings-error"
+                  role="alert"
+                  data-testid="training-drive-error"
+                >
+                  {trainingDrive.error}
+                </p>
+              ) : null}
+              {trainingDrive.lastUpload ? (
+                <p className="settings-note" data-testid="training-last-upload">
+                  Latest remote Training snapshot:{' '}
+                  {formatSnapshotTime(trainingDrive.lastUpload)} ·{' '}
+                  {formatBytes(trainingDrive.lastUpload.size)}
+                </p>
+              ) : null}
+
+              {trainingDrive.connected ? (
+                <>
+                  <div className="settings-action-inline snapshot-toolbar">
+                    <button
+                      type="button"
+                      className="button button-secondary button-small"
+                      data-testid="training-refresh-snapshots"
+                      disabled={trainingDrive.snapshotsLoading}
+                      onClick={() => void trainingDrive.refreshSnapshots()}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  {trainingDrive.snapshotsLoading ? (
+                    <p className="settings-note">Loading Training snapshots…</p>
+                  ) : null}
+                  {!trainingDrive.snapshotsLoading &&
+                  trainingDrive.snapshots.length === 0 ? (
+                    <p
+                      className="settings-note"
+                      data-testid="training-remote-empty"
+                    >
+                      No remote Training snapshots found.
+                    </p>
+                  ) : null}
+                  {trainingDrive.snapshots.map((snapshot, index) => {
+                    const summary = trainingDrive.summaryOf(snapshot.backup)
+                    return (
+                      <div
+                        className="snapshot-item"
+                        key={snapshot.file.id}
+                        data-testid="training-remote-snapshot"
+                      >
+                        <div className="snapshot-item-copy">
+                          <span className="settings-row-label">
+                            {formatSnapshotTime(snapshot.file)}
+                            {index === 0 ? ' · newest' : ''}
+                          </span>
+                          <span
+                            className="settings-row-description"
+                            title={snapshot.file.name}
+                          >
+                            {formatBytes(snapshot.file.size)} ·{' '}
+                            {trainingSummaryLabel(summary)}
+                          </span>
+                          <span className="settings-row-description snapshot-file-name">
+                            {snapshot.file.name}
+                          </span>
+                        </div>
+                        <div className="settings-action-inline">
+                          <button
+                            type="button"
+                            className="button button-secondary button-small"
+                            data-testid="training-restore-snapshot"
+                            aria-label={`Restore Training snapshot ${snapshot.file.name}`}
+                            disabled={
+                              trainingDrive.busy || busy || trainingSync.enabled
+                            }
+                            onClick={() => setTrainingRestoreTarget(snapshot)}
+                          >
+                            Restore…
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-danger button-small"
+                            data-testid="training-delete-snapshot"
+                            aria-label={`Delete Training snapshot ${snapshot.file.name}`}
+                            disabled={trainingDrive.busy || busy}
+                            onClick={() => setTrainingDeleteTarget(snapshot)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {trainingDrive.invalidSnapshots.length > 0 ? (
+                    <div
+                      className="settings-error"
+                      role="alert"
+                      data-testid="training-invalid-snapshots"
+                    >
+                      <p>
+                        {trainingDrive.invalidSnapshots.length} Training
+                        snapshot
+                        {trainingDrive.invalidSnapshots.length === 1
+                          ? ' could'
+                          : 's could'}{' '}
+                        not be read and will be skipped. Delete the damaged file
+                        here or from Google Drive.
+                      </p>
+                      {trainingDrive.invalidSnapshots.map((snapshot) => (
+                        <div
+                          className="snapshot-item"
+                          key={snapshot.file.id}
+                          data-testid="training-invalid-snapshot"
+                        >
+                          <div className="snapshot-item-copy">
+                            <span className="settings-row-label">
+                              {formatSnapshotTime(snapshot.file)}
+                            </span>
+                            <span
+                              className="settings-row-description"
+                              title={snapshot.file.name}
+                            >
+                              {formatBytes(snapshot.file.size)} ·{' '}
+                              {snapshot.error}
+                            </span>
+                            <span className="settings-row-description snapshot-file-name">
+                              {snapshot.file.name}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="button button-danger button-small"
+                            aria-label={`Delete unreadable Training snapshot ${snapshot.file.name}`}
+                            disabled={trainingDrive.busy || busy}
+                            onClick={() => setTrainingInvalidDeleteTarget(snapshot)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <p className="settings-note">
+                    Restore is replace-only. It never resumes an imported
+                    Training visit and never changes sessions, settings or solve
+                    synchronization state.
+                    {trainingSync.enabled
+                      ? ' Disable Training Drive sync before using replace-only restore.'
+                      : ''}
+                  </p>
+                </>
+              ) : (
+                <p className="settings-note">
+                  Connect Google Drive to list and restore Training backups.
+                </p>
+              )}
+            </section>
+
+            <section
+              className="settings-section"
+              aria-labelledby="training-sync-title"
+              data-testid="training-sync-section"
+            >
+              <div className="settings-section-heading">
+                <h3 id="training-sync-title">Training synchronization</h3>
+              </div>
+
+              <p className="settings-note">
+                Optional merge-based synchronization for Training history across
+                devices. It uses its own Drive files and state and never changes
+                solve synchronization. Disabling it stops automatic Training
+                network work but keeps local history and remote files.
+              </p>
+
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span className="settings-row-label">Training Drive sync</span>
+                  <span className="settings-row-description">
+                    {trainingSync.enabled
+                      ? 'Enabled. Synchronize only while the timer is idle and Training is closed.'
+                      : 'Off. Manual cloud backup above is separate and replace-only.'}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Training Drive sync"
+                  data-testid="training-sync-enabled"
+                  checked={trainingSync.enabled}
+                  onChange={(event) =>
+                    trainingSync.updatePreferences({
+                      enabled: event.target.checked,
+                    })
+                  }
+                />
+              </div>
+
+              {trainingSync.storageWarning ? (
+                <p
+                  className="settings-error"
+                  role="alert"
+                  data-testid="training-sync-storage-warning"
+                >
+                  {trainingSync.storageWarning}
+                </p>
+              ) : null}
+
+              {trainingSync.snapshotsError ? (
+                <p
+                  className="settings-note"
+                  role="status"
+                  data-testid="training-sync-snapshots-warning"
+                >
+                  {trainingSync.snapshotsError}
+                </p>
+              ) : null}
+
+              {trainingSync.enabled ? (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-row-copy">
+                      <span className="settings-row-label">Status</span>
+                      <span
+                        className="settings-row-description"
+                        data-testid="training-sync-status"
+                      >
+                        {trainingSync.status}
+                        {trainingSync.lastSyncAt
+                          ? ` · last sync ${new Date(
+                              trainingSync.lastSyncAt,
+                            ).toLocaleString()}`
+                          : ' · no completed sync yet'}
+                        {trainingSync.pendingConflicts.length > 0
+                          ? ` · ${trainingSync.pendingConflicts.length} conflict${
+                              trainingSync.pendingConflicts.length === 1 ? '' : 's'
+                            } to review`
+                          : ''}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="button button-primary button-small"
+                      data-testid="training-sync-now"
+                      disabled={
+                        trainingSync.status === 'syncing' || busy
+                      }
+                      onClick={() => void trainingSync.syncNow('manual')}
+                    >
+                      Sync Training now
+                    </button>
+                  </div>
+
+                  {trainingSync.error ? (
+                    <p
+                      className="settings-error"
+                      role="alert"
+                      data-testid="training-sync-error"
+                    >
+                      {trainingSync.error}
+                    </p>
+                  ) : null}
+
+                  <div className="settings-row">
+                    <div className="settings-row-copy">
+                      <span className="settings-row-label">
+                        Sync on startup
+                      </span>
+                      <span className="settings-row-description">
+                        Runs after the timer and Training are idle.
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      aria-label="Training sync on startup"
+                      checked={trainingSync.preferences.syncOnStartup}
+                      onChange={(event) =>
+                        trainingSync.updatePreferences({
+                          syncOnStartup: event.target.checked,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-row-copy">
+                      <span className="settings-row-label">
+                        Manual Training conflict review
+                      </span>
+                      <span className="settings-row-description">
+                        Pause Training publication and adoption until each
+                        conflicting record is approved exactly. Independent from
+                        solve conflict review.
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      aria-label="Manual Training conflict review"
+                      data-testid="training-sync-manual-conflicts"
+                      checked={trainingSync.preferences.manualConflictReview}
+                      onChange={(event) =>
+                        trainingSync.updatePreferences({
+                          manualConflictReview: event.target.checked,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-row-copy">
+                      <span className="settings-row-label">
+                        Training snapshot cleanup
+                      </span>
+                      <span className="settings-row-description">
+                        Keep the newest Training snapshot for every device and
+                        prune older Training files only. Solve files are never
+                        selected.
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      aria-label="Training snapshot cleanup"
+                      checked={trainingSync.preferences.snapshotCleanupEnabled}
+                      onChange={(event) =>
+                        trainingSync.updatePreferences({
+                          snapshotCleanupEnabled: event.target.checked,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {trainingSync.pendingConflicts.length > 0 ? (
+                    <div
+                      className="sync-conflict-list"
+                      data-testid="training-sync-conflicts"
+                    >
+                      <p className="settings-note">
+                        Training synchronization is paused. Choose which exact
+                        version to keep for each conflicting Training record.
+                      </p>
+                      {trainingSync.pendingConflicts.map((conflict) => (
+                        <div
+                          className="sync-conflict-item"
+                          key={`${conflict.kind}:${conflict.id}:${conflict.field}`}
+                          data-testid="training-sync-conflict"
+                        >
+                          <div className="sync-conflict-copy">
+                            <span className="settings-row-label">
+                              {conflict.kind} · {conflict.field} ·{' '}
+                              {conflict.id.slice(0, 12)}
+                            </span>
+                            <span className="settings-row-description">
+                              This device:{' '}
+                              {formatTrainingSyncValue(conflict.localValue)} · Cloud:{' '}
+                              {formatTrainingSyncValue(conflict.remoteValue)} ·{' '}
+                              {new Date(
+                                conflict.localUpdatedAt,
+                              ).toLocaleString()}{' '}
+                              /{' '}
+                              {new Date(
+                                conflict.remoteUpdatedAt,
+                              ).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="sync-conflict-actions">
+                            <button
+                              type="button"
+                              className="button button-secondary button-small"
+                              onClick={() => {
+                                const outcome = trainingSync.resolveConflict(
+                                  conflict.id,
+                                  conflict.field,
+                                  conflict.kind,
+                                  'local',
+                                )
+                                if (!outcome.ok) onNotify(outcome.error)
+                              }}
+                            >
+                              Use this device
+                            </button>
+                            <button
+                              type="button"
+                              className="button button-secondary button-small"
+                              onClick={() => {
+                                const outcome = trainingSync.resolveConflict(
+                                  conflict.id,
+                                  conflict.field,
+                                  conflict.kind,
+                                  'remote',
+                                )
+                                if (!outcome.ok) onNotify(outcome.error)
+                              }}
+                            >
+                              Use cloud
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <p className="settings-note">
+                    Training merge is deterministic but not a consensus protocol.
+                    Clearing local site data removes this device's Training sync
+                    record but does not delete remote Training files.
+                  </p>
+                </>
+              ) : null}
+            </section>
+
+            <section
               className="settings-section sync-advanced-section"
               aria-labelledby="drive-advanced-title"
             >
@@ -1232,6 +1808,90 @@ export function DriveBackupDialog({
             keepPerDevice: sync.preferences.snapshotKeepPerDevice,
             maxAgeDays: sync.preferences.snapshotMaxAgeDays,
           })
+        }}
+      />
+
+      <ConfirmDialog
+        open={trainingRestoreTarget !== null}
+        eyebrow="Restore Training backup"
+        title="Replace local Training history?"
+        description={
+          trainingRestoreTarget
+            ? `Local Training history will be replaced with the checked snapshot from ${formatSnapshotTime(
+                trainingRestoreTarget.file,
+              )}. Sessions, settings, solve synchronization state and Google Drive solve snapshots are not changed. No imported Training visit will be resumed.`
+            : ''
+        }
+        details={
+          trainingRestoreTarget ? (
+            <dl className="confirm-summary">
+              <div>
+                <dt>Backup</dt>
+                <dd>
+                  {trainingSummaryLabel(
+                    trainingDrive.summaryOf(trainingRestoreTarget.backup),
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>This device</dt>
+                <dd>
+                  {trainingDrive.localSummary
+                    ? trainingSummaryLabel(trainingDrive.localSummary)
+                    : 'unreadable'}
+                </dd>
+              </div>
+            </dl>
+          ) : null
+        }
+        cancelLabel="Cancel restore"
+        confirmLabel="Replace Training"
+        requireText="RESTORE TRAINING"
+        onCancel={() => setTrainingRestoreTarget(null)}
+        onConfirm={() => {
+          const target = trainingRestoreTarget
+          setTrainingRestoreTarget(null)
+          if (target) void trainingDrive.restore(target)
+        }}
+      />
+
+      <ConfirmDialog
+        open={trainingDeleteTarget !== null}
+        eyebrow="Delete Training snapshot"
+        title="Delete this cloud Training snapshot?"
+        description={
+          trainingDeleteTarget
+            ? `The Training snapshot from ${formatSnapshotTime(
+                trainingDeleteTarget.file,
+              )} will be removed from Google Drive. Local Training history is not changed. Solve snapshots are never selected by this action.`
+            : ''
+        }
+        cancelLabel="Keep snapshot"
+        confirmLabel="Delete snapshot"
+        onCancel={() => setTrainingDeleteTarget(null)}
+        onConfirm={() => {
+          const target = trainingDeleteTarget
+          setTrainingDeleteTarget(null)
+          if (target) void trainingDrive.deleteSnapshot(target.file.id)
+        }}
+      />
+
+      <ConfirmDialog
+        open={trainingInvalidDeleteTarget !== null}
+        eyebrow="Delete unreadable Training snapshot"
+        title="Delete this unreadable cloud Training snapshot?"
+        description={
+          trainingInvalidDeleteTarget
+            ? `${trainingInvalidDeleteTarget.file.name} could not be validated and is being skipped. It will be removed from Google Drive. Local Training history is not changed.`
+            : ''
+        }
+        cancelLabel="Keep file"
+        confirmLabel="Delete file"
+        onCancel={() => setTrainingInvalidDeleteTarget(null)}
+        onConfirm={() => {
+          const target = trainingInvalidDeleteTarget
+          setTrainingInvalidDeleteTarget(null)
+          if (target) void trainingDrive.deleteSnapshot(target.file.id)
         }}
       />
     </>

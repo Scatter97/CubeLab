@@ -54,6 +54,26 @@ export const CUBELAB_EVENTS: CubeLabEvent[] = [
   { id: 'minx', label: 'Megaminx', scrambleEventId: 'minx', puzzleId: 'megaminx', cubeSize: null, scrambleFormat: 'megaminx' },
 ]
 
+/**
+ * The single catch-all event for puzzle types CubeLab cannot generate or draw.
+ * It is available in every event picker but is not part of the official event
+ * grid. Solves keep their imported scramble text or use the placeholder.
+ */
+export const MISC_EVENT: CubeLabEvent = {
+  id: 'misc',
+  label: 'MISC',
+  scrambleEventId: '',
+  puzzleId: '',
+  cubeSize: null,
+  scrambleFormat: 'cube',
+}
+
+/** Built-in events including MISC, in picker order. */
+export const CUBELAB_EVENT_REGISTRY: readonly CubeLabEvent[] = [
+  ...CUBELAB_EVENTS,
+  MISC_EVENT,
+]
+
 export const DEFAULT_CUSTOM_EVENT_PLACEHOLDER = 'No scramble for this event'
 
 const CUSTOM_EVENT_ID_PATTERN = /^custom:[A-Za-z0-9][A-Za-z0-9:_-]{0,119}$/
@@ -86,6 +106,11 @@ export function isCustomEventId(value: unknown): value is string {
   return typeof value === 'string' && CUSTOM_EVENT_ID_PATTERN.test(value)
 }
 
+/** Events that have no official generator: MISC and legacy custom IDs. */
+export function isUnscrambledEvent(value: unknown): boolean {
+  return value === 'misc' || isCustomEventId(value)
+}
+
 export function isCustomEvent(value: unknown): boolean {
   return isCustomEventId(value) &&
     customEventRegistry.some((definition) => definition.id === value)
@@ -99,14 +124,26 @@ export function getCustomEventDefinition(
 }
 
 export function getEventDefinition(id: string): CubeLabEvent | undefined {
-  return CUBELAB_EVENTS.find((event) => event.id === id)
+  return CUBELAB_EVENT_REGISTRY.find((event) => event.id === id)
 }
 
 export function isPuzzleEventValue(value: unknown): value is BuiltInPuzzleEvent {
   return (
     typeof value === 'string' &&
-    CUBELAB_EVENTS.some((event) => event.id === value)
+    CUBELAB_EVENT_REGISTRY.some((event) => event.id === value)
   )
+}
+
+/**
+ * Folds every unsupported or legacy custom event ID into the MISC category.
+ * Missing values are handled by the caller so legacy records can still fall
+ * back to 3×3 without relabeling a present unknown.
+ */
+export function normalizeStoredEvent(value: unknown): PuzzleEvent | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 200) {
+    return null
+  }
+  return isPuzzleEventValue(value) ? value : 'misc'
 }
 
 /**
@@ -135,6 +172,9 @@ export function getEventOption(id: string): EventOption | undefined {
   if (builtIn) {
     return { id: builtIn.id, label: builtIn.label, isCustom: false }
   }
+  if (id === 'misc') {
+    return { id: 'misc', label: MISC_EVENT.label, isCustom: false }
+  }
   const custom = getCustomEventDefinition(id)
   if (custom) {
     return {
@@ -147,38 +187,27 @@ export function getEventOption(id: string): EventOption | undefined {
   return undefined
 }
 
-/** Built-ins first in their official order, then custom events by name. */
+/** Built-ins (including MISC) in registry order. Custom events are retired. */
 export function getEventOptions(): EventOption[] {
-  return [
-    ...CUBELAB_EVENTS.map((event) => ({
-      id: event.id as PuzzleEvent,
-      label: event.label,
-      isCustom: false,
-    })),
-    ...[...customEventRegistry]
-      .sort((left, right) =>
-        left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
-      )
-      .map((definition) => ({
-        id: definition.id,
-        label: definition.name,
-        isCustom: true,
-        placeholder: definition.placeholder,
-      })),
-  ]
+  return CUBELAB_EVENT_REGISTRY.map((event) => ({
+    id: event.id as PuzzleEvent,
+    label: event.label,
+    isCustom: false,
+  }))
 }
 
-/** Visible marker used in selectors so custom events are unambiguous. */
+/** Selected event labels no longer carry a custom-event marker. */
 export function formatEventOptionLabel(option: {
   label: string
   isCustom: boolean
 }): string {
-  return option.isCustom ? `${option.label} (custom)` : option.label
+  return option.label
 }
 
 export function customEventPlaceholder(
   id: string | undefined,
 ): string | undefined {
+  if (id === 'misc') return DEFAULT_CUSTOM_EVENT_PLACEHOLDER
   const definition = getCustomEventDefinition(id)
   if (!definition) return undefined
   return definition.placeholder.trim() || DEFAULT_CUSTOM_EVENT_PLACEHOLDER

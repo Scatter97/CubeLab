@@ -4,13 +4,14 @@ import { loadCube3Model, type Cube3Model } from './cube3'
 import { STANDARD_CASE_BY_ID } from './catalog/standardCases'
 import type { TrainingAlgorithmRecord } from './catalog/types'
 import { generateTrainingSetup } from './setupGeneration'
-import { appendTrainingAttempt, createTrainingAttempt, createTrainingVisit, correctTrainingAttribution } from './records'
+import { appendTrainingAttempt, createTrainingAttempt, createTrainingVisit } from './records'
 import { createEmptyTrainingData, deserializeTrainingData, loadTraining, saveTraining, serializeTrainingData } from './storage'
 import { TRAINING_CATEGORIES } from './types'
 import { NOW, calibration } from './persistenceFixtures.test-support'
 import { builtInAlgorithmForCase } from './catalog/defaultAlgorithms'
 import { algorithmSnapshotFor, availableAlgorithm } from './algorithmSelection'
 import { verifyCustomAlgorithm, algorithmSnapshot } from './runtime'
+import { stripRetiredAlgorithmTracking } from './retiredAlgorithmTracking'
 
 let model: Cube3Model
 beforeAll(async () => { model = await loadCube3Model() })
@@ -42,14 +43,12 @@ it.each(TRAINING_CATEGORIES)('persists actual verified generator output for %s',
   const saved = saveTraining(data, null, storage)
   expect(saved.ok).toBe(true)
   const loaded = loadTraining(storage)
-  expect(loaded.ok && loaded.data).toEqual(data)
-  const correction = correctTrainingAttribution(attempt, null, NOW + 200)
-  if (!saved.ok) throw Error(saved.error)
-  expect(saveTraining({ ...data, attempts: [correction] }, saved.raw, storage).ok).toBe(true)
-  expect(deserializeTrainingData(serializeTrainingData(data)).attempts[0]!.rawMs).toBe(2345.6789)
+  expect(loaded.ok && loaded.data).toEqual(stripRetiredAlgorithmTracking(data))
+  if (!loaded.ok) throw Error(loaded.error)
+  expect(loaded.data.attempts[0]!.rawMs).toBe(2345.6789)
 })
 
-it('retains custom algorithms and stored preferences without copying defaults into storage', async () => {
+it('strips retired custom algorithms and preferences while keeping built-in defaults', async () => {
   const custom = await verifyCustomAlgorithm('oll:27', "R U R' U R U2 R'")
   const data = {
     ...createEmptyTrainingData(),
@@ -62,21 +61,16 @@ it('retains custom algorithms and stored preferences without copying defaults in
     },
   }
   const loaded = deserializeTrainingData(serializeTrainingData(data))
-  expect(loaded).toEqual(data)
-  expect(loaded.customAlgorithms.map((algorithm) => algorithm.id)).toEqual([
-    custom.id,
-  ])
-  expect(loaded.preferences.preferredAlgorithms).toEqual([
-    { caseId: 'oll:27', algorithm: algorithmSnapshot(custom) },
-  ])
-  expect(loaded.customAlgorithms.some((algorithm) => algorithm.id.includes('default-v1'))).toBe(false)
-  expect(availableAlgorithm(loaded, 'oll:27')?.id).toBe(custom.id)
+  expect(loaded.customAlgorithms).toEqual([])
+  expect(loaded.preferences.preferredAlgorithms).toEqual([])
+  expect(loaded.preferences.algorithmTracking).toBe(false)
+  expect(availableAlgorithm(loaded, 'oll:27')?.id).toBe('oll:27:alg:default-v1')
   expect(availableAlgorithm(loaded, 'oll:28')?.id).toBe(
     'oll:28:alg:default-v1',
   )
 })
 
-it('round-trips a stored built-in preference and its historical attribution snapshot', async () => {
+it('sanitizes a stored preferred revision and historical attribution snapshot', async () => {
   const caseId = 'oll:27' as const
   const algorithm = builtInAlgorithmForCase(caseId)!
   const definition = { ...STANDARD_CASE_BY_ID.get(caseId)!, defaultAlgorithmId: algorithm.id, generatorAlgorithmId: algorithm.id }
@@ -92,13 +86,11 @@ it('round-trips a stored built-in preference and its historical attribution snap
   expect(saveTraining(data, null, storage).ok).toBe(true)
   const loaded = loadTraining(storage)
   if (!loaded.ok) throw Error(loaded.error)
-  expect(loaded.data).toEqual(data)
-  expect(loaded.data.attempts[0]!.preferredAlgorithmAtStart).toEqual(
-    algorithmSnapshotFor(algorithm),
-  )
+  expect(loaded.data).toEqual(stripRetiredAlgorithmTracking(data))
+  expect(loaded.data.attempts[0]!.preferredAlgorithmAtStart).toBeNull()
   expect(loaded.data.attempts[0]!.attribution).toEqual({
-    kind: 'assumed-preferred',
-    algorithm: algorithmSnapshotFor(algorithm),
+    kind: 'unknown',
+    markedAt: null,
   })
   expect(loaded.data.customAlgorithms).toEqual([])
 })

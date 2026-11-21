@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useModalDialog } from '../hooks/useModalDialog'
+import { RangeCalendar } from './RangeCalendar'
 import {
   ActivityHeatmap,
   AnalyticsHistogram,
@@ -2414,32 +2415,17 @@ export default function AnalyticsPage({
 
           {filters.datePreset === 'custom' ? (
             <div className="analytics-date-custom">
-              <label>
-                From
-                <input
-                  type="date"
-                  value={filters.customStart}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      customStart: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                To
-                <input
-                  type="date"
-                  value={filters.customEnd}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      customEnd: event.target.value,
-                    }))
-                  }
-                />
-              </label>
+              <RangeCalendar
+                start={filters.customStart}
+                end={filters.customEnd}
+                onChange={(customStart, customEnd) =>
+                  setFilters((current) => ({
+                    ...current,
+                    customStart,
+                    customEnd,
+                  }))
+                }
+              />
             </div>
           ) : null}
 
