@@ -443,6 +443,27 @@ it('preserves trimming choices in backups and upgrades older backups to 5% / Aut
   }
 })
 
+it('round-trips Time Trend settings and defaults older backups to Auto / Standard', () => {
+  const backup = createBackup(sessions(), {
+    ...DEFAULT_SETTINGS,
+    timeTrendScale: 'full',
+    timeTrendCutoff: 'strong',
+  })
+  expect(parseBackup(serializeBackup(backup))).toEqual({ ok: true, backup })
+  const old = JSON.parse(serializeBackup(backup))
+  delete old.settings.timeTrendScale
+  delete old.settings.timeTrendCutoff
+  const migrated = parseBackup(JSON.stringify(old))
+  expect(migrated.ok).toBe(true)
+  if (migrated.ok) {
+    expect(migrated.backup.settings).toMatchObject({
+      timeTrendScale: 'auto',
+      timeTrendCutoff: 'balanced',
+    })
+    expect(migrated.backup.sessions).toEqual(backup.sessions)
+  }
+})
+
 describe('custom event backups', () => {
   it('round-trips definitions, custom solves and import provenance', () => {
     const customId = 'custom:cstimer:fto-12345678'

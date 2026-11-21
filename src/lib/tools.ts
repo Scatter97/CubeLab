@@ -30,7 +30,7 @@ export const TOOL_OPTIONS: readonly ToolOption[] = [
   {
     id: 'timeTrend',
     label: 'Time Trend',
-    description: 'Plot solve times and rolling averages over time',
+    description: 'Plot time, ao5, ao12 and personal bests',
   },
   {
     id: 'confirmTime',
@@ -63,6 +63,12 @@ export const TOOL_OPTIONS: readonly ToolOption[] = [
     description: 'Race another CubeLab user over a direct peer connection',
   },
 ]
+
+const TOOL_IDS: ReadonlySet<string> = new Set(TOOL_OPTIONS.map((option) => option.id))
+
+export function isCurrentTool(value: unknown): value is CurrentTool {
+  return typeof value === 'string' && TOOL_IDS.has(value)
+}
 
 export function toolLabel(tool: CurrentTool): string {
   return TOOL_OPTIONS.find((option) => option.id === tool)?.label ?? 'Draw Scramble'

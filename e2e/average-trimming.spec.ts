@@ -33,8 +33,18 @@ async function openTrend(page: Page) {
     await page.getByTestId('tool-select-button').click()
     await page.getByRole('menuitemradio', { name: 'Time Trend' }).click()
   }
-  await page.getByTestId('time-trend-expand').click()
-  return page.getByRole('dialog', { name: 'Time Trend' })
+  await expect(page.getByTestId('time-trend-svg')).toBeVisible()
+  return page.getByTestId('time-trend')
+}
+
+async function hoverCurrentPB(page: Page) {
+  const marker = page.locator('[data-current-pb="true"]')
+  const box = await marker.boundingBox()
+  if (!box) throw new Error('Current PB marker is missing')
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  const card = page.getByTestId('time-trend-hover-card')
+  await expect(card).toHaveAttribute('data-kind', 'pb')
+  return card
 }
 
 async function storedSolves(page: Page) {
@@ -52,8 +62,6 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
     await page.waitForTimeout(250)
   }
   const original = await storedSolves(page)
-  const __testids = await page.locator('[data-testid^="best-"]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('data-testid')))
-  console.log('DEBUG testids', JSON.stringify(__testids))
   await expect(page.getByTestId('best-ao1000')).toHaveText('10.00')
   await expect(page.getByTestId('best-mo3')).toHaveText('9.67')
   let settings = await openSettings(page)
@@ -62,16 +70,17 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   await settings.getByTestId('settings-done').click()
 
   let trend = await openTrend(page)
-  await trend.getByRole('button', { name: 'ao1000', exact: true }).click()
-  await expect(trend.locator('[data-series="ao1000"]')).not.toHaveAttribute('d', '')
-  const pb = page.getByRole('button', { name: 'PB solve #1005, 9.00. Show stats' })
-  await pb.click()
-  let details = page.getByRole('dialog', { name: 'Personal best' })
-  await expect(details.getByTestId('pb-stats-ao1000')).toHaveText('10.00')
-  await expect(details.getByTestId('pb-stats-ao50')).toHaveText('10.00')
-  await expect(details.getByTestId('pb-stats-mo3')).toHaveText('9.67')
-  await details.getByRole('button', { name: 'Close PB stats' }).click()
-  await trend.getByRole('button', { name: 'Close Time Trend' }).click()
+  // Time Trend keeps the fixed time/ao5/ao12 series; extra averages stay in Statistics.
+  await expect(trend.getByTestId('time-trend-legend')).toContainText('time')
+  await expect(trend.getByTestId('time-trend-legend')).toContainText('ao5')
+  await expect(trend.getByTestId('time-trend-legend')).toContainText('ao12')
+  await expect(trend.locator('[data-series="ao1000"]')).toHaveCount(0)
+  const pb = await hoverCurrentPB(page)
+  await expect(pb.getByTestId('time-trend-card-time')).toHaveText('9.00')
+  await expect(pb.getByTestId('time-trend-pb-mo3')).toHaveText('9.67')
+  await expect(pb.getByTestId('time-trend-pb-ao5')).toHaveText('10.00')
+  await page.mouse.move(0, 0)
+  await expect(pb).toHaveCount(0)
 
   settings = await openSettings(page)
   await chooseTestOption(page, 'average-trim-better', '1')
@@ -90,21 +99,17 @@ test('trimming migrates, recalculates stats/chart/PB details, and persists witho
   await expect(page.getByTestId('current-ao50')).toHaveText('DNF')
   await expect(page.getByTestId('best-mo3')).toHaveText('9.67')
   trend = await openTrend(page)
-  await expect(trend.locator('[data-series="ao1000"]')).toHaveAttribute('d', '')
-  await pb.click()
-  details = page.getByRole('dialog', { name: 'Personal best' })
-  await expect(details.getByTestId('pb-stats-time')).toHaveText('9.00')
-  await expect(details.getByTestId('pb-stats-ao1000')).toHaveText('DNF')
-  await expect(details.getByTestId('pb-stats-ao50')).toHaveText('DNF')
-  await expect(details.getByTestId('pb-stats-mo3')).toHaveText('9.67')
-  await details.getByRole('button', { name: 'Close PB stats' }).click()
-  await trend.getByRole('button', { name: 'Close Time Trend' }).click()
+  const trimmedPB = await hoverCurrentPB(page)
+  await expect(trimmedPB.getByTestId('time-trend-card-time')).toHaveText('9.00')
+  await expect(trimmedPB.getByTestId('time-trend-pb-mo3')).toHaveText('9.67')
+  await expect(trimmedPB.getByTestId('time-trend-pb-ao5')).toHaveText('10.00')
+  await page.mouse.move(0, 0)
   expect(await storedSolves(page)).toEqual(original)
   await page.reload()
   settings = await openSettings(page)
   await expect(settings.getByTestId('average-trim-better')).toContainText('1 solve')
   await expect(settings.getByTestId('average-trim-worse')).toContainText('Auto')
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(12)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('cubelab:settings:v1')!).version)).toBe(13)
   expect(await storedSolves(page)).toEqual(original)
 })
 

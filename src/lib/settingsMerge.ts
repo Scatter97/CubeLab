@@ -32,6 +32,8 @@ export const SETTINGS_FIELD_KEYS: readonly SettingsFieldKey[] = [
   'statMetricVisibility',
   'statTargetsMs',
   'statPrecision',
+  'timeTrendScale',
+  'timeTrendCutoff',
   'averageTrimBetter',
   'averageTrimWorse',
   'showSessionSolveProgress',

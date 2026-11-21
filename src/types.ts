@@ -159,6 +159,10 @@ export interface AverageTrimming {
 }
 
 export type StatPrecision = 'centiseconds' | 'tenths'
+/** Time Trend; Full range ignores the Auto cutoff. */
+export type TimeTrendScale = 'auto' | 'full'
+/** Robust upper-fence preset for the Time Trend Auto Y scale. */
+export type TimeTrendCutoff = 'gentle' | 'balanced' | 'strong'
 export type StatKey =
   | 'single'
   | 'mo3'
@@ -271,6 +275,10 @@ export interface Settings {
   /** Legacy per-event goal times retained for backup and sync compatibility. */
   statTargetsMs: StatTargetsMs
   statPrecision: StatPrecision
+  /** Time Trend Y scale: Auto compresses extreme singles, Full range shows all. */
+  timeTrendScale: TimeTrendScale
+  /** Robust upper-fence preset used when Time Trend is Auto. */
+  timeTrendCutoff: TimeTrendCutoff
   averageTrimBetter: AverageTrimRule
   averageTrimWorse: AverageTrimRule | 'auto'
   /** Show completed / total solves for the active session. */

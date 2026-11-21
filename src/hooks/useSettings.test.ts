@@ -124,6 +124,22 @@ it('defers cross-tab trimming changes during timing, then adopts both sides', ()
   expect(loadSettings()).toMatchObject({ averageTrimBetter: '1', averageTrimWorse: 'p10', theme: 'dark' })
 })
 
+it('persists Time Trend scale and cutoff and adopts them from another tab', () => {
+  const first = renderHook(() => useSettings())
+  act(() => first.result.current.updateSettings({ timeTrendScale: 'full', timeTrendCutoff: 'strong' }))
+  expect(first.result.current.settings).toMatchObject({ timeTrendScale: 'full', timeTrendCutoff: 'strong' })
+  expect(loadSettings()).toMatchObject({ timeTrendScale: 'full', timeTrendCutoff: 'strong' })
+  first.unmount()
+
+  const second = renderHook(() => useSettings())
+  expect(second.result.current.settings).toMatchObject({ timeTrendScale: 'full', timeTrendCutoff: 'strong' })
+  act(() => {
+    saveSettings({ ...DEFAULT_SETTINGS, timeTrendScale: 'auto', timeTrendCutoff: 'gentle' })
+    dispatchSettingsEvent()
+  })
+  expect(second.result.current.settings).toMatchObject({ timeTrendScale: 'auto', timeTrendCutoff: 'gentle' })
+})
+
 describe('useSettings staged replacements', () => {
   beforeEach(() => {
     localStorage.clear()

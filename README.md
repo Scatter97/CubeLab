@@ -91,8 +91,9 @@ including interaction rules, settings defaults, session overrides and persistenc
   Resizing keeps the panel's bottom-right position fixed and does not relocate
   the panel; it may overlap the readout by choice. The selected tool reflows
   continuously while the resize handle is dragged; the 3D Draw Scramble renderer
-  keeps its drawing surface until the handle is released. The resulting position
-  and size are persisted locally. A dragged-and-released position that would
+  keeps its drawing surface until the handle is released. The resulting position,
+  size and selected tool are persisted locally and restored after reload. A
+  dragged-and-released position that would
   cover the timer readout is moved to the nearest clear side when the stage has
   room. The Function menu flips above or below its
   trigger and scrolls when the stage is short, so every tool remains reachable.
@@ -104,25 +105,33 @@ including interaction rules, settings defaults, session overrides and persistenc
   an honest "2D net is not available" message in 2D mode and render their
   correct 3D puzzle in 3D mode. The 2D/3D choice lives only in
   **Settings → Scramble**.
-- **Time Trend tool** selected in the panel's **Function** menu. The compact
-  chart fills the panel and keeps PB markers small. Click a PB marker (or focus
-  it and press **Enter**) to open its read-only statistics: recorded time,
-  previous PB and improvement, rolling results ending at that solve, raw time,
-  penalty, date, scramble, and notes. The stats dialog works in both chart
-  views and returns focus to the marker when closed. The chart plots recorded solve
-  results and rolling averages from oldest to newest, includes slow outliers,
-  leaves gaps for DNFs, and never uses negative time labels. **Expand** opens
-  a responsive dialog with series and PB toggles, custom averages (ao3–ao10000),
-  zoom, earlier/later controls, a range slider, a real date axis, solve details,
-  and range statistics. With the pointer over either chart, two-finger up/down
-  scrolling (or the mouse wheel) zooms time vertically, and left/right scrolling
-  zooms solve history horizontally. **Shift + wheel** also zooms horizontally;
-  a trackpad pinch zooms both axes around the pointer. Click and drag to pan.
-  **Zoom axes** chooses which axes the expanded-view zoom buttons affect.
-  **Fit all** resets both axes, and the compact **Fit** button does the same.
-  Horizontal navigation keeps the vertical scale fixed. Expanding is
-  disabled during timing; the dialog contains keyboard focus and closes with
-  Escape, returning focus to **Expand**.
+- **Time Trend tool** selected in the panel's **Function** menu. It is
+  compact-only: a fixed legend (time, ao5, ao12 and PB), a bordered plot card
+  with solid horizontal gridlines, five icon-only viewport buttons and the panel
+  **Function** footer. The chart plots recorded singles and the two rolling
+  averages from oldest to newest, leaves DNF gaps, never uses negative labels,
+  and keeps dense histories downsampled. **Analytics** is the large-chart
+  destination; Time Trend has no Expand button or expanded dialog.
+  Pointer hover is PB-only: hovering a PB marker shows a compact crosshair card
+  with PB or Current PB, effective time, improvement versus the previous PB in
+  time and percent, the previous PB and solve number, the solve date,
+  mo3/ao5/ao12, and a one-line scramble. The card is placed beside the marker
+  without covering the dot. Generic solve details remain available through
+  keyboard inspection; tapping outside or pressing Escape dismisses the card.
+  PB markers use the existing
+  `--trend-pb` color with larger hit targets. Only the latest lifetime PB gets a
+  static outer ring; older PBs stay larger and static. The chart is focusable:
+  Left/Right inspect solves, Home/End select the first/latest solve, and Space
+  remains reserved for the timer. The five buttons toggle the pan/zoom axis,
+  pan by 25% of the visible span, and zoom by about √2 around the center; no
+  wheel, pinch, drag or pointer-capture gesture changes the compact viewport.
+  **Settings → Statistics → Time Trend** owns **Y scale** (Auto/Full range) and
+  **Auto Y cutoff** (Gentle/Standard/Strong). Auto compresses extreme slow
+  singles without drawing off-scale markers or counts, never clips enabled
+  rolling averages, and stays full-range with fewer than 10 valid singles.
+  Full range ignores the cutoff and shows every result. The Y baseline sits just
+  below the lowest plotted result instead of forcing a zero line, matching
+  csTimer's readable trend framing.
 - **Additional floating tools** selected from the same **Function** menu:
   **Confirm Time** shows the latest solve with its time, date and scramble, and
   lets you set OK/+2/DNF, edit its comment, copy the solve or scramble, or
@@ -239,8 +248,8 @@ including interaction rules, settings defaults, session overrides and persistenc
   alerts with adjustable volume, a light/dark/system theme, accent presets plus
   custom accent/background/timer colors with a hold-to-preview surface, an
   optional hide-even-seconds readout, visible statistics, independent row
-  metrics, custom averages, display precision, display scaling, optional
-  current-session solve progress and total time, scramble presentation
+  metrics, custom averages, Time Trend Y scale/Auto cutoff, display precision,
+  display scaling, optional current-session solve progress and total time, scramble presentation
   (including the Draw Scramble 2D/3D visualization), Training domain/renewal
   settings, local-data status, and backup/restore access.
   Enabled inspection warnings always pulse visually and announce a direction-aware
@@ -258,7 +267,7 @@ including interaction rules, settings defaults, session overrides and persistenc
   and worse sides independently, with a 5% better-side default and **Auto** on
   the worse side. Options include 0/1 solve, 1%, 5%, 10%, 20%, and median.
   The same policy recalculates averages and average PBs in cards, quick stats,
-  the trend graph, and historical PB details; stored solves and single PBs
+  the trend graph, and historical PB cards; stored solves and single PBs
   remain intact.
 - **Session statistics**: best/latest single, mo3, ao5, ao12, ao25, ao100, ao200,
   ao500, ao1000, ao5000, and ao10000, plus up to five custom trimmed averages
@@ -462,15 +471,18 @@ behavior are unchanged.
 
 ### Time Trend
 
-The compact view scales with the tool panel, and the expanded dialog uses the
-available desktop or mobile width. PB markers stay visible without dominating
-the trend; all selected series share a nonnegative time scale.
+The Time Trend tool has one compact view only. It scales with the floating
+panel from the 220 px default down to the 150×170 px minimum and remains usable
+at 320 px. The legend, plot card and viewport buttons stay inside the panel;
+the Function footer belongs to the shared tool frame. **Analytics** is the
+large-chart destination.
 
-![Expanded Time Trend in the dark theme](docs/cubelab-time-trend.png)
+![Compact Time Trend in the dark theme](docs/cubelab-time-trend.png)
 
-Click a PB marker to inspect the result and its rolling statistics at that point:
-
-![Personal best statistics](docs/cubelab-pb-stats.png)
+Hover a solve for the compact crosshair card or a PB marker for its historical
+improvement and rolling statistics. Touch pins the card, and Escape or an
+outside tap dismisses it. See **Settings → Statistics → Time Trend** for the
+global Auto/Full range scale and Auto cutoff preset.
 
 ### Mobile layout
 
@@ -488,8 +500,9 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Show or hide the tool panel | Click the **Current tool** button above the scramble |
 | Move the tool panel | Drag the panel's header handle |
 | Resize the tool panel | Drag the resize handle at the panel's top-left corner; the bottom-right stays fixed |
-| Select the tool shown in the panel | Use the **Function** dropdown in the panel footer; the panel stays open |
-| Inspect a PB | Click its marker in either chart, or focus it and press **Enter**; close the stats dialog with **Close** or **Escape** |
+| Select the tool shown in the panel | Use the **Function** dropdown in the panel footer; the panel stays open and the selection is remembered after reload |
+| Inspect a Time Trend solve or PB | Hover the plot or a PB marker; tap to pin the card and press **Escape** or tap outside to dismiss it |
+| Inspect Time Trend with the keyboard | Focus the chart, then use <kbd>←</kbd>/<kbd>→</kbd> for solves and <kbd>Home</kbd>/<kbd>End</kbd> for first/latest |
 | Open Analytics | Use the header **Analytics** tab; it is unavailable while the timer is active |
 | Filter Analytics | Use the event, session-type, session, date-range, latest-count, and penalty controls above the dashboard |
 | Choose a custom Analytics date range | Pick **Custom…**, then choose the range in the floating calendar |
@@ -500,8 +513,10 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Customize Analytics | Use **Customize** to show/hide or reorder the overview and analyses; **Reset layout** restores the defaults |
 | Resize the Sub-X breakdown | Drag the divider between the chart and session table, or focus it and use the arrow keys; Home/End select the limits and Enter restores the default |
 | View all filtered solves | Use **View solves** in the Analytics heading; select a row to inspect its solve details |
-| Zoom and pan Time Trend | Scroll ↕ for vertical zoom, ↔ (or Shift + wheel) for horizontal zoom; pinch for both; drag to pan; **Fit all** resets |
-| Explore solve-time trends | Select **Function → Time Trend**, then **Expand** for series, zoom, range navigation, and solve details |
+| Zoom and pan Time Trend | Use the five icon buttons below the chart: axis toggle, pan earlier/later, and zoom in/out. Repeated zoom-out returns to fit |
+| Explore solve-time trends | Select **Function → Time Trend** for the compact fixed time/ao5/ao12 chart and hover cards; open **Analytics** for the large chart |
+| Show an extreme slow solve on the Y axis | Open **Settings → Statistics → Time Trend** and choose **Y scale: Full range** |
+| Adjust the Time Trend Auto cutoff | Open **Settings → Statistics → Time Trend** and choose **Gentle**, **Standard**, or **Strong** |
 | Confirm the latest solve | Select **Function → Confirm Time**, then set **OK**, **+2** or **DNF**, edit the comment, or copy/delete the solve |
 | Review session statistics or distribution | Select **Function → Statistics**, **Time Distribution**, or **Daily Stats** |
 | Start a metronome | Select **Function → Metronome**, set the interval in milliseconds, then **Start** |
@@ -549,7 +564,7 @@ behavior.
 ### Display version and releases
 
 A subtle version label appears in the bottom-right footer; the current release
-record renders as `0.01.261121:2`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`,
+record renders as `0.01.261121:3`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`,
 and the date is the intentional release date in `America/Toronto`.
 
 [`src/release.json`](src/release.json) is the single source of release
@@ -1239,11 +1254,12 @@ src/
   lib/toolPanelLayout.ts Tool panel geometry, clamping, and persisted layout parsing
   lib/tools.ts           Current-tool registry and labels
   hooks/useDrawScrambleMode.ts  Persisted 2D/3D visualization preference
+  hooks/useCurrentTool.ts       Persisted tool selection with registry validation
+  hooks/useToolPanelOpen.ts     Persisted tool panel visibility
   hooks/useToolPanelLayout.ts   Persisted stage-relative panel position and size
   components/ToolPanel.tsx  Bottom-right draggable/resizable tool panel
-  components/TimeTrend.tsx  Interactive trends, gestures, and PB selection
-  components/PBStatsDialog.tsx  Read-only historical PB statistics
-  lib/timeTrend.ts       Trend data, viewport math, and PB result windows
+  components/TimeTrend.tsx  Compact chart, hover/PB cards, keyboard inspection and five viewport controls
+  lib/timeTrend.ts       Trend data, Auto cutoff, viewport math, nearest-point lookup and PB result windows
   components/ScrambleNet.tsx  2D unfolded-net renderer
   lib/events.ts          Built-in/MISC event registry, labels, and validation
   lib/customEvents.ts    Legacy csTimer mapping/resolution retained for migration
@@ -1391,7 +1407,7 @@ readable; unsupported event IDs normalize to MISC on load. Missing field
 metadata falls back to `updatedAt` only at merge time and is not written back as
 fabricated history.
 
-Settings are stored at schema version 11. Version 1–10 records are upgraded in
+Settings are stored at schema version 13. Version 1–12 records are upgraded in
 place with field-level defaults for newer settings; invalid individual values
 fall back without discarding the rest of the record. Version 7 adds the
 `theme` preference (`light`, `dark`, or `system`), defaulting to `light`.
@@ -1402,10 +1418,14 @@ every section visible and the built-in targets for older records and backups.
 Version 10 adds independent `showSessionSolveProgress` and
 `showSessionTotalTime` options, both defaulting to off. Version 11 adds
 `statMetricVisibility`, with Current and Best on and Target/BPA/WPA off for
-older records and backups. Legacy `statTargetsMs` values remain accepted as
-inert data. Global settings field timestamps are stored in `cubelab:sync:v1`
-rather than in the settings record, so the settings schema remains backward
-compatible.
+older records and backups. Version 12 adds `hideEvenTimerSeconds` and the
+optional custom `appearance` colors. Version 13 adds `timeTrendScale`
+(`auto`/`full`) and `timeTrendCutoff` (`gentle`/`balanced`/`strong`), defaulting
+to `auto`/`balanced` for older records and backups. Legacy `statTargetsMs`
+values remain accepted as inert data. Global settings field timestamps are
+stored in `cubelab:sync:v1` rather than in the settings record, so the settings
+schema remains backward compatible; older builds that only understand v12
+reject a v13 settings record instead of silently dropping the new fields.
 
 Backups use `{ app: "CubeLab", format: "cubelab-backup", version: 1,
 exportedAt, sessions, settings, importMode?, sync?, training? }`. The parser
@@ -1440,7 +1460,7 @@ snapshots; using Drive again requires an explicit new connection.
 
 The delivered baseline includes the timer, WCA inspection and penalties, twelve
 built-in events plus MISC, named sessions, solve comments/actions,
-configurable trimmed statistics, Time Trend/PB details, the Analytics dashboard,
+configurable trimmed statistics, compact Time Trend/PB cards, the Analytics dashboard,
 the OLL/PLL Training workspace, native JSON/checked-gzip backup, additive csTimer
 import, optional Google Drive synchronization, light/dark/system themes, floating
 scramble/chart tools, first-run onboarding, and the offline-capable PWA.

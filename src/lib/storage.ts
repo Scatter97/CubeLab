@@ -24,6 +24,8 @@ import type {
   StatVisibility,
   ThemePreference,
   TimerUpdateMode,
+  TimeTrendCutoff,
+  TimeTrendScale,
 } from '../types'
 import { DEFAULT_AVERAGE_TRIMMING, isAverageTrimRule } from './averageTrimming'
 import {
@@ -63,7 +65,7 @@ export const SESSIONS_STORAGE_KEY = 'cubelab:sessions:v1'
 export const SETTINGS_STORAGE_KEY = 'cubelab:settings:v1'
 export const STORAGE_VERSION = 1
 export const SESSIONS_VERSION = 7
-export const SETTINGS_STORAGE_VERSION = 12
+export const SETTINGS_STORAGE_VERSION = 13
 
 export const DEFAULT_SETTINGS: Settings = {
   inspectionEnabled: true,
@@ -114,6 +116,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   statTargetsMs: {},
   statPrecision: 'centiseconds',
+  timeTrendScale: 'auto',
+  timeTrendCutoff: 'balanced',
   averageTrimBetter: DEFAULT_AVERAGE_TRIMMING.better,
   averageTrimWorse: DEFAULT_AVERAGE_TRIMMING.worse,
   showSessionSolveProgress: false,
@@ -543,6 +547,14 @@ function isValidStatPrecision(value: unknown): value is StatPrecision {
   return value === 'centiseconds' || value === 'tenths'
 }
 
+function isValidTimeTrendScale(value: unknown): value is TimeTrendScale {
+  return value === 'auto' || value === 'full'
+}
+
+function isValidTimeTrendCutoff(value: unknown): value is TimeTrendCutoff {
+  return value === 'gentle' || value === 'balanced' || value === 'strong'
+}
+
 function parseStatVisibility(value: unknown): StatVisibility {
   const fallback = DEFAULT_SETTINGS.statVisibility
   if (!isRecord(value)) return { ...fallback }
@@ -741,6 +753,12 @@ export function parseSettingsData(value: unknown): Settings | null {
     statPrecision: isValidStatPrecision(value.statPrecision)
       ? value.statPrecision
       : DEFAULT_SETTINGS.statPrecision,
+    timeTrendScale: isValidTimeTrendScale(value.timeTrendScale)
+      ? value.timeTrendScale
+      : DEFAULT_SETTINGS.timeTrendScale,
+    timeTrendCutoff: isValidTimeTrendCutoff(value.timeTrendCutoff)
+      ? value.timeTrendCutoff
+      : DEFAULT_SETTINGS.timeTrendCutoff,
     analytics: parseAnalyticsSettings(value.analytics),
   }
 }

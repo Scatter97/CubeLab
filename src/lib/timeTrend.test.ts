@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTrendData, buildPBStats, trendAxis, trendPath, zoomTrendAxis, panTrendAxis, trendViewAxis } from './timeTrend'
+import { buildTrendData, buildPBStats, latestPersonalBest, trendAxis, trendOutlierLimit, trendPath, zoomTrendAxis, panTrendAxis, trendViewAxis } from './timeTrend'
 import type { Solve } from '../types'
 
 const solve = (rawMs: number, id: number, penalty: Solve['penalty'] = 'none'): Solve => ({
@@ -36,6 +36,88 @@ describe('trend axes', () => {
       if (value === null) continue
       expect(value).toBeGreaterThanOrEqual(axis.min)
       expect(value).toBeLessThanOrEqual(axis.max)
+    }
+  })
+
+  it('does not force a zero baseline when every result is far from zero', () => {
+    const axis = trendAxis([10000, 30000, 90000], 5)
+    expect(axis.min).toBeGreaterThan(0)
+    expect(axis.min).toBeLessThanOrEqual(10000)
+    expect(axis.max).toBeGreaterThanOrEqual(90000)
+    expect(axis.ticks.length).toBeGreaterThan(1)
+    expect(axis.ticks.every((tick) => tick >= axis.min && tick <= axis.max)).toBe(true)
+    expect(axis.ticks.every((tick) => tick % 1 === 0)).toBe(true)
+  })
+
+  it('caps the upper domain for the Auto scale without moving the lower bound', () => {
+    const cluster = Array.from({ length: 100 }, (_, i) => 10000 + (i % 20) * 250)
+    const values = [...cluster, 90000]
+    const full = trendAxis(values)
+    const capped = trendAxis(values, 5, 21250)
+    expect(full.max).toBeGreaterThan(90000)
+    expect(capped.max).toBeGreaterThan(21250)
+    expect(capped.max).toBeLessThan(90000)
+    expect(capped.min).toBeGreaterThanOrEqual(0)
+    expect(capped.min).toBeLessThanOrEqual(10000)
+    expect(capped.ticks.every((tick) => tick >= capped.min && tick <= capped.max)).toBe(true)
+    expect(trendAxis(values, 5, null)).toEqual(full)
+    expect(trendAxis(values, 5, 200000)).toEqual(full)
+  })
+})
+
+describe('auto Y scaling', () => {
+  const cluster = Array.from({ length: 100 }, (_, i) => 10000 + (i % 20) * 250)
+
+  it('caps extreme slow singles and never clips an enabled rolling average', () => {
+    const singles = [...cluster, 90000]
+    const limit = trendOutlierLimit(singles)
+    expect(limit).not.toBeNull()
+    expect(limit!).toBeGreaterThan(14000)
+    expect(limit!).toBeLessThan(90000)
+    expect(trendOutlierLimit(singles, [50000])).toBe(50000)
+    expect(trendOutlierLimit(singles, [90000])).toBeNull()
+  })
+
+  it('stays full-range for small sessions, ordinary spread and zero-variance clusters', () => {
+    expect(trendOutlierLimit([])).toBeNull()
+    expect(trendOutlierLimit([10000, 20000, 90000])).toBeNull()
+    expect(trendOutlierLimit(Array.from({ length: 100 }, (_, i) => 10000 + (i % 40) * 250))).toBeNull()
+    const fixed = Array.from({ length: 20 }, () => 10000)
+    expect(trendOutlierLimit([...fixed, 14000])).toBeNull()
+    expect(trendOutlierLimit([...fixed, 20000])).toBe(15000)
+  })
+
+  it('ignores invalid values and leaves the input unchanged', () => {
+    const singles = [...cluster, 90000, null, NaN, -1, Infinity]
+    const before = [...singles]
+    expect(trendOutlierLimit(singles)).not.toBeNull()
+    expect(singles).toEqual(before)
+  })
+
+  it('applies the Gentle, Standard and Strong fence presets', () => {
+    const fixed = Array.from({ length: 20 }, () => 10000)
+    const values = [...fixed, 20000]
+    expect(trendOutlierLimit(values, [], 'gentle')).toBe(17500)
+    expect(trendOutlierLimit(values, [], 'balanced')).toBe(15000)
+    expect(trendOutlierLimit(values, [], 'strong')).toBe(12500)
+    // A wider IQR uses the preset's Q3 + multiplier instead of the Q3 floor.
+    const spread = [...Array.from({ length: 80 }, (_, i) => 8000 + (i % 20) * 100), 60000]
+    const gentle = trendOutlierLimit(spread, [], 'gentle')!
+    const balanced = trendOutlierLimit(spread, [], 'balanced')!
+    const strong = trendOutlierLimit(spread, [], 'strong')!
+    expect(gentle).toBeGreaterThan(balanced)
+    expect(balanced).toBeGreaterThan(strong)
+  })
+
+  it('keeps the 10-single floor and clamps every cutoff to enabled averages', () => {
+    const nine = [10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 90000]
+    expect(trendOutlierLimit(nine, [], 'gentle')).toBeNull()
+    expect(trendOutlierLimit(nine, [], 'balanced')).toBeNull()
+    expect(trendOutlierLimit(nine, [], 'strong')).toBeNull()
+    const ten = [...nine, 10000]
+    for (const cutoff of ['gentle', 'balanced', 'strong'] as const) {
+      expect(trendOutlierLimit(ten, [75000], cutoff)).toBe(75000)
+      expect(trendOutlierLimit(ten, [90000], cutoff)).toBeNull()
     }
   })
 })
@@ -126,6 +208,27 @@ describe('PB statistics', () => {
   })
 })
 
+
+describe('latest PB and nearest-point lookup', () => {
+  it('selects the latest lifetime PB even when newer solves are not PBs', () => {
+    const chrono = [solve(20000, 1), solve(22000, 2), solve(18000, 3), solve(23000, 4), solve(16000, 5), solve(17000, 6)]
+    const points = buildTrendData([...chrono].reverse(), [])
+    expect(points.map((point) => point.personalBest)).toEqual([true, false, true, false, true, false])
+    const latest = latestPersonalBest(points)
+    expect(latest?.solve.id).toBe('5')
+    expect(latest?.index).toBe(5)
+    expect(latestPersonalBest([])).toBeNull()
+  })
+
+  it('moves the latest PB when a newer lifetime best arrives', () => {
+    const chrono = [solve(20000, 1), solve(18000, 2), solve(19000, 3)]
+    const points = buildTrendData([...chrono].reverse(), [])
+    expect(latestPersonalBest(points)?.solve.id).toBe('2')
+    const newer = buildTrendData([...chrono, solve(17000, 4)].reverse(), [])
+    expect(latestPersonalBest(newer)?.solve.id).toBe('4')
+  })
+
+})
 
 describe('trimming consistency in trends and PB details', () => {
   it('recalculates chart windows and historical PB results with the same policy', () => {

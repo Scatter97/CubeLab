@@ -40,6 +40,7 @@ import { useSessions } from './hooks/useSessions'
 import { useSettings } from './hooks/useSettings'
 import { useTheme } from './hooks/useTheme'
 import { useToolPanelOpen } from './hooks/useToolPanelOpen'
+import { useCurrentTool } from './hooks/useCurrentTool'
 import { readShowUpcomingCase, saveTrainingPresentation, TRAINING_UPCOMING_CASE_KEY } from './lib/training/statisticsPreferences'
 import type { TrainingDomainSettings, TrainingSetId } from './lib/training/types'
 import { useTraining } from './hooks/useTraining'
@@ -114,7 +115,6 @@ import {
   createResetBaseSyncStorage,
 } from './lib/syncBase'
 import { BUILT_IN_STAT_DEFINITIONS } from './lib/statDefinitions'
-import { DEFAULT_TOOL, type CurrentTool } from './lib/tools'
 import type {
   AlertChannel,
   CompetitionFormat,
@@ -396,7 +396,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     'begin' | 'failed' | null
   >(null)
   const siteResetRunIdRef = useRef<string | null>(null)
-  const [currentTool, setCurrentTool] = useState<CurrentTool>(DEFAULT_TOOL)
+  const [currentTool, setCurrentTool] = useCurrentTool()
   const savedTrainingData = training.controller.getSavedData()
   const trainingBackupSnapshot = training.controller.getBackupSnapshot()
   const savedTrainingSession = activeTrainingSession(savedTrainingData)
@@ -2793,6 +2793,8 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
                   solves={insightSolves}
                   timerActive={timerActive || insightSolves !== solves}
                   trimming={averageTrimming}
+                  timeTrendScale={settings.timeTrendScale}
+                  timeTrendCutoff={settings.timeTrendCutoff}
                   roundLabel={latestRoundLabel}
                   onSetPenalty={handleSetPenalty}
                   onSetComment={handleSetComment}

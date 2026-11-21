@@ -46,11 +46,11 @@ preserve other platforms' setup instructions.
 The implemented product includes 12 built-in events plus a MISC catch-all (custom
 events are retired and migrate to MISC),
 first-run onboarding, inspection, named sessions, solve comments/actions,
-configurable trimmed statistics, Time Trend/PB details, the lazy Analytics
-dashboard, the OLL/PLL Training workspace, floating scramble/chart tools, native
-JSON/checked-gzip backup, additive csTimer import, optional solve and Training
-Drive sync, light/dark/system themes and an offline-capable PWA. Sessions use
-schema **v7**; settings use **v12**; Training remains **v1**. Storage-key
+configurable trimmed statistics, the compact Time Trend/PB cards, the lazy
+Analytics dashboard, the OLL/PLL Training workspace, floating scramble/chart
+tools, native JSON/checked-gzip backup, additive csTimer import, optional solve
+and Training Drive sync, light/dark/system themes and an offline-capable PWA.
+Sessions use schema **v7**; settings use **v13**; Training remains **v1**. Storage-key
 suffixes remain `v1`; do not confuse key names with payload schema versions.
 
 | Area | Owner |

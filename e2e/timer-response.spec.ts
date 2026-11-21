@@ -54,7 +54,8 @@ test('large-session stops persist once, display the exact result, and refresh in
   await page.keyboard.up('Space')
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
   await expect(page.getByTestId('solve-count')).toHaveText('7001')
-  await expect(page.getByTestId('time-trend-expand')).toBeEnabled()
+  await expect(page.getByTestId('time-trend-svg')).toBeVisible()
+  await expect(page.getByTestId('time-trend-zoom-in')).toBeEnabled()
   await expect(page.getByTestId('history-time').first()).toHaveText(formatTime(first.rawMs))
 
   await start(page)

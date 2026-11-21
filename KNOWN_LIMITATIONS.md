@@ -35,6 +35,30 @@ These are current boundaries; dated repair details are in the
   synchronously; enabled sync, audio, physical display latency, 100,000 solves in
   a browser and Zen/Firefox/WebKit were not established. Chart/statistics
   completion can lag the first stopped result.
+- **Time Trend is compact-only and PB-hover-first.** There is no expanded
+  in-panel chart or PB statistics modal; **Analytics** is the large-chart
+  destination. The fixed time/ao5/ao12/PB series cannot be customized in the
+  panel, and viewport changes come only from the five buttons (no wheel, pinch
+  or drag). Pointer hover and clicks are limited to PB markers; generic solve
+  details use keyboard inspection. The compact PB card is positioned beside the
+  marker and clamped inside the panel. Touch users tap a PB to pin, and keyboard
+  users can inspect solves with arrows and Home/End. Screen-reader users receive
+  the polite selection summary, but the visual card layout and chart shape are
+  not a substitute for the Analytics tables. Pinned cards can be dismissed with
+  Escape or an outside tap; they are not modal and do not trap focus.
+- **Time Trend's Auto Y scaling is a display aid.** It caps extreme slow singles
+  at a robust upper fence chosen by the **Settings → Statistics → Time Trend**
+  cutoff preset so one choke cannot flatten the rest of the chart. Auto does not
+  draw a separate marker or count for clipped singles; **Full range** shows every
+  time and ignores the cutoff. Enabled rolling averages and PBs remain on scale,
+  and sessions with fewer than 10 valid singles stay full-range. The lower axis
+  bound starts just below the lowest result rather than at zero, so a normal
+  session is not compressed into the bottom of the plot. The fence is not a
+  statistical outlier classification.
+- **Current PB is the latest chronological lifetime PB, not necessarily the
+  newest solve.** Only that marker gets the static outer ring; older PB markers
+  are static. There is no PB pulse. The hover/pin PB card is the only in-panel
+  PB history view; other averages remain in Statistics and Analytics.
 - **Session total time is a rounded hour display.** Completed sessions show
   hours to two decimals in the timer footer; a short session can therefore read
   `0.00 h` even when it contains valid solves. The underlying millisecond sum

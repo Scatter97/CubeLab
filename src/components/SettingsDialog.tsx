@@ -743,6 +743,48 @@ function SettingsContent({
             <p className="settings-note">
               Display only. Recorded times keep their original precision.
             </p>
+
+            <fieldset className="settings-fieldset" data-testid="time-trend-settings">
+              <legend className="settings-field-label">Time Trend</legend>
+              <label className="settings-field">
+                <span className="settings-field-label">Y scale</span>
+                <Select
+                  testId="time-trend-scale"
+                  value={settings.timeTrendScale}
+                  options={[
+                    { value: 'auto', label: 'Auto' },
+                    { value: 'full', label: 'Full range' },
+                  ]}
+                  onChange={(value) =>
+                    onChange({
+                      timeTrendScale: value as Settings['timeTrendScale'],
+                    })
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field-label">Auto Y cutoff</span>
+                <Select
+                  testId="time-trend-cutoff"
+                  value={settings.timeTrendCutoff}
+                  disabled={settings.timeTrendScale === 'full'}
+                  options={[
+                    { value: 'gentle', label: 'Gentle' },
+                    { value: 'balanced', label: 'Standard' },
+                    { value: 'strong', label: 'Strong' },
+                  ]}
+                  onChange={(value) =>
+                    onChange({
+                      timeTrendCutoff: value as Settings['timeTrendCutoff'],
+                    })
+                  }
+                />
+              </label>
+              <p className="settings-note">
+                Gentle shows more slow solves. Strong focuses on the main trend.
+                Full range shows every result and ignores the cutoff.
+              </p>
+            </fieldset>
           </section>
 
           <section className="settings-section" aria-labelledby="settings-scramble-title">

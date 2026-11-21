@@ -30,7 +30,7 @@ import {
 } from '../hooks/useDrawScrambleMode'
 import { useToolPanelLayout } from '../hooks/useToolPanelLayout'
 import { TOOL_OPTIONS, toolLabel, type CurrentTool } from '../lib/tools'
-import type { Penalty, Solve } from '../types'
+import type { Penalty, Solve, TimeTrendCutoff, TimeTrendScale } from '../types'
 import type { PuzzleEvent } from '../types'
 import { ScrambleNet } from './ScrambleNet'
 import { DEFAULT_AVERAGE_TRIMMING } from '../lib/averageTrimming'
@@ -229,6 +229,8 @@ interface Props {
   solves?: readonly Solve[]
   timerActive?: boolean
   trimming?: AverageTrimming
+  timeTrendScale?: TimeTrendScale
+  timeTrendCutoff?: TimeTrendCutoff
   roundLabel?: string | null
   onSetPenalty?: (id: string, penalty: Penalty) => void
   onSetComment?: (id: string, comment: string) => void
@@ -249,7 +251,7 @@ interface InteractionState {
   scale: number
 }
 
-export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING, roundLabel = null, onSetPenalty, onSetComment, onDeleteSolve, onNotify, panelId, title, children, defaultSide = 'right', minimized = false, onToggleMinimized }: Props) {
+export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING, timeTrendScale = 'auto', timeTrendCutoff = 'balanced', roundLabel = null, onSetPenalty, onSetComment, onDeleteSolve, onNotify, panelId, title, children, defaultSide = 'right', minimized = false, onToggleMinimized }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuOpensUp, setMenuOpensUp] = useState(true)
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null)
@@ -628,7 +630,13 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
             />
           )
         ) : activeTool === 'timeTrend' ? (
-          <TimeTrend solves={solves} compact disabled={timerActive} trimming={trimming} />
+          <TimeTrend
+            solves={solves}
+            disabled={timerActive}
+            trimming={trimming}
+            scale={timeTrendScale}
+            cutoff={timeTrendCutoff}
+          />
         ) : activeTool === 'confirmTime' ? (
           <ConfirmTimeTool
             solve={solves[0] ?? null}

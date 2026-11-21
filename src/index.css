@@ -4572,12 +4572,12 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
 }
 
 
-/* Time Trend shares the tool panel's available space; the expanded chart owns
-   a separate responsive plotting surface in the native modal top layer. */
+/* Compact Time Trend: legend, plot card, five viewport buttons. The Function
+   footer remains owned by ToolPanel. */
 .time-trend {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -4586,22 +4586,240 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
   font-size: 0.75rem;
 }
 
-.time-trend-header,
-.time-trend-modal-header,
-.time-trend-navigation,
-.time-trend-range {
+.time-trend-legend {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 10px;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+}
+
+.time-trend-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.time-trend-legend i {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 11px;
+  height: 2px;
+}
+
+.time-trend-legend .is-pb { width: 4px; height: 4px; border-radius: 50%; }
+
+.time-trend-chart {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  overflow: hidden;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.time-trend-chart svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: default;
+}
+
+.time-trend-chart svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.time-trend .time-trend-grid { stroke-dasharray: none; }
+
+.time-trend-axis-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.time-trend-grid { stroke: var(--line); stroke-dasharray: 2 4; }
+.time-trend-axis { stroke: var(--line-strong); }
+.time-trend-crosshair { stroke: var(--text-faint); stroke-dasharray: 3 3; }
+
+.time-trend-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  margin: 0;
+  padding: 6px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.time-trend-controls {
+  display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 3px;
+}
+
+.time-trend-control-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  place-items: center;
+}
+
+.time-trend-control-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.time-trend-control-button:hover:not(:disabled) {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.time-trend-control-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.time-trend-control-button:disabled {
+  color: var(--text-faint);
+  border-color: var(--line-soft);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.time-trend-hover-card {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(190px, calc(100% - 8px));
+  max-height: calc(100% - 8px);
+  padding: 6px 7px;
+  overflow: auto;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  box-shadow: var(--shadow-toast);
+  font-size: 0.58rem;
+  line-height: 1.3;
+  pointer-events: auto;
+}
+
+.time-trend-hover-card > strong {
+  color: var(--text);
+  font-size: 0.6rem;
+}
+
+.time-trend-card-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
   min-width: 0;
 }
 
-.time-trend-caption {
-  color: var(--text-muted);
-  font-size: 0.65rem;
+.time-trend-card-time {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.1;
 }
 
+.time-trend-card-date {
+  color: var(--text-muted);
+  font-size: 0.54rem;
+}
+
+.time-trend-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  color: var(--text-muted);
+  font-size: 0.54rem;
+}
+
+.time-trend-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  margin: 1px 0 0;
+}
+
+.time-trend-card-stats div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.time-trend-card-stats dt { color: var(--text-muted); }
+
+.time-trend-card-stats dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.time-trend-card-improvement {
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: 0.56rem;
+}
+
+.time-trend-card-scramble {
+  margin: 1px 0 0;
+  padding-top: 2px;
+  overflow: hidden;
+  color: var(--text-soft);
+  border-top: 1px solid var(--line-soft);
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time-trend-pb-hit { cursor: pointer; }
+.time-trend-pb-marker { pointer-events: none; }
+
+.time-trend-pb-ring {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.time-trend-chart svg:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Shared by Analytics solve dialogs. Do not remove these when Time Trend's PB
+   modal is absent. */
 .time-trend-button,
 .time-trend-chip {
   min-height: 28px;
@@ -4635,81 +4853,6 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
 
 .time-trend-chip[aria-pressed='false'] i { opacity: 0.35; }
 
-.time-trend-chart {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 40px;
-}
-
-.time-trend-chart svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  cursor: crosshair;
-}
-
-.time-trend-axis-label {
-  fill: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.time-trend-grid { stroke: var(--line); stroke-dasharray: 2 4; }
-.time-trend-axis { stroke: var(--line-strong); }
-.time-trend-crosshair { stroke: var(--text-faint); stroke-dasharray: 3 3; }
-
-.time-trend-empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  margin: 0;
-  padding: 6px;
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  text-align: center;
-}
-
-.time-trend-legend,
-.time-trend-series,
-.time-trend-navigation-buttons,
-.time-trend-details,
-.time-trend-stats {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-}
-
-.time-trend-legend {
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 0.65rem;
-}
-
-.time-trend-legend span,
-.time-trend-chip,
-.time-trend-custom,
-.time-trend-axis-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.time-trend-legend i,
-.time-trend-chip i {
-  display: inline-block;
-  width: 12px;
-  height: 2px;
-  flex: 0 0 auto;
-}
-
-.time-trend-legend .is-pb { width: 4px; height: 4px; border-radius: 50%; }
-
 .time-trend-dialog {
   width: min(1100px, calc(100vw - 32px));
   max-width: none;
@@ -4725,74 +4868,20 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
 
 .time-trend-dialog::backdrop { background: var(--backdrop); }
 
-.time-trend-expanded {
+.time-trend-modal-header {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
-  padding: 20px;
-  font-size: 0.78rem;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
 }
 
 .time-trend-modal-header h2 { margin: 0; font-size: 1.15rem; }
 .time-trend-modal-header p { margin: 5px 0 0; color: var(--text-muted); font-size: 0.75rem; }
-.time-trend-modal-header { align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-.time-trend-series { gap: 6px; }
-.time-trend-expanded .time-trend-chart { flex: 0 0 auto; height: clamp(180px, 42dvh, 440px); }
-.time-trend-custom,
-.time-trend-axis-select { color: var(--text-muted); font-size: 0.72rem; }
-.time-trend-custom input,
-.time-trend-axis-select select {
-  min-height: 28px;
-  min-width: 0;
-  padding: 3px 6px;
-  color: var(--text);
-  background: var(--surface-soft);
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  font: inherit;
-}
-.time-trend-custom input { width: 70px; }
-.time-trend-navigation { flex-wrap: wrap; }
-.time-trend-navigation-buttons { gap: 5px; }
-.time-trend-range { flex-wrap: wrap; color: var(--text-muted); font-size: 0.72rem; }
-.time-trend-range input { flex: 1 1 140px; min-width: 0; accent-color: var(--accent); }
-.time-trend-details {
-  min-height: 48px;
-  padding: 10px;
-  overflow-wrap: anywhere;
-  color: var(--text-muted);
-  background: var(--surface-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 4px;
-  font-size: 0.72rem;
-}
-.time-trend-details strong { color: var(--text); }
+
 .time-trend-scramble { flex-basis: 100%; font-family: var(--font-mono); }
-.time-trend-stats { gap: 10px 24px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--text-muted); font-size: 0.72rem; }
-.time-trend-stats strong { color: var(--text); margin-left: 6px; font-family: var(--font-mono); }
-
-@media (max-width: 540px) {
-  .time-trend-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
-  .time-trend-expanded { padding: 12px; gap: 10px; }
-  .time-trend-modal-header p { max-width: 200px; }
-  .time-trend-navigation-buttons { flex-wrap: wrap; }
-}
-
-.time-trend-header { flex-wrap: wrap; }
-.tool-panel[data-tool='timeTrend'] .scramble-draw-stage { align-items: stretch; }
-
-
-.time-trend-header-actions { display: inline-flex; gap: 4px; margin-left: auto; }
-.time-trend-chart svg { cursor: grab; touch-action: none; }
-.time-trend-chart.is-panning svg { cursor: grabbing; }
-.time-trend-gesture-help { margin: 0; color: var(--text-muted); font-size: 0.7rem; line-height: 1.5; }
-
-.time-trend-pb-hit { cursor: pointer; }
-.time-trend-pb-hit:focus-visible { outline: none; }
-.time-trend-pb-hit:focus-visible circle { stroke: var(--trend-pb); stroke-width: 1.5px; }
-.time-trend-pb-hit[aria-disabled='true'] { cursor: default; }
-.time-trend-pb-dialog { width: min(620px, calc(100vw - 24px)); }
 .time-trend-pb-content { padding: 20px; }
 .time-trend-pb-result { display: flex; flex-direction: column; gap: 6px; margin: 18px 0; }
 .time-trend-pb-result strong { font: 600 2.5rem var(--font-mono); color: var(--text); }
@@ -4807,6 +4896,14 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
 .time-trend-pb-content h3 { margin: 16px 0 6px; color: var(--text); font-size: 0.85rem; }
 .time-trend-pb-note { font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
 .time-trend-pb-solve p { font-size: 0.78rem; line-height: 1.6; color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 540px) {
+  .time-trend-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .time-trend-modal-header p { max-width: 200px; }
+}
+
+.tool-panel[data-tool='timeTrend'] .scramble-draw-stage { align-items: stretch; }
+
 @media (max-width: 420px) {
   .time-trend-pb-content { padding: 14px; }
   .time-trend-pb-summary { grid-template-columns: 1fr; }

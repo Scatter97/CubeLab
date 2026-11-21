@@ -220,7 +220,7 @@ default content are superseded.
   suppress exit prompts and forced termination can still lose unsaved changes.
   Recovery-copy download is manual preservation, not an import/merge feature.
 - Training stays schema **v1**, key **`cubelab:training:v1`**. Ordinary sessions
-  v7/settings v12/native backup v1/solve Drive formats, the ordinary solve/session
+  v7/settings v13/native backup v1/solve Drive formats, the ordinary solve/session
   resets and the solve Drive 10 MB cap are unchanged. Native backup and restore
   include the checked Training store replace-only. Training has a separate
   16 MB Drive file family, manual replace-only backup/restore, and optional

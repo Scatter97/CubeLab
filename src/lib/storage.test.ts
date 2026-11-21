@@ -817,7 +817,7 @@ describe('settings persistence', () => {
     saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' }, storage)
     expect(loadSettings(storage)).toMatchObject({ theme: 'dark' })
     expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY) ?? '{}')).toMatchObject({
-      version: 12,
+      version: 13,
     })
   })
 
@@ -882,7 +882,7 @@ describe('settings persistence', () => {
     const storage = new MemoryStorage()
     storage.seed(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ version: 13, settings: { inspectionEnabled: true } }),
+      JSON.stringify({ version: 14, settings: { inspectionEnabled: true } }),
     )
     expect(loadSettings(storage)).toEqual(DEFAULT_SETTINGS)
   })
@@ -896,7 +896,7 @@ describe('trimming settings schema v8', () => {
     const settings = loadSettings(storage)
     expect(settings).toMatchObject({ inspectionEnabled: true, theme: 'dark', averageTrimBetter: 'p5', averageTrimWorse: 'auto' })
     expect(saveSettings(settings, storage)).toBe(true)
-    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 12, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({ version: 13, settings: { averageTrimBetter: 'p5', averageTrimWorse: 'auto' } })
   })
   it('round-trips independent side choices and recovers bad fields independently', () => {
     const storage = new MemoryStorage()
@@ -905,6 +905,46 @@ describe('trimming settings schema v8', () => {
     expect(loadSettings(storage)).toEqual(settings)
     expect(parseSettingsData({ inspectionEnabled: true, averageTrimBetter: 'auto', averageTrimWorse: '1' })).toMatchObject({ averageTrimBetter: 'p5', averageTrimWorse: '1', inspectionEnabled: true })
     expect(parseSettingsData({ inspectionEnabled: false, averageTrimBetter: 'median', averageTrimWorse: 'garbage' })).toMatchObject({ averageTrimBetter: 'median', averageTrimWorse: 'auto' })
+  })
+})
+
+describe('Time Trend settings schema v13', () => {
+  it('defaults older v12 records to Auto / Standard without losing preferences', () => {
+    const storage = new MemoryStorage()
+    storage.seed(SETTINGS_STORAGE_KEY, JSON.stringify({
+      version: 12,
+      settings: { inspectionEnabled: true, theme: 'dark', averageTrimBetter: 'p10' },
+    }))
+    const settings = loadSettings(storage)
+    expect(settings).toMatchObject({
+      inspectionEnabled: true,
+      theme: 'dark',
+      averageTrimBetter: 'p10',
+      timeTrendScale: 'auto',
+      timeTrendCutoff: 'balanced',
+    })
+    expect(saveSettings(settings, storage)).toBe(true)
+    expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toMatchObject({
+      version: 13,
+      settings: { timeTrendScale: 'auto', timeTrendCutoff: 'balanced' },
+    })
+  })
+
+  it('round-trips valid scales and cutoffs and recovers invalid fields independently', () => {
+    const storage = new MemoryStorage()
+    const settings = { ...DEFAULT_SETTINGS, timeTrendScale: 'full' as const, timeTrendCutoff: 'strong' as const }
+    saveSettings(settings, storage)
+    expect(loadSettings(storage)).toEqual(settings)
+    expect(parseSettingsData({
+      inspectionEnabled: true,
+      timeTrendScale: 'full',
+      timeTrendCutoff: 'gentle',
+    })).toMatchObject({ timeTrendScale: 'full', timeTrendCutoff: 'gentle' })
+    expect(parseSettingsData({
+      inspectionEnabled: true,
+      timeTrendScale: 'compressed',
+      timeTrendCutoff: 'extreme',
+    })).toMatchObject({ timeTrendScale: 'auto', timeTrendCutoff: 'balanced' })
   })
 })
 

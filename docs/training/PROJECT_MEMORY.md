@@ -755,7 +755,7 @@ Architecture proposals here are **PROPOSED** unless marked otherwise.
 
 ### D6. Settings, persistence, backup, and sync findings
 
-- `Settings` uses schema v12 in `cubelab:settings:v1`.
+- `Settings` uses schema v13 in `cubelab:settings:v1`.
 - `SETTINGS_FIELD_KEYS` in `src/lib/settingsMerge.ts` defines synchronized
   settings fields.
 - `src/hooks/useSettings.ts` handles field-level cross-tab adoption and defers

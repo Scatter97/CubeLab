@@ -110,6 +110,23 @@ test('tool panel offers the csTimer-style extras without arming the timer', asyn
   await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
 })
 
+test('remembers the last selected tool after reload', async ({ page }) => {
+  await waitForApp(page)
+  await selectTool(page, 'Time Trend')
+  await expect(page.getByTestId('tool-select-button')).toContainText('Time Trend')
+  await page.getByTestId('current-tool-button').click()
+  await expect(page.getByTestId('tool-panel')).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('tool-panel')).toHaveCount(0)
+  await page.getByTestId('current-tool-button').click()
+  await expect(page.getByTestId('tool-select-button')).toContainText('Time Trend')
+  await expect(page.getByTestId('time-trend-svg')).toBeVisible()
+  await expect(page.getByTestId('time-trend-legend')).toContainText('ao12')
+  await expect(page.getByTestId('time-trend-expand')).toHaveCount(0)
+})
+
 test('every tool reflows during a resize gesture before release', async ({ page }) => {
   await waitForApp(page)
   const panel = page.getByTestId('tool-panel')

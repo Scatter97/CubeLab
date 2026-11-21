@@ -5,6 +5,155 @@ and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
 
+## Time Trend compact redesign — 2026-11-21
+
+Implemented the approved
+[TIME_TREND_COMPACT_REDESIGN.md](docs/development/TIME_TREND_COMPACT_REDESIGN.md)
+on top of the uncommitted Auto Y scale/tool-persistence work. Time Trend is now
+compact-only; **Analytics** is the large-chart destination.
+
+- Removed the Expand button, expanded dialog/portal, series and custom-average
+  controls, PB toggle, date axis, range slider, range statistics, gesture help
+  and the PB statistics modal. `PBStatsDialog.tsx` is deleted. The shared
+  Analytics solve-dialog CSS (`.time-trend-dialog`, `.time-trend-modal-header`,
+  `.time-trend-button`, `.time-trend-pb-content` and related classes) remains.
+- Fixed legend and series: time, ao5, ao12 and PB markers. The panel is legend,
+  bordered plot card, five icon-only buttons and the Function footer.
+- Pointer hover is PB-only and shows a compact crosshair card with PB/Current
+  PB, effective time, improvement in time/percent, previous PB and solve number,
+  date, mo3/ao5/ao12 and a one-line scramble. Ordinary solves are not hover or
+  click targets; generic details remain on keyboard inspection. Touch pins a PB
+  card, while an outside tap or Escape dismisses it. The measured card stays
+  clamped inside the panel, avoids covering the PB dot, and remains open while
+  moving between marker and card. PB stats are memoized by hovered ID.
+- PB markers use `--trend-pb`, larger radii (3.4 ordinary, 4.2 current) and a
+  16 px invisible hit area. The latest chronological lifetime PB gets the only
+  static outer ring; older PBs remain static. There is no PB pulse. A stable
+  `data-current-pb`/`is-current-pb` marker identifies it.
+- Five buttons: axis toggle, pan earlier/later (25% of the visible span), zoom
+  in/out (about √2 around center). No Fit button; repeated zoom-out reaches fit.
+  Bounds and timer activity disable buttons. Compact has no wheel, Safari
+  gesture, pointer-capture or drag-pan viewport changes.
+- The chart is focusable with a visible ring, Left/Right solve inspection,
+  Home/End first/latest, Escape dismissal and a polite live region. Space is not
+  captured.
+- Settings schema is **v13**. **Settings → Statistics → Time Trend** adds
+  `timeTrendScale` (`auto`/`full`, default Auto) and `timeTrendCutoff`
+  (`gentle`/`balanced`/`strong`, default Standard). Full range ignores and
+  disables the cutoff. Older settings and backups default to Auto/Standard.
+  App → ToolPanel → TimeTrend receives both fields. Cutoff fences are Gentle
+  `max(Q3 + 4×IQR, 1.75×Q3)`, Standard `max(Q3 + 3×IQR, 1.5×Q3)` and Strong
+  `max(Q3 + 2×IQR, 1.25×Q3)`, retaining the 10-single floor, average clamp and
+  normal axis padding/tick rounding.
+- No solve/session/Training schema, solve order, PB/trimming calculation or
+  native backup format changed beyond the Settings fields.
+
+**Follow-up (same date):** pointer hover and clicking are PB-only, so ordinary
+solves no longer show a card or capture focus; generic details remain on
+keyboard inspection. The chart uses the default cursor (PB markers use a
+pointer), chart clicks do not draw the focus outline, and the PB pulse is
+removed in favour of the static ring. The PB card is compact, measured and
+placed beside its marker so it no longer covers the PB dot; it remains open
+while moving between marker and card. `trendAxis` now starts just below the
+lowest plotted result instead of forcing a zero baseline (for example a normal
+10–20 second session no longer uses a 0-based axis), while Analytics keeps the
+nonnegative full-range scale.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; existing archived-probe, SessionPanel and App ref warnings only
+npm test -- src/lib/timeTrend.test.ts src/components/TimeTrend.test.tsx \
+  src/components/SettingsDialog.test.tsx src/lib/storage.test.ts \
+  src/lib/settingsMerge.test.ts src/hooks/useSettings.test.ts
+# 6 files, 143 tests passed
+npm test -- src/components/ToolPanel.test.tsx src/hooks/useCurrentTool.test.ts \
+  src/lib/backup.test.ts
+# 3 files, 62 tests passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/time-trend.spec.ts e2e/average-trimming.spec.ts e2e/tools.spec.ts \
+  e2e/timer-stability.spec.ts e2e/timer-response.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# 22 passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/statistics.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "enables all metrics inline, calculates the PB target and persists visibility"
+# 1 passed (settings v13 persistence)
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/analytics.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "filters, compares, drills down, customizes and persists layout"
+# 1 passed (shared Analytics solve-dialog CSS)
+npm run build            # passed; PWA 80 precache entries (4,013.13 KiB)
+git diff --check         # passed
+```
+
+Visual review refreshed `docs/cubelab-time-trend.png` at 1440×900 in the dark
+theme with the compact panel and a Current PB hover card. Not exercised:
+Firefox, WebKit, live Google Drive, physical touch/screen-reader hardware or a
+new large-history performance profile. The release record is
+`0.01.261121:3`.
+
+## Time Trend Auto Y scale and tool persistence — 2026-11-21
+
+The Time Trend chart now defaults to an Auto Y scale so one extreme slow single
+cannot flatten the rest of the session, without adding any off-scale markers or
+count indicators. Full-range behavior is available from
+**Settings → Statistics → Time Trend**. The selected tool also survives a reload.
+No solve data or PB calculation changed.
+
+- `trendOutlierLimit` in `src/lib/timeTrend.ts` computes a robust upper fence
+  from valid single times using `Q3 + 3 × IQR`, floored at `1.5 × Q3`. Sessions
+  with fewer than 10 valid singles stay full-range. Enabled rolling averages are
+  always kept inside the limit, so a sustained slow period is not treated as a
+  spike.
+- `trendAxis` keeps its full-range default for Analytics and now accepts an
+  optional upper limit. Time Trend's Auto domain uses that limit. Auto intentionally
+  omits clipped singles rather than drawing top-edge markers or a count;
+  **Settings → Statistics → Time Trend → Y scale** restores them. Switching
+  modes resets the Y zoom. PBs, fast results and PB cards remain on their
+  existing values; only the plotted upper domain changes.
+- `useCurrentTool` stores the selected tool at `cubelab:currentTool:v1`.
+  Missing, invalid or retired IDs fall back to Draw Scramble. The write is
+  blocked during a site reset, and the preference remains device-local and
+  unsynchronized. The panel-open and geometry stores are unchanged.
+- Updated `TimeTrend` unit/component coverage, the Time Trend and tools browser
+  specs, README, FEATURES, KNOWN_LIMITATIONS, STATUS and both project skills.
+
+Visual check at 1440×900 in the dark theme: the 7,061-solve fixture with one
+90-second solve moved from a flat 0–1:40 chart to a readable 10–35 second Auto
+chart with no extra markers; Full range restored the 1:40 axis. Refreshed
+`docs/cubelab-time-trend.png`.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; existing App ref, SessionPanel and archived-probe warnings only
+npm test -- src/lib/timeTrend.test.ts src/components/TimeTrend.test.tsx \
+  src/components/ToolPanel.test.tsx src/lib/analytics.test.ts \
+  src/components/AnalyticsPage.test.tsx src/hooks/useCurrentTool.test.ts
+# 6 files, 104 tests passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/time-trend.spec.ts e2e/average-trimming.spec.ts e2e/tools.spec.ts \
+  e2e/timer-stability.spec.ts e2e/analytics.spec.ts e2e/timer-response.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# 39 passed
+npm run build            # passed; PWA 80 precache entries (4,015.47 KiB)
+git diff --check         # passed
+```
+
+Not exercised: Firefox, WebKit, live Drive, physical devices, or a new
+large-history performance profile. The release record remains `0.01.261121:2`;
+no commit or push was made.
+
+## Time Trend compact redesign plan — 2026-11-21
+
+Approved design and implementation plan retained at
+[TIME_TREND_COMPACT_REDESIGN.md](docs/development/TIME_TREND_COMPACT_REDESIGN.md).
+It was implemented in the entry at the top of this file; Settings schema v13 is
+now current and Analytics remains the large-chart destination.
+
 ## Confirm Time replacement — 2026-11-21
 
 Replaced the typed-entry **Confirm Time** tool with a csTimer-style latest-solve

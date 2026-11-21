@@ -33,6 +33,7 @@ afterEach(() => {
 })
 
 function renderSettings(overrides: {
+  settings?: Settings
   solveCount?: number
   resetAllDisabledReason?: string | null
   deleteAllSessionsDisabledReason?: string | null
@@ -53,7 +54,7 @@ function renderSettings(overrides: {
   return render(
     <SettingsDialog
       open
-      settings={DEFAULT_SETTINGS}
+      settings={overrides.settings ?? DEFAULT_SETTINGS}
       storageOk
       sessionCount={2}
       solveCount={overrides.solveCount ?? 4}
@@ -256,6 +257,27 @@ describe('session summary settings', () => {
 })
 
 describe('statistics settings', () => {
+  it('exposes Time Trend Y scale and cutoff controls under Statistics', () => {
+    const onChange = vi.fn()
+    renderSettings({ onChange })
+    expect(screen.getByTestId('time-trend-scale')).toHaveTextContent('Auto')
+    expect(screen.getByTestId('time-trend-cutoff')).toHaveTextContent('Standard')
+    fireEvent.click(screen.getByTestId('time-trend-scale'))
+    fireEvent.click(screen.getByRole('option', { name: 'Full range' }))
+    expect(onChange).toHaveBeenLastCalledWith({ timeTrendScale: 'full' })
+    fireEvent.click(screen.getByTestId('time-trend-cutoff'))
+    fireEvent.click(screen.getByRole('option', { name: 'Gentle' }))
+    expect(onChange).toHaveBeenLastCalledWith({ timeTrendCutoff: 'gentle' })
+  })
+
+  it('disables the Auto cutoff when Full range is selected', () => {
+    renderSettings({ settings: { ...DEFAULT_SETTINGS, timeTrendScale: 'full' } })
+    expect(screen.getByTestId('time-trend-cutoff')).toBeDisabled()
+    cleanup()
+    renderSettings({ settings: { ...DEFAULT_SETTINGS, timeTrendScale: 'auto' } })
+    expect(screen.getByTestId('time-trend-cutoff')).toBeEnabled()
+  })
+
   it('exposes independent row metric visibility switches', () => {
     const onChange = vi.fn()
     renderSettings({ onChange })

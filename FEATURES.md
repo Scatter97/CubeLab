@@ -397,17 +397,17 @@ Owners: [statistics](src/lib/stats.ts), [trimming](src/lib/averageTrimming.ts),
 - Current tool button opens/closes the panel. Function selector offers **Draw
   Scramble**, **Time Trend**, **Confirm Time**, **Statistics**, **Time
   Distribution**, **Daily Stats**, **Metronome** and **Online Battle**;
-  Draw Scramble is the initial selected tool. The first Draw Scramble open shows
-  an animated 2D net / 3D cube pill switch with a Confirm action, then remembers
-  the choice.
+  Draw Scramble is the default when no valid selection is stored. The first Draw
+  Scramble open shows an animated 2D net / 3D cube pill switch with a Confirm
+  action, then remembers the choice.
 - Drag by the header and resize from the top-left corner; the bottom-right
   position stays fixed. Resizing does not relocate the panel and may overlap the
   readout. The selected tool reflows during the resize gesture, except the 3D
   Draw Scramble renderer, which adopts the new size on release. Geometry is
   constrained to the timer area; saved position/size is committed at the end of
   the gesture.
-- Open state and geometry persist on this browser. Tool selection itself is
-  component state, not a synchronized preference.
+- Open state, geometry and the selected tool persist on this browser. Tool
+  selection is not a synchronized preference.
 - Pointer activity inside the panel is isolated from timer gestures.
 
 ### Confirm Time
@@ -426,36 +426,52 @@ Owners: [statistics](src/lib/stats.ts), [trimming](src/lib/averageTrimming.ts),
 
 ### Time Trend chart
 
-- Compact chart plots oldest-to-newest effective single results and rolling
-  series; DNFs are gaps and slow outliers remain represented. Time axes are
-  nonnegative. Dense paths are downsampled without replacing source results.
-- Available series: single, ao5, ao12, ao25, ao50, ao100, ao200, ao500, ao1000,
-  and a chart-specific custom average from 3–10,000. Default enabled series are
-  single, ao5 and ao12; chart custom size starts at 10.
-- PB toggle controls strict single-PB markers. Clicking or keyboard-activating
-  a marker opens read-only historical PB details: recorded and raw time,
-  penalty, prior PB, gain, rolling values ending there, date, scramble and notes.
-  Closing returns focus to the marker; future solves do not enter that window.
-- Expand opens a focus-contained responsive dialog and is disabled during timing.
-  Escape/Close returns focus to Expand.
-- Expanded controls include series/PB toggles, custom size, solve/date x-axis,
-  zoom-axis choice (both/history/time), zoom buttons, Fit all, earlier/later
-  navigation, visible-range slider and selected-range statistics.
-- Range statistics include solve count, mean, best single, best ao5/ao12,
-  population SD, DNF count and, for sufficiently long ranges, first-versus-last
-  tenth improvement. These describe the visible range, not the whole session.
-- Vertical wheel motion zooms time; horizontal wheel or Shift+wheel zooms solve
-  history. Pinch zooms both axes around the pointer; drag pans. Compact Fit and
-  expanded Fit all reset both axes. Horizontal navigation preserves time scale.
-- Hover/focus exposes solve data and supported detail interactions. Chart
-  selections, axes and viewport controls are transient component state.
+- Compact-only tool with the fixed **time**, **ao5**, **ao12** and **PB**
+  series. There is no Expand button, expanded dialog, series/custom-average
+  picker, PB toggle, date axis, range slider, range statistics or gesture help.
+  Other averages remain in Statistics and Analytics.
+- Layout is legend, bordered plot card, five icon-only viewport buttons and the
+  shared Function footer. DNFs are gaps, time axes stay nonnegative, dense paths
+  are downsampled without replacing source results, and no x-axis labels are
+  drawn.
+- Pointer hover is PB-only. Hovering a PB marker shows a compact crosshair card
+  with PB/Current PB, effective time, improvement versus the previous PB in time
+  and percent, previous PB and solve number, date, mo3/ao5/ao12, and a one-line
+  scramble. The first valid PB explains that it is the starting PB. The card is
+  placed beside the marker without covering the dot, stays clamped inside the
+  panel, and remains open while the pointer is over the marker or card.
+- Touch taps pin a PB card; tapping outside or pressing Escape dismisses it. The
+  chart is focusable with Left/Right solve inspection, Home/End first/latest,
+  a polite live-region announcement, a visible focus ring, and no Space capture.
+  Ordinary solves are not pointer targets; generic details use keyboard
+  inspection rather than hover or click.
+- PB markers use the existing `--trend-pb` color with larger markers and a 16 px
+  invisible activation area. The latest chronological lifetime PB, not
+  necessarily the newest solve, is the only **Current PB**: it gets the larger
+  marker and static outer ring. Older lifetime PBs stay larger and hoverable but
+  static. There is no PB pulse; timer activity locks interactions.
+- Five buttons in csTimer order: axis toggle (↔/↕), pan earlier, pan later, zoom
+  in and zoom out. Pan moves 25% of the current visible span; zoom is about √2
+  around the viewport center. No Fit button: repeated zoom-out reaches fit.
+  Buttons disable at their bounds and during timing, use inline SVG icons,
+  accessible labels and visible focus states.
+- Compact mouse/trackpad gestures never change the viewport: no wheel, Safari
+  gesture, pointer-capture or drag-pan listener, and no `touch-action: none` on
+  the plot. Page scrolling and browser zoom remain unaffected outside hover.
+- **Settings → Statistics → Time Trend** owns the global **Y scale**
+  (Auto/Full range) and **Auto Y cutoff** (Gentle/Standard/Strong). Auto uses the
+  robust upper fence and never clips enabled rolling averages; Full range ignores
+  the cutoff. Sessions with fewer than 10 valid singles remain full-range, and
+  Auto draws no off-scale marker or count. The lower axis bound sits just below
+  the lowest result instead of forcing zero, so normal 10–20 second sessions do
+  not collapse into the bottom of a 0-based chart.
+- Chart inspection and viewport choices are transient component state.
 
 Owners: [tool panel](src/components/ToolPanel.tsx),
 [confirm time](src/components/ConfirmTimeTool.tsx),
 [Time Trend](src/components/TimeTrend.tsx), [session tools](src/components/SessionTools.tsx),
 [online battle](src/components/BattleTool.tsx),
-[trend calculations](src/lib/timeTrend.ts),
-[historical PB dialog](src/components/PBStatsDialog.tsx).
+[trend calculations](src/lib/timeTrend.ts).
 
 ## Analytics
 
@@ -565,6 +581,8 @@ storage keys to the user; keys here make the inventory auditable.
 | Statistic row metrics / `statMetricVisibility` | Current and Best on; Target/BPA/WPA off | Independently show or hide Current, Best, Target, BPA and WPA in each statistic row. |
 | Legacy targets / `statTargetsMs` | — | Validated, backed up and synchronized compatibility data; no editable UI and no effect on current Target calculation. |
 | Statistics precision / `statPrecision` | Hundredths | Hundredths/tenths for statistic presentation, not rewriting raw results. |
+| Time Trend Y scale / `timeTrendScale` | Auto | Auto compresses extreme singles; Full range shows every result and ignores the cutoff. |
+| Time Trend Auto cutoff / `timeTrendCutoff` | Standard (`balanced`) | Gentle (`max(Q3 + 4×IQR, 1.75×Q3)`), Standard (`max(Q3 + 3×IQR, 1.5×Q3)`), Strong (`max(Q3 + 2×IQR, 1.25×Q3)`). Disabled under Full range. |
 | Better trim / `averageTrimBetter` | 5% | 0, 1, 1%, 5%, 10%, 20%, median. |
 | Worse trim / `averageTrimWorse` | Auto | Auto matches better side; otherwise same individual choices. |
 | Session solve progress / `showSessionSolveProgress` | Off | Completed/total in timer footer, including accessible count labels. |
@@ -609,9 +627,9 @@ session-summary display and Analytics preferences remain global.
 | Draw Scramble visualization | 2D net (`net`); alternative `3d` | Local `cubelab:drawScrambleMode:v1`, edited in Settings → Scramble; outside `Settings`, native backup and settings sync. |
 | Floating panel visibility | Closed | Local `cubelab:toolPanelOpen:v1`. |
 | Floating panel geometry | Default position/size constrained to stage | Local `cubelab:toolPanelLayout:v1`; end-of-gesture persistence. |
-| Current tool | Draw Scramble | Transient app state; Function selects Time Trend. |
+| Current tool | Draw Scramble | Local `cubelab:currentTool:v1`; missing, invalid or retired IDs fall back to Draw Scramble. |
 | Current app view/dialogs/menus | Timer; dialogs closed | Transient, not a saved preference. |
-| Time Trend series/custom size/PB/axes/zoom | Single+ao5+ao12, custom 10, PB on, solve x-axis, both zoom axes, fitted viewport | Transient chart state. |
+| Time Trend inspection/viewport | No card; fitted x/y viewport; horizontal pan/zoom axis | Transient chart state. Fixed series are time/ao5/ao12/PB; Y scale and cutoff are global Settings fields. |
 | Analytics filters/active analysis/series/interval/zoom/Sub-X split | Initial-event scope; initial visible analysis; auto histogram interval | Transient page state; saved visibility/order/targets are separate. |
 | Drive connection and scheduling | Disconnected, automatic sync off | Separate local Drive/sync stores; OAuth token is memory-only. |
 | Conflict review history | Empty; newest first, maximum 50 | Local-only, excluded from cloud snapshots and native backup. |
@@ -874,7 +892,7 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
 - No application backend or telemetry; records are in browser storage unless
   exported or explicitly synchronized. Browser/origin changes do not share local
   storage automatically.
-- Sessions schema v7, Settings schema v12, Training schema v1 and native backup
+- Sessions schema v7, Settings schema v13, Training schema v1 and native backup
   v1; storage key suffixes remain v1. `cubelab:training-sync:v1` is a separate
   ledger. Validation and migrations preserve supported older data. Legacy
   single-session migration imports its supported 3×3 records into Session 1.
@@ -923,7 +941,7 @@ Owners: [Drive dialog](src/components/DriveBackupDialog.tsx),
 | Sessions/settings/summaries | [session rules](src/lib/sessions.test.ts), [Settings UI](src/components/SettingsDialog.test.tsx), [session settings UI](src/components/SessionSettingsDialog.test.tsx), [session browser flows](e2e/session-management.spec.ts) |
 | MISC/imports | [event rules](src/lib/events.test.ts), [csTimer parser](src/lib/csTimerImport.test.ts), [tools flow](e2e/tools.spec.ts) |
 | Statistics/trimming | [statistics](src/lib/stats.test.ts), [trimming](src/lib/averageTrimming.test.ts), [format](src/lib/format.test.ts), [browser trimming](e2e/average-trimming.spec.ts) |
-| Scramble/tools/trends | [scrambles](src/lib/scramble.test.ts), [tool panel](src/components/ToolPanel.test.tsx), [Time Trend](src/components/TimeTrend.test.tsx), [trend calculations](src/lib/timeTrend.test.ts), [trend browser flows](e2e/time-trend.spec.ts) |
+| Scramble/tools/trends | [scrambles](src/lib/scramble.test.ts), [tool panel](src/components/ToolPanel.test.tsx), [tool selection](src/hooks/useCurrentTool.test.ts), [Time Trend](src/components/TimeTrend.test.tsx), [trend calculations](src/lib/timeTrend.test.ts), [trend browser flows](e2e/time-trend.spec.ts), [tool browser flows](e2e/tools.spec.ts) |
 | Analytics | [calculations](src/lib/analytics.test.ts), [settings](src/lib/analyticsSettings.test.ts), [page](src/components/AnalyticsPage.test.tsx), [browser flows](e2e/analytics.spec.ts) |
 | Training | [domain modules](src/lib/training/), [page tests](src/components/TrainingPage.test.tsx), [deletion provenance](src/lib/trainingDeletion.test.ts), [native backup section](src/lib/training/backupSection.ts), [browser flows](e2e/training.spec.ts), [integrated flows](e2e/training-integrated.spec.ts), [native backup flows](e2e/training-backup.spec.ts) |
 | Training Drive | [envelope/retention](src/lib/trainingDrive.test.ts), [manual backup hook](src/hooks/useTrainingDriveBackup.test.tsx), [merge](src/lib/trainingSync.test.ts), [ledger](src/lib/trainingSyncStorage.test.ts), [sync hook](src/hooks/useTrainingSync.test.tsx), [manual browser flow](e2e/training-drive-backup.spec.ts), [two-device flow](e2e/training-drive-sync.spec.ts) |

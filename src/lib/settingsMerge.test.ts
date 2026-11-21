@@ -438,6 +438,50 @@ it('merges the optional session summary settings independently', () => {
 })
 
 
+it('merges Time Trend scale and cutoff independently and requests review for same-field edits', () => {
+  const result = mergeSettingsData({
+    local: settings({ timeTrendScale: 'full', timeTrendCutoff: 'strong' }),
+    remote: settings({ timeTrendScale: 'auto', timeTrendCutoff: 'gentle' }),
+    localFieldUpdates: {
+      timeTrendScale: { updatedAt: 300, editorId: 'laptop' },
+      timeTrendCutoff: { updatedAt: 100, editorId: 'laptop' },
+    },
+    remoteFieldUpdates: {
+      timeTrendScale: { updatedAt: 100, editorId: 'phone' },
+      timeTrendCutoff: { updatedAt: 400, editorId: 'phone' },
+    },
+    remoteUpdatedAt: 400,
+    lastSyncAt: 1,
+    manualConflictReview: false,
+  })
+  expect(result.settings).toMatchObject({
+    timeTrendScale: 'full',
+    timeTrendCutoff: 'gentle',
+  })
+  expect(result.fieldUpdates).toMatchObject({
+    timeTrendScale: { updatedAt: 300, editorId: 'laptop' },
+    timeTrendCutoff: { updatedAt: 400, editorId: 'phone' },
+  })
+  expect(SETTINGS_FIELD_KEYS).toContain('timeTrendScale')
+  expect(SETTINGS_FIELD_KEYS).toContain('timeTrendCutoff')
+
+  const conflict = mergeSettingsData({
+    local: settings({ timeTrendScale: 'full' }),
+    remote: settings({ timeTrendScale: 'auto' }),
+    localFieldUpdates: { timeTrendScale: { updatedAt: 300, editorId: 'laptop' } },
+    remoteFieldUpdates: { timeTrendScale: { updatedAt: 400, editorId: 'phone' } },
+    remoteUpdatedAt: 400,
+    lastSyncAt: 1,
+    manualConflictReview: true,
+  })
+  expect(conflict.conflicts).toContainEqual(expect.objectContaining({
+    field: 'timeTrendScale',
+    resolution: 'manual-pending',
+    localValue: 'full',
+    remoteValue: 'auto',
+  }))
+})
+
 it('merges metric visibility independently and keeps legacy target data inert', () => {
   const localMetrics = {
     ...DEFAULT_SETTINGS.statMetricVisibility,
