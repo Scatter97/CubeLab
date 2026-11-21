@@ -1,0 +1,41 @@
+{
+  "version": 5,
+  "activeSessionId": "session-fixture",
+  "sessions": [
+    {
+      "id": "session-fixture",
+      "name": "Fixture session v5",
+      "event": "333",
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "solves": [
+        {
+          "id": "solve-v5",
+          "event": "333",
+          "rawMs": 12340,
+          "penalty": "none",
+          "scramble": "R U R' U'",
+          "comment": "fixture comment",
+          "createdAt": 1700000000000
+        }
+      ],
+      "inspectionEnabled": false,
+      "preferences": {
+        "timerUpdateMode": "tenths"
+      },
+      "fieldUpdates": {
+        "name": {
+          "updatedAt": 1700000000000,
+          "editorId": "fixture-device"
+        }
+      }
+    }
+  ],
+  "sessionOrder": {
+    "ids": [
+      "session-fixture"
+    ],
+    "updatedAt": 1700000000000,
+    "editorId": "fixture-device"
+  }
+}

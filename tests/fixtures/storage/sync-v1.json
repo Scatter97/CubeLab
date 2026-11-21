@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "preferences": {
+    "enabled": false,
+    "intervalMinutes": 5,
+    "solveThreshold": 10,
+    "syncOnStartup": true,
+    "syncOnExit": true,
+    "syncOnReconnect": true,
+    "manualConflictReview": false,
+    "snapshotCleanupEnabled": true,
+    "snapshotKeepPerDevice": 10,
+    "snapshotMaxAgeDays": 30
+  },
+  "runtime": {
+    "deviceId": "fixture-device",
+    "lastSyncAt": null,
+    "lastSyncStatus": "disabled",
+    "lastError": null,
+    "solveCountAtLastSync": 0,
+    "lastRemoteRevision": null,
+    "tombstones": [],
+    "conflicts": [],
+    "conflictAudit": [],
+    "sessionRedirects": [],
+    "pendingDuplicateNames": [],
+    "settingsFieldUpdates": {},
+    "lastSyncedFingerprint": null
+  }
+}

@@ -238,6 +238,27 @@ Sections below are updated as each phase is verified.
   src/lib/storage.test.ts` (4 files, 102 tests passed), plus the archive quota
   case from Phase 2.
 
+## Phase 6 — frozen compatibility corpus (verified 2026-11-21)
+
+- `tests/fixtures/storage/` now contains frozen synthetic-compatible fixtures
+  for sessions v1–v7, settings v1–v13, Training v1, native backup v1, sync v1,
+  legacy solves, prepared/committed replacement journals, and malformed,
+  truncated and future-version variants. `README.md` there states they are
+  parser-contract synthetic fixtures, not captured production data, and records
+  the unknown-field policy.
+- `src/lib/frozenStorageCompatibility.test.ts` performs load → in-memory migrate
+  → validate → serialize → reload comparisons for every valid fixture. It checks
+  IDs, raw milliseconds, penalties, scrambles, comments, dates, events, ordering,
+  competition rounds, transfers, settings values, Training fields and sync
+  provenance. Negative fixtures reject with zero writes and exact-byte
+  retention.
+- `npm run check:data` is the authoritative safety suite; it is documented in the
+  README release workflow and added to the permanent `AGENTS.md` schema-change
+  contract.
+- Verification: `npm run check:data` (12 files, 320 tests passed),
+  `npm run typecheck` and `npm run lint`.
+
+
 
 
 

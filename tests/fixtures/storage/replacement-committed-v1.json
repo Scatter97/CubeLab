@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "operationId": "fixture-committed",
+  "kind": "drive-restore",
+  "phase": "committed",
+  "createdAt": 1700000000000,
+  "before": {}
+}

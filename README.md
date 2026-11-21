@@ -1122,6 +1122,7 @@ prerequisites. No nvm setup or fixed Node patch release is required.
 npm run typecheck   # strict TypeScript project build
 npm run lint        # Oxlint
 npm test -- <file>  # focused Vitest case; npm test runs all
+npm run check:data  # authoritative storage/migration/recovery safety corpus
 npm run build       # production build + PWA generation
 npm run test:e2e -- <spec> --project=chromium --workers=4
 ```
@@ -1136,7 +1137,8 @@ Verification is tiered to keep routine development resource-conscious:
   flows, normally one browser and `--workers=4`.
 - `PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run check` (the full browser
   matrix) is reserved for significant releases, broad refactors, or an explicit
-  request. It selects Chromium, Firefox and WebKit; a Chromium-only Arch setup
+  request. Run `npm run check:data` before every release. The full matrix selects
+  Chromium, Firefox and WebKit; a Chromium-only Arch setup
   must use focused `--project=chromium` commands instead. Run `npm run build`
   afterward to restore normal production output.
 

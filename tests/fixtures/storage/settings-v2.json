@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "settings": {
+    "inspectionEnabled": true,
+    "theme": "light",
+    "timerUpdateMode": "tenths",
+    "holdDurationMs": 500,
+    "showTimerDecimalSmall": true,
+    "uiZoomPercent": 90,
+    "scrambleAlignment": "right",
+    "scrambleLimitHeight": true,
+    "scrambleAction": "next"
+  }
+}

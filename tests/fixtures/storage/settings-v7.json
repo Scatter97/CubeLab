@@ -1,0 +1,27 @@
+{
+  "version": 7,
+  "settings": {
+    "inspectionEnabled": false,
+    "theme": "light",
+    "timerUpdateMode": "tenths",
+    "holdDurationMs": 500,
+    "showTimerDecimalSmall": true,
+    "uiZoomPercent": 90,
+    "scrambleAlignment": "right",
+    "scrambleLimitHeight": true,
+    "scrambleAction": "next",
+    "alertChannel": "visual",
+    "alertVolume": 60,
+    "accentColor": "blue",
+    "statPrecision": "tenths",
+    "inspectionCountDirection": "up",
+    "inspectionWarning8s": true,
+    "customAverages": [
+      {
+        "id": "avg-1",
+        "size": 7,
+        "visible": true
+      }
+    ]
+  }
+}
