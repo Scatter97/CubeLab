@@ -18,7 +18,7 @@ describe('release versioning', () => {
     expect(formatReleaseVersion(current)).toBe('0.01.261104:1')
   })
 
-  it('increments patch releases without changing feature or major', () => {
+  it('starts a new patch sequence on a later release day', () => {
     const result = nextReleaseVersion(
       current,
       'patch',
@@ -28,14 +28,14 @@ describe('release versioning', () => {
       major: 0,
       feature: 1,
       date: '261105',
-      patch: 2,
+      patch: 1,
     })
-    expect(formatReleaseVersion(result.value)).toBe('0.01.261105:2')
+    expect(formatReleaseVersion(result.value)).toBe('0.01.261105:1')
   })
 
-  it('continues patch numbering across different days', () => {
+  it('starts at patch one on a later day even after several earlier patches', () => {
     const result = nextReleaseVersion(
-      { ...current, date: '261105', patch: 2 },
+      { ...current, date: '261105', patch: 4 },
       'patch',
       new Date('2026-11-07T15:00:00.000Z'),
     )
@@ -43,7 +43,21 @@ describe('release versioning', () => {
       major: 0,
       feature: 1,
       date: '261107',
-      patch: 3,
+      patch: 1,
+    })
+  })
+
+  it('starts the next day at patch one after the current release', () => {
+    const result = nextReleaseVersion(
+      { major: 0, feature: 1, date: '261121', patch: 2 },
+      'patch',
+      new Date('2026-11-22T15:00:00.000Z'),
+    )
+    expect(result.value).toEqual({
+      major: 0,
+      feature: 1,
+      date: '261122',
+      patch: 1,
     })
   })
 

@@ -7,6 +7,7 @@ import {
   clampToolPanelLayout,
   defaultToolPanelLayout,
   parseToolPanelLayout,
+  resizeToolPanelLayout,
 } from './toolPanelLayout'
 
 describe('parseToolPanelLayout', () => {
@@ -14,6 +15,14 @@ describe('parseToolPanelLayout', () => {
     expect(
       parseToolPanelLayout('{"x":12,"y":24,"width":220,"height":260}'),
     ).toEqual({ x: 12, y: 24, width: 220, height: 260 })
+  })
+
+  it('preserves a resized position lock', () => {
+    expect(
+      parseToolPanelLayout(
+        '{"x":12,"y":24,"width":220,"height":260,"keepPosition":true}',
+      ),
+    ).toEqual({ x: 12, y: 24, width: 220, height: 260, keepPosition: true })
   })
 
   it('rejects missing, corrupt, and negative values', () => {
@@ -110,6 +119,45 @@ describe('avoidTimerOverlap', () => {
     expect(
       avoidTimerOverlap({ x: 320, y: 170, width: 220, height: 240 }, stage, null),
     ).toEqual({ x: 320, y: 170, width: 220, height: 240 })
+  })
+})
+
+describe('resizeToolPanelLayout', () => {
+  const stage = { width: 800, height: 500 }
+
+  it('keeps the bottom-right fixed while changing size', () => {
+    expect(
+      resizeToolPanelLayout(
+        { x: 100, y: 100, width: 220, height: 250 },
+        300,
+        200,
+        stage,
+      ),
+    ).toEqual({ x: 20, y: 150, width: 300, height: 200 })
+  })
+
+  it('caps growth at the stage edges while keeping the bottom-right fixed', () => {
+    expect(
+      resizeToolPanelLayout(
+        { x: 600, y: 400, width: 150, height: 90 },
+        900,
+        500,
+        stage,
+      ),
+    ).toEqual({ x: 0, y: 0, width: 750, height: 490 })
+  })
+
+  it('enforces the minimum size', () => {
+    const next = resizeToolPanelLayout(
+      { x: 100, y: 100, width: 220, height: 250 },
+      10,
+      10,
+      stage,
+    )
+    expect(next.width).toBe(TOOL_PANEL_MIN_WIDTH)
+    expect(next.height).toBe(TOOL_PANEL_MIN_HEIGHT)
+    expect(next.x + next.width).toBe(320)
+    expect(next.y + next.height).toBe(350)
   })
 })
 

@@ -400,11 +400,29 @@ Owners: [statistics](src/lib/stats.ts), [trimming](src/lib/averageTrimming.ts),
   Draw Scramble is the initial selected tool. The first Draw Scramble open shows
   an animated 2D net / 3D cube pill switch with a Confirm action, then remembers
   the choice.
-- Drag by the header and resize from the corner. Geometry is constrained to
-  the timer area; saved position/size is committed at the end of the gesture.
+- Drag by the header and resize from the top-left corner; the bottom-right
+  position stays fixed. Resizing does not relocate the panel and may overlap the
+  readout. The selected tool reflows during the resize gesture, except the 3D
+  Draw Scramble renderer, which adopts the new size on release. Geometry is
+  constrained to the timer area; saved position/size is committed at the end of
+  the gesture.
 - Open state and geometry persist on this browser. Tool selection itself is
   component state, not a synchronized preference.
 - Pointer activity inside the panel is isolated from timer gestures.
+
+### Confirm Time
+
+- Shows the newest solve in the active session with its solve number, formatted
+  time (raw time plus a `+2` suffix, with raw time shown for DNF), date and
+  scramble. Competition sessions include the round and attempt context.
+- **OK**, **+2** and **DNF** update the result; the comment field saves through
+  the normal solve-comment path. Copy actions cover the full solve text and the
+  scramble. Delete uses the existing durable deletion/Undo flow.
+- Result changes are locked while the timer or a pending insight state is
+  active. An empty session shows a no-solves state. The tool always targets the
+  latest solve; older solves use the history action menu.
+- Phase splits and reconstructions are not part of CubeLab's solve model, so the
+  corresponding csTimer fields are not shown.
 
 ### Time Trend chart
 
@@ -433,6 +451,7 @@ Owners: [statistics](src/lib/stats.ts), [trimming](src/lib/averageTrimming.ts),
   selections, axes and viewport controls are transient component state.
 
 Owners: [tool panel](src/components/ToolPanel.tsx),
+[confirm time](src/components/ConfirmTimeTool.tsx),
 [Time Trend](src/components/TimeTrend.tsx), [session tools](src/components/SessionTools.tsx),
 [online battle](src/components/BattleTool.tsx),
 [trend calculations](src/lib/timeTrend.ts),

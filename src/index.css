@@ -4241,7 +4241,11 @@ kbd {
   right: 0;
   z-index: 20;
   min-width: 168px;
+  max-height: 260px;
   padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
@@ -4347,6 +4351,12 @@ kbd {
 
 .tool-panel.is-resize {
   opacity: 0.35;
+}
+
+/* Non-3D tools show their live reflow while the handle is dragged. The ghost
+   outline remains reserved for the frozen 3D renderer path. */
+.tool-panel.is-live-resize {
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -11047,6 +11057,74 @@ select option {
 .tool-table td { padding: 4px 3px; text-align: right; border-bottom: 1px solid var(--line); }
 .tool-table th:first-child { text-align: left; }
 .tool-table thead th { font-size: 0.5rem; color: var(--text-muted); text-transform: uppercase; }
+
+.confirm-time-tool { display: flex; flex-direction: column; gap: 6px; min-height: 100%; }
+.confirm-time-tool > * { flex: 0 0 auto; }
+.confirm-time-tool .tool-field { gap: 2px; }
+.confirm-time-comment-row { display: flex; gap: 4px; align-items: center; min-width: 0; }
+.confirm-time-comment-row input { flex: 1 1 auto; min-width: 0; }
+.confirm-time-comment-row .button { flex: 0 0 auto; }
+.confirm-time-value {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: var(--text);
+}
+.confirm-time-value.is-dnf { color: var(--danger); }
+.confirm-time-suffix {
+  margin-left: 0.12em;
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--warning);
+  vertical-align: 0.3em;
+}
+.confirm-time-penalties { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.confirm-time-penalties button {
+  min-width: 0;
+  min-height: 26px;
+  padding: 3px 2px;
+  font-size: 0.6rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.confirm-time-penalties button:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.confirm-time-penalties button[aria-pressed='true'] {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.confirm-time-penalties button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.confirm-time-penalties button:disabled { cursor: not-allowed; opacity: 0.5; }
+.confirm-time-meta { display: flex; flex-direction: column; gap: 4px; margin: 0; }
+.confirm-time-meta > div { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px; align-items: start; }
+.confirm-time-meta dt {
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.confirm-time-meta dd { min-width: 0; margin: 0; font-size: 0.58rem; color: var(--text-soft); }
+.confirm-time-scramble {
+  max-height: 4.2em;
+  margin: 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.confirm-time-actions { gap: 0 8px; }
 
 .battle-room { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
 .battle-scramble { padding: 7px; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 4px; }

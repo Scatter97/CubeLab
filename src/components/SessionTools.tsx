@@ -1,97 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { PuzzleEvent, Solve } from '../types'
+import type { Solve } from '../types'
 import { effectiveTimeMs } from '../lib/stats'
 import { formatTime } from '../lib/format'
-import { getEventLabel } from '../lib/events'
 
 function validTimes(solves: readonly Solve[]): number[] {
   return solves
     .map((solve) => effectiveTimeMs(solve))
     .filter((time): time is number => time !== null && Number.isFinite(time))
-}
-
-function parseTimeInput(raw: string): number | null {
-  const value = raw.trim()
-  if (!value) return null
-  const match = /^(?:(\d+):)?(\d{1,2})(?:\.(\d{1,3}))?$/.exec(value)
-  if (!match) return null
-  const minutes = Number(match[1] ?? 0)
-  const seconds = Number(match[2])
-  if (seconds >= 60 && match[1]) return null
-  const fraction = (match[3] ?? '').padEnd(3, '0').slice(0, 3)
-  return (minutes * 60 + seconds) * 1000 + Number(fraction)
-}
-
-export function ConfirmTimeTool({
-  event,
-  scramble,
-  disabled,
-  onAdd,
-}: {
-  event: PuzzleEvent
-  scramble: string | null
-  disabled: boolean
-  onAdd: (rawMs: number) => boolean
-}) {
-  const [value, setValue] = useState('')
-  const [status, setStatus] = useState('')
-  const parsed = parseTimeInput(value)
-
-  return (
-    <div className="tool-scroll tool-form" data-timer-space-ignore>
-      <p className="tool-lead">
-        Add a solve to <strong>{getEventLabel(event)}</strong> using the current
-        scramble.
-      </p>
-      <label className="tool-field">
-        <span>Recorded time</span>
-        <input
-          type="text"
-          inputMode="decimal"
-          placeholder="12.34 or 1:02.34"
-          value={value}
-          disabled={disabled}
-          data-testid="confirm-time-input"
-          onChange={(input) => {
-            setValue(input.target.value)
-            setStatus('')
-          }}
-          onKeyDown={(key) => {
-            if (key.key !== 'Enter' || parsed === null || disabled) return
-            key.preventDefault()
-            if (onAdd(parsed)) {
-              setStatus(`Added ${formatTime(parsed)}.`)
-              setValue('')
-            } else setStatus('Could not add the solve.')
-          }}
-        />
-      </label>
-      <button
-        type="button"
-        className="button button-primary button-small"
-        disabled={disabled || parsed === null}
-        onClick={() => {
-          if (parsed === null) return
-          if (onAdd(parsed)) {
-            setStatus(`Added ${formatTime(parsed)}.`)
-            setValue('')
-          } else setStatus('Could not add the solve.')
-        }}
-      >
-        Add solve
-      </button>
-      {status ? (
-        <p className="tool-status" role="status">
-          {status}
-        </p>
-      ) : null}
-      <p className="tool-note">
-        {scramble
-          ? `Scramble: ${scramble}`
-          : 'This event has no generated scramble; the solve is stored without one.'}
-      </p>
-    </div>
-  )
 }
 
 export function StatisticsTool({ solves }: { solves: readonly Solve[] }) {

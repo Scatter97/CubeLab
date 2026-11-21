@@ -35,7 +35,7 @@ export const TOOL_OPTIONS: readonly ToolOption[] = [
   {
     id: 'confirmTime',
     label: 'Confirm Time',
-    description: 'Add a solve by typing its recorded time',
+    description: 'Confirm or correct the latest solve',
   },
   {
     id: 'statistics',

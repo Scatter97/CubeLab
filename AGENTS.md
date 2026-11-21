@@ -68,7 +68,7 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | Statistics, trimming, session summaries and trend data | `src/lib/stats.ts`, `src/lib/averageTrimming.ts`, `src/lib/timeTrend.ts`, `src/lib/sessions.ts` |
 | Analytics dashboard, filters and reporting | `src/lib/analytics.ts`, `src/lib/analyticsSettings.ts`, `src/components/AnalyticsPage.tsx`, `src/components/AnalyticsCharts.tsx` |
 | OLL/PLL Training workspace, calibration, reports and persistence | `src/lib/training/`, `src/hooks/useTraining.ts`, `src/components/TrainingPage.tsx`, `src/components/training/` |
-| Events, official scrambles and visualizations | `src/lib/events.ts`, `src/lib/scramble.ts`, `src/components/ToolPanel.tsx` |
+| Events, official scrambles and visualizations | `src/lib/events.ts`, `src/lib/scramble.ts`, `src/components/ToolPanel.tsx`, `src/components/ConfirmTimeTool.tsx` |
 | Theme tokens/bootstrap and PWA/worker build | `src/index.css`, `index.html`, `vite.config.ts` |
 
 Keep calculations/transitions in pure modules, side effects in hooks, and input
@@ -207,13 +207,16 @@ and why.
 ## Versioning
 
 The displayed release version lives only in `src/release.json` and is formatted as
-`MAJOR.FEATURE.YYMMDD:PATCH` (for example `0.01.261121:1`). `YYMMDD` is the
-intentional release date in `America/Toronto`; `PATCH` is the Nth patch for that
-day. Increment `PATCH` for small bug fixes or UI maintenance. Increment
-`FEATURE` when user-visible features are added and reset `PATCH` to 1. Do not
-increment `MAJOR` without explicit administrator approval. Update the release
-record (and therefore the footer plus Settings → About) whenever a requested
-version changes; ordinary commits, tests and builds do not otherwise bump it.
+`MAJOR.FEATURE.YYMMDD:PATCH` (for example `0.01.261121:2`). `YYMMDD` is the
+Toronto date of the last production release. Every production push records a
+release. A patch release on the same date increments `PATCH`; a patch release on
+a later date starts that date at `PATCH` 1. A feature release increments
+`FEATURE`, sets the release date, and resets `PATCH` to 0; its first follow-up
+patch is `:1`. If no release is made on a day, the record keeps the previous
+release date and patch. Do not increment `MAJOR` without explicit administrator
+approval. Update the release record (and therefore the footer plus Settings →
+About) whenever a release is recorded; ordinary commits, tests and builds do not
+otherwise bump it.
 
 ## Documentation and delivery
 

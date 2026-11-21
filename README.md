@@ -87,11 +87,17 @@ including interaction rules, settings defaults, session overrides and persistenc
 - **Draw Scramble tool** opened with the scramble panel's **Current tool**
   button. The button toggles a compact panel in the bottom-right of the timer
   area; the panel's footer **Function** dropdown selects the tool. The panel
-  can be dragged by its header and resized from its bottom-right corner, with
-  the resulting position and size persisted locally. A saved or released
-  position that would cover the timer readout is moved to the nearest clear
-  side when the stage has room. It is pointer-isolated from
-  the timer, follows the live scramble and event, and shows either a
+  can be dragged by its header and resized from the top-left corner handle.
+  Resizing keeps the panel's bottom-right position fixed and does not relocate
+  the panel; it may overlap the readout by choice. The selected tool reflows
+  continuously while the resize handle is dragged; the 3D Draw Scramble renderer
+  keeps its drawing surface until the handle is released. The resulting position
+  and size are persisted locally. A dragged-and-released position that would
+  cover the timer readout is moved to the nearest clear side when the stage has
+  room. The Function menu flips above or below its
+  trigger and scrolls when the stage is short, so every tool remains reachable.
+  It is pointer-isolated from the timer, follows the live scramble and event, and
+  shows either a
   colour-accurate 2D unfolded net for every supported N×N puzzle or the
   `cubing.js` PG3D render. The 2D net uses the standard cube colour scheme
   (U white, D yellow, F green, B blue, R red, L orange); non-cube puzzles show
@@ -118,13 +124,15 @@ including interaction rules, settings defaults, session overrides and persistenc
   disabled during timing; the dialog contains keyboard focus and closes with
   Escape, returning focus to **Expand**.
 - **Additional floating tools** selected from the same **Function** menu:
-  **Confirm Time** adds a typed solve (`12.34` or `1:02.34`) with the current
-  scramble; **Statistics** summarizes the session; **Time Distribution** draws
-  a local histogram; **Daily Stats** groups solves by day; **Metronome** clicks
-  at a chosen interval (no BPM setting); and **Online Battle** pairs two peers
-  with manual WebRTC invitation/answer codes, a room ID and password, and a
-  shared-scramble race timer. No CubeLab backend is involved; codes must be
-  shared manually and strict NATs may block a direct connection.
+  **Confirm Time** shows the latest solve with its time, date and scramble, and
+  lets you set OK/+2/DNF, edit its comment, copy the solve or scramble, or
+  delete it with Undo; **Statistics** summarizes the session; **Time
+  Distribution** draws a local histogram; **Daily Stats** groups solves by day;
+  **Metronome** clicks at a chosen interval (no BPM setting); and **Online
+  Battle** pairs two peers with manual WebRTC invitation/answer codes, a room ID
+  and password, and a shared-scramble race timer. No CubeLab backend is
+  involved; codes must be shared manually and strict NATs may block a direct
+  connection.
 
 - **OLL / PLL Training** opens the **Training Hub**. It restores the saved set,
   practice type, and cases. Edit the session name and case selection as a
@@ -479,7 +487,7 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | Regenerate the scramble | Use the regenerate button in the scramble panel |
 | Show or hide the tool panel | Click the **Current tool** button above the scramble |
 | Move the tool panel | Drag the panel's header handle |
-| Resize the tool panel | Drag the bottom-right resize handle |
+| Resize the tool panel | Drag the resize handle at the panel's top-left corner; the bottom-right stays fixed |
 | Select the tool shown in the panel | Use the **Function** dropdown in the panel footer; the panel stays open |
 | Inspect a PB | Click its marker in either chart, or focus it and press **Enter**; close the stats dialog with **Close** or **Escape** |
 | Open Analytics | Use the header **Analytics** tab; it is unavailable while the timer is active |
@@ -494,7 +502,7 @@ Click a PB marker to inspect the result and its rolling statistics at that point
 | View all filtered solves | Use **View solves** in the Analytics heading; select a row to inspect its solve details |
 | Zoom and pan Time Trend | Scroll ↕ for vertical zoom, ↔ (or Shift + wheel) for horizontal zoom; pinch for both; drag to pan; **Fit all** resets |
 | Explore solve-time trends | Select **Function → Time Trend**, then **Expand** for series, zoom, range navigation, and solve details |
-| Add a solve from a typed time | Select **Function → Confirm Time**, enter `12.34` or `1:02.34`, then **Add solve** |
+| Confirm the latest solve | Select **Function → Confirm Time**, then set **OK**, **+2** or **DNF**, edit the comment, or copy/delete the solve |
 | Review session statistics or distribution | Select **Function → Statistics**, **Time Distribution**, or **Daily Stats** |
 | Start a metronome | Select **Function → Metronome**, set the interval in milliseconds, then **Start** |
 | Race another CubeLab user | Select **Function → Online Battle**; create a room or paste an invitation, exchange the answer code, then start the shared scramble |
@@ -541,29 +549,33 @@ behavior.
 ### Display version and releases
 
 A subtle version label appears in the bottom-right footer; the current release
-record renders as `0.01.261121:1`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`,
+record renders as `0.01.261121:2`. The format is `MAJOR.FEATURE.YYMMDD:PATCH`,
 and the date is the intentional release date in `America/Toronto`.
 
 [`src/release.json`](src/release.json) is the single source of release
 information; [`src/lib/version.ts`](src/lib/version.ts) formats the footer and
 About labels from it. Ordinary builds, tests, development-server runs and commits
-do not change the version. Unreleased work keeps the last released version.
-
-Create a release only when explicitly intended:
+do not change the version. Unreleased work keeps the last released version. Every
+production push records a release.
 
 ```bash
-npm run release:patch -- --dry-run    # preview a bug-fix/UI maintenance release
-npm run release:patch                 # PATCH + 1, today's Toronto date
+npm run release:patch -- --dry-run    # preview a production patch
+npm run release:patch                 # same day: PATCH + 1; later day: PATCH 1
 npm run release:feature -- --dry-run  # preview a feature release
 npm run release:feature               # FEATURE + 1, PATCH reset to 0
-npm run release:major                 # MAJOR + 1, FEATURE and PATCH reset
+npm run release:major                 # MAJOR + 1, FEATURE and PATCH reset to 0
 ```
 
-The script refuses to create another release while `src/release.json` already
-has uncommitted release changes. `--allow-dirty-version` skips only that guard
-after manual verification. Commit the release record as part of the intended
-release; neither the script nor normal builds publish, deploy or push anything. The display version is separate from session, settings, backup and sync
-schema versions.
+A patch released on a later Toronto date starts that date's patch sequence at 1
+(for example, `261121:2` becomes `261122:1` on the 22nd). A feature release
+starts at `:0`; the next patch on that date is `:1`, or the next later release
+date starts at `:1`. If no release is made on a day, the record continues to show
+the last release, such as `261121:2`. The script refuses to create another
+release while `src/release.json` already has uncommitted release changes.
+`--allow-dirty-version` skips only that guard after manual verification. Commit
+the release record as part of the intended release; neither the script nor normal
+builds publish, deploy or push anything. The display version is separate from
+session, settings, backup and sync schema versions.
 
 ### Sessions
 

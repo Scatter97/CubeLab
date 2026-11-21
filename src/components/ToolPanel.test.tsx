@@ -66,6 +66,31 @@ describe('ToolPanel', () => {
     )
   })
 
+  it('shows the latest solve in Confirm Time', () => {
+    render(
+      <ToolPanel
+        {...baseProps}
+        activeTool="confirmTime"
+        solves={[
+          {
+            id: 'latest-solve',
+            event: '333',
+            rawMs: 12_340,
+            penalty: 'none',
+            scramble: 'R U',
+            comment: '',
+            createdAt: Date.now(),
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByTestId('confirm-time-heading')).toHaveTextContent(
+      'Solve #1',
+    )
+    expect(screen.getByTestId('confirm-time-value')).toHaveTextContent('12.34')
+  })
+
   it('opens the Function menu upward with only functional tools', () => {
     render(<ToolPanel {...baseProps} />)
 
@@ -240,6 +265,37 @@ describe('ToolPanel', () => {
     })
   })
 
+  it('keeps a resized panel position when it overlaps the timer', async () => {
+    localStorage.setItem(
+      TOOL_PANEL_LAYOUT_STORAGE_KEY,
+      JSON.stringify({
+        x: 320,
+        y: 170,
+        width: 220,
+        height: 240,
+        keepPosition: true,
+      }),
+    )
+    const { container } = render(<ToolPanel {...baseProps} />)
+    fakeStage(container, 800, 500)
+    const timer = document.createElement('div')
+    timer.dataset.testid = 'timer-display'
+    container.appendChild(timer)
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    } as DOMRect)
+    vi.spyOn(timer, 'getBoundingClientRect').mockReturnValue({
+      left: 300, top: 150, width: 200, height: 120,
+    } as DOMRect)
+
+    fireEvent(window, new Event('resize'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tool-panel').style.left).toBe('320px')
+    })
+    expect(screen.getByTestId('tool-panel').style.top).toBe('170px')
+  })
+
   it('clamps a dragged panel inside the timer stage', () => {
     const { container } = render(<ToolPanel {...baseProps} />)
     fakeStage(container, 400, 400)
@@ -258,22 +314,82 @@ describe('ToolPanel', () => {
     expect(top + height).toBeLessThanOrEqual(400)
   })
 
-  it('resizes from the bottom-right handle and persists the size', () => {
+  it('resizes from the bottom-right handle without moving the panel', () => {
+    localStorage.setItem(
+      TOOL_PANEL_LAYOUT_STORAGE_KEY,
+      JSON.stringify({ x: 100, y: 100, width: 220, height: 250 }),
+    )
     const { container } = render(<ToolPanel {...baseProps} />)
     fakeStage(container, 600, 600)
     const panel = screen.getByTestId('tool-panel')
-    const dragHandle = screen.getByTestId('tool-panel-drag-handle')
     const resizeHandle = screen.getByTestId('tool-panel-resize-handle')
 
-    dragPointer(dragHandle, { x: 100, y: 100 }, { x: 300, y: 300 })
-    dragPointer(resizeHandle, { x: 300, y: 300 }, { x: 240, y: 250 })
+    dragPointer(resizeHandle, { x: 100, y: 100 }, { x: 60, y: 60 })
 
-    expect(panel.style.width).toBe('210px')
-    expect(panel.style.height).toBe('220px')
+    expect(panel.style.left).toBe('60px')
+    expect(panel.style.top).toBe('60px')
+    expect(panel.style.width).toBe('260px')
+    expect(panel.style.height).toBe('290px')
     expect(panel).not.toHaveAttribute('data-interaction')
     expect(
       JSON.parse(localStorage.getItem(TOOL_PANEL_LAYOUT_STORAGE_KEY) ?? '{}'),
-    ).toMatchObject({ width: 210, height: 220 })
+    ).toMatchObject({
+      x: 60,
+      y: 60,
+      width: 260,
+      height: 290,
+      keepPosition: true,
+    })
+  })
+
+  it('reflows content while resizing, before the pointer is released', () => {
+    localStorage.setItem(
+      TOOL_PANEL_LAYOUT_STORAGE_KEY,
+      JSON.stringify({ x: 100, y: 100, width: 220, height: 250 }),
+    )
+    const { container } = render(<ToolPanel {...baseProps} />)
+    fakeStage(container, 600, 600)
+    const panel = screen.getByTestId('tool-panel')
+    const handle = screen.getByTestId('tool-panel-resize-handle')
+
+    fireEvent.pointerDown(handle, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+    })
+    fireEvent.pointerMove(handle, {
+      pointerId: 1,
+      clientX: 80,
+      clientY: 80,
+    })
+
+    expect(panel).toHaveAttribute('data-interaction', 'resize')
+    expect(panel).toHaveClass('is-live-resize')
+    expect(panel.style.left).toBe('80px')
+    expect(panel.style.top).toBe('80px')
+    expect(panel.style.width).toBe('240px')
+    expect(panel.style.height).toBe('270px')
+
+    fireEvent.pointerUp(handle, {
+      pointerId: 1,
+      clientX: 80,
+      clientY: 80,
+    })
+    expect(panel.style.left).toBe('80px')
+    expect(panel.style.top).toBe('80px')
+    expect(panel.style.width).toBe('240px')
+    expect(panel.style.height).toBe('270px')
+    expect(
+      JSON.parse(localStorage.getItem(TOOL_PANEL_LAYOUT_STORAGE_KEY) ?? '{}'),
+    ).toMatchObject({
+      x: 80,
+      y: 80,
+      width: 240,
+      height: 270,
+      keepPosition: true,
+    })
   })
 
   it('restores a persisted layout on mount', () => {

@@ -550,15 +550,17 @@ test('the panel resizes from its corner handle and keeps the size', async ({
   await expect(panel).not.toHaveAttribute('data-interaction')
 
   const resized = await panel.boundingBox()
-  const display = await page.getByTestId('timer-display').boundingBox()
   expect(resized).not.toBeNull()
-  expect(display).not.toBeNull()
-  if (!resized || !display) return
+  if (!resized) return
   expect(resized.width).toBeGreaterThan(before.width + 40)
   expect(resized.height).toBeGreaterThan(before.height + 30)
-  // A resize that would cover the readout is moved clear; otherwise the
-  // bottom-right corner stays anchored.
-  expect(overlaps(resized, display)).toBe(false)
+  // Resizing keeps the bottom-right fixed, even when the panel covers the readout.
+  expect(
+    Math.abs(resized.x + resized.width - (before.x + before.width)),
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(resized.y + resized.height - (before.y + before.height)),
+  ).toBeLessThanOrEqual(1)
 
   await page.reload()
   await openToolPanel(page)

@@ -5,10 +5,125 @@ and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
 
+## Confirm Time replacement — 2026-11-21
+
+Replaced the typed-entry **Confirm Time** tool with a csTimer-style latest-solve
+confirmation card. No storage schema or sync wire format changed. Release
+version is now `0.01.261121:2`, the second patch for 2026-11-21.
+
+- The tool now targets the newest solve in the active session instead of adding a
+  typed solve. It shows the session solve number, raw time with a `+2` suffix,
+  effective time for +2, raw time for DNF, date and scramble. Competition
+  sessions also show the derived round and attempt context.
+- Actions are **OK**, **+2**, **DNF**, comment save, copy solve, copy scramble and
+  delete. They reuse the existing `setPenalty`, `setComment` and durable
+  deletion/Undo handlers; deletion still records intent before mutation and
+  offers Undo. All mutations are locked while the timer or deferred insight
+  state is active. Empty sessions show a no-solves state.
+- Removed the old `confirm-time-input`/`Add solve` path and its
+  `onAddManualSolve` prop. The tool still does not browse older solves; those use
+  the existing solve history action menu. Phase splits and reconstructions remain
+  unavailable because CubeLab does not store them.
+- Added `src/components/ConfirmTimeTool.tsx` plus unit coverage; updated
+  `ToolPanel`, `App`, `tools.ts`, README, FEATURES, KNOWN_LIMITATIONS and the
+  architecture/ownership maps. Corrected the README resize-handle description to
+  the actual top-left corner.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; existing archived-probe, SessionPanel and App ref warnings only
+npm test                 # 118 files, 1,527 tests passed
+npm run build            # passed; PWA 80 precache entries (4,014.11 KiB)
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/tools.spec.ts e2e/draw-scramble.spec.ts e2e/time-trend.spec.ts \
+  e2e/timer-stability.spec.ts e2e/accessibility.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# 37 cases across the five specs: 36 passed; the known fake-clock
+# inspection case failed under parallel load and passed alone 1/1
+git diff --check         # passed
+```
+
+The focused browser run covers the new confirmation actions, comment save,
+deletion/Undo, Draw Scramble geometry and tool switching, Time Trend at 320 px,
+floating-panel timer stability at 1440/1024/390 and axe checks; unit coverage
+also exercises clipboard copy/failure. Firefox, WebKit, physical devices, live
+Drive and the full cross-engine suite were not exercised. Release version is
+`0.01.261121:2`; no commit or push was made.
+
+## Tool panel live resize — 2026-11-21
+
+Fixed the tool panel so its selected tool reflows continuously while the resize
+handle is dragged:
+
+- Non-3D tools now apply the live resize preview instead of only showing a ghost
+  outline. The panel stays fully opaque during the gesture, and the final
+  geometry is still committed only on release.
+- The resize grip remains at the top-left and the panel's bottom-right stays
+  fixed. Resizing no longer relocates the panel and may deliberately overlap the
+  readout. Readout avoidance still applies when a panel is dragged over the
+  timer.
+- The Function menu now chooses the side with more space and scrolls when the
+  stage is too short, so its first items cannot be clipped above the stage.
+- The 3D Draw Scramble renderer intentionally remains frozen during the gesture,
+  keeps the ghost outline and shaded panel, and adopts the new size on release.
+  This avoids repeatedly resizing the `cubing.js` rendering surface.
+- Added pure resize-boundary regressions, a unit regression for live preview and
+  an e2e loop covering all eight tools with fixed bottom-right assertions; the
+  existing 3D frozen-renderer regression remains.
+
+Verification:
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; existing warnings only
+npm test                 # 118 files, 1,527 tests passed
+npm run build            # passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/tools.spec.ts e2e/draw-scramble.spec.ts e2e/time-trend.spec.ts \
+  e2e/timer-stability.spec.ts e2e/accessibility.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# Segmented final runs: tools + draw-scramble + timer-stability 26 passed
+# (known fake-clock case passed alone 1/1); time-trend 7 passed; accessibility
+# 3 passed.
+npm run test:e2e -- e2e/training.spec.ts --project=chromium --workers=1 \
+  --retries=0 --grep "Last Result drag and resize"
+# 1 passed
+```
+
+Release record remains `0.01.261121:2`; no commit or push was made.
+
+## Release numbering semantics — 2026-11-21
+
+Corrected the release tooling and documentation to match the intended policy:
+
+- Every production push records a release. A second release on the same Toronto
+  date increments `PATCH`; the first release on a later date starts at `PATCH` 1
+  (for example `0.01.261121:2` → `0.01.261122:1` on November 22).
+- A day with no release keeps the previous release record unchanged.
+- A feature release resets `PATCH` to 0. Its first follow-up patch on that date is
+  `:1`.
+- Updated `scripts/release-lib.test.mjs`, `AGENTS.md`, `README.md` and the
+  `src/lib/version.ts` documentation. The recorded release remains
+  `0.01.261121:2`.
+
+Verification:
+
+```bash
+npx vitest run scripts/release-lib.test.mjs   # 12 passed
+npm run release:patch -- --dry-run   # 0.01.261121:2 -> 0.01.261121:3
+npm run release:feature -- --dry-run # 0.01.261121:2 -> 0.02.261121:0
+```
+
+No application runtime, storage/sync format or release record changed in this
+policy correction; no commit or push was made.
+
 ## Requested UI, MISC, Training, tool and performance pass — 2026-11-21
 
-Implemented the 50-item request list. Release version is now
-`0.01.261121:1`; settings schema is v12 (sessions remain v7, Training v1).
+Implemented the 50-item request list. That pass recorded release version
+`0.01.261121:1`; the Confirm Time replacement above records `0.01.261121:2`.
+Settings schema is v12 (sessions remain v7, Training v1).
 
 **Onboarding and settings**
 

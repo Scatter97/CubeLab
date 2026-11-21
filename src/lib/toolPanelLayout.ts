@@ -11,6 +11,11 @@ export interface ToolPanelLayout {
   y: number
   width: number
   height: number
+  /**
+   * Set after a resize so the chosen overlap/position survives projection.
+   * A following drag clears it and returns to normal readout avoidance.
+   */
+  keepPosition?: boolean
 }
 
 export interface StageSize {
@@ -47,7 +52,13 @@ export function parseToolPanelLayout(raw: string | null): ToolPanelLayout | null
   try {
     const value: unknown = JSON.parse(raw)
     if (!isToolPanelLayout(value)) return null
-    return { x: value.x, y: value.y, width: value.width, height: value.height }
+    return {
+      x: value.x,
+      y: value.y,
+      width: value.width,
+      height: value.height,
+      ...(value.keepPosition === true ? { keepPosition: true } : {}),
+    }
   } catch {
     return null
   }
@@ -88,6 +99,43 @@ export function clampToolPanelLayout(
     ),
     width,
     height,
+  }
+}
+
+/**
+ * Resize from the top-left while keeping the panel's bottom-right fixed.
+ * The top-left moves only as required by the new size; stage bounds are still
+ * enforced when the stage is smaller than the requested size.
+ */
+export function resizeToolPanelLayout(
+  origin: ToolPanelLayout,
+  width: number,
+  height: number,
+  stage: StageSize,
+): ToolPanelLayout {
+  const right = Math.min(
+    Math.round(stage.width),
+    Math.round(origin.x + origin.width),
+  )
+  const bottom = Math.min(
+    Math.round(stage.height),
+    Math.round(origin.y + origin.height),
+  )
+  const nextWidth = clampNumber(
+    Math.round(width),
+    TOOL_PANEL_MIN_WIDTH,
+    Math.max(TOOL_PANEL_MIN_WIDTH, right),
+  )
+  const nextHeight = clampNumber(
+    Math.round(height),
+    TOOL_PANEL_MIN_HEIGHT,
+    Math.max(TOOL_PANEL_MIN_HEIGHT, bottom),
+  )
+  return {
+    x: Math.max(0, right - nextWidth),
+    y: Math.max(0, bottom - nextHeight),
+    width: nextWidth,
+    height: nextHeight,
   }
 }
 

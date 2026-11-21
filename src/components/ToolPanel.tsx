@@ -18,6 +18,7 @@ import {
   TOOL_PANEL_MIN_WIDTH,
   avoidTimerOverlap,
   clampToolPanelLayout,
+  resizeToolPanelLayout,
   type PanelRect,
   type StageSize,
   type ToolPanelLayout,
@@ -29,15 +30,15 @@ import {
 } from '../hooks/useDrawScrambleMode'
 import { useToolPanelLayout } from '../hooks/useToolPanelLayout'
 import { TOOL_OPTIONS, toolLabel, type CurrentTool } from '../lib/tools'
-import type { Solve } from '../types'
+import type { Penalty, Solve } from '../types'
 import type { PuzzleEvent } from '../types'
 import { ScrambleNet } from './ScrambleNet'
 import { DEFAULT_AVERAGE_TRIMMING } from '../lib/averageTrimming'
 import type { AverageTrimming } from '../types'
 import { TimeTrend } from './TimeTrend'
 import { BattleTool } from './BattleTool'
+import { ConfirmTimeTool } from './ConfirmTimeTool'
 import {
-  ConfirmTimeTool,
   DailyStatsTool,
   DistributionTool,
   MetronomeTool,
@@ -228,7 +229,11 @@ interface Props {
   solves?: readonly Solve[]
   timerActive?: boolean
   trimming?: AverageTrimming
-  onAddManualSolve?: (rawMs: number) => boolean
+  roundLabel?: string | null
+  onSetPenalty?: (id: string, penalty: Penalty) => void
+  onSetComment?: (id: string, comment: string) => void
+  onDeleteSolve?: (id: string) => void
+  onNotify?: (message: string) => void
 }
 
 type InteractionMode = 'drag' | 'resize'
@@ -244,8 +249,10 @@ interface InteractionState {
   scale: number
 }
 
-export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING, onAddManualSolve, panelId, title, children, defaultSide = 'right', minimized = false, onToggleMinimized }: Props) {
+export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onSelectTool, solves = [], timerActive = false, trimming = DEFAULT_AVERAGE_TRIMMING, roundLabel = null, onSetPenalty, onSetComment, onDeleteSolve, onNotify, panelId, title, children, defaultSide = 'right', minimized = false, onToggleMinimized }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpensUp, setMenuOpensUp] = useState(true)
+  const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null)
   const [modePromptOpen, setModePromptOpen] = useState(
     () => Boolean(onSelectMode) && !hasChosenDrawScrambleMode(),
   )
@@ -261,6 +268,9 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
   const [dragLayout, setDragLayout] = useState<ToolPanelLayout | null>(null)
   const [interaction, setInteraction] = useState<InteractionMode | null>(null)
   const [ghostPortalContainer, setGhostPortalContainer] = useState<HTMLElement | null>(null)
+  const freezeResizePreview = !children &&
+    activeTool === 'drawScramble' &&
+    mode === '3d'
 
   useEffect(() => {
     if (!menuOpen) return
@@ -345,8 +355,12 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
   }, [cancelInteraction, stageSize])
 
   // A constrained viewport projects the preferred layout without replacing it.
+  // A resized panel keeps its chosen position even when it overlaps the timer;
+  // a drag deliberately returns to normal readout avoidance.
   const projected = layout && stageBounds
-    ? avoidTimerOverlap(layout, stageBounds, panelId ? null : timerBounds)
+    ? layout.keepPosition
+      ? clampToolPanelLayout(layout, stageBounds)
+      : avoidTimerOverlap(layout, stageBounds, panelId ? null : timerBounds)
     : layout
   const renderedLayout = dragLayout ?? projected
   const beginInteraction = useCallback(
@@ -381,11 +395,15 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
       if (mode === 'resize') {
         const ghost = ghostRef.current
         if (ghost) {
-          ghost.style.display = 'block'
-          ghost.style.left = `${start.x}px`
-          ghost.style.top = `${start.y}px`
-          ghost.style.width = `${start.width}px`
-          ghost.style.height = `${start.height}px`
+          if (freezeResizePreview) {
+            ghost.style.display = 'block'
+            ghost.style.left = `${start.x}px`
+            ghost.style.top = `${start.y}px`
+            ghost.style.width = `${start.width}px`
+            ghost.style.height = `${start.height}px`
+          } else {
+            ghost.style.display = 'none'
+          }
         }
       }
 
@@ -401,7 +419,7 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
       }
       setInteraction(mode)
     },
-    [minimized, panelId, renderedLayout, stageSize],
+    [freezeResizePreview, minimized, panelId, renderedLayout, stageSize],
   )
 
   const moveInteraction = useCallback(
@@ -421,28 +439,29 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
         state.latest = next
         setDragLayout(next)
       } else {
-        const right = state.origin.x + state.origin.width
-        const bottom = state.origin.y + state.origin.height
-        const newX = Math.max(0, Math.min(state.origin.x + dx, right - TOOL_PANEL_MIN_WIDTH))
-        const newY = Math.max(0, Math.min(state.origin.y + dy, bottom - TOOL_PANEL_MIN_HEIGHT))
-        const next: ToolPanelLayout = {
-          x: newX,
-          y: newY,
-          width: Math.max(TOOL_PANEL_MIN_WIDTH, right - newX),
-          height: Math.max(TOOL_PANEL_MIN_HEIGHT, bottom - newY),
+        const next = resizeToolPanelLayout(
+          state.origin,
+          state.origin.width - dx,
+          state.origin.height - dy,
+          state.stage,
+        )
+        state.latest = next
+        if (!freezeResizePreview) {
+          // Reflow the active tool continuously. The 3D Draw Scramble keeps
+          // its renderer frozen until the gesture ends to avoid recreating the
+          // cubing.js graphic surface mid-resize.
+          setDragLayout(next)
         }
-        const clamped = clampToolPanelLayout(next, state.stage)
-        state.latest = clamped
         const ghost = ghostRef.current
-        if (ghost) {
-          ghost.style.left = `${clamped.x}px`
-          ghost.style.top = `${clamped.y}px`
-          ghost.style.width = `${clamped.width}px`
-          ghost.style.height = `${clamped.height}px`
+        if (ghost && freezeResizePreview) {
+          ghost.style.left = `${next.x}px`
+          ghost.style.top = `${next.y}px`
+          ghost.style.width = `${next.width}px`
+          ghost.style.height = `${next.height}px`
         }
       }
     },
-    [],
+    [freezeResizePreview],
   )
 
   const endInteraction = useCallback(
@@ -451,11 +470,13 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
       if (!state || state.pointerId !== event.pointerId) return
       cancelInteraction()
       try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* noop */ }
-      const finalLayout = avoidTimerOverlap(
-        state.latest,
-        state.stage,
-        panelId ? null : timerBounds,
-      )
+      const finalLayout = state.mode === 'resize'
+        ? { ...state.latest, keepPosition: true }
+        : avoidTimerOverlap(
+            state.latest,
+            state.stage,
+            panelId ? null : timerBounds,
+          )
       if (finalLayout.x !== state.origin.x || finalLayout.y !== state.origin.y ||
         finalLayout.width !== state.origin.width || finalLayout.height !== state.origin.height) {
         setLayout(finalLayout)
@@ -501,9 +522,32 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
     onSelectMode?.(nextMode)
   }
 
+  const toggleMenu = () => {
+    if (menuOpen) {
+      setMenuOpen(false)
+      return
+    }
+    const stage = panelRef.current?.parentElement
+    const trigger = buttonRef.current
+    if (stage && trigger) {
+      const stageRect = stage.getBoundingClientRect()
+      const triggerRect = trigger.getBoundingClientRect()
+      const above = triggerRect.top - stageRect.top
+      const below = stageRect.bottom - triggerRect.bottom
+      const opensUp = above >= below
+      setMenuOpensUp(opensUp)
+      const available = Math.max(0, (opensUp ? above : below) - 8)
+      setMenuMaxHeight(Math.min(260, Math.max(120, available)))
+    } else {
+      setMenuOpensUp(true)
+      setMenuMaxHeight(null)
+    }
+    setMenuOpen(true)
+  }
+
   return (
     <>
-    <section id={panelId ?? "tool-panel"} ref={panelRef} className={`scramble-draw-panel tool-panel${panelId ? ` training-floating is-${defaultSide}${minimized ? ' is-minimized' : ''}` : ''}${interaction ? ` is-${interaction}` : ''}`} aria-label={title ?? "Tool panel"} data-testid={panelId ?? "tool-panel"} data-mode={mode} data-tool={activeTool} data-scramble={scramble ?? ''} data-interaction={interaction ?? undefined}
+    <section id={panelId ?? "tool-panel"} ref={panelRef} className={`scramble-draw-panel tool-panel${panelId ? ` training-floating is-${defaultSide}${minimized ? ' is-minimized' : ''}` : ''}${interaction ? ` is-${interaction}` : ''}${interaction === 'resize' && !freezeResizePreview ? ' is-live-resize' : ''}`} aria-label={title ?? "Tool panel"} data-testid={panelId ?? "tool-panel"} data-mode={mode} data-tool={activeTool} data-scramble={scramble ?? ''} data-interaction={interaction ?? undefined}
       style={renderedLayout ? (panelId ? {
         '--tool-left': `${renderedLayout.x}px`,
         '--tool-top': `${renderedLayout.y}px`,
@@ -587,10 +631,14 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
           <TimeTrend solves={solves} compact disabled={timerActive} trimming={trimming} />
         ) : activeTool === 'confirmTime' ? (
           <ConfirmTimeTool
-            event={event}
-            scramble={scramble}
-            disabled={timerActive || !onAddManualSolve}
-            onAdd={(rawMs) => onAddManualSolve?.(rawMs) ?? false}
+            solve={solves[0] ?? null}
+            number={solves.length}
+            roundLabel={roundLabel}
+            disabled={timerActive}
+            onSetPenalty={onSetPenalty}
+            onSetComment={onSetComment}
+            onDeleteSolve={onDeleteSolve}
+            onNotify={onNotify}
           />
         ) : activeTool === 'statistics' ? (
           <StatisticsTool solves={solves} />
@@ -607,12 +655,18 @@ export function ToolPanel({ scramble, event, mode, onSelectMode, activeTool, onS
       {!children ? <footer className="scramble-draw-footer">
         <span className="scramble-draw-footer-label">Function</span>
         <div className="scramble-tool-menu-wrap" ref={menuRef}>
-          <button ref={buttonRef} type="button" className="scramble-draw-select" onClick={() => setMenuOpen((o) => !o)} aria-label={`Function: ${toolLabel(activeTool)}`} aria-haspopup="menu" aria-expanded={menuOpen} data-testid="tool-select-button">
+          <button ref={buttonRef} type="button" className="scramble-draw-select" onClick={toggleMenu} aria-label={`Function: ${toolLabel(activeTool)}`} aria-haspopup="menu" aria-expanded={menuOpen} data-testid="tool-select-button">
             <span className="scramble-draw-select-value">{toolLabel(activeTool)}</span>
             <span className="scramble-tool-caret" aria-hidden="true">▴</span>
           </button>
           {menuOpen ? (
-            <div className="scramble-tool-menu is-up" role="menu" aria-label="Function" data-testid="tool-select-menu">
+            <div
+              className={`scramble-tool-menu${menuOpensUp ? ' is-up' : ''}`}
+              role="menu"
+              aria-label="Function"
+              data-testid="tool-select-menu"
+              style={menuMaxHeight ? { maxHeight: menuMaxHeight } : undefined}
+            >
               {TOOL_OPTIONS.map((option) => {
                 const selected = option.id === activeTool
                 return (

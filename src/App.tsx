@@ -1061,6 +1061,18 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         : null,
     [activeCompetitionFormat, averageTrimming, insightSolves],
   )
+  const latestRoundLabel = useMemo(() => {
+    const latest = insightSolves[0]
+    if (!competition || !latest?.roundId) return null
+    const round = competition.rounds.find(
+      (entry) => entry.id === latest.roundId,
+    )
+    if (!round) return null
+    const index = latest.roundIndex ??
+      round.solves.findIndex((solve) => solve.id === latest.id)
+    const attempt = index >= 0 ? index + 1 : round.attemptCount
+    return `Round ${round.number} · attempt ${attempt}/${competition.format.size}`
+  }, [competition, insightSolves])
   useEffect(() => {
     if (timer.state.status !== 'idle') return
     const sessionId = activeSession.id
@@ -2781,13 +2793,11 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
                   solves={insightSolves}
                   timerActive={timerActive || insightSolves !== solves}
                   trimming={averageTrimming}
-                  onAddManualSolve={(rawMs) => {
-                    addSolve(
-                      { rawMs, penalty: 'none', scramble: scramble ?? '' },
-                      activeEvent,
-                    )
-                    return true
-                  }}
+                  roundLabel={latestRoundLabel}
+                  onSetPenalty={handleSetPenalty}
+                  onSetComment={handleSetComment}
+                  onDeleteSolve={handleDelete}
+                  onNotify={handleNotify}
                 />
               ) : null
             }

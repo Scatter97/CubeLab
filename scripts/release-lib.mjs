@@ -78,6 +78,8 @@ export function nextReleaseVersion(currentValue, kind, now = new Date()) {
         major: current.major,
         feature: current.feature + 1,
         date,
+        // Feature releases start a new version line. The next patch released
+        // that day becomes :1.
         patch: 0,
       },
       previous: current,
@@ -89,7 +91,10 @@ export function nextReleaseVersion(currentValue, kind, now = new Date()) {
       major: current.major,
       feature: current.feature,
       date,
-      patch: current.patch + 1,
+      // A new Toronto release date starts its own patch sequence. If no
+      // release was made on a day, the record keeps the previous date/patch
+      // until the next explicit release.
+      patch: date === current.date ? current.patch + 1 : 1,
     },
     previous: current,
   }

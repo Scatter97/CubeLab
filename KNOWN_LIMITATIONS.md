@@ -7,12 +7,16 @@ These are current boundaries; dated repair details are in the
 
 ## Layout and performance
 
-- **Floating tools avoid the readout when space permits.** Tool panels do not
+- **Floating tools avoid the readout when dragged.** Tool panels do not
   participate in the readout's layout, so opening, dragging, resizing, or
-  switching tools cannot move the timer. Ordinary panels are moved to the nearest
-  clear side when a saved or released position overlaps the timer display. On a
-  stage too small to fit the panel beside the readout, overlap can still occur;
-  the tests cover the normal desktop and compact layouts.
+  switching tools cannot move the timer. A panel dragged and released over the
+  timer display is moved to the nearest clear side. Resizing is different: the
+  top-left moves while the bottom-right stays fixed, and a resized panel may
+  deliberately cover the readout. On a stage too small to fit the panel beside
+  the readout, overlap can still occur; the tests cover the normal desktop and
+  compact layouts. The 3D Draw Scramble renderer is intentionally frozen during
+  a resize gesture and adopts the new size when the handle is released, avoiding
+  repeated renderer resizing.
 - **3D viewer lifecycle is fixed for the shared-renderer path.** The player is
   retained across navigation, tool switching and event changes, so repeated
   Timer/Analytics round trips no longer create additional vantages or enter the
@@ -490,6 +494,10 @@ These are current boundaries; dated repair details are in the
 
 ## Tools and appearance
 
+- **Confirm Time targets only the latest solve.** Older solves are edited through
+  the solve history action menu. CubeLab does not store phase splits or
+  reconstructions, so those csTimer fields are not available. Changes use the
+  normal solve persistence and deletion/Undo paths.
 - **Online Battle is serverless and manual.** Peers exchange one invitation code
   and one answer code, then connect over WebRTC with a public STUN server used
   only for NAT discovery. Room ID/password are shared secrets checked by both
