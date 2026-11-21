@@ -408,6 +408,19 @@ describe('Training calibration, correction and settings coordination', () => {
     expect(c.getSnapshot().error).toMatch(/changed/)
     expect(f.read()).toEqual(external)
   })
+  it('updates both set renewals and domain settings in one checked write', () => {
+    const f = fixture(), c = f.controller
+    const domain = { ...c.getSnapshot().data!.preferences.domain!, inactivityMinutes: 25 }
+    expect(c.updateGlobalSettings(domain, {
+      oll: { renewalDays: 3, renewalAttempts: 30 },
+      pll: { renewalDays: 9, renewalAttempts: 90 },
+    })).toBe(true)
+    const preferences = f.read().preferences
+    expect(preferences.domain).toEqual(domain)
+    expect(preferences.sets.oll.recognition).toEqual({ renewalDays: 3, renewalAttempts: 30 })
+    expect(preferences.sets.pll.recognition).toEqual({ renewalDays: 9, renewalAttempts: 90 })
+  })
+
   it('captures new settings only for the affected set and subsequent visits/calibrations', async () => {
     const f = fixture(), c = f.controller
     await c.selectCategory('oll:execution')

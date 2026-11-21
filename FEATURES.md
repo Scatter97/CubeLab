@@ -555,7 +555,8 @@ storage keys to the user; keys here make the inventory auditable.
 Settings sections are **Timer, Alerts, Display, Appearance, Statistics,
 Scramble, Data, Training, Developer options and About**. The Training section
 edits the separate checked Training store (domain trimming, inactivity,
-baselines, per-set renewal thresholds and the device-local upcoming-case view);
+baselines, per-set renewal thresholds and the device-local upcoming-case view)
+and saves each valid change automatically without a separate Save button;
 it is not part of the solve Settings schema or solve sync envelope. Data shows local-data status and
 opens Backup & restore or Google Drive. Developer options is collapsed initially
 and contains the typed-confirmation Danger Zone: solve reset, session deletion

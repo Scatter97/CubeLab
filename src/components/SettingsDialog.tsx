@@ -1147,33 +1147,54 @@ function TrainingSettingsSection({
     oll: data.preferences.sets.oll.recognition,
     pll: data.preferences.sets.pll.recognition,
   }))
-  const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
-  const save = () => {
+  const persist = (
+    nextDomain: TrainingDomainSettings,
+    nextRenewals: Record<
+      TrainingSetId,
+      { renewalDays: number; renewalAttempts: number }
+    >,
+  ): boolean => {
     try {
-      assertTrainingDomainSettings(domain)
-      for (const renewal of [renewals.oll, renewals.pll]) {
+      assertTrainingDomainSettings(nextDomain)
+      for (const renewal of [nextRenewals.oll, nextRenewals.pll]) {
         if (
           !Number.isSafeInteger(renewal.renewalDays) ||
           renewal.renewalDays < 1 ||
           !Number.isSafeInteger(renewal.renewalAttempts) ||
           renewal.renewalAttempts < 1
         ) {
-          throw new Error('Recalibration thresholds must be positive whole numbers.')
+          throw new Error(
+            'Recalibration thresholds must be positive whole numbers.',
+          )
         }
       }
-      if (!onUpdate(domain, renewals)) {
+      if (!onUpdate(nextDomain, nextRenewals)) {
         setError('Training settings could not be saved. Check Training storage.')
-        setMessage('')
-        return
+        return false
       }
       setError('')
-      setMessage('Training settings saved.')
+      return true
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invalid settings.')
-      setMessage('')
+      return false
     }
+  }
+
+  const changeDomain = (next: TrainingDomainSettings) => {
+    setDomain(next)
+    persist(next, renewals)
+  }
+
+  const changeRenewals = (
+    next: Record<
+      TrainingSetId,
+      { renewalDays: number; renewalAttempts: number }
+    >,
+  ) => {
+    setRenewals(next)
+    persist(domain, next)
   }
 
   return (
@@ -1197,9 +1218,8 @@ function TrainingSettingsSection({
             aria-label="Show upcoming case"
             data-testid="settings-training-upcoming-case"
             onChange={(event) => {
-              if (!onShowUpcomingCaseChange(event.target.checked)) {
-                setError('Could not save the display preference.')
-              }
+              if (onShowUpcomingCaseChange(event.target.checked)) setError('')
+              else setError('Could not save the display preference.')
             }}
           />
         </div>
@@ -1214,7 +1234,10 @@ function TrainingSettingsSection({
           step={0.1}
           value={domain.trimPercent}
           onChange={(event) =>
-            setDomain({ ...domain, trimPercent: Number(event.target.value) })
+            changeDomain({
+              ...domain,
+              trimPercent: Number(event.target.value),
+            })
           }
         />
       </label>
@@ -1226,7 +1249,10 @@ function TrainingSettingsSection({
           min={1}
           value={domain.inactivityMinutes}
           onChange={(event) =>
-            setDomain({ ...domain, inactivityMinutes: Number(event.target.value) })
+            changeDomain({
+              ...domain,
+              inactivityMinutes: Number(event.target.value),
+            })
           }
         />
       </label>
@@ -1241,7 +1267,7 @@ function TrainingSettingsSection({
             { value: 'attempts', label: 'Previous attempts per case' },
           ]}
           onChange={(value) =>
-            setDomain({
+            changeDomain({
               ...domain,
               baseline: { ...domain.baseline, kind: value as 'days' | 'attempts' },
             })
@@ -1256,7 +1282,7 @@ function TrainingSettingsSection({
           min={1}
           value={domain.baseline.count}
           onChange={(event) =>
-            setDomain({
+            changeDomain({
               ...domain,
               baseline: { ...domain.baseline, count: Number(event.target.value) },
             })
@@ -1276,7 +1302,7 @@ function TrainingSettingsSection({
               min={1}
               value={renewals[setId].renewalDays}
               onChange={(event) =>
-                setRenewals({
+                changeRenewals({
                   ...renewals,
                   [setId]: {
                     ...renewals[setId],
@@ -1293,7 +1319,7 @@ function TrainingSettingsSection({
               min={1}
               value={renewals[setId].renewalAttempts}
               onChange={(event) =>
-                setRenewals({
+                changeRenewals({
                   ...renewals,
                   [setId]: {
                     ...renewals[setId],
@@ -1311,10 +1337,6 @@ function TrainingSettingsSection({
         files. Recalibration is available from the Training workspace.
       </p>
       {error ? <p className="settings-inline-error" role="alert">{error}</p> : null}
-      {message ? <p className="settings-note" role="status">{message}</p> : null}
-      <button type="button" className="button button-secondary" onClick={save}>
-        Save Training settings
-      </button>
     </section>
   )
 }

@@ -343,9 +343,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         { renewalDays: number; renewalAttempts: number }
       >,
     ) => {
-      const oll = training.controller.updateSettings(domain, renewals.oll, 'oll', false)
-      const pll = training.controller.updateSettings(domain, renewals.pll, 'pll', false)
-      return Boolean(oll && pll)
+      return training.controller.updateGlobalSettings(domain, renewals)
     },
     [training.controller],
   )

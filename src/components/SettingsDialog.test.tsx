@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsDialog } from './SettingsDialog'
 import { DEFAULT_SETTINGS } from '../lib/storage'
 import type { Settings } from '../types'
+import { createEmptyTrainingData } from '../lib/training/storage'
+import type { TrainingDomainSettings, TrainingSetId } from '../lib/training/types'
 
 beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
@@ -39,6 +41,14 @@ function renderSettings(overrides: {
   onRequestResetAllSiteData?: () => void
   onOpenOnboarding?: () => void
   onChange?: (next: Partial<Settings>) => void
+  trainingData?: ReturnType<typeof createEmptyTrainingData> | null
+  onUpdateTrainingSettings?: (
+    domain: TrainingDomainSettings,
+    renewals: Record<
+      TrainingSetId,
+      { renewalDays: number; renewalAttempts: number }
+    >,
+  ) => boolean
 } = {}) {
   return render(
     <SettingsDialog
@@ -67,6 +77,8 @@ function renderSettings(overrides: {
         overrides.onRequestResetAllSiteData ?? vi.fn()
       }
       developerSyncStatus="Synchronization is off; deletion records are stored locally."
+      trainingData={overrides.trainingData ?? null}
+      onUpdateTrainingSettings={overrides.onUpdateTrainingSettings}
       onClose={vi.fn()}
     />,
   )
@@ -75,6 +87,35 @@ function renderSettings(overrides: {
 function openDeveloper() {
   fireEvent.click(screen.getByText('Developer options'))
 }
+
+
+describe('Training settings', () => {
+  it('saves training changes automatically without a Save button', () => {
+    const onUpdateTrainingSettings = vi.fn(
+      (
+        _domain: TrainingDomainSettings,
+        _renewals: Record<
+          TrainingSetId,
+          { renewalDays: number; renewalAttempts: number }
+        >,
+      ) => true,
+    )
+    renderSettings({
+      trainingData: createEmptyTrainingData(),
+      onUpdateTrainingSettings,
+    })
+    expect(
+      screen.queryByRole('button', { name: 'Save Training settings' }),
+    ).toBeNull()
+    fireEvent.change(
+      screen.getByLabelText('Inactivity timeout (minutes)'),
+      { target: { value: '22' } },
+    )
+    expect(onUpdateTrainingSettings).toHaveBeenCalled()
+    const [domain] = onUpdateTrainingSettings.mock.calls.at(-1)!
+    expect(domain.inactivityMinutes).toBe(22)
+  })
+})
 
 describe('Developer settings', () => {
   it('collapses developer options by default and reveals the danger zone', () => {

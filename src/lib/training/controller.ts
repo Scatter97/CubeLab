@@ -704,6 +704,19 @@ export class TrainingController {
     this.activity()
     return saved
   }
+  /** Commit both set renewals and domain settings in one checked write. */
+  updateGlobalSettings = (domain: TrainingDomainSettings, renewals: Record<TrainingSetId, { renewalDays: number; renewalAttempts: number }>) => {
+    if (this.busy || !this.writable()) return false
+    const data = this.state.data!
+    const saved = this.commit({ ...data, preferences: { ...data.preferences, domain,
+      algorithmTracking: false, sets: {
+      ...data.preferences.sets,
+      oll: { ...data.preferences.sets.oll, recognition: renewals.oll },
+      pll: { ...data.preferences.sets.pll, recognition: renewals.pll },
+    } } })
+    this.activity()
+    return saved
+  }
   updateAttempt = (attempt: TrainingAttempt) => {
     if (this.busy || !this.writable()) return
     const data = this.state.data!

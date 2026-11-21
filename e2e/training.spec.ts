@@ -407,7 +407,6 @@ test('idle waits while timing, Keep practicing resets it, and End delivers the r
   await begin(page)
   await openTrainingSettings(page)
   await page.getByLabel('Inactivity timeout (minutes)').fill('1')
-  await page.getByRole('button', { name: 'Save Training settings' }).click()
   await page.getByTestId('settings-done').click()
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
   await page.keyboard.down('Space')
