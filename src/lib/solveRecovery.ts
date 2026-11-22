@@ -130,6 +130,9 @@ function parseSolveRecoveryValue(value: unknown): SolveRecoveryData | null {
     solveIds.add(operation.solve.id)
     operations.push(operation)
   }
+  // A non-empty journal whose every operation is unusable is kept as
+  // unreadable evidence; otherwise the next write would discard it.
+  if (value.operations.length > 0 && operations.length === 0) return null
   return { version: SOLVE_RECOVERY_VERSION, operations }
 }
 

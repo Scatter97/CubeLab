@@ -373,6 +373,7 @@ describe('durable solve recovery journal', () => {
     for (const raw of [
       '{broken journal',
       JSON.stringify({ version: 2, operations: [pending] }),
+      JSON.stringify({ version: 1, operations: [{ invalid: true }] }),
     ]) {
       localStorage.setItem(SOLVE_RECOVERY_STORAGE_KEY, raw)
       expect(loadSolveRecoveryChecked().ok).toBe(false)
