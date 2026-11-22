@@ -47,8 +47,16 @@ npm run test:e2e -- --project=firefox --workers=4 --retries=0
 
 The 15 Firefox failures and 8 WebKit failures were reproduced unchanged on base
 `3dd5aea`; the Chromium dark-theme axe failure also reproduced there. Live
-Google Drive, physical devices and screen readers were not exercised. The local
-`master` merge is recorded below after the final gate.
+Google Drive, physical devices and screen readers were not exercised.
+
+Merged locally into `master` as `346b50a` with a regular `--no-ff` merge. The
+pre-merge hardening head was `64ba2e2`; the original branch head was `7dddd9c`.
+Post-merge typecheck, lint, `check:data` (355 tests), the full unit suite
+(128 files / 1669 tests), the production build and full Chromium (272/272)
+passed. The focused WebKit safety set passed 30/30 at two workers. Nothing was
+pushed or deployed. One WebKit Training Drive sync case is timing-sensitive
+under a full four-worker run; it passes alone and at two workers and is not a
+data-safety failure.
 
 ## Data-integrity hardening — 2026-11-21
 

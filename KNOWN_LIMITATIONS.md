@@ -590,7 +590,8 @@ These are current boundaries; dated repair details are in the
   2026-11-21 final audit ran the full WebKit suite in an isolated Ubuntu 24.04
   userland (`bwrap`) with the official Playwright dependency set: 258 passed, 8
   pre-existing layout/accessibility failures reproduced on base `3dd5aea`, one
-  load-sensitive Training sync case that passed alone, and 5 deliberate skips.
+  load-sensitive Training sync case that passed alone and at two workers, and 5
+  deliberate skips.
   Chromium passed 272/272. Firefox passed 252 with the same 15 pre-existing
   layout/touch failures reproduced on the base commit. No host-validation bypass
   or production code workaround is used. `npm run test:e2e` and `npm run check`

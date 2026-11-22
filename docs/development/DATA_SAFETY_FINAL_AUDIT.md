@@ -229,7 +229,7 @@ is reported separately.
   backup file remains available. This is separate from checked local startup
   reads.
 
-## 7. Merge gate
+## 7. Merge gate and result
 
 | Gate | Status |
 | --- | --- |
@@ -238,8 +238,27 @@ is reported separately.
 | Regression tests for corrected defects | Passed |
 | Chromium full suite | Passed (272/272) |
 | Firefox data-safety suite | Passed; 15 documented pre-existing UI failures |
-| WebKit data-safety suite | Passed (30/30); 8 documented pre-existing UI failures |
+| WebKit data-safety suite | Passed (30/30 at two workers); 8 documented pre-existing UI failures |
 | Unit, typecheck, lint, data checks and build | Passed |
 | No test disabled to obtain a pass | Passed; WebKit cross-tab skips were removed and the offline case was separately verified |
 | Working tree preserved | Passed; only audit corrections committed |
 | Deployed or pushed | No |
+
+**Merge performed:** `346b50a` (`Merge data-integrity hardening and
+cross-browser safety verification`) on local `master`, using a regular
+`--no-ff` merge. The original branch head was `7dddd9c`; the final hardening
+head before merge was `64ba2e2`; `master` and `origin/master` were both at
+`3dd5aea` before the merge. Nothing was pushed or deployed.
+
+**Post-merge verification on `master`:** typecheck, lint, `check:data` (355
+tests), the full unit suite (128 files / 1669 tests) and the production build
+passed. Full Chromium passed 272/272. The focused WebKit data-safety set passed
+30/30 at two workers; the same set at four workers reproduced one load-sensitive
+Training sync timeout that passes alone and passed at two workers. The Firefox
+safety set retained only the documented pre-existing session-drag failure; the
+full Firefox/WebKit matrices were already run on the identical branch tree.
+
+One WebKit Training Drive sync case is timing-sensitive under a full four-worker
+run. It is not a data-loss or provenance failure: it passes alone, passed in the
+focused suite, and passed the post-merge two-worker safety run. Treat it as a
+load-sensitive test/WebKit environment limitation, not a merge blocker.
