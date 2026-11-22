@@ -862,6 +862,47 @@ function createSessionsFromLegacy(solves: readonly Solve[]): SessionsData {
 }
 
 /**
+ * Strict startup/adoption check: the parser may intentionally filter invalid
+ * records for the tolerant read-only loader, but a writable checked result must
+ * not silently drop stored sessions or solves. Duplicate IDs and malformed
+ * records therefore fail the whole read and leave the raw bytes for recovery.
+ */
+function findSessionRecordLoss(
+  value: Record<string, unknown>,
+  data: SessionsData,
+): string | null {
+  if (!Array.isArray(value.sessions)) return 'Saved session data has no session list.'
+  if (data.sessions.length !== value.sessions.length) {
+    return 'Saved session data contains a session that could not be validated. The original data has been kept for recovery.'
+  }
+  for (const candidate of value.sessions) {
+    if (!isRecord(candidate)) {
+      return 'Saved session data contains an invalid session record. The original data has been kept for recovery.'
+    }
+    const parsed = data.sessions.find((session) => session.id === candidate.id)
+    if (!parsed) {
+      return 'Saved session data contains an invalid or duplicate session. The original data has been kept for recovery.'
+    }
+    if (!Array.isArray(candidate.solves)) {
+      return 'Saved session data contains a session without a solve list. The original data has been kept for recovery.'
+    }
+    if (parsed.solves.length !== candidate.solves.length) {
+      return `Session "${parsed.name}" contains a solve that could not be validated. The original data has been kept for recovery.`
+    }
+    const solving = new Set(parsed.solves.map((solve) => solve.id))
+    if (solving.size !== parsed.solves.length) {
+      return `Session "${parsed.name}" contains duplicate solve IDs. The original data has been kept for recovery.`
+    }
+    for (const rawSolve of candidate.solves) {
+      if (!isRecord(rawSolve) || typeof rawSolve.id !== 'string' || !solving.has(rawSolve.id)) {
+        return `Session "${parsed.name}" contains a solve that could not be validated. The original data has been kept for recovery.`
+      }
+    }
+  }
+  return null
+}
+
+/**
  * Strictly reads the authoritative session collection without writing or
  * falling back to defaults. Only a genuinely absent key (and no usable legacy
  * record) reports `absent`; callers may create a fresh session only when they
@@ -955,6 +996,15 @@ export function loadSessionsChecked(
           'Saved session data could not be validated. The original data has been kept for recovery.',
       }
     }
+    const recordLoss = findSessionRecordLoss(parsed, data)
+    if (recordLoss) {
+      return {
+        ok: false,
+        reason: 'invalid-schema',
+        raw,
+        message: recordLoss,
+      }
+    }
     return {
       ok: true,
       data,
@@ -1034,6 +1084,15 @@ export function loadSessionsChecked(
       reason: 'absent',
       raw: null,
       message: 'No usable saved solve history exists yet.',
+    }
+  }
+  if (solves.length !== legacy.solves.length) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw: legacyRaw,
+      message:
+        'Saved legacy history contains a solve that could not be validated. The original data has been kept for recovery.',
     }
   }
   return {

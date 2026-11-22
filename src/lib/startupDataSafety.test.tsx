@@ -92,6 +92,25 @@ it('retains a previously stored invalid solve rather than silently dropping it d
   expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(raw)
 })
 
+it('retains a current collection when one solve is malformed instead of silently dropping it', () => {
+  const mixed = {
+    version: 7,
+    activeSessionId: 'safe-session',
+    sessions: [{
+      id: 'safe-session',
+      name: 'Safe',
+      event: '333',
+      createdAt: now,
+      updatedAt: now,
+      solves: [solve, { ...solve, id: 'broken-solve', rawMs: -1 }],
+    }],
+  }
+  const raw = JSON.stringify(mixed)
+  localStorage.setItem(SESSIONS_STORAGE_KEY, raw)
+  expect(() => loadSessionsForStartup()).toThrow(/could not be validated|kept/)
+  expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(raw)
+})
+
 it('retains the completion buffer if the saved collection cannot be read during recovery', () => {
   saveSessions(data)
   const completed = { ...data, sessions: [{ ...data.sessions[0]!, solves: [{ ...solve, id: 'buffered' }, solve] }] }

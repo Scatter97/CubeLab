@@ -10,7 +10,12 @@ import {
   PENDING_COMPLETION_ENTRY_PREFIX,
   PENDING_COMPLETION_STORAGE_KEY,
 } from './pendingCompletion'
-import { REPLACEMENT_STORAGE_KEY, beginReplacement, clearReplacementJournal, markReplacementCommitted, rollbackReplacement, type ReplacementKey } from './replacement'
+import {
+  REPLACEMENT_STORAGE_KEY,
+  beginArchivedReplacement,
+  clearReplacementJournal,
+  markReplacementCommitted,
+} from './replacement'
 import { SOLVE_RECOVERY_STORAGE_KEY } from './solveRecovery'
 import { SYNC_STORAGE_KEY } from './syncStorage'
 import { TRAINING_STORAGE_KEY } from './training/storage'
@@ -188,7 +193,7 @@ export function createRecoveryPackage(
       sourceVersions: { ...archive.sourceVersions },
     })),
     excludedKeys: [
-      'UI-only tool, panel and onboarding-presentation preferences',
+      'UI-only tool and panel preferences',
       'In-memory Google OAuth access tokens (never persisted)',
       'Unrelated browser-origin storage',
     ],
@@ -298,6 +303,7 @@ export async function restoreVerifiedUpgradeArchive(input: {
     }
     return { key, raw }
   })
+  let safetyArchiveId: string
   try {
     const safetyArchive = await createUpgradeArchive(
       {
@@ -311,6 +317,7 @@ export async function restoreVerifiedUpgradeArchive(input: {
     if (!verifyUpgradeArchiveRecord(safetyArchive)) {
       return { ok: false, message: 'A pre-restore safety archive could not be verified.' }
     }
+    safetyArchiveId = safetyArchive.id
   } catch (error) {
     return {
       ok: false,
@@ -320,13 +327,28 @@ export async function restoreVerifiedUpgradeArchive(input: {
     }
   }
 
-  const replacementKeys: ReplacementKey[] = []
-  for (const key of keys) {
-    if (key === SESSIONS_STORAGE_KEY) replacementKeys.push('sessions')
-    if (key === SOLVES_STORAGE_KEY) replacementKeys.push('solves')
-    if (key === SETTINGS_STORAGE_KEY) replacementKeys.push('settings')
+  const restoreCurrentSources = (): boolean => {
+    let restored = true
+    for (const source of currentSources) {
+      try {
+        if (source.raw === null) {
+          if (!storage.removeItem) {
+            restored = false
+            continue
+          }
+          storage.removeItem(source.key)
+        } else {
+          storage.setItem(source.key, source.raw)
+        }
+        if (storage.getItem(source.key) !== source.raw) restored = false
+      } catch {
+        restored = false
+      }
+    }
+    return restored
   }
-  const begun = beginReplacement('upgrade', replacementKeys, storage)
+
+  const begun = beginArchivedReplacement('upgrade', safetyArchiveId, storage)
   if (!begun.ok) {
     return { ok: false, message: begun.error }
   }
@@ -341,7 +363,7 @@ export async function restoreVerifiedUpgradeArchive(input: {
       const entry = archive.entries[key]!
       const actual = storage.getItem(key)
       if (actual !== (entry.present ? entry.raw : null)) {
-        const rolledBack = rollbackReplacement(journal, storage)
+        const rolledBack = restoreCurrentSources()
         if (rolledBack) clearReplacementJournal(storage)
         return {
           ok: false,
@@ -352,7 +374,7 @@ export async function restoreVerifiedUpgradeArchive(input: {
       }
     }
     if (!markReplacementCommitted(journal, storage)) {
-      const rolledBack = rollbackReplacement(journal, storage)
+      const rolledBack = restoreCurrentSources()
       if (rolledBack) clearReplacementJournal(storage)
       return {
         ok: false,
@@ -367,7 +389,7 @@ export async function restoreVerifiedUpgradeArchive(input: {
       message: 'The verified local archive was restored. Reload CubeLab to open it.',
     }
   } catch (error) {
-    const rolledBack = rollbackReplacement(journal, storage)
+    const rolledBack = restoreCurrentSources()
     if (rolledBack) clearReplacementJournal(storage)
     return {
       ok: false,

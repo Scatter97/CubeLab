@@ -5,6 +5,40 @@ regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
 
+## Data safety and recovery
+
+- **No absolute data-loss immunity.** The checked readers, verified archives and
+  replacement journal prevent the specific silent-fallback paths covered by
+  `npm run check:data`, but browser storage can still be cleared by the user,
+  privacy software, profile deletion, catastrophic quota/filesystem failure or
+  browser defects. Persistence is advisory and does not protect against clearing
+  site data.
+- **Migration recovery is local.** The pre-upgrade archive is not uploaded
+  automatically. A user who clears all browser storage loses the local archive
+  unless they downloaded an emergency recovery package or native/Drive backup.
+- **Recovery export cannot prove a file reached disk.** `RESET CUBELAB` requires
+  a prepared download and an explicit acknowledgement, but browsers do not expose
+  a durable-save confirmation. The reset keeps caches, the service worker and
+  remote Drive files; it is not a complete site reset.
+- **Already-deployed legacy clients remain a downgrade risk.** Older builds that
+  predate these checks can still rewrite a newer schema if loaded from an old PWA
+  cache. This build fails closed on future versions, but it cannot retroactively
+  harden historical clients. Clear old caches or update before moving a profile
+  between builds.
+- **Local data remains whole-collection.** Ordinary saves still serialize and
+  write the complete collection synchronously; incremental session storage is a
+  separate design-only milestone in
+  [INCREMENTAL_STORAGE_DESIGN.md](docs/development/INCREMENTAL_STORAGE_DESIGN.md).
+  Safety does not remove the 10k/100k/250k scaling limits described below.
+- **Emergency export size is unbounded by design.** Recovery packages preserve
+  exact raw bytes and may exceed the native backup/Drive caps. The 250k-solve
+  synthetic package measured about 47 MiB; extremely large histories can exceed
+  browser Blob/download memory or the destination filesystem.
+- **Training has its own recovery boundary.** Training v1 is included in the
+  emergency package and native backup, but a verified pre-upgrade archive restore
+  only replaces sessions/legacy solves/settings. Training Drive cleanup and sync
+  retain their separate provenance and are never selected by solve cleanup.
+
 ## Layout and performance
 
 - **Floating tools avoid the readout when dragged.** Tool panels do not

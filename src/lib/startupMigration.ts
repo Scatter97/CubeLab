@@ -11,12 +11,10 @@ import {
   type StorageLike,
 } from './storage'
 import {
-  beginReplacement,
+  beginArchivedReplacement,
   clearReplacementJournal,
   loadReplacementJournal,
   markReplacementCommitted,
-  rollbackReplacement,
-  type ReplacementKey,
 } from './replacement'
 import {
   createUpgradeArchive,
@@ -26,6 +24,7 @@ import {
   UpgradeArchiveError,
   type UpgradeArchiveReason,
   type UpgradeArchiveRecord,
+  type UpgradeArchiveSource,
   type UpgradeArchiveStore,
 } from './upgradeArchive'
 import { isSiteResetInProgress } from './siteReset'
@@ -137,7 +136,9 @@ export async function runStartupMigration(
   if (pending.status === 'invalid') {
     return blocked(pending.message, 'journal')
   }
-  if (pending.status === 'ok') {
+  const pendingCommitted =
+    pending.status === 'ok' && pending.journal.phase === 'committed'
+  if (pending.status === 'ok' && !pendingCommitted) {
     return blocked(
       'An interrupted replacement is still being resolved. Reload before upgrading saved data.',
       'journal',
@@ -154,7 +155,6 @@ export async function runStartupMigration(
   }
 
   const updatedKeys: string[] = []
-  const replacementKeys: ReplacementKey[] = []
   const candidates = new Map<string, string>()
   let sessionsReason: UpgradeArchiveReason | null = null
   let settingsReason: UpgradeArchiveReason | null = null
@@ -167,7 +167,6 @@ export async function runStartupMigration(
         sessions.sourceVersion < SESSIONS_VERSION)
     if (needsMigration && candidate !== sessions.raw) {
       candidates.set(SESSIONS_STORAGE_KEY, candidate)
-      replacementKeys.push('sessions')
       updatedKeys.push(SESSIONS_STORAGE_KEY)
       sessionsReason =
         sessions.legacyRaw !== null ? 'legacy-migration' : 'schema-migration'
@@ -182,7 +181,6 @@ export async function runStartupMigration(
     settingsCandidate !== settings.raw
   ) {
     candidates.set(SETTINGS_STORAGE_KEY, settingsCandidate)
-    replacementKeys.push('settings')
     updatedKeys.push(SETTINGS_STORAGE_KEY)
     settingsReason = 'schema-migration'
   }
@@ -197,7 +195,7 @@ export async function runStartupMigration(
         ? 'schema-migration'
         : 'normalization'
 
-  const sources = []
+  const sources: UpgradeArchiveSource[] = []
   if (sessions.ok) {
     sources.push({
       key: SESSIONS_STORAGE_KEY,
@@ -275,8 +273,32 @@ export async function runStartupMigration(
     }
   }
 
-  const begun = beginReplacement('upgrade', replacementKeys, storage)
-  if (!begun.ok) {
+  const restoreSources = (): boolean => {
+    let restored = true
+    for (const source of sources) {
+      try {
+        if (storage.getItem(source.key) === source.raw) continue
+        if (source.raw === null) {
+          if (!storage.removeItem) {
+            restored = false
+            continue
+          }
+          storage.removeItem(source.key)
+        } else {
+          storage.setItem(source.key, source.raw)
+        }
+        if (storage.getItem(source.key) !== source.raw) restored = false
+      } catch {
+        restored = false
+      }
+    }
+    return restored
+  }
+
+  const begun = pendingCommitted
+    ? null
+    : beginArchivedReplacement('upgrade', archive.id, storage)
+  if (begun && !begun.ok) {
     return blocked(
       `The upgrade recovery record could not be saved. ${begun.error}`,
       'journal',
@@ -284,11 +306,11 @@ export async function runStartupMigration(
       archive.id,
     )
   }
-  const journal = begun.journal
+  const journal = begun?.journal ?? null
 
   const fail = (message: string, reason: 'write' | 'verification'): StartupMigrationResult => {
-    const rolledBack = rollbackReplacement(journal, storage)
-    if (rolledBack) clearReplacementJournal(storage)
+    const rolledBack = restoreSources()
+    if (rolledBack && journal) clearReplacementJournal(storage)
     return blocked(
       rolledBack
         ? `${message} The previous data was restored; the verified archive is still available.`
@@ -315,7 +337,7 @@ export async function runStartupMigration(
       }
     }
     await runPhase(options, 'before-commit-marker')
-    if (!markReplacementCommitted(journal, storage)) {
+    if (journal && !markReplacementCommitted(journal, storage)) {
       return fail(
         'The upgrade commit marker could not be saved.',
         'write',
@@ -323,18 +345,14 @@ export async function runStartupMigration(
     }
     await runPhase(options, 'after-commit-marker')
 
-    // A committed journal means startup recovery would keep these bytes. Verify
-    // them once more; if they do not validate, explicitly roll back here while
-    // the archive still holds the only known-good copy.
+    // A committed journal (or an already committed cleanup-pending journal)
+    // means startup recovery would keep these bytes. Verify them once more; if
+    // they do not validate, explicitly restore the archived source.
     for (const [key, value] of candidates) {
       if (storage.getItem(key) !== value) {
-        const rolledBack = rollbackReplacement(journal, storage)
-        if (rolledBack) clearReplacementJournal(storage)
-        return blocked(
-          'The committed upgrade could not be verified. The pre-upgrade data was restored where possible.',
+        return fail(
+          'The committed upgrade could not be verified.',
           'verification',
-          true,
-          archive.id,
         )
       }
     }
@@ -358,7 +376,7 @@ export async function runStartupMigration(
     }
 
     await runPhase(options, 'before-cleanup')
-    const cleaned = clearReplacementJournal(storage)
+    const cleaned = journal ? clearReplacementJournal(storage) : false
     await runPhase(options, 'after-cleanup')
 
     // Archive status and retention are nonessential once the commit is verified.
@@ -376,7 +394,7 @@ export async function runStartupMigration(
       status: 'completed',
       archiveId: archive.id,
       updatedKeys,
-      cleanupPending: !cleaned,
+      cleanupPending: pendingCommitted || !cleaned,
     }
   } catch (error) {
     return fail(

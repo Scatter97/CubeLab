@@ -6,6 +6,7 @@ import {
 } from './storage'
 import { SYNC_STORAGE_KEY } from './syncStorage'
 import {
+  beginArchivedReplacement,
   beginReplacement,
   loadReplacementJournal,
   markReplacementCommitted,
@@ -14,6 +15,10 @@ import {
 import type { DriveLockManager } from './driveCoordination'
 import { recoverReplacementAtStartup } from './startupRecovery'
 import { TRAINING_STORAGE_KEY } from './training/storage'
+import {
+  createMemoryUpgradeArchiveStore,
+  createUpgradeArchive,
+} from './upgradeArchive'
 
 class MemoryStorage implements StorageLike {
   readonly values = new Map<string, string>()
@@ -331,5 +336,80 @@ describe('startup replacement recovery gate', () => {
       lockManager: immediateLocks,
     })
     expect(result.status).toBe('blocked')
+  })
+})
+
+describe('archived upgrade journal recovery', () => {
+  let storage: MemoryStorage
+  let archiveStore: ReturnType<typeof createMemoryUpgradeArchiveStore>
+
+  beforeEach(async () => {
+    storage = seeded()
+    archiveStore = createMemoryUpgradeArchiveStore()
+    await createUpgradeArchive(
+      {
+        reason: 'schema-migration',
+        sources: [
+          { key: SESSIONS_STORAGE_KEY, raw: 'old-sessions', sourceVersion: 6 },
+          { key: SETTINGS_STORAGE_KEY, raw: 'old-settings', sourceVersion: 2 },
+        ],
+      },
+      archiveStore,
+    )
+  })
+
+  it('restores exact pre-upgrade bytes from the verified archive before opening', async () => {
+    const archive = (await archiveStore.list())[0]!
+    const begun = beginArchivedReplacement('upgrade', archive.id, storage)
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    storage.setItem(SESSIONS_STORAGE_KEY, 'candidate-sessions')
+    storage.setItem(SETTINGS_STORAGE_KEY, 'candidate-settings')
+    await expect(
+      recoverReplacementAtStartup({
+        storage,
+        lockManager: immediateLocks,
+        archiveStore,
+      }),
+    ).resolves.toEqual({ status: 'ready', recovery: { status: 'rolled-back' } })
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe('old-sessions')
+    expect(storage.getItem(SETTINGS_STORAGE_KEY)).toBe('old-settings')
+    expect(loadReplacementJournal(storage).status).toBe('none')
+  })
+
+  it('keeps a committed archived upgrade and clears only its journal', async () => {
+    const archive = (await archiveStore.list())[0]!
+    const begun = beginArchivedReplacement('upgrade', archive.id, storage)
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    storage.setItem(SESSIONS_STORAGE_KEY, 'committed-sessions')
+    expect(markReplacementCommitted(begun.journal, storage)).toBe(true)
+    await expect(
+      recoverReplacementAtStartup({
+        storage,
+        lockManager: immediateLocks,
+        archiveStore,
+      }),
+    ).resolves.toEqual({ status: 'ready', recovery: { status: 'committed' } })
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe('committed-sessions')
+    expect(loadReplacementJournal(storage).status).toBe('none')
+  })
+
+  it('blocks editing when the verified archive is missing or damaged', async () => {
+    const archive = (await archiveStore.list())[0]!
+    const begun = beginArchivedReplacement('upgrade', archive.id, storage)
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    storage.setItem(SESSIONS_STORAGE_KEY, 'candidate-sessions')
+    await archiveStore.delete(archive.id)
+    await expect(
+      recoverReplacementAtStartup({
+        storage,
+        lockManager: immediateLocks,
+        archiveStore,
+      }),
+    ).resolves.toMatchObject({ status: 'blocked' })
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe('candidate-sessions')
+    expect(loadReplacementJournal(storage).status).toBe('ok')
   })
 })

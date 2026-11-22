@@ -5,6 +5,62 @@ and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
 
+## Data-integrity hardening — 2026-11-21
+
+Implemented the pre-release safety pass on branch `fix/data-integrity-hardening`.
+Sessions remain v7, settings v13 and Training v1; native backup v1, Drive
+snapshot/sync and Training wire formats are unchanged.
+
+- Settings now have a strict checked reader. Only an absent key permits
+  defaults; malformed JSON, missing mandatory fields, read errors and
+  unsupported older/future versions fail closed. `Bootstrap` validates sessions
+  and settings before mounting editable hooks and passes both snapshots into the
+  application. Invalid replacements never become default settings.
+- Historical sessions/settings/legacy solves are archived byte-for-byte in a
+  verified IndexedDB (or localStorage fallback) archive before migration. The
+  existing replacement journal commits the upgrade; startup recovery is
+  deterministic before/after the commit marker. Already-current canonical data
+  is not rewritten.
+- Cross-tab session adoption and committed-replacement adoption use checked
+  reads for sessions, settings and sync provenance. Invalid external bytes are
+  ignored, never turned into an empty collection or deletion tombstone. An
+  unreadable sync ledger blocks publication and cannot be overwritten by a
+  fresh ledger.
+- The recovery center replaces the Retry-only gate with affected-store details,
+  exact-byte recovery-package download, verified-archive preview/restore and
+  typed `RESET CUBELAB` export-and-start-fresh controls. Timers and imports stay
+  closed while data is blocked.
+- Settings → Data shows persistent-storage status, quota/usage, the last
+  verified archive, last successful Drive sync/backup and a recovery export.
+  Persistence is requested after the first accepted solve or onboarding, not on
+  every launch.
+- `tests/fixtures/storage/` and `npm run check:data` freeze sessions v1–v7,
+  settings v1–v13, Training v1, backup v1, sync v1, journals and negative
+  variants. `AGENTS.md` now requires a safety review and fixture for every
+  data-bearing schema change.
+
+See [DATA_SAFETY_HARDENING.md](docs/development/DATA_SAFETY_HARDENING.md) for
+the protocol, failure model, evidence and remaining limitations. Final release
+verification:
+
+```bash
+npm run typecheck     # passed
+npm run lint          # passed; pre-existing warnings only
+npm run check:data    # 17 files, 353 tests passed
+npm test              # 128 files, 1667 tests passed
+npm run build         # passed; PWA 80 precache entries
+CI=1 VITE_DRIVE_MOCK=true npm run test:e2e -- --project=chromium --workers=4
+# 271 passed
+```
+
+The full three-browser attempt could not verify WebKit because the local
+Playwright WebKit bundle is missing `libflite.so.1`. Firefox safety-relevant
+cases pass; a representative mobile-event and statistics-resize failure was
+reproduced unchanged on baseline `master` and is not introduced here. Live Drive
+validation was not run because no short-lived credential/authorization was
+provided. Mock Drive, production PWA offline, Training backup/sync, single-tab
+and cross-tab replacement coverage passed.
+
 ## Time Trend compact redesign — 2026-11-21
 
 Implemented the approved

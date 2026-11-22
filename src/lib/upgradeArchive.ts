@@ -324,6 +324,34 @@ export function createMemoryUpgradeArchiveStore(): UpgradeArchiveStore {
   }
 }
 
+/**
+ * Combines IndexedDB with the localStorage fallback so an archive written when
+ * IndexedDB was unavailable is still discoverable after it recovers.
+ */
+export function createCompositeUpgradeArchiveStore(
+  primary: UpgradeArchiveStore,
+  fallback: UpgradeArchiveStore,
+): UpgradeArchiveStore {
+  return {
+    backend: primary.backend,
+    async put(record) {
+      await primary.put(record)
+    },
+    async get(id) {
+      return (await primary.get(id)) ?? (await fallback.get(id))
+    },
+    async list() {
+      const records = new Map<string, UpgradeArchiveRecord>()
+      for (const record of await fallback.list()) records.set(record.id, record)
+      for (const record of await primary.list()) records.set(record.id, record)
+      return [...records.values()]
+    },
+    async delete(id) {
+      await Promise.allSettled([primary.delete(id), fallback.delete(id)])
+    },
+  }
+}
+
 export function createLocalStorageUpgradeArchiveStore(
   storage: StorageLike,
 ): UpgradeArchiveStore {
@@ -378,7 +406,7 @@ export function createLocalStorageUpgradeArchiveStore(
   }
 }
 
-function openIndexedDbArchiveStore(): Promise<UpgradeArchiveStore> {
+function openArchiveDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       reject(new Error('IndexedDB is unavailable.'))
@@ -403,58 +431,73 @@ function openIndexedDbArchiveStore(): Promise<UpgradeArchiveStore> {
       finish(() =>
         reject(new Error('IndexedDB archive upgrade is blocked by another tab.')),
       )
-    request.onsuccess = () => {
-      const database = request.result
-      const withStore = <T>(
-        mode: IDBTransactionMode,
-        run: (store: IDBObjectStore) => IDBRequest<T>,
-      ): Promise<T> =>
-        new Promise<T>((resolveRequest, rejectRequest) => {
-          let transaction: IDBTransaction
-          try {
-            transaction = database.transaction(UPGRADE_ARCHIVE_STORE_NAME, mode)
-          } catch (error) {
-            rejectRequest(error)
-            return
-          }
-          const store = transaction.objectStore(UPGRADE_ARCHIVE_STORE_NAME)
-          let value: T
-          try {
-            const result = run(store)
-            result.onsuccess = () => {
-              value = result.result
-            }
-            result.onerror = () => rejectRequest(result.error)
-          } catch (error) {
-            rejectRequest(error)
-            return
-          }
-          transaction.oncomplete = () => resolveRequest(value)
-          transaction.onerror = () => rejectRequest(transaction.error)
-          transaction.onabort = () => rejectRequest(transaction.error)
-        })
-      const store: UpgradeArchiveStore = {
-        backend: 'indexeddb',
-        async put(record) {
-          await withStore('readwrite', (objectStore) => objectStore.put(record))
-        },
-        get(id) {
-          return withStore<UpgradeArchiveRecord | null>('readonly', (objectStore) =>
-            objectStore.get(id),
-          ).then((value) => value ?? null)
-        },
-        list() {
-          return withStore<UpgradeArchiveRecord[]>('readonly', (objectStore) =>
-            objectStore.getAll(),
-          )
-        },
-        async delete(id) {
-          await withStore('readwrite', (objectStore) => objectStore.delete(id))
-        },
-      }
-      finish(() => resolve(store))
-    }
+    request.onsuccess = () => finish(() => resolve(request.result))
   })
+}
+
+async function withArchiveStore<T>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  const database = await openArchiveDatabase()
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      let transaction: IDBTransaction
+      try {
+        transaction = database.transaction(UPGRADE_ARCHIVE_STORE_NAME, mode)
+      } catch (error) {
+        reject(error)
+        return
+      }
+      const store = transaction.objectStore(UPGRADE_ARCHIVE_STORE_NAME)
+      let value: T
+      try {
+        const request = run(store)
+        request.onsuccess = () => {
+          value = request.result
+        }
+        request.onerror = () => reject(request.error)
+      } catch (error) {
+        reject(error)
+        return
+      }
+      transaction.oncomplete = () => resolve(value)
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+  } finally {
+    // Closing after every operation prevents the explicit site reset from
+    // finding a permanently open CubeLab database.
+    database.close()
+  }
+}
+
+async function openIndexedDbArchiveStore(): Promise<UpgradeArchiveStore> {
+  const database = await openArchiveDatabase()
+  database.close()
+  return {
+    backend: 'indexeddb',
+    async put(record) {
+      await withArchiveStore('readwrite', (store) => store.put(record))
+    },
+    async get(id) {
+      return (
+        (await withArchiveStore<UpgradeArchiveRecord | undefined>(
+          'readonly',
+          (store) => store.get(id),
+        )) ?? null
+      )
+    },
+    async list() {
+      return await withArchiveStore<UpgradeArchiveRecord[]>(
+        'readonly',
+        (store) => store.getAll(),
+      )
+    },
+    async delete(id) {
+      await withArchiveStore('readwrite', (store) => store.delete(id))
+    },
+  }
 }
 
 /**
@@ -464,13 +507,22 @@ function openIndexedDbArchiveStore(): Promise<UpgradeArchiveStore> {
 export async function openDefaultUpgradeArchiveStore(
   storage: StorageLike | null,
 ): Promise<UpgradeArchiveStore> {
+  let primary: UpgradeArchiveStore | null = null
   try {
-    return await openIndexedDbArchiveStore()
+    primary = await openIndexedDbArchiveStore()
   } catch {
-    if (storage) return createLocalStorageUpgradeArchiveStore(storage)
-    throw new UpgradeArchiveError(
-      'No browser storage is available for a verified recovery archive.',
-      false,
+    primary = null
+  }
+  if (primary && storage) {
+    return createCompositeUpgradeArchiveStore(
+      primary,
+      createLocalStorageUpgradeArchiveStore(storage),
     )
   }
+  if (primary) return primary
+  if (storage) return createLocalStorageUpgradeArchiveStore(storage)
+  throw new UpgradeArchiveError(
+    'No browser storage is available for a verified recovery archive.',
+    false,
+  )
 }

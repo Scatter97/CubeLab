@@ -312,3 +312,29 @@ describe('recoverable startup migration', () => {
     expect(loadReplacementJournal(storage).status).toBe('none')
   })
 })
+
+describe('archived upgrade journal size', () => {
+  it('does not duplicate a large pre-upgrade collection inside localStorage', async () => {
+    const storage = seeded()
+    const archiveStore = createMemoryUpgradeArchiveStore()
+    let journalRaw: string | null = null
+    const result = await runStartupMigration({
+      storage,
+      archiveStore,
+      onPhase: (phase) => {
+        if (phase === 'after-candidate-write') {
+          journalRaw = storage.getItem('cubelab:replacement:v1')
+        }
+      },
+    })
+    expect(result.status).toBe('completed')
+    expect(journalRaw).not.toBeNull()
+    const journal = JSON.parse(journalRaw!) as {
+      archiveId?: string
+      before?: Record<string, unknown>
+    }
+    expect(journal.archiveId).toBeTruthy()
+    expect(journal.before).toEqual({})
+    expect(journalRaw!.length).toBeLessThan(2_000)
+  })
+})

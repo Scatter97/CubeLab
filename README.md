@@ -709,12 +709,23 @@ block synchronization.
 Native backup imports and downloaded snapshots reject provided session/solve
 dates outside JavaScript's representable range before changing local data.
 History rendering also has an **Unknown date** fallback for invalid in-memory
-values. Startup performs a checked session read before mounting editable hooks:
-an unreadable current or legacy record shows **Recovery required** and retains
-the original bytes instead of saving an empty fallback. Retry opens the saved
-history after storage recovers. Unsupported, malformed or invalid-date stored
-collections remain protected until the underlying data is corrected; retry does
-not invent dates or repair damaged records automatically.
+values. Startup performs checked session and settings reads before mounting
+editable hooks: an unreadable current or legacy record, a mixed collection with
+any session or solve that cannot be validated, or an unsupported future version
+shows **Recovery required** and retains every original byte. The recovery center
+can retry, inspect the affected stores, download a versioned raw recovery
+package, restore a verified local pre-upgrade archive after preview and
+confirmation, or export again and deliberately start fresh after typing
+`RESET CUBELAB`. Retry never repairs or invents data automatically.
+
+Before a legacy/older schema is normalized, the exact source strings are stored
+in a verified local archive (IndexedDB when available, otherwise a CubeLab
+localStorage fallback). The archive is re-read and checksum-verified before any
+candidate write. The existing replacement journal commits the upgrade; an
+interrupted prepared upgrade rolls back and a committed upgrade rolls forward.
+The two newest verified archives and the newest completed checkpoint are kept.
+Corrupt/unsupported data is never auto-migrated, and already-current records are
+not rewritten on startup.
 
 A replacement is staged through a local recovery journal before any committed
 key is overwritten. CubeLab writes the sessions, settings, sync base, restore
@@ -725,10 +736,12 @@ rolled back only while holding the same origin-wide Web Lock used by the
 replacement coordinator; without Web Locks it stays pending rather than
 assuming another writer is gone. A committed journal only needs cleanup and may
 open normally. If rollback or journal cleanup fails, or the record is malformed
-or unreadable, CubeLab shows a retry-only recovery state with no editable
-collection, autosave or timing controls. A key whose failed write left its
+or unreadable, CubeLab shows the recovery center with no editable collection,
+autosave or timing controls. A key whose failed write left its
 previous bytes intact is not rewritten during rollback, so a still-failing
 quota does not turn an otherwise complete rollback into a false failure.
+Unreadable synchronization provenance also blocks sync publication and cannot be
+overwritten by a fresh ledger.
 
 Other tabs ignore a prepared replacement. A committed replacement is adopted as
 one sessions/settings/sync/selection outcome; while the timer is armed, inspecting
@@ -1376,8 +1389,12 @@ Storage keys are versioned:
 - `cubelab:recovery:v1`, `cubelab:replacement:v1` and
   `cubelab:replacement-completion:v1` — local-only Undo, replacement-journal and
   completion-buffer records used by destructive imports, restores and resets.
+  `cubelab:upgrade-archive:v1:*` and `cubelab:upgrade-archive-index:v1` hold the
+  localStorage fallback for verified pre-upgrade archives;
+  `cubelab:persistence-request:v1` records that persistence was requested once.
   `cubelab:site-reset-signal:v1` coordinates a full reset across open tabs.
-  These recovery records are not included in native backups or Drive snapshots.
+  These recovery records are not included in native backups or Drive snapshots,
+  but the emergency recovery package includes the exact CubeLab-owned records.
 
 Each session contains `id`, `name`, optional `event` and `preferences`,
 `createdAt`, `updatedAt`, `solves`, an optional `inspectionEnabled` override, and

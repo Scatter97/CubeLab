@@ -152,11 +152,18 @@ Sections below are updated as each phase is verified.
   re-reads the archive, validates the complete candidate, starts the existing
   replacement journal (`kind: 'upgrade'`), writes both candidates, verifies the
   exact bytes, records the commit marker, revalidates schemas, and only then
-  clears the journal. A failure before/after any boundary restores or retains a
+  clears the journal. The journal stores only the archive ID, not a second copy
+  of a large history, so migration does not fail at the localStorage quota
+  boundary. A failure before/after any boundary restores or retains a
   recoverable state; already-current canonical records are not rewritten.
+- A committed cleanup-pending journal no longer blocks startup forever: the
+  migration archives and writes the required older-schema candidate while
+  leaving that journal for normal cleanup. A committed journal is never rolled
+  back as if it were prepared.
 - The replacement journal is the only transaction marker. Prepared upgrades roll
-  back at startup; committed upgrades roll forward. The archive is separate and
-  is never treated as a substitute for the journal.
+  back at startup (from the verified archive when the journal carries an archive
+  ID); committed upgrades roll forward. The archive is separate and is never
+  treated as a substitute for the journal.
 - Verification: `npm run typecheck`, `npm run lint` and
   `npm test -- src/lib/upgradeArchive.test.ts src/lib/startupMigration.test.ts
   src/lib/startupRecovery.test.ts src/hooks/useSettings.test.ts
@@ -290,3 +297,213 @@ Sections below are updated as each phase is verified.
 
 
 
+
+## Data-safety model
+
+1. **Ownership first.** `cubelab-active-tab` is acquired for the document
+   lifetime before replacement recovery, migration or editable hooks. Waiting
+   tabs never read for editing, autosave, recover or sync.
+2. **Checked reads before writable state.** Authoritative sessions, settings and
+   sync provenance use discriminated readers. `absent` is distinct from
+   unreadable, malformed, unsupported and future data. A checked read never
+   writes and never returns a writable default for corrupt bytes.
+3. **Preserve source bytes.** Migration archives the exact pre-upgrade strings,
+   verifies the archive by re-reading it and only then starts a journaled
+   candidate write. Failed or interrupted steps leave either the previous state
+   or a fully committed, revalidated state.
+4. **One transaction marker.** The existing replacement journal is the only
+   upgrade commit marker. There is no competing migration journal. Prepared
+   upgrades roll back; committed upgrades roll forward.
+5. **Validation before publication.** Cross-tab and replacement adoption
+   validates every participating collection first. A failed collection prevents
+   publication of the others.
+6. **No deletion from failed reads.** Sync starts blocked when provenance is
+   unreadable, writes are refused over invalid provenance, and invalid external
+   session collections are ignored rather than interpreted as deliberate
+   deletion.
+7. **Recovery remains accessible.** A blocked startup exposes exact-byte export,
+   verified local archive restore and an explicitly confirmed local reset without
+   opening editable hooks.
+
+## Checked read requirements
+
+- Use `loadSessionsChecked`, `loadSessionsForStartup`, `loadSettingsChecked`,
+  `loadSettingsForStartup`, `loadSyncStorageChecked` or `loadTraining` for any
+  value that can become writable state, be published, or be used to derive
+  tombstones.
+- The tolerant `loadSettings()`/`loadSessions()` readers remain only for
+  read-only presentation such as csTimer import-option selection. Their fallback
+  results must never be passed to `replaceSessions`, `replaceSettings`, sync
+  publication or storage writes.
+- A checked session result also rejects a collection in which any stored session
+  or solve would be silently dropped by the tolerant parser. This keeps
+  mixed-validity collections available for recovery instead of rewriting the
+  valid subset.
+- Unknown future versions fail closed in this build. Older supported versions
+  migrate through documented field defaults; no future-version data is rewritten.
+
+## Upgrade archive format and retention
+
+`src/lib/upgradeArchive.ts` writes records with:
+
+- `format: "cubelab-upgrade-archive"` and format version 1;
+- unique ID, creation time, application release version and reason
+  (`schema-migration`, `legacy-migration`, `normalization`, `pre-restore`);
+- source schema versions, included key names, and per-key present/absent state;
+- the exact original strings (never parse/reserialize);
+- per-entry length/checksum and an overall FNV-1a manifest;
+- status `verified`, `complete` or `failed`.
+
+IndexedDB database `cubelab-upgrade-archive` is preferred. A CubeLab-owned
+localStorage fallback is used only when IndexedDB cannot be opened. The archive
+is re-read after writing; a mismatch deletes the attempted archive and blocks
+migration. Retention keeps the two newest verified archives plus the newest
+completed checkpoint. Cleanup only deletes records that re-read and verify.
+
+## Migration protocol and crash recovery
+
+`runStartupMigration` runs after lifetime ownership and replacement/completion
+recovery:
+
+1. Read sessions/settings strictly (plus legacy solves when applicable).
+2. Decide whether an older/legacy representation needs migration. Current
+   canonical records cause no write.
+3. Create and verify the raw archive.
+4. Build and validate the complete candidate in memory.
+5. Start a `kind: "upgrade"` replacement journal.
+6. Write candidate keys, re-read exact bytes, and revalidate schemas.
+7. Write the durable commit marker, re-read and revalidate again.
+8. Clear the journal, mark the archive complete and apply retention.
+
+A crash before step 7 leaves a prepared journal that startup rolls back. A crash
+after step 7 leaves a committed journal that startup rolls forward and cleans up.
+The archive is retained independently. Failure injection covers every boundary
+listed in Phase 2. An archive failure performs zero candidate writes and leaves
+the source bytes intact.
+
+## Export, restore and reset
+
+- Recovery packages use `{ app: "CubeLab", format: "cubelab-recovery",
+  version: 1 }`, an exact-record allowlist, per-record checksums and an overall
+  manifest. They include sessions, legacy solves, settings, Training, solve sync,
+  Drive metadata, Training sync, replacement/Undo/completion records, onboarding
+  and accessible upgrade archives. They exclude UI-only tool preferences,
+  unrelated origin storage and in-memory OAuth tokens.
+- A verified archive restore first creates a `pre-restore` archive, then writes
+  only sessions/legacy solves/settings through the replacement journal and
+  verifies exact read-back. It requires preview and explicit confirmation.
+- `RESET CUBELAB` requires a successfully prepared recovery package, an explicit
+  saved-file acknowledgement and the exact phrase. It removes local data and
+  recovery records but keeps verified upgrade archives, caches, the service
+  worker and all remote Drive files. It never starts Drive sync.
+- A browser download starting is not evidence that a file reached disk. The UI
+  states this and cannot prove durable save.
+
+## Synchronization suspension and quota behavior
+
+- An invalid sync ledger starts the sync hook in a failed blocked state. Sync
+  publication is skipped, and `saveSyncStorage` refuses to overwrite invalid
+  existing provenance.
+- A committed replacement is adopted only after sessions, settings and sync
+  provenance all validate. Invalid external session/settings bytes are ignored.
+- Quota failures return `false`, retain the previous durable collection and
+  verified archive, and surface `storageOk`/error status. No fallback empty
+  collection is written. Recovery export remains available when the browser can
+  still read storage.
+
+## Remaining limitations
+
+- This is not incremental session storage; ordinary saves still rewrite the
+  complete collection.
+- Browser storage clearing, profile loss or catastrophic storage failure cannot
+  be prevented. Persistence is advisory.
+- Historical deployed clients that predate these checks can still rewrite newer
+  data if loaded from an old cache. This build cannot retroactively harden them.
+- Emergency recovery exports can exceed browser/download/filesystem capacity for
+  extremely large histories; the 250k-solve synthetic package is about 47 MiB.
+- Training v1 has no historical schema migration. A verified archive restore does
+  not replace Training; Training keeps its separate backup/sync path.
+- Recovery export cannot prove durable file saving, and local recovery is not a
+  substitute for an independent backup.
+- No guarantee is made against arbitrary browser defects, hostile extensions or
+  physical storage failure.
+
+## Extending compatibility fixtures
+
+1. Decide whether the schema version must increase. Never add a silent unknown
+   field to sessions/settings; Training permits documented additive fields.
+2. Add a new immutable fixture under `tests/fixtures/storage/` and update its
+   README. Keep every older fixture unchanged.
+3. Extend `frozenStorageCompatibility.test.ts` with the round trip and negative
+   cases, including zero-write assertions.
+4. Add migration/failure-injection coverage for every new boundary and review
+   native backup, Drive snapshot/envelope, Training sync, tombstone and rollback
+   compatibility.
+5. Record the downgrade behavior and recovery/archive impact in this document,
+   `AGENTS.md` and `KNOWN_LIMITATIONS.md`.
+6. Run `npm run check:data`, typecheck, lint and the affected browser specs.
+
+## Phase 8 — final verification (2026-11-21)
+
+Final commands and results on branch `fix/data-integrity-hardening`:
+
+```bash
+npm run typecheck     # passed
+npm run lint          # passed with pre-existing warnings only
+npm run check:data    # 17 files, 353 tests passed
+npm test              # 128 files, 1667 tests passed
+npm run build         # passed; PWA 80 precache entries (4056.74 KiB)
+npm run test:e2e      # full three-project attempt, see below
+```
+
+The full `npm run test:e2e` attempt ran 509 tests successfully and exposed 299
+failures: all 287 WebKit cases could not launch because the installed WebKit
+bundle is missing `minibrowser-wpe/sys/lib/libflite.so.1`, and 12 Chromium
+failures were fixed after diagnosis. The Chromium failures were caused by two
+real integration issues found here:
+
+1. The archive IndexedDB connection stayed open, blocking explicit site reset
+   deletion. Archive operations now open and close the database per operation
+   and combine IDB with the localStorage fallback for reads.
+2. The upgrade journal duplicated the full previous collection in localStorage,
+   exceeding quota for a 7,000-solve history. Upgrade/restore journals now carry
+   only a verified archive ID plus a commit marker; large before-images remain in
+   the archive.
+
+After those fixes, the complete Chromium project passed:
+
+```bash
+CI=1 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  --project=chromium --workers=4 --retries=0
+# 271 passed (5.9m)
+```
+
+This includes production PWA offline coverage, both Training offline/Drive
+suites, single-tab ownership, cross-tab replacement, site reset, Storage Safety
+recovery/export/archive restore, all destructive session/import/conflict flows,
+and the mock-Drive matrix.
+
+Focused Chromium reruns after the final journal changes:
+
+```bash
+CI=1 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/storage-safety.spec.ts e2e/single-tab.spec.ts e2e/cross-tab-timing.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# 17 passed
+```
+
+Firefox has pre-existing Apple/Firefox-specific layout/touch failures unrelated
+to this task. A representative mobile 2×2 and statistics-resize failure was
+reproduced unchanged on the `master` baseline (`3dd5aea`). Firefox safety-
+relevant cases (site reset, committed-cleanup, large-session stop, csTimer
+import) passed. WebKit remains unverified on this machine until its Playwright
+system libraries are repaired.
+
+`npm run validate:drive` was intentionally not run: it requires explicit live
+Google Drive authorization and a short-lived credential, neither of which was
+provided. Mock Drive coverage is reported separately.
+
+**Safety verdict:** the specific pre-release data-loss paths addressed by this
+task are closed and covered by failing-before/passing-after tests. The remaining
+unverified items are platform/environment coverage (WebKit and pre-existing
+Firefox layout/touch behavior), not the data-safety contract.

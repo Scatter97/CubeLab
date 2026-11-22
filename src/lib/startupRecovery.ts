@@ -5,10 +5,17 @@ import {
 } from './driveCoordination'
 import {
   getDefaultReplacementStorage,
+  clearReplacementJournal,
   loadReplacementJournal,
   recoverPendingReplacement,
+  type ReplacementJournal,
   type ReplacementRecovery,
 } from './replacement'
+import {
+  openDefaultUpgradeArchiveStore,
+  verifyUpgradeArchiveRecord,
+  type UpgradeArchiveStore,
+} from './upgradeArchive'
 import type { StorageLike } from './storage'
 
 export type StartupReplacementResult =
@@ -18,6 +25,7 @@ export type StartupReplacementResult =
 export interface StartupReplacementOptions {
   storage?: StorageLike | null
   lockManager?: DriveLockManager | null
+  archiveStore?: UpgradeArchiveStore
 }
 
 const PREPARED_PENDING_MESSAGE =
@@ -48,9 +56,75 @@ function recoveryResult(
   return { status: 'ready', recovery }
 }
 
+async function rollbackArchivedReplacement(
+  journal: ReplacementJournal,
+  storage: StorageLike,
+  archiveStore: UpgradeArchiveStore | undefined,
+): Promise<{ ok: boolean; message?: string }> {
+  if (!journal.archiveId) return { ok: false, message: 'The upgrade archive ID is missing.' }
+  let store = archiveStore
+  if (!store) {
+    try {
+      store = await openDefaultUpgradeArchiveStore(storage)
+    } catch {
+      return {
+        ok: false,
+        message:
+          'The pre-upgrade archive could not be opened, so the interrupted upgrade was not rolled back.',
+      }
+    }
+  }
+  let archive = await store.get(journal.archiveId)
+  if (!archive || !verifyUpgradeArchiveRecord(archive)) {
+    return {
+      ok: false,
+      message:
+        'The verified pre-upgrade archive is missing or damaged. Editing stays blocked to protect the original data.',
+    }
+  }
+  for (const [key, entry] of Object.entries(archive.entries)) {
+    try {
+      if (entry.present) {
+        storage.setItem(key, entry.raw!)
+      } else {
+        if (!storage.removeItem) {
+          return {
+            ok: false,
+            message: 'This browser cannot remove an upgraded record during rollback.',
+          }
+        }
+        storage.removeItem(key)
+      }
+    } catch {
+      return {
+        ok: false,
+        message:
+          'The pre-upgrade archive could not be written back. Free browser storage, then retry.',
+      }
+    }
+  }
+  for (const [key, entry] of Object.entries(archive.entries)) {
+    let actual: string | null
+    try {
+      actual = storage.getItem(key)
+    } catch {
+      actual = null
+    }
+    if (actual !== (entry.present ? entry.raw : null)) {
+      return {
+        ok: false,
+        message:
+          'The pre-upgrade archive did not read back exactly. Editing stays blocked.',
+      }
+    }
+  }
+  return { ok: true }
+}
+
 async function recoverPreparedUnderLock(
   storage: StorageLike,
   lockManager: DriveLockManager,
+  archiveStore: UpgradeArchiveStore | undefined,
 ): Promise<StartupReplacementResult> {
   try {
     return await lockManager.request(
@@ -69,6 +143,29 @@ async function recoverPreparedUnderLock(
             recoverPendingReplacement(storage),
             false,
           )
+        }
+        if (loaded.journal.archiveId) {
+          const rolledBack = await rollbackArchivedReplacement(
+            loaded.journal,
+            storage,
+            archiveStore,
+          )
+          if (!rolledBack.ok) {
+            return {
+              status: 'blocked',
+              message:
+                rolledBack.message ??
+                'The interrupted upgrade could not be rolled back.',
+            }
+          }
+          if (!clearReplacementJournal(storage)) {
+            return {
+              status: 'blocked',
+              message:
+                'The previous data was restored, but the upgrade recovery record could not be cleared. Free browser storage, then retry.',
+            }
+          }
+          return { status: 'ready', recovery: { status: 'rolled-back' } }
         }
         return recoveryResult(
           recoverPendingReplacement(storage),
@@ -122,5 +219,9 @@ export async function recoverReplacementAtStartup(
   if (!lockManager) {
     return { status: 'blocked', message: NO_LOCK_MESSAGE }
   }
-  return recoverPreparedUnderLock(storage, lockManager)
+  return recoverPreparedUnderLock(
+    storage,
+    lockManager,
+    options.archiveStore,
+  )
 }

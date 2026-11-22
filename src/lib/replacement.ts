@@ -39,6 +39,12 @@ export interface ReplacementJournal {
   createdAt: number
   /** Raw local-storage values captured before the first candidate write. */
   before: Partial<Record<ReplacementKey, string | null>>
+  /**
+   * Set for a large upgrade/restore whose previous bytes live in the verified
+   * archive instead of the localStorage journal. A prepared record must be
+   * rolled back from that archive before editing resumes.
+   */
+  archiveId?: string
 }
 
 export type ReplacementJournalLoad =
@@ -99,7 +105,9 @@ function parseJournal(value: unknown): ReplacementJournal | null {
     typeof value.createdAt !== 'number' ||
     !Number.isFinite(value.createdAt) ||
     value.createdAt < 0 ||
-    !isRecord(value.before)
+    !isRecord(value.before) ||
+    (value.archiveId !== undefined &&
+      (typeof value.archiveId !== 'string' || value.archiveId.length === 0))
   ) {
     return null
   }
@@ -119,6 +127,9 @@ function parseJournal(value: unknown): ReplacementJournal | null {
     phase: value.phase,
     createdAt: value.createdAt,
     before,
+    ...(typeof value.archiveId === 'string' && value.archiveId.length > 0
+      ? { archiveId: value.archiveId }
+      : {}),
   }
 }
 
@@ -230,6 +241,58 @@ export function beginReplacement(
   return { ok: true, journal }
 }
 
+/**
+ * Starts an upgrade/restore whose previous bytes were already captured in a
+ * verified archive. The journal stays tiny, so a large history does not double
+ * its localStorage footprint at the quota boundary.
+ */
+export function beginArchivedReplacement(
+  kind: ReplacementKind,
+  archiveId: string,
+  storage: StorageLike | null = getDefaultStorage(),
+): BeginReplacementResult {
+  const existing = loadReplacementJournal(storage)
+  if (existing.status !== 'none') {
+    return {
+      ok: false,
+      error:
+        existing.status === 'invalid'
+          ? existing.message
+          : 'Another replacement recovery record is still pending.',
+    }
+  }
+  if (!storage) {
+    return {
+      ok: false,
+      error: 'Browser storage is unavailable; nothing was replaced.',
+    }
+  }
+  if (!archiveId) {
+    return {
+      ok: false,
+      error: 'A verified recovery archive is required before this upgrade.',
+    }
+  }
+  const journal: ReplacementJournal = {
+    version: REPLACEMENT_VERSION,
+    operationId: createId(),
+    kind,
+    phase: 'prepared',
+    createdAt: Date.now(),
+    before: {},
+    archiveId,
+  }
+  if (!saveJournal(journal, storage)) {
+    clearReplacementJournal(storage)
+    return {
+      ok: false,
+      error:
+        'The replacement recovery record could not be saved. Nothing was replaced.',
+    }
+  }
+  return { ok: true, journal }
+}
+
 /** Durably records the commit point. After this succeeds, recovery rolls forward. */
 export function markReplacementCommitted(
   journal: ReplacementJournal,
@@ -311,6 +374,12 @@ export function recoverPendingReplacement(
 
   const journal = loaded.journal
   if (journal.phase === 'prepared') {
+    if (journal.archiveId) {
+      // The raw pre-upgrade values are in the verified archive. The synchronous
+      // recovery path cannot open IndexedDB, so startup recovery must restore
+      // them explicitly before this record is cleared.
+      return { status: 'cleanup-pending', journal }
+    }
     if (!rollbackReplacement(journal, storage)) {
       return { status: 'cleanup-pending', journal }
     }
