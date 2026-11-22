@@ -192,10 +192,12 @@ WebKit.
   sync, backup-export and Training guards to use the checked result. Valid v1
   journals may still salvage individually parseable operations, preserving the
   documented compatibility behavior.
-- **Commit:** `6631ed7`.
-- **Evidence:** `src/lib/solveRecovery.test.ts` (invalid JSON and future version
-  keep exact bytes and reject writes) and `src/hooks/useSync.test.ts`; affected
-  Chromium/Firefox/WebKit safety suites pass.
+- **Commits:** `6631ed7`; `8af361b` additionally keeps a v1 journal whose every
+  operation is unusable instead of salvaging it as an empty list.
+- **Evidence:** `src/lib/solveRecovery.test.ts` (invalid JSON, future version
+  and all-invalid v1 keep exact bytes and reject writes) and
+  `src/hooks/useSync.test.ts`; affected Chromium/Firefox/WebKit safety suites
+  pass.
 
 ## 4. Recovery and compatibility review
 
@@ -267,15 +269,24 @@ is reported separately.
   matching the longstanding native-import compatibility contract; the source
   backup file remains available. This is separate from checked local startup
   reads.
+- **Medium, recovery export:** a transient per-key `getItem` failure is recorded
+  as an absent record rather than a read failure. If `removeItem` still
+  succeeded, an export-and-reset could omit that key. The reset is gated on a
+  fresh package and explicit acknowledgement, but the package cannot distinguish
+  this case. A selective read/write asymmetry was not observed in testing.
+- **Medium, legacy data:** a non-empty `cubelab:solves:v1` record with no usable
+  3×3 solves is still reported as `absent`, so the app creates an empty sessions
+  key and prefers it. The legacy bytes remain available in the recovery package;
+  they are not deleted.
 
 ## 7. Merge gate and result
 
 | Gate | Status |
 | --- | --- |
 | All eight commits inspected | Passed |
-| No unresolved critical/high data-loss defect | Passed after F-01 |
+| No unresolved critical/high data-loss defect | Passed after F-01, F-08 and F-09 |
 | Regression tests for corrected defects | Passed |
-| Chromium full suite | Passed (272/272) |
+| Chromium full suite | Passed 272/272 on the merged tree; 271/272 after the final provenance fixes with one unrelated startup timeout passing alone |
 | Firefox data-safety suite | Passed; 15 documented pre-existing UI failures |
 | WebKit data-safety suite | Passed (30/30 at two workers); 8 documented pre-existing UI failures |
 | Unit, typecheck, lint, data checks and build | Passed |
