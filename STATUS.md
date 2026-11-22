@@ -18,6 +18,12 @@ are in [DATA_SAFETY_FINAL_AUDIT.md](docs/development/DATA_SAFETY_FINAL_AUDIT.md)
   startup and again at the Undo operation boundary; the buffer/journal stays
   pending and backup export refuses to materialize an Undo without trustworthy
   deletion records.
+- An independent post-merge review found two further provenance gaps. A failed
+  single-session deletion now revokes the solve tombstones created for it, not
+  only the session tombstone, so a later merge cannot delete the retained
+  session's solves. The private Undo journal now has a checked reader and
+  refuses writes over invalid JSON, read errors or future versions; sync,
+  replacement, backup export and Training guards use it.
 - Added the `cubelab-upgrade-archive` database to the site-reset fallback list
   so explicit resets remove verified archives even without
   `indexedDB.databases()`.
@@ -34,8 +40,8 @@ Verification (final tree):
 ```bash
 npm run typecheck     # passed
 npm run lint          # passed; pre-existing warnings only
-npm run check:data    # 17 files, 356 tests passed
-npm test              # 128 files, 1670 tests passed
+npm run check:data    # 17 files, 357 tests passed
+npm test              # 128 files, 1672 tests passed
 npm run build         # passed; production/PWA output
 npm run test:e2e -- --project=chromium --workers=4 --retries=0
 # 272 passed
@@ -52,12 +58,15 @@ Google Drive, physical devices and screen readers were not exercised.
 
 Merged locally into `master` as `346b50a` with a regular `--no-ff` merge. The
 pre-merge hardening head was `64ba2e2`; the original branch head was `7dddd9c`.
-Post-merge typecheck, lint, `check:data` (356 tests), the full unit suite
-(128 files / 1670 tests), the production build and full Chromium (272/272)
-passed. The focused WebKit safety set passed 30/30 at two workers. Nothing was
-pushed or deployed. One WebKit Training Drive sync case is timing-sensitive
-under a full four-worker run; it passes alone and at two workers and is not a
-data-safety failure.
+Post-merge typecheck, lint, `check:data` (357 tests), the full unit suite
+(128 files / 1672 tests) and the production build passed. The independent review
+corrections are in `6631ed7`; the affected Chromium set passed 41/41 and
+Firefox 40/40. Full Chromium passed 272/272 on the merged tree and 271/272 after
+the corrections, with one unrelated app-startup timeout that passed alone. The
+focused WebKit safety set passed 30/30 at two workers. Nothing was pushed or
+deployed. One WebKit Training Drive sync case is timing-sensitive under a full
+four-worker run; it passes alone and at two workers and is not a data-safety
+failure.
 
 ## Data-integrity hardening — 2026-11-21
 

@@ -162,6 +162,41 @@ cross-tab timing, site reset, solve/settings recovery, mock Drive and Training
 backup/sync (30/30). The manually unskipped offline-PWA case also passes in
 WebKit.
 
+### F-08 — High (fixed after independent post-merge review): failed session deletion left solve tombstones
+
+- **Affected code:** `src/App.tsx`, `src/hooks/useSync.ts`.
+- **Defect:** `recordSessionDeletion` writes a session tombstone and one solve
+  tombstone per solve. If the local session deletion then failed (for example,
+  the last-session guard or a storage write failure), the UI revoked only the
+  session tombstone. The active solve tombstones remained global, so a later
+  merge could delete those solves from the session that was still present.
+- **Action:** session rollback now accepts the deletion's solve IDs and revokes
+  both the session tombstone and its matching solve tombstones. A regression
+  asserts no active solve tombstone remains after rollback.
+- **Commit:** `6631ed7`.
+- **Evidence:** `src/hooks/useSync.test.ts`; Chromium session-management 34/34,
+  Firefox 40/40 focused safety cases, WebKit storage safety and the focused
+  session-management case (one parallel WebKit run flaked, then passed alone).
+
+### F-09 — High (fixed after independent post-merge review): tolerant Undo journal could be overwritten
+
+- **Affected code:** `src/lib/solveRecovery.ts`, plus its sync, replacement,
+  backup-export and Training guards.
+- **Defect:** the private `cubelab:recovery:v1` journal used a tolerant reader
+  that returned an empty operation list for invalid JSON, read errors and future
+  versions. `addPendingSolveRestore`/`removePendingSolveRestore` then wrote a
+  fresh journal, discarding the original pending Undo bytes. Replacement, sync
+  and backup export also treated the unreadable journal as "no pending Undo".
+- **Action:** added `loadSolveRecoveryChecked`, made `saveSolveRecovery` refuse
+  to overwrite unreadable/future bytes, and changed the operation, replacement,
+  sync, backup-export and Training guards to use the checked result. Valid v1
+  journals may still salvage individually parseable operations, preserving the
+  documented compatibility behavior.
+- **Commit:** `6631ed7`.
+- **Evidence:** `src/lib/solveRecovery.test.ts` (invalid JSON and future version
+  keep exact bytes and reject writes) and `src/hooks/useSync.test.ts`; affected
+  Chromium/Firefox/WebKit safety suites pass.
+
 ## 4. Recovery and compatibility review
 
 - Recovery packages contain exact allowlisted CubeLab records, present/absent
@@ -190,10 +225,10 @@ credential or production account was used.
 | --- | --- |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed; pre-existing warnings only |
-| `npm run check:data` | 17 files, 356 tests passed |
-| `npm test` | 128 files, 1670 tests passed |
+| `npm run check:data` | 17 files, 357 tests passed |
+| `npm test` | 128 files, 1672 tests passed |
 | `npm run build` | Passed; production/PWA output restored |
-| Chromium full E2E | 272 passed |
+| Chromium full E2E | 272 passed on the merged tree; 271 passed after the post-merge provenance fixes, with one unrelated app-startup timeout that passed alone |
 | Firefox full E2E | 252 passed, 15 pre-existing failures, 5 skipped |
 | WebKit full E2E | 258 passed, 8 pre-existing failures, 1 load-sensitive case passed alone, 5 skipped |
 | WebKit focused data-safety | 30/30 passed |
@@ -254,13 +289,18 @@ cross-browser safety verification`) on local `master`, using a regular
 head before merge was `64ba2e2`; `master` and `origin/master` were both at
 `3dd5aea` before the merge. Nothing was pushed or deployed.
 
-**Post-merge verification on `master`:** typecheck, lint, `check:data` (356
-tests), the full unit suite (128 files / 1670 tests) and the production build
-passed. Full Chromium passed 272/272. The focused WebKit data-safety set passed
-30/30 at two workers; the same set at four workers reproduced one load-sensitive
-Training sync timeout that passes alone and passed at two workers. The Firefox
-safety set retained only the documented pre-existing session-drag failure; the
-full Firefox/WebKit matrices were already run on the identical branch tree.
+**Post-merge verification on `master`:** typecheck, lint, `check:data` (357
+tests), the full unit suite (128 files / 1672 tests) and the production build
+passed. An independent post-merge review then found F-08/F-09; both were fixed
+and regression-tested in `6631ed7`. The affected Chromium session-management
+and storage-safety set passed 41/41; Firefox passed 40/40 focused safety cases;
+WebKit storage safety passed and its focused data-safety set passed 30/30 at two
+workers. Full Chromium passed 272/272 on the merged tree and 271/272 after the
+provenance fixes, with one unrelated app-startup timeout that passed alone. The
+same WebKit set at four workers reproduced one load-sensitive Training sync
+timeout that passes alone. The Firefox safety set retained only the documented
+pre-existing session-drag failure; the full Firefox/WebKit matrices were already
+run on the identical branch tree.
 
 One WebKit Training Drive sync case is timing-sensitive under a full four-worker
 run. It is not a data-loss or provenance failure: it passes alone, passed in the
