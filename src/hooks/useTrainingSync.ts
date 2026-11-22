@@ -26,7 +26,7 @@ import {
   type TrainingFieldUpdates,
 } from '../lib/trainingSyncStorage'
 import { loadReplacementJournal } from '../lib/replacement'
-import { loadSolveRecovery } from '../lib/solveRecovery'
+import { loadSolveRecoveryChecked } from '../lib/solveRecovery'
 import { loadPendingCompletion } from '../lib/pendingCompletion'
 import { runWithDriveWriteLock } from '../lib/driveCoordination'
 
@@ -105,7 +105,9 @@ function guardReason(
   if (journal.status === 'ok' && journal.journal.phase === 'prepared') {
     return 'A replacement recovery record is pending.'
   }
-  if (loadSolveRecovery().operations.length > 0) {
+  const pendingUndo = loadSolveRecoveryChecked()
+  if (!pendingUndo.ok) return pendingUndo.message
+  if (pendingUndo.data.operations.length > 0) {
     return 'Finish the pending solve Undo recovery first.'
   }
   const completion = loadPendingCompletion()

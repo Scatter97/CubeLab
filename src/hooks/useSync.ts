@@ -8,7 +8,7 @@ import type { DriveTransport } from '../lib/driveTransport'
 import { isDrivePreconditionError } from '../lib/driveTransport'
 import {
   applyPendingSolveRestores,
-  loadSolveRecovery,
+  loadSolveRecoveryChecked,
   saveSolveRecovery,
 } from '../lib/solveRecovery'
 import {
@@ -154,7 +154,11 @@ export interface UseSyncResult {
    * write. Used by the destructive "delete all sessions" action.
    */
   recordAllSessionDeletions: (sessions: readonly Session[]) => boolean
-  restoreDeletion: (kind: 'solve' | 'session' | 'event', id: string) => boolean
+  restoreDeletion: (
+    kind: 'solve' | 'session' | 'event',
+    id: string,
+    knownSolveIds?: readonly string[],
+  ) => boolean
   /**
    * Marks an additive import as a local change without clearing tombstones,
    * redirects, approvals, field metadata or other review state.
@@ -644,11 +648,30 @@ export function useSync({
    * deletion gets a newer `deletedAt` and wins deterministically.
    */
   const restoreDeletion = useCallback(
-    (kind: 'solve' | 'session' | 'event', id: string): boolean => {
+    (
+      kind: 'solve' | 'session' | 'event',
+      id: string,
+      knownSolveIds?: readonly string[],
+    ): boolean => {
       const now = Date.now()
       let changed = false
+      const sessionTombstone =
+        kind === 'session'
+          ? syncRef.current.runtime.tombstones.find(
+              (tombstone) => tombstone.kind === 'session' && tombstone.id === id,
+            )
+          : undefined
+      const solveIds = new Set([
+        ...(knownSolveIds ?? []),
+        ...(sessionTombstone?.knownSolveIds ?? []),
+      ])
       const tombstones = syncRef.current.runtime.tombstones.map((tombstone) => {
-        if (tombstone.kind !== kind || tombstone.id !== id) return tombstone
+        const matches =
+          (tombstone.kind === kind && tombstone.id === id) ||
+          (kind === 'session' &&
+            tombstone.kind === 'solve' &&
+            solveIds.has(tombstone.id))
+        if (!matches) return tombstone
         if (tombstone.restoredAt !== undefined && tombstone.restoredAt >= now) {
           return tombstone
         }
@@ -1029,14 +1052,17 @@ export function useSync({
     if (!provenance.ok) {
       return { ok: false, recovered: 0, discarded: 0, aborted: 0 }
     }
-    const recovery = loadSolveRecovery()
-    if (recovery.operations.length === 0) {
+    const recovery = loadSolveRecoveryChecked()
+    if (!recovery.ok) {
+      return { ok: false, recovered: 0, discarded: 0, aborted: 0 }
+    }
+    if (recovery.data.operations.length === 0) {
       return { ok: true, recovered: 0, discarded: 0, aborted: 0 }
     }
     const result = applyPendingSolveRestores({
       data: sessionsRef.current,
       tombstones: provenance.data.runtime.tombstones,
-      operations: recovery.operations,
+      operations: recovery.data.operations,
     })
     if (result.data !== sessionsRef.current) {
       if (!saveSessions(result.data)) {
@@ -1047,7 +1073,7 @@ export function useSync({
     }
     if (
       !saveSolveRecovery({
-        ...recovery,
+        ...recovery.data,
         operations: result.remaining,
       })
     ) {
@@ -1976,7 +2002,15 @@ export function useSync({
   // renders; notifications are deduplicated by the journal operation set.
   useEffect(() => {
     if (!storageOk || timerActive) return
-    const recovery = loadSolveRecovery()
+    const checked = loadSolveRecoveryChecked()
+    if (!checked.ok) {
+      if (recoveryNoticeRef.current !== 'unreadable') {
+        recoveryNoticeRef.current = 'unreadable'
+        onNotifyRef.current(checked.message)
+      }
+      return
+    }
+    const recovery = checked.data
     if (recovery.operations.length === 0) return
     const operationIds = recovery.operations
       .map((operation) => operation.operationId)

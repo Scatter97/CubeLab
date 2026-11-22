@@ -98,33 +98,122 @@ export function createEmptySolveRecoveryData(): SolveRecoveryData {
   return { version: SOLVE_RECOVERY_VERSION, operations: [] }
 }
 
+export type CheckedSolveRecoveryFailureReason =
+  | 'unavailable'
+  | 'read-error'
+  | 'invalid-json'
+  | 'invalid-schema'
+  | 'unsupported-version'
+
+export type CheckedSolveRecoveryResult =
+  | { ok: true; data: SolveRecoveryData; raw: string | null }
+  | {
+      ok: false
+      reason: CheckedSolveRecoveryFailureReason
+      raw: string | null | undefined
+      message: string
+    }
+
+function parseSolveRecoveryValue(value: unknown): SolveRecoveryData | null {
+  if (
+    !isRecord(value) ||
+    value.version !== SOLVE_RECOVERY_VERSION ||
+    !Array.isArray(value.operations)
+  ) {
+    return null
+  }
+  const operations: PendingSolveRestore[] = []
+  const solveIds = new Set<string>()
+  for (const candidate of value.operations) {
+    const operation = parsePendingSolveRestore(candidate)
+    if (!operation || solveIds.has(operation.solve.id)) continue
+    solveIds.add(operation.solve.id)
+    operations.push(operation)
+  }
+  return { version: SOLVE_RECOVERY_VERSION, operations }
+}
+
+/**
+ * Strict reader for the local Undo journal. Invalid JSON, read failures and
+ * future versions fail closed so a later Undo cannot overwrite the only copy
+ * of another pending restoration. A valid v1 record may still salvage its
+ * individually parseable operations; that compatibility is intentional.
+ */
+export function loadSolveRecoveryChecked(
+  storage: StorageLike | null = getDefaultStorage(),
+): CheckedSolveRecoveryResult {
+  if (!storage) {
+    return {
+      ok: false,
+      reason: 'unavailable',
+      raw: undefined,
+      message:
+        'The Undo recovery journal could not be read because browser storage is unavailable.',
+    }
+  }
+  let raw: string | null
+  try {
+    raw = storage.getItem(SOLVE_RECOVERY_STORAGE_KEY)
+  } catch {
+    return {
+      ok: false,
+      reason: 'read-error',
+      raw: undefined,
+      message:
+        'The Undo recovery journal could not be read. The original record has been kept and writes are paused.',
+    }
+  }
+  if (raw === null) {
+    return { ok: true, data: createEmptySolveRecoveryData(), raw }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {
+      ok: false,
+      reason: 'invalid-json',
+      raw,
+      message:
+        'The Undo recovery journal is not valid JSON. The original record has been kept and writes are paused.',
+    }
+  }
+  if (!isRecord(parsed) || typeof parsed.version !== 'number') {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'The Undo recovery journal has an unsupported format. The original record has been kept and writes are paused.',
+    }
+  }
+  if (parsed.version !== SOLVE_RECOVERY_VERSION) {
+    return {
+      ok: false,
+      reason: 'unsupported-version',
+      raw,
+      message: `The Undo recovery journal uses version ${parsed.version}, which this build cannot safely edit. The original record has been kept and writes are paused.`,
+    }
+  }
+  const data = parseSolveRecoveryValue(parsed)
+  if (!data) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'The Undo recovery journal has an unsupported format. The original record has been kept and writes are paused.',
+    }
+  }
+  return { ok: true, data, raw }
+}
+
+/** Tolerant read-only convenience. Writable callers must use the checked form. */
 export function loadSolveRecovery(
   storage: StorageLike | null = getDefaultStorage(),
 ): SolveRecoveryData {
-  if (!storage) return createEmptySolveRecoveryData()
-  try {
-    const raw = storage.getItem(SOLVE_RECOVERY_STORAGE_KEY)
-    if (!raw) return createEmptySolveRecoveryData()
-    const parsed: unknown = JSON.parse(raw)
-    if (
-      !isRecord(parsed) ||
-      parsed.version !== SOLVE_RECOVERY_VERSION ||
-      !Array.isArray(parsed.operations)
-    ) {
-      return createEmptySolveRecoveryData()
-    }
-    const operations: PendingSolveRestore[] = []
-    const solveIds = new Set<string>()
-    for (const candidate of parsed.operations) {
-      const operation = parsePendingSolveRestore(candidate)
-      if (!operation || solveIds.has(operation.solve.id)) continue
-      solveIds.add(operation.solve.id)
-      operations.push(operation)
-    }
-    return { version: SOLVE_RECOVERY_VERSION, operations }
-  } catch {
-    return createEmptySolveRecoveryData()
-  }
+  const checked = loadSolveRecoveryChecked(storage)
+  return checked.ok ? checked.data : createEmptySolveRecoveryData()
 }
 
 export function saveSolveRecovery(
@@ -133,6 +222,10 @@ export function saveSolveRecovery(
 ): boolean {
   if (!storage || isSiteResetInProgress()) return false
   try {
+    if (storage.getItem(SOLVE_RECOVERY_STORAGE_KEY) !== null) {
+      // Never replace unreadable or future bytes with a fresh journal.
+      if (!loadSolveRecoveryChecked(storage).ok) return false
+    }
     storage.setItem(
       SOLVE_RECOVERY_STORAGE_KEY,
       JSON.stringify({
@@ -168,7 +261,9 @@ export function addPendingSolveRestore(
   operation: PendingSolveRestore,
   storage: StorageLike | null = getDefaultStorage(),
 ): boolean {
-  const recovery = loadSolveRecovery(storage)
+  const checked = loadSolveRecoveryChecked(storage)
+  if (!checked.ok) return false
+  const recovery = checked.data
   return saveSolveRecovery(
     {
       ...recovery,
@@ -187,12 +282,13 @@ export function removePendingSolveRestore(
   operationId: string,
   storage: StorageLike | null = getDefaultStorage(),
 ): boolean {
-  const recovery = loadSolveRecovery(storage)
-  const operations = recovery.operations.filter(
+  const checked = loadSolveRecoveryChecked(storage)
+  if (!checked.ok) return false
+  const operations = checked.data.operations.filter(
     (operation) => operation.operationId !== operationId,
   )
-  if (operations.length === recovery.operations.length) return true
-  return saveSolveRecovery({ ...recovery, operations }, storage)
+  if (operations.length === checked.data.operations.length) return true
+  return saveSolveRecovery({ ...checked.data, operations }, storage)
 }
 
 function recoverySessionName(data: SessionsData, base: string): string {

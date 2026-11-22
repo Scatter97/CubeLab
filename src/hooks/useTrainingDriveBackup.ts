@@ -27,7 +27,7 @@ import {
   recoverPendingReplacement,
   rollbackReplacement,
 } from '../lib/replacement'
-import { loadSolveRecovery } from '../lib/solveRecovery'
+import { loadSolveRecoveryChecked } from '../lib/solveRecovery'
 import { loadPendingCompletion } from '../lib/pendingCompletion'
 import { runWithDriveWriteLock } from '../lib/driveCoordination'
 import {
@@ -86,7 +86,9 @@ function unresolvedWriteBlockedReason(): string | null {
   if (journal.status === 'ok' && journal.journal.phase === 'prepared') {
     return 'Another replacement is still being committed. Reload or retry after it finishes.'
   }
-  if (loadSolveRecovery().operations.length > 0) {
+  const pendingUndo = loadSolveRecoveryChecked()
+  if (!pendingUndo.ok) return pendingUndo.message
+  if (pendingUndo.data.operations.length > 0) {
     return 'Finish the pending solve Undo recovery first.'
   }
   const completion = loadPendingCompletion()

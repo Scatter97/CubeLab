@@ -7,6 +7,7 @@ import {
   applyPendingSolveRestores,
   createPendingSolveRestore,
   loadSolveRecovery,
+  loadSolveRecoveryChecked,
   removePendingSolveRestore,
   saveSolveRecovery,
   SOLVE_RECOVERY_STORAGE_KEY,
@@ -365,6 +366,25 @@ describe('durable solve recovery journal', () => {
 
     expect(result.data.sessions).toHaveLength(1)
     expect(result.data.sessions[0]?.solves).toEqual([pending.solve])
+  })
+
+  it('refuses to overwrite unreadable or future recovery journals', () => {
+    const pending = createPendingSolveRestore(solve(), 0, 'session-1', 'Main')
+    for (const raw of [
+      '{broken journal',
+      JSON.stringify({ version: 2, operations: [pending] }),
+    ]) {
+      localStorage.setItem(SOLVE_RECOVERY_STORAGE_KEY, raw)
+      expect(loadSolveRecoveryChecked().ok).toBe(false)
+      expect(addPendingSolveRestore(pending)).toBe(false)
+      expect(
+        saveSolveRecovery({
+          version: SOLVE_RECOVERY_VERSION,
+          operations: [pending],
+        }),
+      ).toBe(false)
+      expect(localStorage.getItem(SOLVE_RECOVERY_STORAGE_KEY)).toBe(raw)
+    }
   })
 
   it('ignores malformed records without losing unrelated valid operations', () => {

@@ -23,7 +23,7 @@ import {
   rollbackReplacement,
 } from '../lib/replacement'
 import { runWithDriveWriteLock } from '../lib/driveCoordination'
-import { loadSolveRecovery } from '../lib/solveRecovery'
+import { loadSolveRecoveryChecked } from '../lib/solveRecovery'
 import { saveDriveBackupState } from '../lib/driveStorage'
 import { countSolves } from '../lib/sessions'
 import {
@@ -141,7 +141,12 @@ export function useDurableReplacement(
           return false
         }
       }
-      if (loadSolveRecovery().operations.length > 0) {
+      const pendingUndo = loadSolveRecoveryChecked()
+      if (!pendingUndo.ok) {
+        onNotify(`${plan.failurePrefix}: ${pendingUndo.message} Nothing was replaced.`)
+        return false
+      }
+      if (pendingUndo.data.operations.length > 0) {
         onNotify(
           `${plan.failurePrefix}: finish the pending Undo recovery first. It is retried automatically after storage recovers or on reload.`,
         )

@@ -13,7 +13,7 @@ import { getSyncDeviceId, loadSyncStorage } from '../lib/syncStorage'
 import { createSyncEnvelope } from '../lib/sync'
 import {
   applyPendingSolveRestores,
-  loadSolveRecovery,
+  loadSolveRecoveryChecked,
 } from '../lib/solveRecovery'
 import {
   deleteAllRemoteBackups,
@@ -156,13 +156,16 @@ export function useDriveBackup({
     try {
       const syncStorage = loadSyncStorage()
       const deviceId = syncStorage.runtime.deviceId
-      const pendingRecovery = loadSolveRecovery()
+      const pendingRecovery = loadSolveRecoveryChecked()
+      if (!pendingRecovery.ok) {
+        throw new Error(`Google Drive backup blocked: ${pendingRecovery.message}`)
+      }
       let backupSessions = sessions
-      if (pendingRecovery.operations.length > 0) {
+      if (pendingRecovery.data.operations.length > 0) {
         const materialized = applyPendingSolveRestores({
           data: sessions,
           tombstones: syncStorage.runtime.tombstones,
-          operations: pendingRecovery.operations,
+          operations: pendingRecovery.data.operations,
         })
         if (materialized.remaining.length > 0) {
           throw new Error(

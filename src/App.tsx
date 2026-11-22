@@ -103,7 +103,7 @@ import {
   addPendingSolveRestore,
   applyPendingSolveRestores,
   createPendingSolveRestore,
-  loadSolveRecovery,
+  loadSolveRecoveryChecked,
   removePendingSolveRestore,
 } from './lib/solveRecovery'
 import {
@@ -1793,7 +1793,11 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
     }
     // The collection write failed. Revoke the durable deletion intent written
     // above so a later sync cannot delete a session the UI kept.
-    const revoked = sync.restoreDeletion('session', sessionToDelete.id)
+    const revoked = sync.restoreDeletion(
+      'session',
+      sessionToDelete.id,
+      sessionToDelete.solves.map((solve) => solve.id),
+    )
     showToast({
       message: revoked
         ? 'Session deletion failed. Nothing was removed.'
@@ -1903,9 +1907,15 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
         ...(sessionOrder ? { sessionOrder } : {}),
         ...(sessionTransfers ? { sessionTransfers } : {}),
       }
-      const pendingRecovery = loadSolveRecovery()
+      const pendingRecovery = loadSolveRecoveryChecked()
+      if (!pendingRecovery.ok) {
+        return {
+          ok: false,
+          error: `Backup not exported: ${pendingRecovery.message}`,
+        }
+      }
       let exportData = localData
-      if (pendingRecovery.operations.length > 0) {
+      if (pendingRecovery.data.operations.length > 0) {
         const syncRead = loadSyncStorageChecked()
         if (!syncRead.ok) {
           return {
@@ -1916,7 +1926,7 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
         const materialized = applyPendingSolveRestores({
           data: localData,
           tombstones: syncRead.data.runtime.tombstones,
-          operations: pendingRecovery.operations,
+          operations: pendingRecovery.data.operations,
         })
         if (materialized.remaining.length > 0) {
           return {

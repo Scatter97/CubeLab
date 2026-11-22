@@ -11,6 +11,7 @@ import {
   loadSyncStorage,
   saveSyncStorage,
   SYNC_STORAGE_KEY,
+  isActiveTombstone,
   type ConflictAuditEntry,
   type SyncConflict,
   type SyncPreferences,
@@ -1529,6 +1530,56 @@ describe('useSync deletion tombstones', () => {
         sessionId: 'session-split-destination',
       }),
     ])
+  })
+
+  it('revokes the solve tombstones when a session deletion is rolled back', () => {
+    enableSync()
+    const target = session({
+      id: 'session-failed-delete',
+      name: 'Keep me',
+      solves: [solve({ id: 'rollback-a' }), solve({ id: 'rollback-b' })],
+    })
+    const { result } = renderHook(() =>
+      useSync({
+        transport: createMemoryDriveTransport(),
+        sessions: sessionsData({ sessions: [target] }),
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      expect(result.current.recordSessionDeletion(target)).toBe(true)
+      expect(
+        result.current.restoreDeletion(
+          'session',
+          target.id,
+          target.solves.map((entry) => entry.id),
+        ),
+      ).toBe(true)
+    })
+
+    const tombstones = loadSyncStorage().runtime.tombstones
+    expect(
+      tombstones.some(
+        (tombstone) =>
+          tombstone.kind === 'session' &&
+          tombstone.id === target.id &&
+          isActiveTombstone(tombstone),
+      ),
+    ).toBe(false)
+    expect(
+      tombstones.filter(
+        (tombstone) =>
+          tombstone.kind === 'solve' &&
+          target.solves.some((entry) => entry.id === tombstone.id) &&
+          isActiveTombstone(tombstone),
+      ),
+    ).toEqual([])
   })
 
   it('reports batch tombstone failures when storage is unavailable without publishing intent', async () => {
