@@ -1,7 +1,9 @@
 # CubeLab data-safety hardening
 
-**Status:** In progress (pre-release hardening, branch `fix/data-integrity-hardening`).
+**Status:** Audited and verified; ready for local merge (branch
+`fix/data-integrity-hardening`).
 **Started:** 2026-11-21
+**Final audit:** [DATA_SAFETY_FINAL_AUDIT.md](DATA_SAFETY_FINAL_AUDIT.md)
 **Owners:** `src/lib/storage.ts`, `src/bootstrap.tsx`, `src/hooks/useSettings.ts`,
 `src/hooks/useSessions.ts`, `src/hooks/useSync.ts`, `src/lib/replacement.ts`,
 `src/lib/training/storage.ts`, `src/lib/syncStorage.ts`.
@@ -496,14 +498,30 @@ Firefox has pre-existing Apple/Firefox-specific layout/touch failures unrelated
 to this task. A representative mobile 2×2 and statistics-resize failure was
 reproduced unchanged on the `master` baseline (`3dd5aea`). Firefox safety-
 relevant cases (site reset, committed-cleanup, large-session stop, csTimer
-import) passed. WebKit remains unverified on this machine until its Playwright
-system libraries are repaired.
+import) passed. The later independent audit repaired the WebKit environment in
+an isolated Ubuntu 24.04 userland and verified the full WebKit suite; see
+[DATA_SAFETY_FINAL_AUDIT.md](DATA_SAFETY_FINAL_AUDIT.md).
 
 `npm run validate:drive` was intentionally not run: it requires explicit live
 Google Drive authorization and a short-lived credential, neither of which was
 provided. Mock Drive coverage is reported separately.
 
 **Safety verdict:** the specific pre-release data-loss paths addressed by this
-task are closed and covered by failing-before/passing-after tests. The remaining
-unverified items are platform/environment coverage (WebKit and pre-existing
-Firefox layout/touch behavior), not the data-safety contract.
+task are closed and covered by failing-before/passing-after tests.
+
+## Final independent audit — 2026-11-21
+
+The independent audit found one additional high-severity provenance path:
+pending-completion replay and live pending-Undo recovery used the tolerant sync
+reader, so an unreadable `cubelab:sync:v1` record looked like an empty tombstone
+set. `20452ca` requires checked provenance, keeps the buffer/journal pending and
+blocks backup export from materializing an Undo without trustworthy deletion
+records. `8e3ddfa` adds the upgrade-archive database to the explicit site-reset
+fallback list. `e068115` and `17617be` stabilize WebKit lock test harnesses and
+enable the previously skipped WebKit cross-tab timing cases.
+
+Final evidence, browser classifications and remaining limits are recorded in
+[DATA_SAFETY_FINAL_AUDIT.md](DATA_SAFETY_FINAL_AUDIT.md). Chromium passed the
+full suite 272/272; Firefox's 15 failures and WebKit's 8 failures were
+reproduced on base `3dd5aea`; all focused data-safety cases pass in all three
+engines. Live Drive, physical devices and screen readers remain unverified.

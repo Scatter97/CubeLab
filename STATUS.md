@@ -5,6 +5,51 @@ and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
 
+## Final data-safety audit and cross-browser verification — 2026-11-21
+
+Completed the independent audit of `fix/data-integrity-hardening` and verified
+the branch in Chromium, Firefox and WebKit. Full evidence and the finding table
+are in [DATA_SAFETY_FINAL_AUDIT.md](docs/development/DATA_SAFETY_FINAL_AUDIT.md).
+
+- Found and fixed a high-severity provenance defect: pending-completion replay
+  and live pending-Undo recovery used the tolerant sync reader, so a corrupt
+  `cubelab:sync:v1` record looked like an empty tombstone set and could
+  resurrect a deliberately deleted solve. Checked provenance is now required;
+  the buffer/journal stays pending and backup export refuses to materialize an
+  Undo without trustworthy deletion records.
+- Added the `cubelab-upgrade-archive` database to the site-reset fallback list
+  so explicit resets remove verified archives even without
+  `indexedDB.databases()`.
+- Repaired the WebKit test environment with a clean official Playwright bundle
+  in an isolated Ubuntu 24.04 userland (`bwrap`), not host-library symlinks or a
+  host-validation bypass. WebKit now launches headlessly with localStorage,
+  IndexedDB, Web Locks, downloads and offline service-worker support.
+- Stabilized WebKit lock test harnesses with a captured fake LockManager and
+  enabled the five previously skipped cross-tab timing cases. All pass.
+- No production code was changed for the WebKit launch failure.
+
+Verification (final tree):
+
+```bash
+npm run typecheck     # passed
+npm run lint          # passed; pre-existing warnings only
+npm run check:data    # 17 files, 355 tests passed
+npm test              # 128 files, 1669 tests passed
+npm run build         # passed; production/PWA output
+npm run test:e2e -- --project=chromium --workers=4 --retries=0
+# 272 passed
+npm run test:e2e -- --project=firefox --workers=4 --retries=0
+# 252 passed, 15 pre-existing layout/touch failures, 5 skipped
+# full WebKit (isolated supported userland): 258 passed, 8 pre-existing
+# layout/accessibility failures, 1 load-sensitive Training case passed alone,
+# 5 skipped; focused data-safety 30/30 passed
+```
+
+The 15 Firefox failures and 8 WebKit failures were reproduced unchanged on base
+`3dd5aea`; the Chromium dark-theme axe failure also reproduced there. Live
+Google Drive, physical devices and screen readers were not exercised. The local
+`master` merge is recorded below after the final gate.
+
 ## Data-integrity hardening — 2026-11-21
 
 Implemented the pre-release safety pass on branch `fix/data-integrity-hardening`.
@@ -53,13 +98,15 @@ CI=1 VITE_DRIVE_MOCK=true npm run test:e2e -- --project=chromium --workers=4
 # 271 passed
 ```
 
-The full three-browser attempt could not verify WebKit because the local
-Playwright WebKit bundle is missing `libflite.so.1`. Firefox safety-relevant
-cases pass; a representative mobile-event and statistics-resize failure was
-reproduced unchanged on baseline `master` and is not introduced here. Live Drive
-validation was not run because no short-lived credential/authorization was
-provided. Mock Drive, production PWA offline, Training backup/sync, single-tab
-and cross-tab replacement coverage passed.
+The initial full three-browser attempt could not verify WebKit because the local
+Playwright bundle was broken. The later independent audit repaired the isolated
+WebKit environment and verified the suite; see
+[DATA_SAFETY_FINAL_AUDIT.md](docs/development/DATA_SAFETY_FINAL_AUDIT.md). The
+remaining Firefox/WebKit layout and touch failures were reproduced unchanged on
+baseline `master` and are not introduced here. Live Drive validation was not run
+because no short-lived credential/authorization was provided. Mock Drive,
+production PWA offline, Training backup/sync, single-tab and cross-tab
+replacement coverage passed.
 
 ## Time Trend compact redesign — 2026-11-21
 

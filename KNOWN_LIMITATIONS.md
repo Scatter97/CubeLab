@@ -581,19 +581,22 @@ These are current boundaries; dated repair details are in the
   production branding and non-test sign-in need owner action and verification.
 - **Hardware/accessibility coverage is partial.** Browser automation and axe scans
   do not replace physical mobile/trackpad or assistive-technology testing.
-  Offline coverage is scoped to the supported Chromium project. Non-cube player
-  checks establish puzzle IDs/initialization, not every rendered pixel. README
-  describes existing engine-specific skips.
+  Checked-in offline coverage is scoped to the supported Chromium project; the
+  final audit also passed the manually unskipped offline case in WebKit. Non-cube
+  player checks establish puzzle IDs/initialization, not every rendered pixel.
+  README describes existing engine-specific skips.
 - **Arch browser coverage is focused, not a full official matrix.** Playwright
-  reports Arch as unsupported and uses Ubuntu 24.04 fallback builds. Chromium
-  156 passed onboarding/accessibility and the installed-app offline case;
-  Firefox 157 passed 15/15 onboarding/accessibility cases; WebKit 27.2 passed
-  15/15 only after providing isolated ICU 74, legacy libxml2 and Flite
-  compatibility libraries and skipping host validation. WebKit may expect other
-  older sonames (for example libvpx 9 and libavcodec 60) in broader flows.
-  `npm run test:e2e` and `npm run check` select all three projects by default;
-  use focused `--project=...` commands. This is not official Playwright support
-  for Arch or a full three-engine matrix.
+  reports Arch as unsupported and uses Ubuntu 24.04 fallback builds. The
+  2026-11-21 final audit ran the full WebKit suite in an isolated Ubuntu 24.04
+  userland (`bwrap`) with the official Playwright dependency set: 258 passed, 8
+  pre-existing layout/accessibility failures reproduced on base `3dd5aea`, one
+  load-sensitive Training sync case that passed alone, and 5 deliberate skips.
+  Chromium passed 272/272. Firefox passed 252 with the same 15 pre-existing
+  layout/touch failures reproduced on the base commit. No host-validation bypass
+  or production code workaround is used. `npm run test:e2e` and `npm run check`
+  select all three projects by default; use focused `--project=...` commands.
+  This is not official Playwright support for Arch or a full three-engine
+  physical-device matrix.
 - **Build advisory needs rechecking before action.** The October 30 record found
   `GHSA-gcqx-w48m-w2h4` through `vite-plugin-pwa → workbox-build →
   @rollup/plugin-node-resolve → deepmerge@4.3.1`. It concerned build tooling;
