@@ -39,6 +39,9 @@ export async function selectSessionByName(
 
 export async function sessionNames(page: Page): Promise<string[]> {
   await page.getByTestId('session-select').click()
+  // The picker is portalled and can mount after the trigger click. Read the
+  // rows only once the list is actually visible.
+  await page.locator('.session-picker-list').waitFor({ state: 'visible' })
   const names = await page
     .locator('[data-testid^="session-option-"] .session-picker-name')
     .allTextContents()
