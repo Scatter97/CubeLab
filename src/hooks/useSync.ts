@@ -1016,6 +1016,12 @@ export function useSync({
     discarded: number
     aborted: number
   } => {
+    // An unreadable ledger cannot prove which solves were deliberately
+    // deleted. Keep the Undo journal pending instead of restoring a solve
+    // with an empty tombstone set.
+    if (syncStorageBlockedRef.current) {
+      return { ok: false, recovered: 0, discarded: 0, aborted: 0 }
+    }
     const recovery = loadSolveRecovery()
     if (recovery.operations.length === 0) {
       return { ok: true, recovered: 0, discarded: 0, aborted: 0 }

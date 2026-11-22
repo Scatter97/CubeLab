@@ -1752,6 +1752,39 @@ describe('useSync deletion tombstones', () => {
     },
   )
 
+  it('keeps a pending Undo when deletion provenance is unreadable', () => {
+    localStorage.setItem(SYNC_STORAGE_KEY, '{broken sync provenance')
+    const pending = createPendingSolveRestore(
+      solve({ id: 'blocked-ledger-undo' }),
+      0,
+      'session-1',
+      'Main',
+    )
+    expect(addPendingSolveRestore(pending)).toBe(true)
+    const initial = sessionsData({ sessions: [session({ solves: [] })] })
+    saveSessions(initial)
+    const onNotify = vi.fn()
+
+    renderHook(() =>
+      useSync({
+        transport: null,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    expect(loadSessions().sessions[0]?.solves).toEqual([])
+    expect(loadSolveRecovery().operations.map((entry) => entry.solve.id)).toEqual([
+      'blocked-ledger-undo',
+    ])
+    expect(localStorage.getItem(SYNC_STORAGE_KEY)).toBe('{broken sync provenance')
+  })
+
   it('defers pending Undo recovery while the timer is active', () => {
     const storage = createDefaultSyncStorage('device-test')
     const pending = createPendingSolveRestore(

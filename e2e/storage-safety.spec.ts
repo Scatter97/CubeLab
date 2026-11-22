@@ -100,6 +100,33 @@ test('corrupt settings keep valid sessions intact and export exact recovery byte
   expect(await page.evaluate(() => localStorage.getItem('cubelab:settings:v1'))).toBe(settingsRaw)
 })
 
+test('backup export blocks a pending Undo when deletion provenance is unreadable', async ({ page }) => {
+  await page.addInitScript(({ data, now }) => {
+    if (sessionStorage.getItem('pending-undo-export-seeded')) return
+    sessionStorage.setItem('pending-undo-export-seeded', '1')
+    localStorage.setItem('cubelab:sessions:v1', JSON.stringify(data))
+    localStorage.setItem('cubelab:recovery:v1', JSON.stringify({
+      version: 1,
+      operations: [{
+        operationId: 'pending-undo',
+        sessionId: data.activeSessionId,
+        index: 0,
+        createdAt: now,
+        solve: { ...data.sessions[0]!.solves[0]!, id: 'pending-restore' },
+      }],
+    }))
+    localStorage.setItem('cubelab:sync:v1', '{broken sync provenance')
+  }, { data: original, now })
+  await page.goto('/')
+  await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('settings-button').click()
+  await page.getByTestId('settings-backup-button').click()
+  await page.getByRole('button', { name: 'Export backup' }).click()
+  await expect(page.getByTestId('backup-error')).toContainText(/provenance|deletion records/i)
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:sync:v1'))).toBe('{broken sync provenance')
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:recovery:v1'))).not.toBeNull()
+})
+
 test('a verified pre-upgrade archive restores exact old settings after corruption', async ({ page }) => {
   const oldSessions = JSON.stringify({
     version: 6,

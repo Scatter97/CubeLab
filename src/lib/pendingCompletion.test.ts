@@ -9,6 +9,7 @@ import {
   saveSessions,
 } from './storage'
 import { createBackup, parseBackup } from './backup'
+import { SYNC_STORAGE_KEY } from './syncStorage'
 import {
   PENDING_COMPLETION_ENTRY_PREFIX,
   PENDING_COMPLETION_STORAGE_KEY,
@@ -371,6 +372,28 @@ describe('pending completion buffer', () => {
     expect(result.ok).toBe(false)
     expect(loadPendingCompletion(storage).status).toBe('ok')
     expect(loadSessions(storage).sessions[0]?.solves).toEqual([])
+  })
+
+  it('blocks startup replay when deletion provenance is unreadable', () => {
+    saveSessions(data(), storage)
+    expect(
+      recordPendingCompletion(
+        data(),
+        data({ sessions: [session({ solves: [solve()] })] }),
+        storage,
+      ),
+    ).toBe(true)
+    storage.setItem(
+      SYNC_STORAGE_KEY,
+      JSON.stringify({ version: 1, runtime: { deviceId: 'x', tombstones: 'broken' } }),
+    )
+    const before = storage.getItem(SESSIONS_STORAGE_KEY)
+
+    const result = applyPendingCompletionAtStartup(storage)
+    expect(result.ok).toBe(false)
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe(before)
+    expect(loadPendingCompletion(storage).status).toBe('ok')
+    expect(storage.getItem(SYNC_STORAGE_KEY)).toContain('"tombstones":"broken"')
   })
 
   it('acknowledges only the exact durable versions and preserves a newer append', () => {

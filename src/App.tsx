@@ -98,7 +98,7 @@ import {
 } from './lib/siteReset'
 import { loadDriveBackupState } from './lib/driveStorage'
 import { requestStoragePersistence } from './lib/storagePersistence'
-import { loadSyncStorage } from './lib/syncStorage'
+import { loadSyncStorage, loadSyncStorageChecked } from './lib/syncStorage'
 import {
   addPendingSolveRestore,
   applyPendingSolveRestores,
@@ -1906,9 +1906,16 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
       const pendingRecovery = loadSolveRecovery()
       let exportData = localData
       if (pendingRecovery.operations.length > 0) {
+        const syncRead = loadSyncStorageChecked()
+        if (!syncRead.ok) {
+          return {
+            ok: false,
+            error: `Backup not exported: ${syncRead.message}`,
+          }
+        }
         const materialized = applyPendingSolveRestores({
           data: localData,
-          tombstones: loadSyncStorage().runtime.tombstones,
+          tombstones: syncRead.data.runtime.tombstones,
           operations: pendingRecovery.operations,
         })
         if (materialized.remaining.length > 0) {
