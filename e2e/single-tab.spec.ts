@@ -69,15 +69,18 @@ test('unavailable ownership coordination keeps the editable app closed', async (
 
 test('a rejected ownership request can be retried without starting recovery early', async ({ page }) => {
   await page.addInitScript(() => {
-    const request = navigator.locks.request.bind(navigator.locks)
+    // WebKit can hand back a different LockManager wrapper for repeated
+    // `navigator.locks` reads, so mutate the captured instance explicitly.
+    const locks = navigator.locks
+    const request = locks.request.bind(locks)
     let rejected = false
-    navigator.locks.request = ((...args: unknown[]) => {
+    locks.request = ((...args: unknown[]) => {
       if (args[0] === 'cubelab-active-tab' && !rejected) {
         rejected = true
         return Promise.reject(new Error('Synthetic coordination failure'))
       }
-      return Reflect.apply(request, navigator.locks, args)
-    }) as typeof navigator.locks.request
+      return Reflect.apply(request, locks, args)
+    }) as typeof locks.request
   })
   await page.goto('/')
   await expect(page.getByTestId('single-tab-unavailable')).toBeVisible()
