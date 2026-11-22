@@ -99,7 +99,9 @@ v1, native backup v1, solve sync v1 and Training sync v1.
   `npx playwright install --force webkit` download and ran the browser in an
   isolated Ubuntu 24.04 userland via `bwrap` with the Playwright-listed
   dependencies. No system-wide symlinks, copied random host libraries, host
-  validation bypass or production application workaround was used.
+  validation bypass or production application workaround was used. The
+  reproducible recipe is recorded in
+  [ARCH_LINUX.md](ARCH_LINUX.md#browser-checks-on-arch).
 - **Verified APIs:** headless launch, localStorage, IndexedDB read/write,
   `navigator.locks`, downloads and service-worker offline loading.
 - **Not a product change:** no production source was modified for the launch

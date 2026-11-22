@@ -198,31 +198,34 @@ install fails those commands at the Firefox/WebKit stage. Always pass a focused
 npx playwright install firefox webkit
 ```
 
-Firefox 157 launched normally and passed the same 15 focused
-onboarding/accessibility cases as Chromium. WebKit 27.2 required compatibility
-libraries:
+Firefox 157 launches normally. Playwright's WebKit 27.2 fallback targets Ubuntu
+24.04 and expects older sonames than rolling Arch (ICU 74, `libxml2.so.2`,
+Flite, libjxl 0.8 and related packages). The verified 2026-11-21 method uses an
+isolated Ubuntu 24.04 userland with unprivileged `bwrap`. It does **not** patch
+the Playwright bundle, copy host libraries into it, install AUR packages, or
+set `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS`.
 
-- official Arch `libxml2-legacy` (provides `libxml2.so.2`) and `flite`;
-- ICU 74, available as AUR `icu74`, because the Ubuntu 24.04 WebKit fallback
-  expects `libicu*.so.74` while rolling Arch ships ICU 78.
+High-level recipe:
 
-```bash
-sudo pacman -S --needed libxml2-legacy flite
-yay -S icu74
-```
+1. Download and extract an Ubuntu 24.04 base rootfs under `/tmp/` (not the
+   repository).
+2. Inside `bwrap --unshare-user --uid 0 --gid 0 --bind <rootfs> / ...`, install
+   the WebKit dependency set from Playwright's official package list (or run
+   the official `install-deps webkit` in that userland).
+3. Bind the Playwright browser cache and the project at their host paths. Use a
+   temporary, uncommitted Playwright config whose WebKit
+   `launchOptions.executablePath` is a wrapper that execs the normal
+   `pw_run.sh` inside the same `bwrap` invocation.
+4. Run focused WebKit specs. The audit verified headless launch, localStorage,
+   IndexedDB, Web Locks, downloads and offline service-worker caching.
 
-These are compatibility libraries for Playwright's fallback WebKit build, not
-CubeLab runtime dependencies. Prefer the official packages; install the AUR
-package only if you deliberately need WebKit validation.
-
-With those libraries available, the focused WebKit suite passed 15/15; the
-dated audit used isolated extracted libraries in the Playwright WebKit bundle
-and `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1` because system package
-authentication was unavailable. That skip is evidence-only, not a general
-recommendation. WebKit may also expect older libvpx/libavcodec sonames in
-broader flows. For a full three-engine matrix, use a Debian/Ubuntu VM or
-Playwright's official Docker image; neither Docker nor Podman is installed on
-the verified machine.
+The wrapper and rootfs are environment-local and must not be committed. The
+older AUR `icu74`/extracted-library approach with host-validation skipping was a
+dated workaround and is not the recommended procedure. The full WebKit matrix
+still has pre-existing layout/accessibility failures; the focused data-safety
+set passes. For an official three-engine matrix, a Debian/Ubuntu VM or
+Playwright's Docker image remains the most portable option; neither Docker nor
+Podman is installed on the verified machine.
 
 ## KDE Plasma and Wayland notes
 
