@@ -3,9 +3,8 @@ import { createId } from './id'
 import { unionCustomEvents } from './customEvents'
 import { reconcileExternalSessions } from './sessions'
 import {
-  SYNC_STORAGE_KEY,
   isActiveTombstone,
-  loadSyncStorage,
+  loadSyncStorageChecked,
   type Tombstone,
 } from './syncStorage'
 import { isSiteResetInProgress } from './siteReset'
@@ -473,14 +472,12 @@ function readTombstones(
   storage: StorageLike | null,
 ): Tombstone[] | null {
   if (!storage) return []
-  try {
-    // Avoid creating a fresh sync record here; only read existing deletion
-    // provenance. A read failure keeps buffered solves pending conservatively.
-    if (storage.getItem(SYNC_STORAGE_KEY) === null) return []
-    return loadSyncStorage(storage).runtime.tombstones
-  } catch {
-    return null
-  }
+  // Avoid creating a fresh sync record here; only read existing deletion
+  // provenance. Malformed or unsupported bytes must not become "no
+  // tombstones": that could resurrect a deliberately deleted solve during
+  // pending-completion replay. A failed read keeps buffered solves pending.
+  const loaded = loadSyncStorageChecked(storage)
+  return loaded.ok ? loaded.data.runtime.tombstones : null
 }
 
 function activeSolveTombstone(

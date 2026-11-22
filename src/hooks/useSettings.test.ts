@@ -189,3 +189,70 @@ describe('useSettings staged replacements', () => {
     }
   })
 })
+
+describe('useSettings checked replacements and external reads', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    saveSettings(DEFAULT_SETTINGS)
+  })
+
+  it('rejects an incomplete replacement without publishing or writing defaults', () => {
+    const { result } = renderHook(() => useSettings())
+    const before = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    act(() => {
+      expect(
+        result.current.replaceSettings({
+          ...DEFAULT_SETTINGS,
+          statVisibility: undefined,
+        } as unknown as typeof DEFAULT_SETTINGS),
+      ).toBe(false)
+    })
+    expect(result.current.settings).toMatchObject({ theme: 'light' })
+    expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toBe(before)
+  })
+
+  it('rejects an incomplete staged replacement without writing', () => {
+    const { result } = renderHook(() => useSettings())
+    const before = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    act(() => {
+      expect(
+        result.current.stageSettings({
+          ...DEFAULT_SETTINGS,
+          inspectionEnabled: 'yes',
+        } as unknown as typeof DEFAULT_SETTINGS),
+      ).toBe(false)
+    })
+    expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toBe(before)
+  })
+
+  it('publishes a valid complete replacement', () => {
+    const { result } = renderHook(() => useSettings())
+    act(() => {
+      expect(
+        result.current.replaceSettings({
+          ...DEFAULT_SETTINGS,
+          theme: 'dark',
+          accentColor: 'blue',
+        }),
+      ).toBe(true)
+    })
+    expect(result.current.settings).toMatchObject({
+      theme: 'dark',
+      accentColor: 'blue',
+    })
+  })
+
+  it.each([
+    '{not json',
+    JSON.stringify({ version: 14, settings: { inspectionEnabled: true } }),
+    JSON.stringify({ version: 13, settings: { theme: 'dark' } }),
+  ])('ignores invalid external settings bytes without overwriting them', (raw) => {
+    const { result } = renderHook(() => useSettings())
+    act(() => {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, raw)
+      dispatchSettingsEvent()
+    })
+    expect(result.current.settings.theme).toBe('light')
+    expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toBe(raw)
+  })
+})

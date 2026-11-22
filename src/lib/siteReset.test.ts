@@ -199,9 +199,14 @@ describe('resetSiteStorage', () => {
 
     expect(deleted).toContain('cubelab-solves')
     expect(deleted).toContain('cubelab')
+    expect(deleted).toContain('cubelab-upgrade-archive')
     expect(deleted).not.toContain('other-db')
     expect(result.databasesDeleted).toEqual(
-      expect.arrayContaining(['cubelab-solves', 'cubelab']),
+      expect.arrayContaining([
+        'cubelab-solves',
+        'cubelab',
+        'cubelab-upgrade-archive',
+      ]),
     )
 
     expect(entries.has('cubelab-precache-v2')).toBe(false)

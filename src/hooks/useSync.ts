@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MutableRefObject } from 'react'
 import type { Session, SessionsData, Settings } from '../types'
 import { countSolves, reconcileExternalSessions } from '../lib/sessions'
-import { loadSessions, loadSettings, saveSessions } from '../lib/storage'
+import { loadSessionsChecked, loadSettingsChecked, saveSessions } from '../lib/storage'
 import { createBackup, serializeBackupChecked } from '../lib/backup'
 import type { DriveTransport } from '../lib/driveTransport'
 import { isDrivePreconditionError } from '../lib/driveTransport'
@@ -16,7 +16,9 @@ import {
   saveDriveBackupState,
 } from '../lib/driveStorage'
 import {
+  createDefaultSyncStorage,
   loadSyncStorage,
+  loadSyncStorageChecked,
   saveSyncStorage,
   SYNC_STORAGE_KEY,
   isActiveTombstone,
@@ -254,7 +256,22 @@ export function useSync({
   onNotify,
   onDuplicateSessionDetected,
 }: UseSyncOptions): UseSyncResult {
-  const [sync, setSync] = useState<SyncStorageData>(() => loadSyncStorage())
+  const [initialSync] = useState(() => {
+    const checked = loadSyncStorageChecked()
+    if (checked.ok) {
+      return {
+        blocked: false,
+        data: checked.raw === null ? loadSyncStorage() : checked.data,
+      }
+    }
+    const fallback = createDefaultSyncStorage()
+    fallback.preferences = { ...fallback.preferences, enabled: false }
+    fallback.runtime.lastSyncStatus = 'failed'
+    fallback.runtime.lastError = checked.message
+    return { blocked: true, data: fallback }
+  })
+  const syncStorageBlockedRef = useRef(initialSync.blocked)
+  const [sync, setSync] = useState<SyncStorageData>(() => initialSync.data)
   const sessionsRef = useRef(sessions)
   const settingsRef = useRef(settings)
   const syncRef = useRef(sync)
@@ -312,7 +329,7 @@ export function useSync({
   const persist = useCallback((next: SyncStorageData) => {
     setSync(next)
     syncRef.current = next
-    if (storageOk) saveSyncStorage(next)
+    if (storageOk && !syncStorageBlockedRef.current) saveSyncStorage(next)
   }, [storageOk])
 
   // Global settings are a plain values object. Stamp changed top-level fields
@@ -999,6 +1016,12 @@ export function useSync({
     discarded: number
     aborted: number
   } => {
+    // An unreadable ledger cannot prove which solves were deliberately
+    // deleted. Keep the Undo journal pending instead of restoring a solve
+    // with an empty tombstone set.
+    if (syncStorageBlockedRef.current) {
+      return { ok: false, recovered: 0, discarded: 0, aborted: 0 }
+    }
     const recovery = loadSolveRecovery()
     if (recovery.operations.length === 0) {
       return { ok: true, recovered: 0, discarded: 0, aborted: 0 }
@@ -1081,6 +1104,14 @@ export function useSync({
       }
       if (!syncRef.current.preferences.enabled) {
         if (reason === 'manual') onNotify('Enable automatic synchronization first.')
+        return
+      }
+      if (syncStorageBlockedRef.current) {
+        if (reason === 'manual') {
+          onNotify(
+            'Synchronization is paused because the local synchronization record could not be validated. Export a recovery copy before changing it.',
+          )
+        }
         return
       }
       if (locksSupportedRef.current && !leaderRef.current) {
@@ -2068,9 +2099,24 @@ export function useSync({
           return
         }
         try {
-          const nextSessions = loadSessions()
-          const nextSettings = loadSettings()
-          const nextSync = loadSyncStorage()
+          const sessionsRead = loadSessionsChecked()
+          const settingsRead = loadSettingsChecked()
+          const syncRead = loadSyncStorageChecked()
+          if (!sessionsRead.ok || !settingsRead.ok || !syncRead.ok) {
+            onNotifyRef.current(
+              !sessionsRead.ok
+                ? sessionsRead.message
+                : !settingsRead.ok
+                  ? settingsRead.message
+                  : !syncRead.ok
+                    ? syncRead.message
+                    : 'The committed replacement could not be validated.',
+            )
+            return
+          }
+          const nextSessions = sessionsRead.data
+          const nextSettings = settingsRead.settings
+          const nextSync = syncRead.data
           if (timerActiveRef.current) {
             const previous = pendingReplacementRef.current
             pendingReplacementRef.current = {
@@ -2130,18 +2176,22 @@ export function useSync({
           return
         }
         try {
-          const loaded = loadSessions()
+          const loaded = loadSessionsChecked()
+          if (!loaded.ok) {
+            if (loaded.reason !== 'absent') onNotifyRef.current(loaded.message)
+            return
+          }
           if (timerActiveRef.current) {
             const previous = pendingExternalSessionsRef.current
             pendingExternalSessionsRef.current = {
-              external: loaded,
+              external: loaded.data,
               // The baseline is the local collection at the first deferral.
               // Only solves recorded after that point are merged back.
               baseline: previous?.baseline ?? sessionsRef.current,
             }
             return
           }
-          onReplaceSessions(loaded)
+          onReplaceSessions(loaded.data)
         } catch {
           // ignore follower parse failures
         }
@@ -2149,7 +2199,8 @@ export function useSync({
       }
       if (replacementBlocksSync()) return
       if (event.key === SYNC_STORAGE_KEY && syncRef.current?.preferences) {
-        setSync(loadSyncStorage())
+        const loaded = loadSyncStorageChecked()
+        if (loaded.ok) setSync(loaded.data)
       }
     }
     window.addEventListener('storage', handler)
@@ -2393,11 +2444,13 @@ export function useSync({
   )
   const conflictsCount = pendingConflicts.length
 
-  const phase: SyncStatus = sync.preferences.enabled
-    ? sync.runtime.lastSyncStatus === 'synced' && hasPendingChanges
-      ? 'pending'
-      : sync.runtime.lastSyncStatus
-    : 'disabled'
+  const phase: SyncStatus = initialSync.blocked
+    ? 'failed'
+    : sync.preferences.enabled
+      ? sync.runtime.lastSyncStatus === 'synced' && hasPendingChanges
+        ? 'pending'
+        : sync.runtime.lastSyncStatus
+      : 'disabled'
 
   return {
     phase,

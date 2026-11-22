@@ -5,6 +5,40 @@ regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
 
+## Data safety and recovery
+
+- **No absolute data-loss immunity.** The checked readers, verified archives and
+  replacement journal prevent the specific silent-fallback paths covered by
+  `npm run check:data`, but browser storage can still be cleared by the user,
+  privacy software, profile deletion, catastrophic quota/filesystem failure or
+  browser defects. Persistence is advisory and does not protect against clearing
+  site data.
+- **Migration recovery is local.** The pre-upgrade archive is not uploaded
+  automatically. A user who clears all browser storage loses the local archive
+  unless they downloaded an emergency recovery package or native/Drive backup.
+- **Recovery export cannot prove a file reached disk.** `RESET CUBELAB` requires
+  a prepared download and an explicit acknowledgement, but browsers do not expose
+  a durable-save confirmation. The reset keeps caches, the service worker and
+  remote Drive files; it is not a complete site reset.
+- **Already-deployed legacy clients remain a downgrade risk.** Older builds that
+  predate these checks can still rewrite a newer schema if loaded from an old PWA
+  cache. This build fails closed on future versions, but it cannot retroactively
+  harden historical clients. Clear old caches or update before moving a profile
+  between builds.
+- **Local data remains whole-collection.** Ordinary saves still serialize and
+  write the complete collection synchronously; incremental session storage is a
+  separate design-only milestone in
+  [INCREMENTAL_STORAGE_DESIGN.md](docs/development/INCREMENTAL_STORAGE_DESIGN.md).
+  Safety does not remove the 10k/100k/250k scaling limits described below.
+- **Emergency export size is unbounded by design.** Recovery packages preserve
+  exact raw bytes and may exceed the native backup/Drive caps. The 250k-solve
+  synthetic package measured about 47 MiB; extremely large histories can exceed
+  browser Blob/download memory or the destination filesystem.
+- **Training has its own recovery boundary.** Training v1 is included in the
+  emergency package and native backup, but a verified pre-upgrade archive restore
+  only replaces sessions/legacy solves/settings. Training Drive cleanup and sync
+  retain their separate provenance and are never selected by solve cleanup.
+
 ## Layout and performance
 
 - **Floating tools avoid the readout when dragged.** Tool panels do not
@@ -547,19 +581,22 @@ These are current boundaries; dated repair details are in the
   production branding and non-test sign-in need owner action and verification.
 - **Hardware/accessibility coverage is partial.** Browser automation and axe scans
   do not replace physical mobile/trackpad or assistive-technology testing.
-  Offline coverage is scoped to the supported Chromium project. Non-cube player
-  checks establish puzzle IDs/initialization, not every rendered pixel. README
-  describes existing engine-specific skips.
+  Checked-in offline coverage is scoped to the supported Chromium project; the
+  final audit also passed the manually unskipped offline case in WebKit. Non-cube
+  player checks establish puzzle IDs/initialization, not every rendered pixel.
+  README describes existing engine-specific skips.
 - **Arch browser coverage is focused, not a full official matrix.** Playwright
-  reports Arch as unsupported and uses Ubuntu 24.04 fallback builds. Chromium
-  156 passed onboarding/accessibility and the installed-app offline case;
-  Firefox 157 passed 15/15 onboarding/accessibility cases; WebKit 27.2 passed
-  15/15 only after providing isolated ICU 74, legacy libxml2 and Flite
-  compatibility libraries and skipping host validation. WebKit may expect other
-  older sonames (for example libvpx 9 and libavcodec 60) in broader flows.
-  `npm run test:e2e` and `npm run check` select all three projects by default;
-  use focused `--project=...` commands. This is not official Playwright support
-  for Arch or a full three-engine matrix.
+  reports Arch as unsupported and uses Ubuntu 24.04 fallback builds. The
+  2026-11-21 final audit ran the full WebKit suite in an isolated Ubuntu 24.04
+  userland (`bwrap`) with the official Playwright dependency set: 258 passed, 8
+  pre-existing layout/accessibility failures reproduced on base `3dd5aea`, one
+  load-sensitive Training sync case that passed alone, and 5 deliberate skips.
+  Chromium passed 272/272. Firefox passed 252 with the same 15 pre-existing
+  layout/touch failures reproduced on the base commit. No host-validation bypass
+  or production code workaround is used. `npm run test:e2e` and `npm run check`
+  select all three projects by default; use focused `--project=...` commands.
+  This is not official Playwright support for Arch or a full three-engine
+  physical-device matrix.
 - **Build advisory needs rechecking before action.** The October 30 record found
   `GHSA-gcqx-w48m-w2h4` through `vite-plugin-pwa → workbox-build →
   @rollup/plugin-node-resolve → deepmerge@4.3.1`. It concerned build tooling;

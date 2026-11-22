@@ -1,0 +1,133 @@
+{
+  "version": 13,
+  "settings": {
+    "inspectionEnabled": true,
+    "inspectionCountDirection": "up",
+    "timerUpdateMode": "tenths",
+    "holdDurationMs": 500,
+    "stopWithAnyKey": false,
+    "showTimerDecimalSmall": true,
+    "hideEvenTimerSeconds": false,
+    "uiZoomPercent": 90,
+    "statsPanelHeightPercent": 36,
+    "scrambleAlignment": "right",
+    "scrambleLimitHeight": true,
+    "scrambleAction": "next",
+    "alertChannel": "visual",
+    "alertVolume": 60,
+    "inspectionWarning8s": true,
+    "inspectionWarning12s": false,
+    "inspectionWarningVisualScope": "timer",
+    "theme": "light",
+    "accentColor": "blue",
+    "appearance": {
+      "accent": null,
+      "background": null,
+      "timerBackground": null,
+      "timerText": null
+    },
+    "statVisibility": {
+      "single": true,
+      "mo3": true,
+      "ao5": true,
+      "ao12": true,
+      "ao25": false,
+      "ao100": false,
+      "ao200": false,
+      "ao500": false,
+      "ao1000": false,
+      "ao5000": false,
+      "ao10000": false
+    },
+    "customAverages": [
+      {
+        "id": "avg-1",
+        "size": 7,
+        "visible": true
+      }
+    ],
+    "statMetricVisibility": {
+      "current": true,
+      "best": true,
+      "target": false,
+      "bpa": false,
+      "wpa": false
+    },
+    "statTargetsMs": {},
+    "statPrecision": "tenths",
+    "timeTrendScale": "full",
+    "timeTrendCutoff": "strong",
+    "averageTrimBetter": "p10",
+    "averageTrimWorse": "1",
+    "showSessionSolveProgress": true,
+    "showSessionTotalTime": false,
+    "analytics": {
+      "sections": [
+        {
+          "id": "overview",
+          "visible": true,
+          "wide": true
+        },
+        {
+          "id": "progression",
+          "visible": true,
+          "wide": true
+        },
+        {
+          "id": "averages",
+          "visible": true,
+          "wide": false
+        },
+        {
+          "id": "personalBests",
+          "visible": true,
+          "wide": false
+        },
+        {
+          "id": "distribution",
+          "visible": true,
+          "wide": false
+        },
+        {
+          "id": "consistency",
+          "visible": true,
+          "wide": false
+        },
+        {
+          "id": "subX",
+          "visible": true,
+          "wide": false
+        },
+        {
+          "id": "sessions",
+          "visible": true,
+          "wide": false
+        },
+        {
+          "id": "activity",
+          "visible": true,
+          "wide": false
+        },
+        {
+          "id": "advanced",
+          "visible": true,
+          "wide": false
+        }
+      ],
+      "subXTargetsMs": {
+        "222": 5000,
+        "333": 20000,
+        "444": 60000,
+        "555": 90000,
+        "666": 150000,
+        "777": 210000,
+        "333oh": 30000,
+        "pyram": 8000,
+        "skewb": 8000,
+        "sq1": 30000,
+        "clock": 15000,
+        "minx": 90000
+      }
+    }
+  }
+}

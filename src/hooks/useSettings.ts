@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { Settings } from '../types'
 import {
-  DEFAULT_SETTINGS,
-  loadSettings,
+  loadSettingsChecked,
+  loadSettingsForStartup,
   parseSettingsData,
   saveSettings,
   SETTINGS_STORAGE_KEY,
+  SETTINGS_STORAGE_VERSION,
+  type SettingsSnapshot,
 } from '../lib/storage'
 import { SETTINGS_FIELD_KEYS } from '../lib/settingsMerge'
 import { replacementBlocksSync } from '../lib/replacement'
@@ -23,13 +25,32 @@ function fieldEquals(left: unknown, right: unknown): boolean {
   return false
 }
 
+/**
+ * Replacement input must be a complete settings record. Field-level migration
+ * is allowed, but a partial object must never silently become defaults.
+ */
+function parseCompleteSettings(value: unknown): Settings | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null
+  }
+  for (const key of SETTINGS_FIELD_KEYS) {
+    if (!Object.hasOwn(value, key)) return null
+    if ((value as Record<string, unknown>)[key] === undefined) return null
+  }
+  return parseSettingsData(value)
+}
+
 export interface UseSettingsResult {
   settings: Settings
   settingsStorageOk: boolean
   setInspectionEnabled: (enabled: boolean) => void
   updateSettings: (next: Partial<Settings>) => void
-  replaceSettings: (settings: Settings) => void
-  /** Saves a replacement settings record without publishing React state. */
+  /**
+   * Validates and publishes a complete replacement. Returns false without
+   * changing persisted or visible state when the candidate is invalid.
+   */
+  replaceSettings: (settings: Settings) => boolean
+  /** Saves a validated replacement without publishing React state. */
   stageSettings: (settings: Settings) => boolean
   /**
    * Defers external settings adoption while the timer is armed, running, or
@@ -44,8 +65,16 @@ export interface UseSettingsResult {
   adoptedFieldsRef: MutableRefObject<ReadonlySet<SettingsFieldKey> | null>
 }
 
-export function useSettings(): UseSettingsResult {
-  const [settings, setSettings] = useState<Settings>(() => loadSettings())
+export function useSettings(
+  initialSnapshot?: SettingsSnapshot,
+): UseSettingsResult {
+  const [snapshot] = useState<SettingsSnapshot>(() => {
+    if (initialSnapshot) return initialSnapshot
+    const loaded = loadSettingsForStartup()
+    if (!loaded.ok) throw new Error(loaded.message)
+    return loaded
+  })
+  const [settings, setSettings] = useState<Settings>(snapshot.settings)
   const [settingsStorageOk, setSettingsStorageOk] = useState(true)
   const initialWrite = useRef(true)
   // Fields changed from this tab since the last external reconciliation. A
@@ -57,13 +86,21 @@ export function useSettings(): UseSettingsResult {
   const pendingExternalRef = useRef<Settings | null>(null)
 
   useEffect(() => {
+    if (
+      initialWrite.current &&
+      (snapshot.raw === undefined ||
+        snapshot.sourceVersion === SETTINGS_STORAGE_VERSION)
+    ) {
+      initialWrite.current = false
+      return
+    }
     const success = saveSettings(settings)
     if (initialWrite.current) {
       initialWrite.current = false
       return
     }
     setSettingsStorageOk(success)
-  }, [settings])
+  }, [settings, snapshot.raw, snapshot.sourceVersion])
 
   const mergeExternal = useCallback((loaded: Settings) => {
     setSettings((previous) => {
@@ -99,16 +136,13 @@ export function useSettings(): UseSettingsResult {
       // Do not adopt a settings key written during another tab's staged
       // replacement. The replacement listener adopts the final outcome.
       if (replacementBlocksSync()) return
-      try {
-        const loaded = loadSettings()
-        if (timerActiveRef.current) {
-          pendingExternalRef.current = loaded
-          return
-        }
-        mergeExternal(loaded)
-      } catch {
-        // ignore parse failures
+      const loaded = loadSettingsChecked()
+      if (!loaded.ok) return
+      if (timerActiveRef.current) {
+        pendingExternalRef.current = loaded.settings
+        return
       }
+      mergeExternal(loaded.settings)
     }
     window.addEventListener('storage', handler)
     return () => window.removeEventListener('storage', handler)
@@ -144,16 +178,20 @@ export function useSettings(): UseSettingsResult {
     [updateSettings],
   )
 
-  const replaceSettings = useCallback((next: Settings) => {
+  const replaceSettings = useCallback((candidate: Settings): boolean => {
+    const next = parseCompleteSettings(candidate)
+    if (!next) return false
     // Replacements come from imports, Drive restores, or a sync merge. They
     // are authoritative and must not be treated as pending cross-tab edits.
     localEdits.current.clear()
     adoptedFieldsRef.current = null
-    setSettings(parseSettingsData(next) ?? DEFAULT_SETTINGS)
+    setSettings(next)
+    return true
   }, [])
 
-  const stageSettings = useCallback((next: Settings): boolean => {
-    if (!saveSettings(parseSettingsData(next) ?? DEFAULT_SETTINGS)) {
+  const stageSettings = useCallback((candidate: Settings): boolean => {
+    const next = parseCompleteSettings(candidate)
+    if (!next || !saveSettings(next)) {
       setSettingsStorageOk(false)
       return false
     }

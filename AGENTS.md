@@ -106,6 +106,13 @@ adaptation/rendering in components. The architecture skill gives the fuller map.
   before preview/confirmation. Retain the 10 MB uncompressed native import cap
   and the checked gzip 16 MB encoded / 64 MB decoded bounds; solve Drive uploads
   and csTimer imports keep their separate 10 MB caps. Training remains schema v1.
+- **Data-bearing schema changes require an explicit safety review.** Before
+  changing any persisted solve/session/settings/Training/sync/replacement/
+  backup format, record the schema-version decision, migration coverage, a new
+  frozen fixture in `tests/fixtures/storage/`, failure-injection tests,
+  recovery/archive impact, native backup compatibility, Drive/Training sync
+  compatibility and downgrade/rollback notes. Never silently accept or rewrite
+  unknown future versions. Run `npm run check:data` before release.
 - **Keep sync conservative.** Preserve immutable device snapshots, all-snapshot
   validation, shared write locking, timer-active/in-flight guards, exact reviewed
   value/timestamp approvals and durable deletion/Undo provenance. Selection

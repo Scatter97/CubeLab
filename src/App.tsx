@@ -1,4 +1,4 @@
-import type { SessionsSnapshot } from './lib/storage'
+import type { SessionsSnapshot, SettingsSnapshot } from './lib/storage'
 import type {
   OnboardingBootstrap,
   OnboardingDraft,
@@ -97,7 +97,8 @@ import {
   type SiteResetStorageResult,
 } from './lib/siteReset'
 import { loadDriveBackupState } from './lib/driveStorage'
-import { loadSyncStorage } from './lib/syncStorage'
+import { requestStoragePersistence } from './lib/storagePersistence'
+import { loadSyncStorage, loadSyncStorageChecked } from './lib/syncStorage'
 import {
   addPendingSolveRestore,
   applyPendingSolveRestores,
@@ -260,7 +261,7 @@ function formatTrainingAttemptRange(first: number | null, last: number | null): 
   return from === to ? ` on ${from}` : ` from ${from} to ${to}`
 }
 
-export default function App({ initialSessions, initialOnboarding }: { initialSessions?: SessionsSnapshot; initialOnboarding?: OnboardingBootstrap } = {}) {
+export default function App({ initialSessions, initialSettings, initialOnboarding }: { initialSessions?: SessionsSnapshot; initialSettings?: SettingsSnapshot; initialOnboarding?: OnboardingBootstrap } = {}) {
   const [onboarding, setOnboarding] = useState<{
     mode: OnboardingMode
     draft?: OnboardingDraft
@@ -323,7 +324,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
     stageSettings,
     setTimerActive: setSettingsTimerActive,
     adoptedFieldsRef: adoptedSettingsFieldsRef,
-  } = useSettings()
+  } = useSettings(initialSettings)
   const storageHealthy = storageOk && settingsStorageOk
   const resolvedTheme = useTheme(settings.theme, settings.appearance)
   const training = useTraining()
@@ -507,6 +508,9 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         settings.alertVolume,
       )
       advanceScramble()
+      // Ask after the accepted solve has been scheduled and never block the
+      // timing path on a browser permission API.
+      void requestStoragePersistence().catch(() => undefined)
     },
     [
       addSolve,
@@ -781,6 +785,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
 
   const handleOnboardingMarkComplete = useCallback(() => {
     markOnboardingDecision('completed')
+    void requestStoragePersistence().catch(() => undefined)
   }, [])
 
   const handleOpenOnboardingFromSettings = useCallback(() => {
@@ -1901,9 +1906,16 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
       const pendingRecovery = loadSolveRecovery()
       let exportData = localData
       if (pendingRecovery.operations.length > 0) {
+        const syncRead = loadSyncStorageChecked()
+        if (!syncRead.ok) {
+          return {
+            ok: false,
+            error: `Backup not exported: ${syncRead.message}`,
+          }
+        }
         const materialized = applyPendingSolveRestores({
           data: localData,
-          tombstones: loadSyncStorage().runtime.tombstones,
+          tombstones: syncRead.data.runtime.tombstones,
           operations: pendingRecovery.operations,
         })
         if (materialized.remaining.length > 0) {
@@ -2950,6 +2962,7 @@ export default function App({ initialSessions, initialOnboarding }: { initialSes
         deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
         onRequestResetAllSiteData={handleOpenSiteReset}
         developerSyncStatus={developerSyncStatus}
+        lastSyncAt={sync.lastSyncAt}
         trainingData={training.state.data}
         showUpcomingCase={trainingShowUpcomingCase}
         onShowUpcomingCaseChange={handleTrainingUpcomingCaseChange}

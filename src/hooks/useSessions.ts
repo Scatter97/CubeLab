@@ -41,6 +41,7 @@ import {
   type SessionsSnapshot,
   saveSessions,
   saveSessionsSerialized,
+  serializeSessionsData,
 } from '../lib/storage'
 import { getSyncDeviceId } from '../lib/syncStorage'
 import { loadReplacementJournal } from '../lib/replacement'
@@ -179,6 +180,14 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
   )
 
   useEffect(() => {
+    if (
+      initialWrite.current &&
+      initialRaw !== undefined &&
+      serializeSessionsData(data) === initialRaw
+    ) {
+      initialWrite.current = false
+      return
+    }
     if (!initialWrite.current && data === lastPersistedDataRef.current) {
       // A destructive mutation already wrote these exact bytes before
       // publishing them. Do not rewrite the same collection, but keep the
@@ -207,7 +216,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     // collection change, so this cannot create a render loop.
     // oxlint-disable-next-line react/set-state-in-effect
     setStorageOk(success)
-  }, [data, persistSessions])
+  }, [data, initialRaw, persistSessions])
 
   const activeSession = requireActiveSession(data)
   const orderedSessions = useMemo(() => getOrderedSessions(data), [data])

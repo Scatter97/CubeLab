@@ -13,6 +13,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:data": "vitest run src/lib/frozenStorageCompatibility.test.ts src/lib/dataSafetyIntegration.test.tsx src/lib/largeHistorySafety.test.ts src/lib/storage.test.ts src/lib/startupDataSafety.test.tsx src/lib/upgradeArchive.test.ts src/lib/startupMigration.test.ts src/lib/startupRecovery.test.ts src/lib/recoveryPackage.test.ts src/lib/syncStorage.test.ts src/lib/pendingCompletion.test.ts src/lib/training/storage.test.ts src/components/RecoveryCenter.test.tsx src/components/StorageHealthPanel.test.tsx src/hooks/useSettings.test.ts src/hooks/useSync.test.ts src/hooks/useDurableReplacement.test.ts",
     "validate:drive": "vitest run --config vitest.real.config.ts",
     "test:e2e": "playwright test",
     "preview": "vite preview",

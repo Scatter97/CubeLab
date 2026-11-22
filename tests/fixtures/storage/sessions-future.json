@@ -1,0 +1,13 @@
+{
+  "version": 99,
+  "activeSessionId": "session-fixture",
+  "sessions": [
+    {
+      "id": "session-fixture",
+      "name": "Future",
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "solves": []
+    }
+  ]
+}

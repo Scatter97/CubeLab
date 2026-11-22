@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import App from './App'
-import { loadSessionsForStartup, type SessionsSnapshot } from './lib/storage'
+import { RecoveryCenter, type RecoveryFailureInfo } from './components/RecoveryCenter'
+import {
+  loadSessionsForStartup,
+  loadSettingsForStartup,
+  type SessionsSnapshot,
+  type SettingsSnapshot,
+} from './lib/storage'
 import { applyPendingCompletionAtStartup } from './lib/pendingCompletion'
 import { recoverReplacementAtStartup } from './lib/startupRecovery'
+import { runStartupMigration } from './lib/startupMigration'
 import {
   loadOnboardingBootstrap,
   startOnboardingWelcomeDraft,
@@ -11,10 +18,11 @@ import {
 
 type BootstrapPhase =
   | { kind: 'checking' }
-  | { kind: 'blocked'; message: string }
+  | { kind: 'blocked'; message: string; failure: RecoveryFailureInfo }
   | {
       kind: 'ready'
       snapshot: SessionsSnapshot
+      settingsSnapshot: SettingsSnapshot
       onboarding: OnboardingBootstrap
     }
 
@@ -75,15 +83,67 @@ export default function Bootstrap() {
     try {
       const replacement = await recoverReplacementAtStartup()
       if (replacement.status === 'blocked') {
-        setPhase({ kind: 'blocked', message: replacement.message })
+        setPhase({
+          kind: 'blocked',
+          message: replacement.message,
+          failure: { kind: 'replacement', message: replacement.message },
+        })
         return
       }
       const completion = applyPendingCompletionAtStartup()
       if (!completion.ok) {
-        setPhase({ kind: 'blocked', message: completion.message })
+        setPhase({
+          kind: 'blocked',
+          message: completion.message,
+          failure: { kind: 'pending-completion', message: completion.message },
+        })
         return
       }
-      const snapshot = loadSessionsForStartup()
+      // Archive and commit any legacy/older schema before any editable hook can
+      // normalize it. A failed archive leaves the source bytes untouched.
+      const migration = await runStartupMigration()
+      if (migration.status === 'blocked') {
+        const kind =
+          migration.reason === 'archive'
+            ? 'archive'
+            : migration.reason === 'write'
+              ? 'quota'
+              : migration.reason === 'journal'
+                ? 'replacement'
+                : migration.reason === 'verification'
+                  ? 'migration'
+                  : 'storage'
+        setPhase({
+          kind: 'blocked',
+          message: migration.message,
+          failure: { kind, message: migration.message },
+        })
+        return
+      }
+      let snapshot: SessionsSnapshot
+      try {
+        snapshot = loadSessionsForStartup()
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Saved history could not be opened safely. The original data has been kept.'
+        setPhase({
+          kind: 'blocked',
+          message,
+          failure: { kind: 'sessions', message },
+        })
+        return
+      }
+      const settings = loadSettingsForStartup()
+      if (!settings.ok) {
+        setPhase({
+          kind: 'blocked',
+          message: settings.message,
+          failure: { kind: 'settings', message: settings.message },
+        })
+        return
+      }
       let onboarding = loadOnboardingBootstrap(snapshot.data)
       if (onboarding.show && !onboarding.draft) {
         const draft = startOnboardingWelcomeDraft()
@@ -92,10 +152,19 @@ export default function Bootstrap() {
       setPhase({
         kind: 'ready',
         snapshot,
+        settingsSnapshot: settings,
         onboarding,
       })
     } catch (error) {
-      setPhase({ kind: 'blocked', message: error instanceof Error ? error.message : 'Saved history could not be opened safely. The original data has been kept.' })
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Saved history could not be opened safely. The original data has been kept.'
+      setPhase({
+        kind: 'blocked',
+        message,
+        failure: { kind: 'storage', message },
+      })
     } finally {
       runningRef.current = false
       setBusy(false)
@@ -112,7 +181,17 @@ export default function Bootstrap() {
     return (
       <App
         initialSessions={phase.snapshot}
+        initialSettings={phase.settingsSnapshot}
         initialOnboarding={phase.onboarding}
+      />
+    )
+  }
+  if (phase.kind === 'blocked') {
+    return (
+      <RecoveryCenter
+        failure={phase.failure}
+        busy={busy}
+        onRetry={() => void runRecovery()}
       />
     )
   }

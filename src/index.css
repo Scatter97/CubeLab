@@ -11229,3 +11229,193 @@ select option {
 .battle-clock { padding: 8px 0; font-family: var(--font-mono); font-size: 1.6rem; font-weight: 600; text-align: center; }
 .battle-results { margin-top: 2px; }
 .battle-winner { margin: 0; font-size: 0.72rem; font-weight: 700; color: var(--accent-strong); text-align: center; }
+
+/* Startup recovery center */
+.recovery-center {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.recovery-center h2 {
+  margin: 22px 0 8px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.recovery-lead {
+  font-weight: 600;
+  color: var(--text) !important;
+}
+
+.recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.recovery-actions button,
+.recovery-confirm button,
+.recovery-archive-list button,
+.recovery-danger-zone button {
+  margin-top: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.recovery-actions .primary-button,
+.recovery-confirm .primary-button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.recovery-danger-zone .danger-button {
+  margin-top: 12px;
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+  color: var(--danger-strong);
+}
+
+.recovery-danger-zone .danger-button:disabled {
+  opacity: 0.55;
+}
+
+.recovery-status,
+.recovery-error {
+  margin-top: 12px !important;
+  font-size: var(--type-body) !important;
+}
+
+.recovery-error {
+  color: var(--danger) !important;
+}
+
+.recovery-information {
+  margin-top: 18px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.recovery-store-list,
+.recovery-archive-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recovery-store-list li,
+.recovery-archive-list li {
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.recovery-store-list p,
+.recovery-archive-list p {
+  margin-top: 4px !important;
+  font-size: var(--type-body) !important;
+}
+
+.recovery-store-list span[data-state='ok'] {
+  color: var(--accent-strong);
+}
+
+.recovery-store-list span[data-state='blocked'],
+.recovery-store-list span[data-state='unavailable'] {
+  color: var(--danger);
+}
+
+.recovery-version {
+  color: var(--text-muted);
+}
+
+.recovery-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.recovery-confirm p {
+  flex-basis: 100%;
+}
+
+.recovery-danger-zone {
+  margin-top: 26px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.recovery-check,
+.recovery-confirm-field {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 12px;
+  font-size: var(--type-body);
+  color: var(--text-soft);
+}
+
+.recovery-check input {
+  margin-top: 3px;
+}
+
+.recovery-confirm-field {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recovery-confirm-field input {
+  width: min(280px, 100%);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.recovery-confirm-field code {
+  font-family: var(--font-mono);
+}
+
+/* Settings → Data storage health */
+.storage-health {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.storage-health .settings-row {
+  padding: 4px 0;
+}
+
+.storage-health-note,
+.storage-health-status {
+  margin: 6px 0 0;
+  font-size: var(--type-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.storage-health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.storage-health-actions .settings-data-button {
+  width: auto;
+  margin-top: 0;
+}

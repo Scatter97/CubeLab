@@ -145,6 +145,59 @@ export interface StorageLike {
   removeItem?(key: string): void
 }
 
+export type CheckedSettingsFailureReason =
+  | 'unavailable'
+  | 'read-error'
+  | 'invalid-json'
+  | 'invalid-schema'
+  | 'unsupported-version'
+
+/** A validated settings read that may be used as writable state. */
+export interface SettingsSnapshot {
+  settings: Settings
+  /** Exact bytes from the checked read; undefined denotes memory-only mode. */
+  raw: string | null | undefined
+  sourceVersion: number | null
+  memoryOnly: boolean
+}
+
+export type CheckedSettingsResult =
+  | ({ ok: true } & SettingsSnapshot)
+  | {
+      ok: false
+      reason: CheckedSettingsFailureReason
+      raw: string | null | undefined
+      message: string
+    }
+
+export type CheckedSessionsFailureReason =
+  | 'unavailable'
+  | 'read-error'
+  | 'invalid-json'
+  | 'invalid-schema'
+  | 'unsupported-version'
+  | 'absent'
+
+/** A validated session read that may be used as writable state. */
+export interface CheckedSessionsResult {
+  ok: true
+  data: SessionsData
+  /** Current-key bytes; null means an absent current key (possibly legacy). */
+  raw: string | null
+  sourceVersion: number | null
+  /** Exact legacy bytes when this result came from the legacy collection. */
+  legacyRaw: string | null
+}
+
+export type CheckedSessionsRead =
+  | CheckedSessionsResult
+  | {
+      ok: false
+      reason: CheckedSessionsFailureReason
+      raw: string | null | undefined
+      message: string
+    }
+
 interface StoredSessions {
   version: number
   activeSessionId: string
@@ -809,6 +862,249 @@ function createSessionsFromLegacy(solves: readonly Solve[]): SessionsData {
 }
 
 /**
+ * Strict startup/adoption check: the parser may intentionally filter invalid
+ * records for the tolerant read-only loader, but a writable checked result must
+ * not silently drop stored sessions or solves. Duplicate IDs and malformed
+ * records therefore fail the whole read and leave the raw bytes for recovery.
+ */
+function findSessionRecordLoss(
+  value: Record<string, unknown>,
+  data: SessionsData,
+): string | null {
+  if (!Array.isArray(value.sessions)) return 'Saved session data has no session list.'
+  if (data.sessions.length !== value.sessions.length) {
+    return 'Saved session data contains a session that could not be validated. The original data has been kept for recovery.'
+  }
+  for (const candidate of value.sessions) {
+    if (!isRecord(candidate)) {
+      return 'Saved session data contains an invalid session record. The original data has been kept for recovery.'
+    }
+    const parsed = data.sessions.find((session) => session.id === candidate.id)
+    if (!parsed) {
+      return 'Saved session data contains an invalid or duplicate session. The original data has been kept for recovery.'
+    }
+    if (!Array.isArray(candidate.solves)) {
+      return 'Saved session data contains a session without a solve list. The original data has been kept for recovery.'
+    }
+    if (parsed.solves.length !== candidate.solves.length) {
+      return `Session "${parsed.name}" contains a solve that could not be validated. The original data has been kept for recovery.`
+    }
+    const solving = new Set(parsed.solves.map((solve) => solve.id))
+    if (solving.size !== parsed.solves.length) {
+      return `Session "${parsed.name}" contains duplicate solve IDs. The original data has been kept for recovery.`
+    }
+    for (const rawSolve of candidate.solves) {
+      if (!isRecord(rawSolve) || typeof rawSolve.id !== 'string' || !solving.has(rawSolve.id)) {
+        return `Session "${parsed.name}" contains a solve that could not be validated. The original data has been kept for recovery.`
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Strictly reads the authoritative session collection without writing or
+ * falling back to defaults. Only a genuinely absent key (and no usable legacy
+ * record) reports `absent`; callers may create a fresh session only when they
+ * have established that this is a first install or an explicitly destructive
+ * reset.
+ */
+export function loadSessionsChecked(
+  storage = getDefaultStorage(),
+): CheckedSessionsRead {
+  if (!storage) {
+    return {
+      ok: false,
+      reason: 'unavailable',
+      raw: undefined,
+      message: 'Browser storage is unavailable. Saved history was not read or changed.',
+    }
+  }
+
+  let raw: string | null
+  try {
+    raw = storage.getItem(SESSIONS_STORAGE_KEY)
+  } catch {
+    return {
+      ok: false,
+      reason: 'read-error',
+      raw: undefined,
+      message:
+        'Saved history could not be read safely. The original data has been kept. Retry after browser storage recovers.',
+    }
+  }
+
+  if (raw !== null) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return {
+        ok: false,
+        reason: 'invalid-json',
+        raw,
+        message:
+          'Saved session data is not valid JSON. The original data has been kept for recovery.',
+      }
+    }
+    if (
+      !isRecord(parsed) ||
+      typeof parsed.version !== 'number' ||
+      !Number.isInteger(parsed.version)
+    ) {
+      return {
+        ok: false,
+        reason: 'invalid-schema',
+        raw,
+        message:
+          'Saved session data has an unsupported format. The original data has been kept for recovery.',
+      }
+    }
+    if (parsed.version < 1 || parsed.version > SESSIONS_VERSION) {
+      return {
+        ok: false,
+        reason: 'unsupported-version',
+        raw,
+        message: `Saved session data uses schema v${parsed.version}, which this build cannot safely edit. The original data has been kept for recovery.`,
+      }
+    }
+    if (!Array.isArray(parsed.sessions)) {
+      return {
+        ok: false,
+        reason: 'invalid-schema',
+        raw,
+        message:
+          'Saved session data could not be validated. The original data has been kept for recovery.',
+      }
+    }
+    const dateErrors = findSessionDateErrors(parsed)
+    if (dateErrors.length > 0) {
+      return {
+        ok: false,
+        reason: 'invalid-schema',
+        raw,
+        message: `${dateErrors[0]} The original data has been kept for recovery.`,
+      }
+    }
+    const data = parseSessionsData(parsed)
+    if (!data) {
+      return {
+        ok: false,
+        reason: 'invalid-schema',
+        raw,
+        message:
+          'Saved session data could not be validated. The original data has been kept for recovery.',
+      }
+    }
+    const recordLoss = findSessionRecordLoss(parsed, data)
+    if (recordLoss) {
+      return {
+        ok: false,
+        reason: 'invalid-schema',
+        raw,
+        message: recordLoss,
+      }
+    }
+    return {
+      ok: true,
+      data,
+      raw,
+      sourceVersion: parsed.version,
+      legacyRaw: null,
+    }
+  }
+
+  // Only an absent current key permits legacy migration. Cache the legacy read
+  // so a transient failure cannot be mistaken for an empty history.
+  let legacyRaw: string | null
+  try {
+    legacyRaw = storage.getItem(SOLVES_STORAGE_KEY)
+  } catch {
+    return {
+      ok: false,
+      reason: 'read-error',
+      raw: null,
+      message:
+        'Saved history could not be read safely. The original data has been kept. Retry after browser storage recovers.',
+    }
+  }
+  if (legacyRaw === null) {
+    return {
+      ok: false,
+      reason: 'absent',
+      raw: null,
+      message: 'No saved session collection exists yet.',
+    }
+  }
+
+  let legacy: unknown
+  try {
+    legacy = JSON.parse(legacyRaw)
+  } catch {
+    return {
+      ok: false,
+      reason: 'invalid-json',
+      raw: legacyRaw,
+      message:
+        'Saved legacy history is not valid JSON. The original data has been kept for recovery.',
+    }
+  }
+  if (
+    !isRecord(legacy) ||
+    typeof legacy.version !== 'number' ||
+    legacy.version !== STORAGE_VERSION ||
+    !Array.isArray(legacy.solves)
+  ) {
+    return {
+      ok: false,
+      reason:
+        isRecord(legacy) && typeof legacy.version === 'number' && legacy.version !== STORAGE_VERSION
+          ? 'unsupported-version'
+          : 'invalid-schema',
+      raw: legacyRaw,
+      message:
+        'Saved legacy history could not be validated. The original data has been kept for recovery.',
+    }
+  }
+  const dateErrors = findSessionDateErrors({
+    sessions: [{ name: 'Legacy history', solves: legacy.solves }],
+  })
+  if (dateErrors.length > 0) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw: legacyRaw,
+      message: `${dateErrors[0]} The original data has been kept for recovery.`,
+    }
+  }
+  const solves = loadSolves({ getItem: () => legacyRaw, setItem: () => {} })
+  if (solves.length === 0) {
+    return {
+      ok: false,
+      reason: 'absent',
+      raw: null,
+      message: 'No usable saved solve history exists yet.',
+    }
+  }
+  if (solves.length !== legacy.solves.length) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw: legacyRaw,
+      message:
+        'Saved legacy history contains a solve that could not be validated. The original data has been kept for recovery.',
+    }
+  }
+  return {
+    ok: true,
+    data: createSessionsFromLegacy(solves),
+    raw: null,
+    sourceVersion: null,
+    legacyRaw,
+  }
+}
+
+/**
  * Loads the current session collection. If the versioned sessions key is
  * absent or unreadable, a valid legacy single-session record is migrated
  * instead of being discarded. With no usable data, one empty session is
@@ -846,6 +1142,10 @@ export interface SessionsSnapshot {
   data: SessionsData
   /** Raw bytes from the same checked read; undefined denotes memory-only mode. */
   raw: string | null | undefined
+  /** Source schema, or null for a legacy/fresh collection. */
+  sourceVersion?: number | null
+  /** Exact legacy bytes when the collection was migrated from `cubelab:solves:v1`. */
+  legacyRaw?: string | null
 }
 
 /**
@@ -854,39 +1154,32 @@ export interface SessionsSnapshot {
  * empty writable one. The original bytes are retained for explicit recovery.
  */
 export function loadSessionsForStartup(storage = getDefaultStorage()): SessionsSnapshot {
-  if (!storage) return { data: createEmptySessions(), raw: undefined }
-  try {
-    const raw = storage.getItem(SESSIONS_STORAGE_KEY)
-    if (raw !== null) {
-      const parsed: unknown = JSON.parse(raw)
-      if (!isRecord(parsed) || typeof parsed.version !== 'number' || parsed.version < 1 || parsed.version > SESSIONS_VERSION) {
-        throw new SessionLoadError('Saved session data has an unsupported format. The original data has been kept.')
-      }
-      const dateErrors = findSessionDateErrors(parsed)
-      if (dateErrors.length > 0) throw new SessionLoadError(`${dateErrors[0]} The original data has been kept for recovery.`)
-      const data = parseSessionsData(parsed)
-      if (!data) throw new SessionLoadError('Saved session data could not be validated. The original data has been kept.')
-      return { data, raw }
+  if (!storage) {
+    return {
+      data: createEmptySessions(),
+      raw: undefined,
+      sourceVersion: null,
+      legacyRaw: null,
     }
-
-    // Only an absent current key permits legacy migration. Cache the legacy read
-    // so even a transient failure cannot be mistaken for an empty history.
-    const legacyRaw = storage.getItem(SOLVES_STORAGE_KEY)
-    if (legacyRaw !== null) {
-      const legacy: unknown = JSON.parse(legacyRaw)
-      if (!isRecord(legacy) || legacy.version !== STORAGE_VERSION || !Array.isArray(legacy.solves)) {
-        throw new SessionLoadError('Saved legacy history could not be validated. The original data has been kept.')
-      }
-      const dateErrors = findSessionDateErrors({ sessions: [{ name: 'Legacy history', solves: legacy.solves }] })
-      if (dateErrors.length > 0) throw new SessionLoadError(`${dateErrors[0]} The original data has been kept for recovery.`)
-      const solves = loadSolves({ getItem: () => legacyRaw, setItem: () => {} })
-      if (solves.length > 0) return { data: createSessionsFromLegacy(solves), raw }
-    }
-    return { data: createEmptySessions(), raw }
-  } catch (error) {
-    if (error instanceof SessionLoadError) throw error
-    throw new SessionLoadError('Saved history could not be read safely. The original data has been kept. Retry after browser storage recovers.')
   }
+  const checked = loadSessionsChecked(storage)
+  if (checked.ok) {
+    return {
+      data: checked.data,
+      raw: checked.raw,
+      sourceVersion: checked.sourceVersion,
+      legacyRaw: checked.legacyRaw,
+    }
+  }
+  if (checked.reason === 'absent') {
+    return {
+      data: createEmptySessions(),
+      raw: checked.raw,
+      sourceVersion: null,
+      legacyRaw: null,
+    }
+  }
+  throw new SessionLoadError(checked.message)
 }
 
 export function serializeSessionsData(data: SessionsData): string {
@@ -976,6 +1269,133 @@ export function loadSolves(storage = getDefaultStorage()): Solve[] {
   }
 }
 
+/**
+ * Strictly reads the authoritative settings record. Only a genuinely absent
+ * key permits defaults. A read error, malformed JSON, invalid schema or an
+ * unsupported/future version fails closed and never writes.
+ */
+export function loadSettingsChecked(
+  storage = getDefaultStorage(),
+): CheckedSettingsResult {
+  if (!storage) {
+    return {
+      ok: false,
+      reason: 'unavailable',
+      raw: undefined,
+      message:
+        'Browser storage is unavailable. Settings were not read or changed.',
+    }
+  }
+
+  let raw: string | null
+  try {
+    raw = storage.getItem(SETTINGS_STORAGE_KEY)
+  } catch {
+    return {
+      ok: false,
+      reason: 'read-error',
+      raw: undefined,
+      message:
+        'Saved settings could not be read safely. The original data has been kept. Retry after browser storage recovers.',
+    }
+  }
+
+  if (raw === null) {
+    return {
+      ok: true,
+      settings: cloneDefaultSettings(),
+      raw,
+      sourceVersion: null,
+      memoryOnly: false,
+    }
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {
+      ok: false,
+      reason: 'invalid-json',
+      raw,
+      message:
+        'Saved settings are not valid JSON. The original data has been kept for recovery.',
+    }
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.settings)) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'Saved settings have an unsupported format. The original data has been kept for recovery.',
+    }
+  }
+  if (
+    typeof parsed.version !== 'number' ||
+    !Number.isInteger(parsed.version)
+  ) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'Saved settings are missing a supported schema version. The original data has been kept for recovery.',
+    }
+  }
+  if (
+    parsed.version < 1 ||
+    parsed.version > SETTINGS_STORAGE_VERSION
+  ) {
+    return {
+      ok: false,
+      reason: 'unsupported-version',
+      raw,
+      message: `Saved settings use schema v${parsed.version}, which this build cannot safely edit. The original data has been kept for recovery.`,
+    }
+  }
+  const settings = parseSettingsData(parsed.settings)
+  if (!settings) {
+    return {
+      ok: false,
+      reason: 'invalid-schema',
+      raw,
+      message:
+        'Saved settings could not be validated. The original data has been kept for recovery.',
+    }
+  }
+  return {
+    ok: true,
+    settings,
+    raw,
+    sourceVersion: parsed.version,
+    memoryOnly: false,
+  }
+}
+
+/**
+ * Startup wrapper that preserves the documented memory-only mode when the
+ * browser exposes no storage API. Every other failure stays structured.
+ */
+export function loadSettingsForStartup(
+  storage = getDefaultStorage(),
+): CheckedSettingsResult {
+  if (!storage) {
+    return {
+      ok: true,
+      settings: cloneDefaultSettings(),
+      raw: undefined,
+      sourceVersion: null,
+      memoryOnly: true,
+    }
+  }
+  return loadSettingsChecked(storage)
+}
+
+/**
+ * Tolerant presentation-only reader. Never use this result as writable state:
+ * malformed, unsupported or unreadable records fall back to defaults here.
+ */
 export function loadSettings(storage = getDefaultStorage()): Settings {
   if (!storage) return cloneDefaultSettings()
 

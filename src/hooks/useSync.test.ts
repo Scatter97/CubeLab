@@ -1752,6 +1752,39 @@ describe('useSync deletion tombstones', () => {
     },
   )
 
+  it('keeps a pending Undo when deletion provenance is unreadable', () => {
+    localStorage.setItem(SYNC_STORAGE_KEY, '{broken sync provenance')
+    const pending = createPendingSolveRestore(
+      solve({ id: 'blocked-ledger-undo' }),
+      0,
+      'session-1',
+      'Main',
+    )
+    expect(addPendingSolveRestore(pending)).toBe(true)
+    const initial = sessionsData({ sessions: [session({ solves: [] })] })
+    saveSessions(initial)
+    const onNotify = vi.fn()
+
+    renderHook(() =>
+      useSync({
+        transport: null,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions: vi.fn(),
+        onReplaceSettings: vi.fn(),
+        onNotify,
+      }),
+    )
+
+    expect(loadSessions().sessions[0]?.solves).toEqual([])
+    expect(loadSolveRecovery().operations.map((entry) => entry.solve.id)).toEqual([
+      'blocked-ledger-undo',
+    ])
+    expect(localStorage.getItem(SYNC_STORAGE_KEY)).toBe('{broken sync provenance')
+  })
+
   it('defers pending Undo recovery while the timer is active', () => {
     const storage = createDefaultSyncStorage('device-test')
     const pending = createPendingSolveRestore(
@@ -3759,5 +3792,213 @@ describe('useSync output limits', () => {
     )
     expect(upload).not.toHaveBeenCalled()
     clearReplacementJournal()
+  })
+})
+
+describe('useSync checked external adoption', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('ignores corrupt cross-tab sessions instead of adopting an empty collection', async () => {
+    const initial = sessionsData({
+      sessions: [session({ solves: [solve({ id: 'keep-me' })] })],
+    })
+    saveSessions(initial)
+    saveSettings(DEFAULT_SETTINGS)
+    saveSyncStorage(createDefaultSyncStorage('device-local'))
+    const onReplaceSessions = vi.fn()
+    renderHook(() =>
+      useSync({
+        transport: null,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions,
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    const corrupt = '{not valid json'
+    await act(async () => {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, corrupt)
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: SESSIONS_STORAGE_KEY,
+          newValue: corrupt,
+        }),
+      )
+    })
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+    expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(corrupt)
+  })
+
+  it('does not publish the other replacement collections when settings are invalid', async () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    saveSettings(DEFAULT_SETTINGS)
+    saveSyncStorage(createDefaultSyncStorage('device-local'))
+    const onReplaceSessions = vi.fn()
+    const onReplaceSettings = vi.fn()
+    const onNotify = vi.fn()
+    renderHook(() =>
+      useSync({
+        transport: null,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions,
+        onReplaceSettings,
+        onNotify,
+      }),
+    )
+
+    const begun = beginReplacement('native-import', [
+      'sessions',
+      'settings',
+      'sync',
+    ])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    const external = { ...initial, activeSessionId: 'session-1' }
+    saveSessions(external)
+    localStorage.setItem(SETTINGS_STORAGE_KEY, '{broken settings')
+    saveSyncStorage(createDefaultSyncStorage('device-external'))
+    expect(markReplacementCommitted(begun.journal)).toBe(true)
+
+    await act(async () => dispatchReplacementEvent())
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+    expect(onReplaceSettings).not.toHaveBeenCalled()
+    expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('settings'))
+    expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toBe('{broken settings')
+  })
+
+  it('does not publish settings when the replacement sessions are invalid', async () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    saveSettings(DEFAULT_SETTINGS)
+    saveSyncStorage(createDefaultSyncStorage('device-local'))
+    const onReplaceSessions = vi.fn()
+    const onReplaceSettings = vi.fn()
+    const onNotify = vi.fn()
+    renderHook(() =>
+      useSync({
+        transport: null,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions,
+        onReplaceSettings,
+        onNotify,
+      }),
+    )
+
+    const begun = beginReplacement('native-import', [
+      'sessions',
+      'settings',
+      'sync',
+    ])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+    localStorage.setItem(SESSIONS_STORAGE_KEY, '{broken sessions')
+    saveSettings({ ...DEFAULT_SETTINGS, theme: 'dark' })
+    saveSyncStorage(createDefaultSyncStorage('device-external'))
+    expect(markReplacementCommitted(begun.journal)).toBe(true)
+
+    await act(async () => dispatchReplacementEvent())
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+    expect(onReplaceSettings).not.toHaveBeenCalled()
+    expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('session'))
+    expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe('{broken sessions')
+  })
+
+  it('blocks synchronization writes when provenance is unreadable', async () => {
+    const corrupt = JSON.stringify({
+      version: 1,
+      preferences: { enabled: true },
+      runtime: {
+        deviceId: 'device-a',
+        tombstones: [{ kind: 'solve', id: '', deletedAt: 1, deletedByDeviceId: 'a' }],
+      },
+    })
+    localStorage.setItem(SYNC_STORAGE_KEY, corrupt)
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const upload = vi.spyOn(transport, 'uploadDeviceBackup')
+    const { result } = renderStatefulSync({
+      transport,
+      sessions: sessionsData(),
+      settings: DEFAULT_SETTINGS,
+    })
+
+    expect(result.current.phase).toBe('failed')
+    expect(result.current.error).toContain('provenance')
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(upload).not.toHaveBeenCalled()
+    expect(localStorage.getItem(SYNC_STORAGE_KEY)).toBe(corrupt)
+  })
+})
+
+describe('useSync corruption isolation from Drive', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('does not turn a corrupt local collection read into a cloud deletion', async () => {
+    enableSync({ solveThreshold: 100 })
+    const initial = sessionsData({
+      sessions: [
+        session({
+          solves: [solve({ id: 'keep-through-corruption', rawMs: 11_111 })],
+        }),
+      ],
+    })
+    saveSessions(initial)
+    saveSettings(DEFAULT_SETTINGS)
+    const transport = createMemoryDriveTransport()
+    await transport.connect()
+    const upload = vi.spyOn(transport, 'uploadDeviceBackup')
+    const onReplaceSessions = vi.fn()
+    const { result } = renderHook(() =>
+      useSync({
+        transport,
+        sessions: initial,
+        settings: DEFAULT_SETTINGS,
+        storageOk: true,
+        timerActive: false,
+        onReplaceSessions,
+        onReplaceSettings: vi.fn(),
+        onNotify: vi.fn(),
+      }),
+    )
+
+    const corrupt = '{broken external collection'
+    await act(async () => {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, corrupt)
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: SESSIONS_STORAGE_KEY,
+          newValue: corrupt,
+        }),
+      )
+    })
+    expect(onReplaceSessions).not.toHaveBeenCalled()
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(upload).toHaveBeenCalled()
+    const snapshot = JSON.parse(upload.mock.calls[0]![0]) as {
+      sessions: { sessions: Array<{ solves: Array<{ id: string }> }> }
+      sync?: { tombstones?: unknown[] }
+    }
+    expect(JSON.stringify(snapshot)).toContain('keep-through-corruption')
+    expect(snapshot.sync?.tombstones ?? []).toEqual([])
+    expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(corrupt)
   })
 })

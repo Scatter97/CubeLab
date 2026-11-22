@@ -1,0 +1,145 @@
+{
+  "version": 99,
+  "preferences": {
+    "version": 1,
+    "selectedSetId": "oll",
+    "domain": {
+      "version": 1,
+      "requireRecalibrationWhenDue": false,
+      "baseline": {
+        "kind": "days",
+        "count": 90
+      },
+      "trimPercent": 5,
+      "inactivityMinutes": 15
+    },
+    "sets": {
+      "oll": {
+        "enabledCaseIds": [
+          "oll:1",
+          "oll:2",
+          "oll:3",
+          "oll:4",
+          "oll:5",
+          "oll:6",
+          "oll:7",
+          "oll:8",
+          "oll:9",
+          "oll:10",
+          "oll:11",
+          "oll:12",
+          "oll:13",
+          "oll:14",
+          "oll:15",
+          "oll:16",
+          "oll:17",
+          "oll:18",
+          "oll:19",
+          "oll:20",
+          "oll:21",
+          "oll:22",
+          "oll:23",
+          "oll:24",
+          "oll:25",
+          "oll:26",
+          "oll:27",
+          "oll:28",
+          "oll:29",
+          "oll:30",
+          "oll:31",
+          "oll:32",
+          "oll:33",
+          "oll:34",
+          "oll:35",
+          "oll:36",
+          "oll:37",
+          "oll:38",
+          "oll:39",
+          "oll:40",
+          "oll:41",
+          "oll:42",
+          "oll:43",
+          "oll:44",
+          "oll:45",
+          "oll:46",
+          "oll:47",
+          "oll:48",
+          "oll:49",
+          "oll:50",
+          "oll:51",
+          "oll:52",
+          "oll:53",
+          "oll:54",
+          "oll:55",
+          "oll:56",
+          "oll:57"
+        ],
+        "difficultCaseIds": [],
+        "includeSetupMoves": false,
+        "selectedPresetId": null,
+        "recognition": {
+          "renewalDays": 7,
+          "renewalAttempts": 100
+        }
+      },
+      "pll": {
+        "enabledCaseIds": [
+          "pll:aa",
+          "pll:ab",
+          "pll:e",
+          "pll:f",
+          "pll:ga",
+          "pll:gb",
+          "pll:gc",
+          "pll:gd",
+          "pll:h",
+          "pll:ja",
+          "pll:jb",
+          "pll:na",
+          "pll:nb",
+          "pll:ra",
+          "pll:rb",
+          "pll:t",
+          "pll:ua",
+          "pll:ub",
+          "pll:v",
+          "pll:y",
+          "pll:z"
+        ],
+        "difficultCaseIds": [],
+        "includeSetupMoves": false,
+        "selectedPresetId": null,
+        "recognition": {
+          "renewalDays": 7,
+          "renewalAttempts": 100
+        }
+      }
+    },
+    "preferredAlgorithms": [],
+    "categories": {
+      "oll:execution": {
+        "recognitionMetric": "raw"
+      },
+      "oll:recognition": {
+        "recognitionMetric": "raw"
+      },
+      "pll:execution": {
+        "recognitionMetric": "raw"
+      },
+      "pll:recognition": {
+        "recognitionMetric": "raw"
+      }
+    },
+    "reportSettings": {}
+  },
+  "recognitionCounts": {
+    "oll": 0,
+    "pll": 0
+  },
+  "attempts": [],
+  "visits": [],
+  "presets": [],
+  "customAlgorithms": [],
+  "calibrations": [],
+  "activeVisitId": null
+}

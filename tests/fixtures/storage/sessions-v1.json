@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "activeSessionId": "session-fixture",
+  "sessions": [
+    {
+      "id": "session-fixture",
+      "name": "Fixture session v1",
+      "event": "333",
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "solves": [
+        {
+          "id": "solve-v1",
+          "event": "333",
+          "rawMs": 12340,
+          "penalty": "none",
+          "scramble": "R U R' U'",
+          "comment": "",
+          "createdAt": 1700000000000
+        }
+      ]
+    }
+  ]
+}

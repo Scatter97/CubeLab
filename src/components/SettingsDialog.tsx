@@ -16,6 +16,7 @@ import { ChevronRightIcon, CloseIcon } from './Icons'
 import { BetaBadge } from './BetaBadge'
 import { AppearanceControls } from './AppearanceControls'
 import { Select } from './Select'
+import { StorageHealthPanel } from './StorageHealthPanel'
 import type { CustomAverageSetting, Settings } from '../types'
 import type { TrainingData, TrainingSetId } from '../lib/training/types'
 import type { TrainingDomainSettings } from '../lib/training/types'
@@ -102,6 +103,8 @@ interface SettingsDialogProps {
   onRequestResetAllSiteData: () => void
   /** Current Google Drive synchronization state for the Developer section. */
   developerSyncStatus: string
+  /** Last successful solve sync, when reliably tracked. */
+  lastSyncAt?: number | null
   /** Training settings are merged into the main Settings dialog. */
   trainingData?: TrainingData | null
   showUpcomingCase?: boolean
@@ -131,6 +134,7 @@ export function SettingsDialog({
   deleteAllSessionsDisabledReason,
   onRequestResetAllSiteData,
   developerSyncStatus,
+  lastSyncAt = null,
   trainingData = null,
   showUpcomingCase = false,
   onShowUpcomingCaseChange,
@@ -172,6 +176,7 @@ export function SettingsDialog({
           deleteAllSessionsDisabledReason={deleteAllSessionsDisabledReason}
           onRequestResetAllSiteData={onRequestResetAllSiteData}
           developerSyncStatus={developerSyncStatus}
+          lastSyncAt={lastSyncAt}
           trainingData={trainingData}
           showUpcomingCase={showUpcomingCase}
           onShowUpcomingCaseChange={onShowUpcomingCaseChange}
@@ -200,6 +205,7 @@ function SettingsContent({
   deleteAllSessionsDisabledReason,
   onRequestResetAllSiteData,
   developerSyncStatus,
+  lastSyncAt = null,
   trainingData = null,
   showUpcomingCase = false,
   onShowUpcomingCaseChange,
@@ -861,6 +867,7 @@ function SettingsContent({
                 {storageOk ? 'Saved' : 'Unavailable'}
               </span>
             </div>
+            <StorageHealthPanel storageOk={storageOk} lastSyncAt={lastSyncAt} />
             <button
               type="button"
               className="settings-data-button"

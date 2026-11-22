@@ -30,6 +30,7 @@ export const KNOWN_CUBELAB_DATABASE_NAMES = [
   'cubelab-sessions',
   'cubelab-training',
   'cubelab-sync',
+  'cubelab-upgrade-archive',
 ] as const
 
 export type SiteResetSignalPhase =
