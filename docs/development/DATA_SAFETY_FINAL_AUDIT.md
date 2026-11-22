@@ -70,8 +70,10 @@ v1, native backup v1, solve sync v1 and Training sync v1.
 - **Action:** `readTombstones()` now uses `loadSyncStorageChecked()` and returns
   “unknown” on failure. Startup replay keeps the completion buffer and blocks.
   `recoverPendingSolveRestores()` refuses to run while the sync ledger is
-  blocked. Backup export refuses to materialize pending Undo operations without
-  trustworthy provenance.
+  blocked and re-reads checked provenance at the operation boundary, so a
+  ledger that becomes unreadable after startup cannot use stale in-memory
+  tombstones. Backup export refuses to materialize pending Undo operations
+  without trustworthy provenance.
 - **Regression evidence:** `src/lib/pendingCompletion.test.ts` (unreadable
   provenance leaves sessions and buffer untouched),
   `src/hooks/useSync.test.ts` (pending Undo retained with a corrupt ledger) and
@@ -188,8 +190,8 @@ credential or production account was used.
 | --- | --- |
 | `npm run typecheck` | Passed |
 | `npm run lint` | Passed; pre-existing warnings only |
-| `npm run check:data` | 17 files, 355 tests passed |
-| `npm test` | 128 files, 1669 tests passed |
+| `npm run check:data` | 17 files, 356 tests passed |
+| `npm test` | 128 files, 1670 tests passed |
 | `npm run build` | Passed; production/PWA output restored |
 | Chromium full E2E | 272 passed |
 | Firefox full E2E | 252 passed, 15 pre-existing failures, 5 skipped |
@@ -252,8 +254,8 @@ cross-browser safety verification`) on local `master`, using a regular
 head before merge was `64ba2e2`; `master` and `origin/master` were both at
 `3dd5aea` before the merge. Nothing was pushed or deployed.
 
-**Post-merge verification on `master`:** typecheck, lint, `check:data` (355
-tests), the full unit suite (128 files / 1669 tests) and the production build
+**Post-merge verification on `master`:** typecheck, lint, `check:data` (356
+tests), the full unit suite (128 files / 1670 tests) and the production build
 passed. Full Chromium passed 272/272. The focused WebKit data-safety set passed
 30/30 at two workers; the same set at four workers reproduced one load-sensitive
 Training sync timeout that passes alone and passed at two workers. The Firefox

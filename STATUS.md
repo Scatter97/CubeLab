@@ -14,9 +14,10 @@ are in [DATA_SAFETY_FINAL_AUDIT.md](docs/development/DATA_SAFETY_FINAL_AUDIT.md)
 - Found and fixed a high-severity provenance defect: pending-completion replay
   and live pending-Undo recovery used the tolerant sync reader, so a corrupt
   `cubelab:sync:v1` record looked like an empty tombstone set and could
-  resurrect a deliberately deleted solve. Checked provenance is now required;
-  the buffer/journal stays pending and backup export refuses to materialize an
-  Undo without trustworthy deletion records.
+  resurrect a deliberately deleted solve. Checked provenance is now required at
+  startup and again at the Undo operation boundary; the buffer/journal stays
+  pending and backup export refuses to materialize an Undo without trustworthy
+  deletion records.
 - Added the `cubelab-upgrade-archive` database to the site-reset fallback list
   so explicit resets remove verified archives even without
   `indexedDB.databases()`.
@@ -33,8 +34,8 @@ Verification (final tree):
 ```bash
 npm run typecheck     # passed
 npm run lint          # passed; pre-existing warnings only
-npm run check:data    # 17 files, 355 tests passed
-npm test              # 128 files, 1669 tests passed
+npm run check:data    # 17 files, 356 tests passed
+npm test              # 128 files, 1670 tests passed
 npm run build         # passed; production/PWA output
 npm run test:e2e -- --project=chromium --workers=4 --retries=0
 # 272 passed
@@ -51,8 +52,8 @@ Google Drive, physical devices and screen readers were not exercised.
 
 Merged locally into `master` as `346b50a` with a regular `--no-ff` merge. The
 pre-merge hardening head was `64ba2e2`; the original branch head was `7dddd9c`.
-Post-merge typecheck, lint, `check:data` (355 tests), the full unit suite
-(128 files / 1669 tests), the production build and full Chromium (272/272)
+Post-merge typecheck, lint, `check:data` (356 tests), the full unit suite
+(128 files / 1670 tests), the production build and full Chromium (272/272)
 passed. The focused WebKit safety set passed 30/30 at two workers. Nothing was
 pushed or deployed. One WebKit Training Drive sync case is timing-sensitive
 under a full four-worker run; it passes alone and at two workers and is not a

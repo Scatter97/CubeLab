@@ -1022,13 +1022,20 @@ export function useSync({
     if (syncStorageBlockedRef.current) {
       return { ok: false, recovered: 0, discarded: 0, aborted: 0 }
     }
+    // Read provenance again at the operation boundary. The ledger may have
+    // become unreadable after startup, and stale in-memory tombstones cannot
+    // prove that a solve was not deleted elsewhere.
+    const provenance = loadSyncStorageChecked()
+    if (!provenance.ok) {
+      return { ok: false, recovered: 0, discarded: 0, aborted: 0 }
+    }
     const recovery = loadSolveRecovery()
     if (recovery.operations.length === 0) {
       return { ok: true, recovered: 0, discarded: 0, aborted: 0 }
     }
     const result = applyPendingSolveRestores({
       data: sessionsRef.current,
-      tombstones: syncRef.current.runtime.tombstones,
+      tombstones: provenance.data.runtime.tombstones,
       operations: recovery.operations,
     })
     if (result.data !== sessionsRef.current) {

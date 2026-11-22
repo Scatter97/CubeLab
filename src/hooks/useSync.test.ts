@@ -1785,6 +1785,44 @@ describe('useSync deletion tombstones', () => {
     expect(localStorage.getItem(SYNC_STORAGE_KEY)).toBe('{broken sync provenance')
   })
 
+  it('keeps a pending Undo when provenance becomes unreadable after startup', () => {
+    saveSyncStorage(createDefaultSyncStorage('device-test'))
+    const pending = createPendingSolveRestore(
+      solve({ id: 'later-corrupt-ledger-undo' }),
+      0,
+      'session-1',
+      'Main',
+    )
+    expect(addPendingSolveRestore(pending)).toBe(true)
+    const initial = sessionsData({ sessions: [session({ solves: [] })] })
+    saveSessions(initial)
+    const onNotify = vi.fn()
+
+    const { rerender } = renderHook(
+      (props: { timerActive: boolean }) =>
+        useSync({
+          transport: null,
+          sessions: initial,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: props.timerActive,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify,
+        }),
+      { initialProps: { timerActive: true } },
+    )
+
+    localStorage.setItem(SYNC_STORAGE_KEY, '{broken after startup')
+    rerender({ timerActive: false })
+
+    expect(loadSessions().sessions[0]?.solves).toEqual([])
+    expect(loadSolveRecovery().operations.map((entry) => entry.solve.id)).toEqual([
+      'later-corrupt-ledger-undo',
+    ])
+    expect(localStorage.getItem(SYNC_STORAGE_KEY)).toBe('{broken after startup')
+  })
+
   it('defers pending Undo recovery while the timer is active', () => {
     const storage = createDefaultSyncStorage('device-test')
     const pending = createPendingSolveRestore(
