@@ -1079,11 +1079,24 @@ export function loadSessionsChecked(
   }
   const solves = loadSolves({ getItem: () => legacyRaw, setItem: () => {} })
   if (solves.length === 0) {
+    // A genuinely empty valid legacy collection is a first install. A
+    // nonempty collection with no usable records is not: treating it as
+    // absent would let startup create an empty current collection that then
+    // takes precedence over the unreadable history.
+    if (legacy.solves.length === 0) {
+      return {
+        ok: false,
+        reason: 'absent',
+        raw: null,
+        message: 'No saved solve history exists yet.',
+      }
+    }
     return {
       ok: false,
-      reason: 'absent',
-      raw: null,
-      message: 'No usable saved solve history exists yet.',
+      reason: 'invalid-schema',
+      raw: legacyRaw,
+      message:
+        'Saved legacy history contains no usable solves. The original data has been kept for recovery.',
     }
   }
   if (solves.length !== legacy.solves.length) {

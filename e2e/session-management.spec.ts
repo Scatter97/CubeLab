@@ -827,6 +827,19 @@ test.describe('session management', () => {
     await expect(dialog).toBeHidden()
     await expect(page.locator('.toast')).toContainText('could not be saved')
     expect((await stored(page))?.sessions).toHaveLength(3)
+    const tombstones = await page.evaluate(() => {
+      const raw = localStorage.getItem('cubelab:sync:v1')
+      return raw
+        ? (JSON.parse(raw).runtime.tombstones as Array<{
+            id: string
+            restoredAt?: number
+          }>)
+        : []
+    })
+    expect(tombstones.length).toBeGreaterThan(0)
+    expect(
+      tombstones.every((tombstone) => typeof tombstone.restoredAt === 'number'),
+    ).toBe(true)
 
     await page.evaluate(() => {
       ;(

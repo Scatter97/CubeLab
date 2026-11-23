@@ -31,6 +31,23 @@ for (const failedKey of ['cubelab:sessions:v1', 'cubelab:solves:v1']) {
   })
 }
 
+test('nonempty legacy history with zero usable solves shows recovery instead of a fresh install', async ({ page }) => {
+  const raw = JSON.stringify({
+    version: 1,
+    solves: [{ ...original.sessions[0]!.solves[0]!, id: 'legacy-222', event: '222' }],
+  })
+  await page.addInitScript(value => {
+    localStorage.setItem('cubelab:solves:v1', value)
+  }, raw)
+  await page.goto('/')
+
+  await expect(page.getByTestId('startup-recovery')).toBeVisible()
+  await expect(page.getByTestId('timer-surface')).toHaveCount(0)
+  await expect(page.getByText(/no usable solves/i)).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:solves:v1'))).toBe(raw)
+  expect(await page.evaluate(() => localStorage.getItem('cubelab:sessions:v1'))).toBeNull()
+})
+
 test('native import rejects an invalid date while leaving the current collection intact', async ({ page }) => {
   await page.addInitScript(data => localStorage.setItem('cubelab:sessions:v1', JSON.stringify(data)), original)
   await page.goto('/')

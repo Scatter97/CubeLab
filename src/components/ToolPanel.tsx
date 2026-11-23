@@ -233,7 +233,7 @@ interface Props {
   timeTrendCutoff?: TimeTrendCutoff
   roundLabel?: string | null
   onSetPenalty?: (id: string, penalty: Penalty) => void
-  onSetComment?: (id: string, comment: string) => void
+  onSetComment?: (id: string, comment: string) => boolean
   onDeleteSolve?: (id: string) => void
   onNotify?: (message: string) => void
 }

@@ -1,6 +1,6 @@
 # CubeLab known limitations
 
-**Reviewed:** 2026-11-21 against the implementation and the latest recorded
+**Reviewed:** 2026-11-23 against the implementation and the latest recorded
 regression run. See [STATUS.md](STATUS.md) for test results and immediate work.
 These are current boundaries; dated repair details are in the
 [archived limitations record](docs/archive/PATCH_LIMITATIONS.md).
@@ -18,8 +18,10 @@ These are current boundaries; dated repair details are in the
   unless they downloaded an emergency recovery package or native/Drive backup.
 - **Recovery export cannot prove a file reached disk.** `RESET CUBELAB` requires
   a prepared download and an explicit acknowledgement, but browsers do not expose
-  a durable-save confirmation. The reset keeps caches, the service worker and
-  remote Drive files; it is not a complete site reset.
+  a durable-save confirmation. A failed read produces a labelled partial package;
+  reset is blocked until every data-bearing key can be read and the current bytes
+  still match the acknowledged export. The reset keeps caches, the service worker
+  and remote Drive files; it is not a complete site reset.
 - **Already-deployed legacy clients remain a downgrade risk.** Older builds that
   predate these checks can still rewrite a newer schema if loaded from an old PWA
   cache. This build fails closed on future versions, but it cannot retroactively
@@ -38,6 +40,10 @@ These are current boundaries; dated repair details are in the
   emergency package and native backup, but a verified pre-upgrade archive restore
   only replaces sessions/legacy solves/settings. Training Drive cleanup and sync
   retain their separate provenance and are never selected by solve cleanup.
+- **There is no top-level React error boundary.** An unexpected render-time
+  exception can leave a blank page until reload. Stored records remain in the
+  browser and startup validation still gates them, but the current build has no
+  in-app crash panel or reset action for that state.
 
 ## Layout and performance
 
@@ -165,12 +171,17 @@ These are current boundaries; dated repair details are in the
   round history export, cutoff/combined-round simulation, or competition-day
   standings. Deleting all attempts removes the derived round; deleting one leaves
   an incomplete round that reports no average. If Undo restores an attempt after a
-  replacement solve, the round can temporarily exceed the format size; it is
-  shown as incomplete and produces no result rather than dropping an attempt.
+  replacement solve, the local round can temporarily exceed the format size; it
+  is shown as contested and produces no result rather than dropping an attempt.
+  The next sync moves the extra attempt to a deterministic review round so a
+  completed round can stay scorable. A round with exactly the format size but a
+  duplicated slot is also contested and unscored, including when it would
+  otherwise appear complete.
 - **The post-round summary is for the newest round only.** It opens once after
   the timer becomes idle and a previously observed open round completes. Reload,
   switching to a session, or returning to an older completed round does not
-  reopen it. The round list remains available in the Statistics rail.
+  reopen it, and a contested round never opens it. The round list remains
+  available in the Statistics rail.
 - **Formats are immutable and conversion is one-way.** There is no format editor,
   round reseeding, or practice-to-competition conversion, including through
   split. Changing the session event preserves round membership but does not
@@ -178,14 +189,23 @@ These are current boundaries; dated repair details are in the
 - **Sync convergence favors flattening.** Competition kind, format and round
   fields ride the existing solve/session merge. If one snapshot has already
   converted a session to practice, that flattened shape wins over a stale
-  competition copy; no new conflict kind is created. Round IDs are random stable
-  strings, so independent devices cannot create the same round by collision in
-  normal use, but this is not a cryptographic guarantee.
+  competition copy; no new conflict kind is created. Two independent attempts in
+  the same round slot are both retained: the earliest attempt keeps the slot and
+  the other moves to a stable `contested:` round for review. A resolved contest
+  survives later merges in either direction: a stale device's older assignment
+  to the original slot cannot move the attempt back. If the winning attempt is
+  deleted, the surviving attempt stays in its review round and the original
+  round becomes incomplete rather than silently promoting the loser. A durable
+  partial-split transfer also takes the destination snapshot's round slots, so a
+  stale source or contested assignment cannot make the split round incomplete.
+  Round IDs are random stable strings, so independent devices cannot create the
+  same round by collision in normal use, but this is not a cryptographic
+  guarantee.
 - **Browser evidence is focused.** Chromium covers creation, inspected timing,
-  reload, deletion/Undo, merge/split, conversion, Analytics filtering and an
-  offline installed-app round. Live Drive, physical devices, multi-engine
-  competition flows and large-history competition stop latency were not
-  separately measured.
+  reload, deletion/Undo, merge/split, conversion, contested display/scoring,
+  Analytics filtering and an offline installed-app round. Live Drive, physical
+  devices, multi-engine competition flows and large-history competition stop
+  latency were not separately measured.
 
 ## Training
 
@@ -247,6 +267,11 @@ These are current boundaries; dated repair details are in the
   and an unsaved-exit prompt is requested until retry succeeds. Browsers can
   suppress exit prompts, and crashes/forced termination can still discard an
   unsaved candidate. No corrupt bytes or changed external snapshot is overwritten.
+- **Deletion compensation can share a storage failure.** If a Training store
+  write and the compensating tombstone write fail together, the two stores can
+  disagree until a retry succeeds or the page is reloaded. Deletion retries are
+  preserved, but restoring an attempt or preset after a double failure is not
+  guaranteed if the page is abandoned before recovery.
 - **Portable backup limits.** Native backups stay readable or compact JSON up to
   10 MB and otherwise use checked gzip with a 16 MB encoded and 64 MB decoded
   cap. Files above those bounds, corrupt/truncated gzip,
@@ -406,6 +431,18 @@ These are current boundaries; dated repair details are in the
   synced nor exported, and is lost if sync storage is cleared. Undo requires the
   exact decision to remain current; redirect merges, completed legacy recovery
   and superseded decisions are not automatically reversible.
+- **A changed source event can block a durable merge redirect.** If an offline
+  device changes the puzzle event of a session that another device already merged
+  away, applying that redirect fails closed because the destination and source
+  events differ. Synchronization retries until the event is reverted, a native
+  import clears redirects, or the device is reset. No solves are silently
+  discarded by that failure, but there is no in-app redirect repair action.
+- **Prepared-replacement edits are only partly buffered.** New solves, comments
+  and penalties on those solved attempts can be replayed from the completion
+  buffer, and destructive solve/session actions are blocked. Renaming a session,
+  changing its event or preferences, reordering sessions, and similar structural
+  edits can still appear in memory during a prepared replacement without a
+  durable write; the normal storage warning may be the only signal.
 - **Exit sync is best effort.** A browser may terminate OAuth/network work on
   close despite lifecycle requests. Local storage remains the durability boundary.
 - **Provenance depends on sync metadata.** Clearing `cubelab:sync:v1` loses
@@ -556,13 +593,43 @@ These are current boundaries; dated repair details are in the
   the solve history action menu. CubeLab does not store phase splits or
   reconstructions, so those csTimer fields are not available. Changes use the
   normal solve persistence and deletion/Undo paths.
+- **Comment edits require a durable write.** A quota failure or a pending
+  replacement keeps the typed draft and editor available with failure feedback;
+  the completion buffer is only for newly timed solves, so an unrelated buffered
+  solve is never reported as saving a comment.
+- **Scramble workers are serialized, timed, and released per request.**
+  `cubing.js` has no public terminate or replacement call for its cached search
+  worker. CubeLab therefore serializes scramble generation across the timer and
+  Online Battle, gives every active request a finite 20-second deadline (queued
+  requests start their deadline only when active), and cancels queued or running
+  requests through their own signal. Each request is a disposable generation
+  for worker ownership: construction during the request's entry into
+  `cubing.js` belongs to it, while late construction from an abandoned request
+  is terminated instead of joining its successor. Recovery uses the synchronous
+  `import.meta.resolve` path with the emitted worker chunk URL and disables
+  `cubing.js`'s asynchronous legacy fallbacks while worker ownership is guarded;
+  normal generation keeps `cubing.js`'s cached/esbuild loading path. A replacement
+  worker's explicit script-load failure therefore rejects promptly with its
+  primary error instead of waiting for another deadline. After a timeout,
+  Retry uses `cubing.js`'s supported "force a new worker" debug path for the rest
+  of the session. Temporary recovery workers are explicitly terminated when
+  that request settles, fails, is cancelled or times out. Cancelling an active
+  ordinary request also releases its cached worker and moves later requests to
+  the fresh-worker path, so an abandoned request cannot delay them behind the
+  same transport. Completing or cancelling one request cannot terminate another
+  request's worker. Repeated failures expose **Reload to recover**. The original
+  stalled worker is released at timeout, its late result is ignored, and a usable
+  scramble stays on screen. The reload action is disabled during an active solve
+  or while local data has not been saved. Online Battle keeps an otherwise
+  healthy data channel open after a scramble timeout so the host can retry.
 - **Online Battle is serverless and manual.** Peers exchange one invitation code
   and one answer code, then connect over WebRTC with a public STUN server used
   only for NAT discovery. Room ID/password are shared secrets checked by both
   peers, not authenticated encryption. Strict NATs, firewalls or blocked STUN may
   prevent a connection; there is no TURN relay, matchmaking, ranked result,
-  backend persistence or reconnect protocol. Codes should be shared only with the
-  opponent.
+  backend persistence or reconnect protocol. Start waits for an open data
+  channel, and a disconnect stops an active race and returns to the recoverable
+  create/join state. Codes should be shared only with the opponent.
 - **Custom colors are user-supplied.** The color pickers accept six-digit hex
   values; CubeLab does not audit contrast for arbitrary custom combinations.
   Hold-to-preview shows the timer states, but low-contrast color choices remain

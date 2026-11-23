@@ -109,6 +109,88 @@ describe('RecoveryCenter', () => {
     expect(reset).toBeEnabled()
   })
 
+  it('downloads a partial copy but keeps reset blocked when a record cannot be read', async () => {
+    localStorage.setItem(SESSIONS_STORAGE_KEY, '{"version":7,"sessions":[]}')
+    localStorage.setItem(SETTINGS_STORAGE_KEY, '{bad settings')
+    const storage = {
+      get length() {
+        return localStorage.length
+      },
+      key(index: number) {
+        return localStorage.key(index)
+      },
+      getItem(key: string) {
+        if (key === SESSIONS_STORAGE_KEY) throw new Error('synthetic read failure')
+        return localStorage.getItem(key)
+      },
+      setItem(key: string, value: string) {
+        localStorage.setItem(key, value)
+      },
+      removeItem(key: string) {
+        localStorage.removeItem(key)
+      },
+    }
+    const captured: Blob[] = []
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      captured.push(blob as Blob)
+      return 'blob:recovery'
+    })
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+
+    render(
+      <RecoveryCenter
+        failure={failure('sessions')}
+        busy={false}
+        onRetry={vi.fn()}
+        storage={storage}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('recovery-download'))
+    await waitFor(() => expect(captured).toHaveLength(1))
+    await waitFor(() =>
+      expect(screen.getByText(/incomplete recovery copy/i)).toHaveTextContent(
+        SESSIONS_STORAGE_KEY,
+      ),
+    )
+
+    fireEvent.click(screen.getByLabelText(/I saved the recovery copy/))
+    fireEvent.change(screen.getByLabelText(/Type RESET CUBELAB/), {
+      target: { value: 'RESET CUBELAB' },
+    })
+    expect(screen.getByTestId('recovery-reset')).toBeDisabled()
+    expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(
+      '{"version":7,"sessions":[]}',
+    )
+  })
+
+  it('blocks reset after the local bytes change following the acknowledged export', async () => {
+    const original = '{"version":7,"sessions":[]}'
+    localStorage.setItem(SESSIONS_STORAGE_KEY, original)
+    localStorage.setItem(SETTINGS_STORAGE_KEY, '{bad settings')
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:recovery')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+
+    render(<RecoveryCenter failure={failure('sessions')} busy={false} onRetry={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('recovery-download'))
+    await waitFor(() =>
+      expect(screen.getByTestId('recovery-reset')).toBeDisabled(),
+    )
+    fireEvent.click(screen.getByLabelText(/I saved the recovery copy/))
+    fireEvent.change(screen.getByLabelText(/Type RESET CUBELAB/), {
+      target: { value: 'RESET CUBELAB' },
+    })
+    const changed = `${original} `
+    localStorage.setItem(SESSIONS_STORAGE_KEY, changed)
+
+    fireEvent.click(screen.getByTestId('recovery-reset'))
+    await waitFor(() =>
+      expect(screen.getByText(/no longer matches the recovery copy/i)).toBeInTheDocument(),
+    )
+    expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(changed)
+  })
+
   it('previews a verified local archive before restoring it', async () => {
     localStorage.setItem(SESSIONS_STORAGE_KEY, '{broken')
     saveSettings(DEFAULT_SETTINGS)

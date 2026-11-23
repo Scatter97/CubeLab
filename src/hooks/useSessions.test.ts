@@ -65,6 +65,282 @@ function twoSessionsData(): SessionsData {
   }
 }
 
+describe('useSessions durable solve edits', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('persists a trimmed comment before reporting success', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+
+    let saved = false
+    act(() => {
+      saved = result.current.setComment('solve-a', 'Durable note')
+    })
+
+    expect(saved).toBe(true)
+    expect(result.current.sessions[0]?.solves[0]?.comment).toBe('Durable note')
+    expect(loadSessions().sessions[0]?.solves[0]?.comment).toBe('Durable note')
+  })
+
+  it('does not report a comment saved when a prepared replacement only holds another buffered solve', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+    const buffered = {
+      ...initial,
+      sessions: [
+        {
+          ...initial.sessions[0]!,
+          solves: [
+            solve({ id: 'buffered-A', createdAt: NOW + 1 }),
+            ...initial.sessions[0]!.solves,
+          ],
+        },
+      ],
+    }
+    expect(recordPendingCompletion(initial, buffered)).toBe(true)
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+
+    let saved = true
+    act(() => {
+      saved = result.current.setComment('solve-a', 'Pending note')
+    })
+
+    expect(saved).toBe(false)
+    expect(result.current.sessions[0]?.solves[0]?.comment).toBe('')
+    expect(loadSessions().sessions[0]?.solves[0]?.comment).toBe('')
+    const pending = loadPendingCompletion()
+    expect(pending.status).toBe('ok')
+    if (pending.status !== 'ok') return
+    expect(
+      pending.completion.entries.flatMap((entry) =>
+        entry.solves.map((solve) => solve.id),
+      ),
+    ).toEqual(['buffered-A'])
+
+    expect(clearReplacementJournal()).toBe(true)
+    act(() => {
+      saved = result.current.setComment('solve-a', 'Pending note')
+    })
+    expect(saved).toBe(true)
+    expect(loadSessions().sessions[0]?.solves[0]?.comment).toBe('Pending note')
+  })
+
+  it('does not let a newly buffered solve make an older comment look saved', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+
+    let newlyTimedId = ''
+    act(() => {
+      newlyTimedId = result.current.addSolve(
+        { rawMs: 9_876, penalty: 'none', scramble: "F R U'" },
+        '333',
+      ).id
+    })
+    expect(newlyTimedId).not.toBe('')
+
+    let saved = true
+    act(() => {
+      saved = result.current.setComment('solve-a', 'Pending note')
+    })
+
+    expect(saved).toBe(false)
+    expect(
+      result.current.sessions[0]?.solves.find((entry) => entry.id === 'solve-a')
+        ?.comment,
+    ).toBe('')
+    expect(
+      loadSessions().sessions[0]?.solves.find((entry) => entry.id === 'solve-a')
+        ?.comment,
+    ).toBe('')
+    const pending = loadPendingCompletion()
+    expect(pending.status).toBe('ok')
+    if (pending.status !== 'ok') return
+    const pendingIds = pending.completion.entries.flatMap((entry) =>
+      entry.solves.map((solve) => solve.id),
+    )
+    expect(pendingIds).toEqual([newlyTimedId])
+    expect(pendingIds).not.toContain('solve-a')
+
+    expect(clearReplacementJournal()).toBe(true)
+    act(() => {
+      saved = result.current.setComment('solve-a', 'Pending note')
+    })
+    expect(saved).toBe(true)
+    expect(
+      loadSessions().sessions[0]?.solves.find((entry) => entry.id === 'solve-a')
+        ?.comment,
+    ).toBe('Pending note')
+  })
+
+  it('updates the completion buffer when the comment belongs to a newly timed solve', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+
+    let newlyTimedId = ''
+    act(() => {
+      newlyTimedId = result.current.addSolve(
+        { rawMs: 9_876, penalty: 'none', scramble: "F R U'" },
+        '333',
+      ).id
+    })
+    let saved = false
+    act(() => {
+      saved = result.current.setComment(newlyTimedId, 'Buffered note')
+    })
+
+    expect(saved).toBe(true)
+    const pending = loadPendingCompletion()
+    expect(pending.status).toBe('ok')
+    if (pending.status !== 'ok') return
+    expect(
+      pending.completion.entries
+        .flatMap((entry) => entry.solves)
+        .find((solve) => solve.id === newlyTimedId)?.comment,
+    ).toBe('Buffered note')
+  })
+
+  it('persists a penalty before reporting success', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+
+    let saved = false
+    act(() => {
+      saved = result.current.setPenalty('solve-a', '+2')
+    })
+
+    expect(saved).toBe(true)
+    expect(result.current.sessions[0]?.solves[0]?.penalty).toBe('+2')
+    expect(loadSessions().sessions[0]?.solves[0]?.penalty).toBe('+2')
+  })
+
+  it('does not publish a penalty during a prepared replacement', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+
+    let saved = true
+    act(() => {
+      saved = result.current.setPenalty('solve-a', 'dnf')
+    })
+
+    expect(saved).toBe(false)
+    expect(result.current.sessions[0]?.solves[0]?.penalty).toBe('none')
+    expect(loadSessions().sessions[0]?.solves[0]?.penalty).toBe('none')
+    expect(result.current.storageOk).toBe(false)
+  })
+
+  it('buffers a penalty for a newly timed solve during a prepared replacement', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+
+    let newlyTimedId = ''
+    act(() => {
+      newlyTimedId = result.current.addSolve(
+        { rawMs: 9_876, penalty: 'none', scramble: "F R U'" },
+        '333',
+      ).id
+    })
+    let saved = false
+    act(() => {
+      saved = result.current.setPenalty(newlyTimedId, 'dnf')
+    })
+
+    expect(saved).toBe(true)
+    expect(
+      result.current.sessions[0]?.solves.find((solve) => solve.id === newlyTimedId)
+        ?.penalty,
+    ).toBe('dnf')
+    const pending = loadPendingCompletion()
+    expect(pending.status).toBe('ok')
+    if (pending.status !== 'ok') return
+    expect(
+      pending.completion.entries
+        .flatMap((entry) => entry.solves)
+        .find((solve) => solve.id === newlyTimedId)?.penalty,
+    ).toBe('dnf')
+  })
+
+  it('does not publish a penalty when the collection cannot be saved', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+
+    const original = Storage.prototype.setItem
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function setItem(this: Storage, key, value) {
+        if (key === SESSIONS_STORAGE_KEY) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      })
+    try {
+      let saved = true
+      act(() => {
+        saved = result.current.setPenalty('solve-a', '+2')
+      })
+
+      expect(saved).toBe(false)
+      expect(result.current.sessions[0]?.solves[0]?.penalty).toBe('none')
+      expect(result.current.storageOk).toBe(false)
+      expect(loadSessions().sessions[0]?.solves[0]?.penalty).toBe('none')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('does not publish or report a comment when the collection cannot be saved', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+
+    const original = Storage.prototype.setItem
+    const spy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function setItem(this: Storage, key, value) {
+        if (key === SESSIONS_STORAGE_KEY) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      })
+    try {
+      let saved = true
+      act(() => {
+        saved = result.current.setComment('solve-a', 'Keep this draft')
+      })
+
+      expect(saved).toBe(false)
+      expect(result.current.sessions[0]?.solves[0]?.comment).toBe('')
+      expect(result.current.storageOk).toBe(false)
+      expect(loadSessions().sessions[0]?.solves[0]?.comment).toBe('')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
 describe('useSessions durable solve deletion', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -97,6 +373,37 @@ describe('useSessions durable solve deletion', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+
+  it('blocks a destructive edit during a prepared replacement', () => {
+    const initial = sessionsData()
+    saveSessions(initial)
+    const { result } = renderHook(() => useSessions())
+    const begun = beginReplacement('native-import', ['sessions'])
+    expect(begun.ok).toBe(true)
+    if (!begun.ok) return
+
+    // A buffered new solve must not make an unrelated deletion look durable.
+    act(() => {
+      result.current.addSolve(
+        { rawMs: 9_876, penalty: 'none', scramble: "F R U'" },
+        '333',
+      )
+    })
+    let removed: ReturnType<typeof result.current.deleteSolve> = null
+    act(() => {
+      removed = result.current.deleteSolve('solve-a')
+    })
+
+    expect(removed).toBeNull()
+    expect(
+      result.current.sessions[0]?.solves.some((solve) => solve.id === 'solve-a'),
+    ).toBe(true)
+    expect(
+      loadSessions()
+        .sessions[0]?.solves.some((solve) => solve.id === 'solve-a'),
+    ).toBe(true)
+    expect(result.current.storageOk).toBe(false)
   })
 
   it('clears only the active session after the empty collection is durable', () => {

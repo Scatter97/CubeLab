@@ -2,7 +2,7 @@ import type { FieldUpdate, Session, SessionsData, Solve } from '../types'
 import { DEFAULT_SESSION_NAME, MAX_SESSION_NAME_LENGTH, isUntouchedDefaultSession, normalizeSessionName, resolveSessionOrdering, sortSessionsByOrder } from './sessions'
 import { mergeCustomEvents } from './customEvents'
 import { isCustomEventId } from './events'
-import { mergeSolveFields, recordTime, resolveSolveEvent, solvesEqual } from './solveMerge'
+import { applyRoundMembership, mergeRoundMembership, mergeSolveFields, recordTime, resolveSolveEvent, solvesEqual } from './solveMerge'
 import { applySessionRedirects, findRemoteRedirectDisagreements, findSessionRedirectDivergences, newestRedirectFor, normalizeSessionRedirects } from './sessionRedirects'
 import { mergeSessionTransfers, resolveSessionTransferOwners } from './sessionTransfers'
 import { maxSessionFieldUpdateTime, mergeSessionMetadata } from './sessionMetadata'
@@ -558,6 +558,13 @@ export function mergeSessionsData(input: {
   const solveToSession = new Map<string, string>()
   const solveById = new Map<string, { local?: Solve; remote?: Solve }>()
   const ownership = new Map<string, {local?: string;remote?: string}>()
+  // The round assignment that belongs to the durable transfer destination.
+  // It must not be taken from a stale source-session copy of the same solve.
+  const destinationRounds = new Map<
+    string,
+    { local?: Pick<Solve, 'roundId' | 'roundIndex'>; remote?: Pick<Solve, 'roundId' | 'roundIndex'> }
+  >()
+  const transferredRounds = new Map<string, ReturnType<typeof mergeRoundMembership>>()
   // A session tombstone deliberately removes its session, but solves created on
   // an offline device after that deletion must not vanish silently. Keep those
   // candidates aside and move them into a clearly labelled recovered session.
@@ -581,6 +588,14 @@ export function mergeSessionsData(input: {
         if (deletedSolveIds.has(solve.id)) continue
         if (solve.event !== (session.event ?? '333')) {
           throw new Error(`Solve ${solve.id} does not match its session event; sync stopped to preserve data.`)
+        }
+        if (transferOwners.get(solve.id) === session.id) {
+          const rounds = destinationRounds.get(solve.id) ?? {}
+          rounds[side] = {
+            roundId: solve.roundId,
+            roundIndex: solve.roundIndex,
+          }
+          destinationRounds.set(solve.id, rounds)
         }
         const pair = solveById.get(solve.id) ?? {}
         const existing = pair[side]
@@ -624,6 +639,18 @@ export function mergeSessionsData(input: {
       // Field edits still merge normally, but the solve stays in the reviewed
       // destination even when a stale device still holds a copy in the source.
       winner = transferredOwner
+      // Take round structure from the snapshot that already carries the solve
+      // in the destination. A stale source copy's contested/original round is
+      // not destination structure and must not overwrite the split's scored
+      // round. With no destination copy, clear stale source membership and let
+      // the destination session assign its own slots.
+      const destination = destinationRounds.get(solveId)
+      transferredRounds.set(
+        solveId,
+        destination
+          ? mergeRoundMembership(destination.local, destination.remote)
+          : {},
+      )
     } else if (localOwner && remoteOwner && localOwner !== remoteOwner) {
       const l = pair.local!
       const r = pair.remote!
@@ -710,21 +737,25 @@ export function mergeSessionsData(input: {
     )
 
     const sessionSolves: Solve[] = []
+    const keepTransferredRound = (solve: Solve): Solve => {
+      const round = transferredRounds.get(solve.id)
+      return round ? applyRoundMembership(solve, round) : solve
+    }
     for (const [solveId, pair] of solveById) {
       if (solveToSession.get(solveId) !== sessionId) continue
       const localSolve = pair.local
       const remoteSolve = pair.remote
       if (!localSolve && !remoteSolve) continue
       if (!localSolve) {
-        sessionSolves.push(remoteSolve!)
+        sessionSolves.push(keepTransferredRound(remoteSolve!))
         addedSolves += 1
       } else if (!remoteSolve) {
-        sessionSolves.push(localSolve)
+        sessionSolves.push(keepTransferredRound(localSolve))
       } else if (solvesEqual(localSolve, remoteSolve)) {
-        sessionSolves.push(mergeSolveFields(localSolve, remoteSolve, false, [], resolvedConflicts))
+        sessionSolves.push(keepTransferredRound(mergeSolveFields(localSolve, remoteSolve, false, [], resolvedConflicts)))
       } else {
         updatedSolves += 1
-        sessionSolves.push(mergeSolveFields(localSolve, remoteSolve, manualConflictReview, conflicts, resolvedConflicts))
+        sessionSolves.push(keepTransferredRound(mergeSolveFields(localSolve, remoteSolve, manualConflictReview, conflicts, resolvedConflicts)))
       }
     }
 

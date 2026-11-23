@@ -80,6 +80,8 @@ export function RecoveryCenter({
   const [inspectionError, setInspectionError] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [exportPrepared, setExportPrepared] = useState(false)
+  const [acknowledgedPackage, setAcknowledgedPackage] =
+    useState<RecoveryPackage | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [savedAcknowledged, setSavedAcknowledged] = useState(false)
   const [resetConfirmation, setResetConfirmation] = useState('')
@@ -130,6 +132,7 @@ export function RecoveryCenter({
         'Browser storage is unavailable, so a recovery copy cannot be prepared here.',
       )
       setExportPrepared(false)
+      setAcknowledgedPackage(null)
       return null
     }
     try {
@@ -139,13 +142,24 @@ export function RecoveryCenter({
         archives: inspection?.archives ?? [],
       })
       downloadText(JSON.stringify(pkg, null, 2), recoveryPackageFileName())
+      setSavedAcknowledged(false)
+      if ((pkg.unreadableKeys?.length ?? 0) > 0) {
+        setExportPrepared(false)
+        setAcknowledgedPackage(null)
+        setExportMessage(
+          `An incomplete recovery copy was downloaded. ${pkg.unreadableKeys!.length} data record(s) could not be read (${pkg.unreadableKeys!.join(', ')}). Reset is blocked; keep this partial copy and retry after storage recovers.`,
+        )
+        return pkg
+      }
       setExportPrepared(true)
+      setAcknowledgedPackage(pkg)
       setExportMessage(
         'Recovery copy prepared. The browser started a download; verify that you can open the file before resetting anything.',
       )
       return pkg
     } catch (error) {
       setExportPrepared(false)
+      setAcknowledgedPackage(null)
       setExportMessage(
         `The recovery copy could not be prepared. ${
           error instanceof Error ? error.message : 'Nothing was reset.'
@@ -186,24 +200,40 @@ export function RecoveryCenter({
 
   const resetAndStartFresh = () => {
     if (!storage) return
-    if (!exportPrepared || !savedAcknowledged || resetConfirmation !== 'RESET CUBELAB') {
+    if (
+      !exportPrepared ||
+      !acknowledgedPackage ||
+      !savedAcknowledged ||
+      resetConfirmation !== 'RESET CUBELAB'
+    ) {
       setResetMessage(
         'Prepare a recovery copy, confirm you can access it, and type RESET CUBELAB exactly.',
       )
       return
     }
-    const pkg = prepareExport()
-    if (!pkg) {
-      setResetMessage(
-        'Reset blocked because a fresh recovery copy could not be prepared.',
-      )
-      return
-    }
-    const result = resetLocalDataAfterRecoveryExport(storage)
+    const result = resetLocalDataAfterRecoveryExport(
+      storage,
+      acknowledgedPackage,
+    )
     if (!result.ok) {
-      setResetMessage(
-        `Reset incomplete. ${result.failed.length} record(s) could not be removed; the recovery copy was downloaded. Reload and retry, or export again before changing anything.`,
-      )
+      if (result.reason === 'unreadable') {
+        setExportPrepared(false)
+        setAcknowledgedPackage(null)
+        setResetMessage(
+          `Reset blocked because ${result.failed.length} data record(s) could not be read. Nothing was removed; the unreadable records were left in place. Retry after storage recovers, then prepare a fresh recovery copy.`,
+        )
+      } else if (result.reason === 'changed') {
+        setExportPrepared(false)
+        setAcknowledgedPackage(null)
+        setSavedAcknowledged(false)
+        setResetMessage(
+          'Reset blocked because the local data no longer matches the recovery copy you acknowledged. Nothing was removed. Download a fresh recovery copy, confirm you can access it, then type the confirmation again.',
+        )
+      } else {
+        setResetMessage(
+          `Reset incomplete. ${result.failed.length} record(s) could not be removed; the recovery copy was downloaded. Reload and retry, or export again before changing anything.`,
+        )
+      }
       return
     }
     setResetMessage(
@@ -408,7 +438,7 @@ export function RecoveryCenter({
               resetConfirmation !== 'RESET CUBELAB'
             }
           >
-            Export again and start fresh
+            Start fresh with the saved recovery copy
           </button>
           <p className="recovery-error" role="status" aria-live="assertive">
             {resetMessage}

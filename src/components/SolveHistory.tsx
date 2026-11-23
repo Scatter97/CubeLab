@@ -2,13 +2,13 @@ import { memo, useCallback, useMemo, useState } from 'react'
 import type { CompetitionFormat, Penalty, Solve } from '../types'
 import {
   competitionFormatLabel,
+  competitionRoundResultLabel,
   type CompetitionRound,
 } from '../lib/competition'
 import {
   formatEffectiveSolveTime,
   formatRelativeTime,
   formatSolveTime,
-  formatStatValue,
   formatTime,
 } from '../lib/format'
 import { copyText } from '../lib/clipboard'
@@ -32,7 +32,8 @@ interface SolveHistoryProps {
   }
   onSetPenalty: (id: string, penalty: Penalty) => void
   onDelete: (id: string) => void
-  onSetComment: (id: string, comment: string) => void
+  /** Returns whether the comment write reached durable storage. */
+  onSetComment: (id: string, comment: string) => boolean
   onNotify: (message: string) => void
 }
 
@@ -216,9 +217,11 @@ export const SolveHistory = memo(function SolveHistory({
     const groupedIds = new Set<string>()
     for (const round of roundsNewestFirst) {
       const collapsed = collapsedRounds.has(round.id)
-      const result = round.complete
-        ? formatStatValue(round.result)
-        : `Incomplete · ${round.attemptCount}/${competition.format.size}`
+      const result = competitionRoundResultLabel(
+        round,
+        competition.format,
+        'centiseconds',
+      )
       items.push({
         id: `round:${round.id}`,
         type: 'round',
@@ -272,9 +275,11 @@ export const SolveHistory = memo(function SolveHistory({
   const { scrollRef, captureAnchor } = history
   const [commentEditing, setCommentEditing] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
+  const [commentError, setCommentError] = useState<string | null>(null)
   const resetEditor = useCallback((solve: Solve) => {
     setCommentDraft(solve.comment)
     setCommentEditing(false)
+    setCommentError(null)
   }, [])
   const { openMenu, menuRef, toggleMenu, hoverMenu, closeMenu } =
     useHistoryMenu(solves, scrollRef, captureAnchor, false, resetEditor)
@@ -310,7 +315,17 @@ export const SolveHistory = memo(function SolveHistory({
   const handleSaveComment = () => {
     if (!openMenu) return
     captureAnchor()
-    onSetComment(openMenu.item.id, commentDraft.trim())
+    const saved = onSetComment(openMenu.item.id, commentDraft.trim())
+    if (saved === false) {
+      // Keep the editor open with the typed text so the user can retry once
+      // the replacement finishes or storage recovers. Do not claim success.
+      setCommentError(
+        'The comment was not saved. Your draft is still here; retry when browser storage is available.',
+      )
+      onNotify('Could not save solve comment')
+      return
+    }
+    setCommentError(null)
     onNotify('Solve comment saved')
     closeMenu()
   }
@@ -340,13 +355,21 @@ export const SolveHistory = memo(function SolveHistory({
             onChange={event => setCommentDraft(event.target.value)}
           />
           <div className="solve-menu-comment-actions">
-            <button type="button" className="text-button" onClick={() => setCommentEditing(false)}>
+            <button type="button" className="text-button" onClick={() => {
+              setCommentEditing(false)
+              setCommentError(null)
+            }}>
               Cancel
             </button>
             <button type="button" className="button button-primary button-small" onClick={handleSaveComment}>
               Save comment
             </button>
           </div>
+          {commentError ? (
+            <p className="solve-menu-comment-error" role="alert">
+              {commentError}
+            </p>
+          ) : null}
         </div>
       ) : null}
       footer={<HistoryMenuAction icon={<TrashIcon size={14} />} danger onClick={handleDelete}>Delete solve</HistoryMenuAction>}
@@ -371,7 +394,10 @@ export const SolveHistory = memo(function SolveHistory({
         onClick={() => void handleCopy(`${solveTimeText(solve)} — ${solve.scramble}`, 'Solve copied to clipboard')}>
         Copy solve text
       </HistoryMenuAction>
-      <HistoryMenuAction icon={<PencilIcon size={14} />} onClick={() => setCommentEditing(editing => !editing)}>
+      <HistoryMenuAction icon={<PencilIcon size={14} />} onClick={() => {
+        setCommentEditing(editing => !editing)
+        setCommentError(null)
+      }}>
         {solve.comment ? 'Edit comment' : 'Add comment'}
       </HistoryMenuAction>
     </HistoryActionMenu>

@@ -286,6 +286,8 @@ export interface CompetitionRound {
   solves: Solve[]
   attemptCount: number
   complete: boolean
+  /** A duplicated slot or overfull round requires explicit review. */
+  contested: boolean
   result: StatResult
   attempts: CompetitionRoundAttempt[]
 }
@@ -357,6 +359,98 @@ function calculateRoundResult(
   return calculateAverageFromTimes(times, format.size, trimming)
 }
 
+function roundHash(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+/**
+ * Stable identity for an attempt moved out of a contested slot. Hashing the
+ * original round and solve IDs keeps both merge directions (and repeated
+ * merges) on the same new round instead of generating a fresh random ID.
+ */
+export function contestedRoundId(roundId: string, solveId: string): string {
+  return `contested:${roundHash(`${roundId}\u0000${solveId}`)}`
+}
+
+/**
+ * Identifies the deterministic round that holds an attempt moved out of a
+ * contested slot. A resolved contest is durable structure: a stale device's
+ * older assignment to the original round must not undo it during a merge.
+ */
+export function isContestedRoundId(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('contested:')
+}
+
+/**
+ * Keeps one attempt per round slot. Duplicate slots and attempts beyond the
+ * fixed format size are moved to deterministic single-attempt rounds, so every
+ * solve is preserved while a completed round stays scorable. The earliest
+ * attempt (createdAt, then ID) owns a contested slot in either merge order.
+ */
+function reconcileContestedRoundSlots(
+  solves: Solve[],
+  format: CompetitionFormat,
+): Solve[] {
+  const groups = new Map<string, Solve[]>()
+  for (const solve of solves) {
+    if (!isValidRoundId(solve.roundId)) continue
+    const group = groups.get(solve.roundId) ?? []
+    group.push(solve)
+    groups.set(solve.roundId, group)
+  }
+  const usedRoundIds = new Set(groups.keys())
+  const moved = new Map<string, { roundId: string; roundIndex: number }>()
+  for (const [roundId, members] of groups) {
+    const usedIndexes = new Set<number>()
+    for (const solve of [...members].sort(compareAttempts)) {
+      const index = isValidRoundIndex(solve.roundIndex)
+        ? solve.roundIndex
+        : null
+      if (
+        index !== null &&
+        index < format.size &&
+        !usedIndexes.has(index)
+      ) {
+        usedIndexes.add(index)
+        continue
+      }
+      let nextRoundId = contestedRoundId(roundId, solve.id)
+      let suffix = 1
+      while (usedRoundIds.has(nextRoundId)) {
+        nextRoundId = `${contestedRoundId(roundId, solve.id)}:${suffix}`
+        suffix += 1
+      }
+      usedRoundIds.add(nextRoundId)
+      moved.set(solve.id, { roundId: nextRoundId, roundIndex: 0 })
+    }
+  }
+  if (moved.size === 0) return solves
+  return solves.map((solve) => {
+    const assignment = moved.get(solve.id)
+    return assignment ? { ...solve, ...assignment } : solve
+  })
+}
+
+function roundHasContestedSlot(
+  solves: readonly Solve[],
+  format: CompetitionFormat,
+): boolean {
+  if (solves.length > format.size) return true
+  const seen = new Set<number>()
+  for (const solve of solves) {
+    if (!isValidRoundIndex(solve.roundIndex)) return true
+    if (solve.roundIndex >= format.size) return true
+    if (seen.has(solve.roundIndex)) return true
+    seen.add(solve.roundIndex)
+  }
+  return false
+}
+
 interface RoundGroup {
   id: string
   solves: Solve[]
@@ -388,13 +482,20 @@ export function getCompetitionRounds(
     )
     .map((group, index) => {
       const ordered = [...group.solves].sort(compareAttempts)
-      const result = calculateRoundResult(ordered, format, trimming)
+      const contested = roundHasContestedSlot(ordered, format)
+      // A contested round has no authoritative result until its membership is
+      // resolved. Keeping a numeric result here would let Statistics call it
+      // Best or DNF even though the same solved state is also Contested.
+      const result = contested
+        ? null
+        : calculateRoundResult(ordered, format, trimming)
       return {
         id: group.id,
         number: index + 1,
         solves: ordered,
         attemptCount: ordered.length,
         complete: ordered.length === format.size,
+        contested,
         result,
         attempts: markAttempts(ordered, format, trimming),
       }
@@ -406,6 +507,9 @@ export function competitionRoundResultLabel(
   format: CompetitionFormat,
   precision: StatPrecision,
 ): string {
+  if (round.contested) {
+    return `Contested · ${round.attemptCount}/${format.size}`
+  }
   if (!round.complete) {
     return `Incomplete · ${round.attemptCount}/${format.size}`
   }
@@ -429,6 +533,9 @@ export function getCompetitionRoundSummary(
   let best: CompetitionRound | null = null
   const dnfRounds: CompetitionRound[] = []
   for (const round of rounds) {
+    // Contested membership has no authoritative result, even if a caller
+    // constructs a round object with a stale numeric result attached.
+    if (round.contested) continue
     if (round.result?.status === 'dnf') dnfRounds.push(round)
     const ms = resultMs(round)
     if (ms === null) continue
@@ -461,15 +568,30 @@ export function normalizeRoundMembership(session: Session): Session {
     if (hasRoundMembership(solve)) assigned.push(solve)
     else unassigned.push(solve)
   }
-  if (unassigned.length === 0) return session
+  if (unassigned.length === 0) {
+    const reconciled = reconcileContestedRoundSlots(
+      session.solves,
+      session.competitionFormat,
+    )
+    return reconciled === session.solves
+      ? session
+      : { ...session, solves: newestFirst(reconciled) }
+  }
 
   const existing = newestFirst(assigned)
-  const next = assignRoundMembership(unassigned, { solves: existing }, session.competitionFormat)
+  const next = assignRoundMembership(
+    unassigned,
+    { solves: existing },
+    session.competitionFormat,
+  )
   const byId = new Map(next.map((solve) => [solve.id, solve]))
+  const combined = session.solves.map((solve) => byId.get(solve.id) ?? solve)
+  const reconciled = reconcileContestedRoundSlots(
+    combined,
+    session.competitionFormat,
+  )
   return {
     ...session,
-    solves: newestFirst(
-      session.solves.map((solve) => byId.get(solve.id) ?? solve),
-    ),
+    solves: newestFirst(reconciled),
   }
 }

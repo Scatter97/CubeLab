@@ -137,6 +137,13 @@ export function StorageHealthPanel({
     }
   }
 
+  const usageLabel = formatBytes(health?.usage ?? null)
+  const quotaLabel = formatBytes(health?.quota ?? null)
+  const storageUseLabel =
+    usageLabel === 'Not reported' && quotaLabel === 'Not reported'
+      ? 'Not reported'
+      : `${usageLabel} of ${quotaLabel}`
+
   const persistedLabel =
     health === null
       ? 'Checking…'
@@ -166,10 +173,7 @@ export function StorageHealthPanel({
       </p>
       <div className="settings-row">
         <span className="settings-row-label">Browser storage used</span>
-        <span>
-          {formatBytes(health?.usage ?? null)} of{' '}
-          {formatBytes(health?.quota ?? null)}
-        </span>
+        <span>{storageUseLabel}</span>
       </div>
       <div className="settings-row">
         <span className="settings-row-label">Last verified local archive</span>

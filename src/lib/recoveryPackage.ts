@@ -75,6 +75,8 @@ export interface RecoveryPackageRecord {
   byteLength: number
   checksum: string
   sourceVersion: number | null
+  /** The key exists but its bytes could not be read during export. */
+  readError?: boolean
 }
 
 export interface RecoveryPackage {
@@ -88,6 +90,11 @@ export interface RecoveryPackage {
   records: RecoveryPackageRecord[]
   archives: UpgradeArchiveRecord[]
   excludedKeys: string[]
+  /**
+   * Data-bearing keys whose exact bytes could not be read. A package with any
+   * unreadable key is downloadable but must never authorize a local reset.
+   */
+  unreadableKeys?: string[]
   integrity: {
     algorithm: 'fnv1a32'
     overall: string
@@ -149,12 +156,23 @@ export function createRecoveryPackage(
   options: CreateRecoveryPackageOptions = {},
 ): RecoveryPackage {
   const records: RecoveryPackageRecord[] = []
+  const unreadableKeys: string[] = []
   for (const key of enumerateKeys(storage)) {
     let raw: string | null
     try {
       raw = storage.getItem(key)
     } catch {
-      raw = null
+      unreadableKeys.push(key)
+      records.push({
+        key,
+        present: false,
+        raw: null,
+        byteLength: 0,
+        checksum: archiveChecksum(''),
+        sourceVersion: null,
+        readError: true,
+      })
+      continue
     }
     records.push({
       key,
@@ -197,6 +215,7 @@ export function createRecoveryPackage(
       'In-memory Google OAuth access tokens (never persisted)',
       'Unrelated browser-origin storage',
     ],
+    ...(unreadableKeys.length > 0 ? { unreadableKeys } : {}),
     integrity: {
       algorithm: 'fnv1a32',
       overall,
@@ -228,7 +247,29 @@ export function verifyRecoveryPackage(value: unknown): value is RecoveryPackage 
       (record.raw !== null && typeof record.raw !== 'string') ||
       (record.present !== (record.raw !== null)) ||
       (record.raw !== null && record.checksum !== archiveChecksum(record.raw)) ||
+      (record.readError !== undefined && typeof record.readError !== 'boolean') ||
+      (record.readError === true &&
+        (record.raw !== null || record.present !== false)) ||
       typeof record.checksum !== 'string'
+    ) {
+      return false
+    }
+  }
+  if (value.unreadableKeys !== undefined) {
+    if (
+      !Array.isArray(value.unreadableKeys) ||
+      !value.unreadableKeys.every((key) => typeof key === 'string')
+    ) {
+      return false
+    }
+    const marked = new Set(
+      value.records
+        .filter((record) => (record as RecoveryPackageRecord).readError === true)
+        .map((record) => (record as RecoveryPackageRecord).key),
+    )
+    if (
+      marked.size !== value.unreadableKeys.length ||
+      value.unreadableKeys.some((key) => !marked.has(key))
     ) {
       return false
     }
@@ -294,15 +335,18 @@ export async function restoreVerifiedUpgradeArchive(input: {
     }
   }
 
-  const currentSources = keys.map((key) => {
-    let raw: string | null
+  const currentSources: { key: string; raw: string | null }[] = []
+  for (const key of keys) {
     try {
-      raw = storage.getItem(key)
+      currentSources.push({ key, raw: storage.getItem(key) })
     } catch {
-      raw = null
+      return {
+        ok: false,
+        message:
+          'A current record could not be read safely, so the archive was not restored. Nothing was changed.',
+      }
     }
-    return { key, raw }
-  })
+  }
   let safetyArchiveId: string
   try {
     const safetyArchive = await createUpgradeArchive(
@@ -402,27 +446,120 @@ export async function restoreVerifiedUpgradeArchive(input: {
   }
 }
 
+export interface ResetLocalDataResult {
+  ok: boolean
+  removed: string[]
+  failed: string[]
+  reason?: 'unavailable' | 'unreadable' | 'changed' | 'remove-failed'
+  /** Keys whose current bytes changed or could not be compared after export. */
+  changed?: string[]
+}
+
+function removableRecoveryKeys(storage: RecoveryStorage): string[] {
+  return enumerateKeys(storage).filter(
+    (key) =>
+      !key.startsWith(UPGRADE_ARCHIVE_FALLBACK_PREFIX) &&
+      key !== UPGRADE_ARCHIVE_INDEX_KEY,
+  )
+}
+
 /**
  * Deliberately destructive "export and start fresh" local cleanup. Verified
  * upgrade archives, the service worker, caches and Google Drive files are kept.
  * Callers must have already prepared a recovery package and obtained explicit
  * typed confirmation.
+ *
+ * When the acknowledged package is supplied, the current bytes must still
+ * match it exactly. A read failure blocks the entire reset before anything is
+ * removed: a missing package record must never be guessed to mean "absent".
  */
 export function resetLocalDataAfterRecoveryExport(
   storage: RecoveryStorage,
-): { ok: boolean; removed: string[]; failed: string[] } {
+  acknowledgedPackage?: RecoveryPackage,
+): ResetLocalDataResult {
   if (!storage.removeItem) {
-    return { ok: false, removed: [], failed: ['Browser storage removal is unavailable.'] }
+    return {
+      ok: false,
+      removed: [],
+      failed: ['Browser storage removal is unavailable.'],
+      reason: 'unavailable',
+    }
   }
+  const keys = removableRecoveryKeys(storage)
+  const current = new Map<string, string | null>()
+  const unreadable: string[] = []
+  for (const key of keys) {
+    try {
+      current.set(key, storage.getItem(key))
+    } catch {
+      unreadable.push(key)
+    }
+  }
+  if (unreadable.length > 0) {
+    return {
+      ok: false,
+      removed: [],
+      failed: unreadable,
+      reason: 'unreadable',
+    }
+  }
+
+  if (acknowledgedPackage) {
+    if (!verifyRecoveryPackage(acknowledgedPackage)) {
+      return {
+        ok: false,
+        removed: [],
+        failed: ['The acknowledged recovery copy failed its integrity check.'],
+        reason: 'changed',
+      }
+    }
+    if ((acknowledgedPackage.unreadableKeys?.length ?? 0) > 0) {
+      return {
+        ok: false,
+        removed: [],
+        failed: [...acknowledgedPackage.unreadableKeys!],
+        reason: 'unreadable',
+      }
+    }
+    const expected = new Map(
+      acknowledgedPackage.records.map((record) => [record.key, record]),
+    )
+    const changed = new Set<string>()
+    for (const key of keys) {
+      const record = expected.get(key)
+      if (!record || record.readError) {
+        // A key that appeared after export is new data the package does not
+        // contain. A missing expected record means the package is incomplete.
+        changed.add(key)
+        continue
+      }
+      const actual = current.get(key) ?? null
+      const wanted = record.present ? record.raw : null
+      if (actual !== wanted) changed.add(key)
+    }
+    for (const key of expected.keys()) {
+      if (
+        key.startsWith(UPGRADE_ARCHIVE_FALLBACK_PREFIX) ||
+        key === UPGRADE_ARCHIVE_INDEX_KEY
+      ) {
+        continue
+      }
+      if (!keys.includes(key)) changed.add(key)
+    }
+    if (changed.size > 0) {
+      return {
+        ok: false,
+        removed: [],
+        failed: [...changed],
+        changed: [...changed],
+        reason: 'changed',
+      }
+    }
+  }
+
   const failed: string[] = []
   const removed: string[] = []
-  for (const key of enumerateKeys(storage)) {
-    if (
-      key.startsWith(UPGRADE_ARCHIVE_FALLBACK_PREFIX) ||
-      key === UPGRADE_ARCHIVE_INDEX_KEY
-    ) {
-      continue
-    }
+  for (const key of keys) {
     try {
       storage.removeItem(key)
       removed.push(key)
@@ -430,5 +567,10 @@ export function resetLocalDataAfterRecoveryExport(
       failed.push(key)
     }
   }
-  return { ok: failed.length === 0, removed, failed }
+  return {
+    ok: failed.length === 0,
+    removed,
+    failed,
+    ...(failed.length > 0 ? { reason: 'remove-failed' as const } : {}),
+  }
 }

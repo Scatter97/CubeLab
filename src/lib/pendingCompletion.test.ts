@@ -138,6 +138,41 @@ describe('pending completion buffer', () => {
     ).toEqual([])
   })
 
+  it('does not report an existing-solve edit as buffered when only another solve is pending', () => {
+    const baseline = data({
+      sessions: [session({ solves: [solve({ id: 'existing' })] })],
+    })
+    const buffered = data({
+      sessions: [
+        session({
+          solves: [solve({ id: 'existing' }), solve({ id: 'buffered-A' })],
+        }),
+      ],
+    })
+    expect(recordPendingCompletion(baseline, buffered, storage)).toBe(true)
+
+    const edited = data({
+      sessions: [
+        session({
+          solves: [solve({ id: 'existing', comment: 'Pending note' })],
+        }),
+      ],
+    })
+    expect(
+      recordPendingCompletion(baseline, edited, storage, {
+        requiredSolveId: 'existing',
+      }),
+    ).toBe(false)
+    const loaded = loadPendingCompletion(storage)
+    expect(loaded.status).toBe('ok')
+    if (loaded.status !== 'ok') return
+    expect(
+      loaded.completion.entries.flatMap((entry) =>
+        entry.solves.map((solve) => solve.id),
+      ),
+    ).toEqual(['buffered-A'])
+  })
+
   it('uses a labelled same-event recovery session when the original owner was removed', () => {
     const baseline = data()
     const local = data({

@@ -90,17 +90,9 @@ export default function Bootstrap() {
         })
         return
       }
-      const completion = applyPendingCompletionAtStartup()
-      if (!completion.ok) {
-        setPhase({
-          kind: 'blocked',
-          message: completion.message,
-          failure: { kind: 'pending-completion', message: completion.message },
-        })
-        return
-      }
-      // Archive and commit any legacy/older schema before any editable hook can
-      // normalize it. A failed archive leaves the source bytes untouched.
+      // Archive and commit any legacy/older schema before any editable hook or
+      // pending-completion replay can normalize it. A failed archive leaves the
+      // source bytes untouched.
       const migration = await runStartupMigration()
       if (migration.status === 'blocked') {
         const kind =
@@ -117,6 +109,15 @@ export default function Bootstrap() {
           kind: 'blocked',
           message: migration.message,
           failure: { kind, message: migration.message },
+        })
+        return
+      }
+      const completion = applyPendingCompletionAtStartup()
+      if (!completion.ok) {
+        setPhase({
+          kind: 'blocked',
+          message: completion.message,
+          failure: { kind: 'pending-completion', message: completion.message },
         })
         return
       }

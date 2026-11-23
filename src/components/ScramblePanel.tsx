@@ -12,6 +12,10 @@ interface ScramblePanelProps {
   canRegenerate: boolean
   onRegenerate: () => void
   onRetry: () => void
+  /** Show the explicit fallback once repeated retries cannot recover. */
+  showReload?: boolean
+  canReload?: boolean
+  onReload?: () => void
   onNotify: (message: string) => void
   scrambleAction?: ScrambleAction
   alignment?: ScrambleAlignment
@@ -31,6 +35,9 @@ export function ScramblePanel({
   canRegenerate,
   onRegenerate,
   onRetry,
+  showReload = false,
+  canReload = true,
+  onReload,
   onNotify,
   scrambleAction = 'none',
   alignment,
@@ -134,8 +141,23 @@ export function ScramblePanel({
           <div className="scramble-error" role="alert">
             <span>{error}</span>
             <button type="button" className="text-button" onClick={onRetry}>
-              Regenerate scramble
+              Retry
             </button>
+            {showReload ? (
+              <button
+                type="button"
+                className="text-button"
+                onClick={onReload}
+                disabled={!canReload}
+                title={
+                  canReload
+                    ? undefined
+                    : 'Reload is available when the timer is idle and local data is saved.'
+                }
+              >
+                Reload to recover
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="scramble-skeleton" aria-label="Generating scramble">
@@ -145,14 +167,29 @@ export function ScramblePanel({
         )}
       </div>
 
-      {error ? (
+      {error && scramble ? (
         <div className="scramble-footer">
           <span className="scramble-footer-error" role="alert">
             {error}
           </span>
           <button type="button" className="text-button" onClick={onRetry}>
-            Regenerate scramble
+            Retry
           </button>
+          {showReload ? (
+            <button
+              type="button"
+              className="text-button"
+              onClick={onReload}
+              disabled={!canReload}
+              title={
+                canReload
+                  ? undefined
+                  : 'Reload is available when the timer is idle and local data is saved.'
+              }
+            >
+              Reload to recover
+            </button>
+          ) : null}
         </div>
       ) : null}
     </section>

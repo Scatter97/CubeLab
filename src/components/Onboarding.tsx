@@ -1230,7 +1230,7 @@ export function Onboarding({
                         : stage === 'appearance'
                           ? 'Choose a theme and tune every color. Hold the preview to try the timer states.'
                           : stage === 'sync'
-                            ? ''
+                            ? 'Sync across your devices now, or enable it later in Settings.'
                             : stage === 'signin'
                             ? 'Sign in to restore your CubeLab data.'
                             : stage === 'restore'

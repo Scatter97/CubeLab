@@ -78,15 +78,6 @@ export function AppearanceControls({
     })
   }
 
-  const updateHex = (key: keyof AppearanceColors, raw: string) => {
-    const value = raw.trim()
-    if (!value) {
-      updateColor(key, null)
-      return
-    }
-    if (HEX_PATTERN.test(value)) updateColor(key, value.toLocaleLowerCase())
-  }
-
   return (
     <div className="appearance-controls">
       <div className="appearance-presets">
@@ -141,17 +132,11 @@ export function AppearanceControls({
                   data-testid={`${testIdPrefix}-color-input-${field.key}`}
                   onChange={(event) => updateColor(field.key, event.target.value)}
                 />
-                <input
-                  type="text"
-                  className="appearance-color-hex"
-                  aria-label={`${field.label} hex value`}
-                  value={value ?? ''}
-                  placeholder="Theme default"
-                  pattern="^#[0-9a-fA-F]{6}$"
-                  maxLength={7}
-                  spellCheck={false}
-                  data-testid={`${testIdPrefix}-color-hex-${field.key}`}
-                  onChange={(event) => updateHex(field.key, event.target.value)}
+                <HexColorInput
+                  label={field.label}
+                  value={value}
+                  testId={`${testIdPrefix}-color-hex-${field.key}`}
+                  onCommit={(next) => updateColor(field.key, next)}
                 />
                 {value ? (
                   <button
@@ -173,6 +158,81 @@ export function AppearanceControls({
 
       <TimerColorPreview holdDurationMs={settings.holdDurationMs} />
     </div>
+  )
+}
+
+/**
+ * Keep the text field editable while a hex value is incomplete. Committing only
+ * validated values directly from the controlled prop would reject each
+ * intermediate keystroke and make the field impossible to type into.
+ */
+function HexColorInput({
+  label,
+  value,
+  testId,
+  onCommit,
+}: {
+  label: string
+  value: string | null
+  testId: string
+  onCommit: (value: string | null) => void
+}) {
+  const [draft, setDraft] = useState(value ?? '')
+  const committedRef = useRef(value)
+
+  useEffect(() => {
+    if (committedRef.current === value) return
+    committedRef.current = value
+    setDraft(value ?? '')
+  }, [value])
+
+  const commit = (next: string | null) => {
+    committedRef.current = next
+    onCommit(next)
+  }
+
+  return (
+    <input
+      type="text"
+      className="appearance-color-hex"
+      aria-label={`${label} hex value`}
+      value={draft}
+      placeholder="Theme default"
+      pattern="^#[0-9a-fA-F]{6}$"
+      maxLength={7}
+      spellCheck={false}
+      data-testid={testId}
+      onChange={(event) => {
+        const raw = event.target.value
+        setDraft(raw)
+        const trimmed = raw.trim()
+        if (!trimmed) {
+          if (value !== null) commit(null)
+          return
+        }
+        if (HEX_PATTERN.test(trimmed)) {
+          const normalized = trimmed.toLocaleLowerCase()
+          if (normalized !== value) commit(normalized)
+        }
+      }}
+      onBlur={() => {
+        const trimmed = draft.trim()
+        if (!trimmed) {
+          setDraft('')
+          if (value !== null) commit(null)
+          return
+        }
+        const normalized = trimmed.toLocaleLowerCase()
+        if (!HEX_PATTERN.test(normalized)) {
+          // An incomplete value is not a color choice. Restore the last
+          // committed value instead of leaving invalid text in the field.
+          setDraft(value ?? '')
+          return
+        }
+        setDraft(normalized)
+        if (normalized !== value) commit(normalized)
+      }}
+    />
   )
 }
 

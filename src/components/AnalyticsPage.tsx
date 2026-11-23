@@ -2184,7 +2184,8 @@ export default function AnalyticsPage({
         <div className="analytics-heading-copy">
           <h1 id="analytics-title">Analytics</h1>
           <span className="analytics-record-count">
-            {overview.count.toLocaleString()} matching solves
+            {overview.count.toLocaleString()} matching{' '}
+            {overview.count === 1 ? 'solve' : 'solves'}
           </span>
         </div>
         <div className="analytics-heading-actions">

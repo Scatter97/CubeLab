@@ -48,6 +48,82 @@ async function waitForApp(page: Page) {
   await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
 }
 
+interface ScrambleWorkerStats {
+  created: number
+  terminated: number
+  live: number
+  maxLive: number
+}
+
+async function trackScrambleWorkers(page: Page) {
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker
+    if (typeof NativeWorker !== 'function') return
+    const stats = { created: 0, terminated: 0, live: 0, maxLive: 0 }
+    ;(window as typeof window & { __scrambleWorkerStats?: typeof stats })
+      .__scrambleWorkerStats = stats
+    window.Worker = new Proxy(NativeWorker, {
+      construct(target, argumentsList) {
+        const worker = Reflect.construct(target, argumentsList) as Worker
+        if (String(argumentsList[0]).includes('search-worker-entry')) {
+          stats.created += 1
+          stats.live += 1
+          stats.maxLive = Math.max(stats.maxLive, stats.live)
+          const terminate = worker.terminate.bind(worker)
+          let terminated = false
+          worker.terminate = () => {
+            if (!terminated) {
+              terminated = true
+              stats.terminated += 1
+              stats.live -= 1
+            }
+            return terminate()
+          }
+        }
+        return worker
+      },
+    }) as typeof Worker
+  })
+}
+
+async function scrambleWorkerStats(page: Page): Promise<ScrambleWorkerStats> {
+  return page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __scrambleWorkerStats?: ScrambleWorkerStats
+        }
+      ).__scrambleWorkerStats ?? {
+        created: 0,
+        terminated: 0,
+        live: 0,
+        maxLive: 0,
+      },
+  )
+}
+
+async function advanceScramble(page: Page) {
+  const text = page.locator('.scramble-text')
+  const previous = (await text.innerText()).trim()
+  await page
+    .getByRole('button', { name: 'Generate a new scramble' })
+    .click()
+  await expect
+    .poll(
+      async () => {
+        const current = (await text.allInnerTexts())[0]?.trim()
+        return Boolean(current && current !== previous)
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true)
+  await expect(
+    page.getByRole('button', { name: 'Generate a new scramble' }),
+  ).toBeEnabled({ timeout: 30_000 })
+  const current = (await text.innerText()).trim()
+  expect(isPlausibleScramble(current)).toBe(true)
+}
+
 async function holdSpace(page: Page) {
   // Custom dropdowns keep Space for opening their own menu, so timing helpers
   // explicitly return focus to the page before using the global timer key.
@@ -281,6 +357,41 @@ test('keyboard timing records exactly one solve and advances the scramble', asyn
   expect(solves[0]?.scramble).toBe(firstScramble)
 })
 
+test('releasing a keyboard hold after focus moves still releases the timer', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+
+  await page.getByTestId('current-tool-button').click()
+  await expect(page.getByTestId('tool-panel')).toBeVisible()
+  await page.getByTestId('tool-select-button').click()
+  await page.getByRole('menuitemradio', { name: 'Metronome' }).click()
+  const interval = page.getByLabel('Interval (ms)')
+
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+  })
+  await page.keyboard.down('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'ready')
+
+  // Move focus inside the Space-owning tool while the key is still down.
+  await interval.click()
+  await page.keyboard.up('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'running')
+
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+  })
+  await page.keyboard.press('Space')
+  await expect(page.locator(TIMER)).toHaveAttribute('data-phase', 'idle')
+  await expect(page.getByTestId('solve-count')).toHaveText('1')
+})
+
 test('solve menu handles penalties, comments, copying, undo, and typed clear', async ({
   page,
   context,
@@ -378,6 +489,86 @@ test('solve menu handles penalties, comments, copying, undo, and typed clear', a
   await expect(page.getByTestId('solve-count')).toHaveText('0')
   await expect(sessionDialog).toBeHidden()
   expect(await storedSolves(page)).toHaveLength(0)
+})
+
+test('a pending replacement keeps an unsaved comment draft and retries durably', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await waitForApp(page)
+  await recordSolve(page, 120)
+
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem('cubelab:sessions:v1')!)
+    const session = data.sessions.find(
+      (entry: { id: string }) => entry.id === data.activeSessionId,
+    )
+    const unrelated = {
+      id: 'buffered-A',
+      event: '333',
+      rawMs: 9_000,
+      penalty: 'none',
+      scramble: 'R U F2',
+      comment: '',
+      createdAt: Date.now() - 1_000,
+    }
+    const completion = {
+      version: 1,
+      operationId: 'e2e-buffer',
+      createdAt: Date.now(),
+      entries: [{ session: { ...session, solves: [] }, solves: [unrelated] }],
+    }
+    localStorage.setItem(
+      'cubelab:replacement-completion:v1:entry:buffered-A',
+      JSON.stringify(completion),
+    )
+    localStorage.setItem(
+      'cubelab:replacement:v1',
+      JSON.stringify({
+        version: 1,
+        operationId: 'e2e-pending-replacement',
+        kind: 'native-import',
+        phase: 'prepared',
+        createdAt: Date.now(),
+        before: {
+          sessions: localStorage.getItem('cubelab:sessions:v1'),
+        },
+      }),
+    )
+  })
+
+  const menu = await openFirstSolveMenu(page)
+  await menu.getByRole('menuitem', { name: 'Add comment' }).click()
+  const commentBox = page.getByRole('textbox', { name: 'Solve comment' })
+  await commentBox.fill('Keep this pending draft')
+  await page.getByRole('button', { name: 'Save comment' }).click()
+
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'The comment was not saved' }),
+  ).toBeVisible()
+  await expect(commentBox).toHaveValue('Keep this pending draft')
+  await expect(page.getByRole('status')).toContainText(
+    'Could not save solve comment',
+  )
+  expect((await storedSolves(page))[0]?.comment).toBe('')
+  expect(
+    await page.evaluate(() => {
+      const raw = localStorage.getItem(
+        'cubelab:replacement-completion:v1:entry:buffered-A',
+      )
+      return raw ? JSON.parse(raw).entries[0].solves.map((solve: { id: string }) => solve.id) : []
+    }),
+  ).toEqual(['buffered-A'])
+
+  await page.evaluate(() => {
+    localStorage.removeItem('cubelab:replacement:v1')
+  })
+  await page.getByRole('button', { name: 'Save comment' }).click()
+  await expect(page.getByRole('status')).toContainText('Solve comment saved')
+  await expect(
+    page.getByRole('textbox', { name: 'Solve comment' }),
+  ).toBeHidden()
+  expect((await storedSolves(page))[0]?.comment).toBe('Keep this pending draft')
 })
 
 test('inspection supports count-down, count-up, and independent warnings', async ({
@@ -1976,8 +2167,292 @@ test('scramble failure disables timing and offers retry', async ({ page }) => {
     /Scramble unavailable/,
   )
   await expect(
-    error.getByRole('button', { name: 'Regenerate scramble', exact: true }),
+    error.getByRole('button', { name: 'Retry', exact: true }),
   ).toBeVisible()
+  await expect(error.getByRole('alert')).toHaveCount(0)
+})
+
+test('scramble Retry starts a fresh worker after the cached one stalls', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await trackScrambleWorkers(page)
+  let workerRequests = 0
+  await page.route('**/search-worker-entry*', async (route) => {
+    workerRequests += 1
+    if (workerRequests === 1) {
+      // The first request is the page module that exports the worker URL.
+      await route.continue()
+      return
+    }
+    if (workerRequests === 2) {
+      // The worker loads a module that never exposes its comlink API, so it
+      // stalls without holding a network request open. Reusing this cached
+      // Worker would never make another script request.
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        headers: { 'cache-control': 'no-store' },
+        body: '/* intentionally silent worker */',
+      })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/')
+  const error = page.locator('.scramble-error')
+  await expect(error).toBeVisible({ timeout: 30_000 })
+  await expect(error).toContainText('Could not generate a scramble')
+  expect(workerRequests).toBe(2)
+  const stalled = await scrambleWorkerStats(page)
+  expect(stalled.live).toBe(0)
+
+  await error.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+  await expect(
+    page.getByRole('button', { name: 'Generate a new scramble' }),
+  ).toBeEnabled({ timeout: 30_000 })
+  // The service worker may serve the fresh worker from cache without invoking
+  // page.route again. A visible scramble still proves the silent cached worker
+  // was replaced: it could never expose comlink or return a scramble.
+  await expect(page.locator(TIMER)).not.toHaveAttribute(
+    'aria-label',
+    /Scramble unavailable/,
+  )
+  const recovered = await scrambleWorkerStats(page)
+  expect(recovered.live).toBe(0)
+  expect(recovered.created).toBeGreaterThanOrEqual(2)
+  expect(recovered.terminated).toBe(recovered.created)
+
+  let previousCreated = recovered.created
+  for (let index = 0; index < 4; index += 1) {
+    await advanceScramble(page)
+    const afterAdvance = await scrambleWorkerStats(page)
+    expect(afterAdvance.live).toBe(0)
+    expect(afterAdvance.created).toBeGreaterThan(previousCreated)
+    expect(afterAdvance.terminated + afterAdvance.live).toBe(
+      afterAdvance.created,
+    )
+    expect(afterAdvance.maxLive).toBeLessThanOrEqual(2)
+    previousCreated = afterAdvance.created
+  }
+  const finalStats = await scrambleWorkerStats(page)
+  expect(finalStats.terminated).toBe(finalStats.created)
+})
+
+test.describe('scramble recovery without service-worker interception', () => {
+  test.use({ serviceWorkers: 'block' })
+
+  test('a failed replacement still allows Retry and bounds later workers', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await trackScrambleWorkers(page)
+    let workerRequests = 0
+    await page.route('**/search-worker-entry*', async (route) => {
+      workerRequests += 1
+      if (workerRequests === 1) {
+        await route.continue()
+        return
+      }
+      if (workerRequests <= 3) {
+        // The original worker and the first recovery attempt both stall.
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/javascript',
+          headers: { 'cache-control': 'no-store' },
+          body: '/* intentionally silent worker */',
+        })
+        return
+      }
+      await route.continue()
+    })
+
+    await page.goto('/')
+    const error = page.locator('.scramble-error')
+    await expect(error).toBeVisible({ timeout: 30_000 })
+    expect(workerRequests).toBe(2)
+
+    await error.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(
+      error.getByRole('button', { name: 'Reload to recover' }),
+    ).toBeVisible({ timeout: 30_000 })
+    expect(workerRequests).toBe(3)
+    const failedRecovery = await scrambleWorkerStats(page)
+    expect(failedRecovery.live).toBe(0)
+
+    await error.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+    await expect(
+      page.getByRole('button', { name: 'Generate a new scramble' }),
+    ).toBeEnabled({ timeout: 30_000 })
+    await expect(
+      page.getByRole('button', { name: 'Reload to recover' }),
+    ).toHaveCount(0)
+
+    let previousCreated = failedRecovery.created
+    for (let index = 0; index < 3; index += 1) {
+      await advanceScramble(page)
+      const afterAdvance = await scrambleWorkerStats(page)
+      expect(afterAdvance.live).toBe(0)
+      expect(afterAdvance.created).toBeGreaterThan(previousCreated)
+      expect(afterAdvance.terminated + afterAdvance.live).toBe(
+        afterAdvance.created,
+      )
+      expect(afterAdvance.maxLive).toBeLessThanOrEqual(2)
+      previousCreated = afterAdvance.created
+    }
+    const finalStats = await scrambleWorkerStats(page)
+    expect(finalStats.terminated).toBe(finalStats.created)
+  })
+
+  test('a replacement script load failure appears promptly and Retry refills the queue', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await trackScrambleWorkers(page)
+    let workerRequests = 0
+    let replacementFailed = false
+    await page.route('**/search-worker-entry*', async (route) => {
+      workerRequests += 1
+      if (workerRequests === 1) {
+        // The first request is the page module that exports the worker URL.
+        await route.continue()
+        return
+      }
+      if (workerRequests === 2) {
+        // Stall the original cached worker until CubeLab's 20-second deadline.
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/javascript',
+          headers: { 'cache-control': 'no-store' },
+          body: '/* intentionally silent worker */',
+        })
+        return
+      }
+      if (!replacementFailed) {
+        // Fail only the first replacement's script load. cubing.js must not
+        // spend a second deadline on its unowned asynchronous fallback.
+        replacementFailed = true
+        await route.abort()
+        return
+      }
+      await route.continue()
+    })
+
+    await page.goto('/')
+    const error = page.locator('.scramble-error')
+    await expect(error).toBeVisible({ timeout: 30_000 })
+    expect(workerRequests).toBe(2)
+
+    const retryFailureStarted = Date.now()
+    await error.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(error).toBeVisible({ timeout: 10_000 })
+    expect(Date.now() - retryFailureStarted).toBeLessThan(10_000)
+    expect(workerRequests).toBe(3)
+    await expect(error).toContainText('Could not generate a scramble')
+    await expect(
+      error.getByRole('button', { name: 'Retry', exact: true }),
+    ).toBeVisible()
+    await expect(
+      error.getByRole('button', { name: 'Reload to recover' }),
+    ).toBeVisible()
+    const failedReplacement = await scrambleWorkerStats(page)
+    expect(failedReplacement.live).toBe(0)
+
+    // The next Retry loads the script normally. Two successful fresh workers
+    // refill both scramble slots: the current scramble and the queued next one.
+    await error.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+    const scramble = (await page.locator('.scramble-text').innerText()).trim()
+    expect(isPlausibleScramble(scramble)).toBe(true)
+    await expect
+      .poll(async () => (await scrambleWorkerStats(page)).created, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThanOrEqual(failedReplacement.created + 2)
+    await expect
+      .poll(
+        async () => {
+          const stats = await scrambleWorkerStats(page)
+          return stats.live === 0 && stats.terminated === stats.created
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true)
+    const recovered = await scrambleWorkerStats(page)
+    expect(recovered.live).toBe(0)
+    expect(recovered.terminated).toBe(recovered.created)
+    expect(recovered.maxLive).toBeLessThanOrEqual(2)
+    await expect(
+      page.getByRole('button', { name: 'Generate a new scramble' }),
+    ).toBeEnabled({ timeout: 30_000 })
+
+    await advanceScramble(page)
+    const advanced = await scrambleWorkerStats(page)
+    expect(advanced.live).toBe(0)
+    expect(advanced.created).toBeGreaterThan(recovered.created)
+    expect(advanced.terminated).toBe(advanced.created)
+    expect(advanced.maxLive).toBeLessThanOrEqual(2)
+  })
+
+  test('a puzzle switch receives the new scramble and abandons a pending recovery request', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await trackScrambleWorkers(page)
+    let workerRequests = 0
+    await page.route('**/search-worker-entry*', async (route) => {
+      workerRequests += 1
+      if (workerRequests === 1) {
+        // The first request is the page module that exports the worker URL.
+        await route.continue()
+        return
+      }
+      if (workerRequests <= 3) {
+        // The original worker stalls, then the first recovery worker stays
+        // pending while the user switches puzzles.
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/javascript',
+          headers: { 'cache-control': 'no-store' },
+          body: '/* intentionally silent worker */',
+        })
+        return
+      }
+      await route.continue()
+    })
+
+    await page.goto('/')
+    const error = page.locator('.scramble-error')
+    await expect(error).toBeVisible({ timeout: 30_000 })
+    expect(workerRequests).toBe(2)
+
+    await error.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect.poll(() => workerRequests, { timeout: 10_000 }).toBe(3)
+
+    const sessionDialog = await openSessionSettings(page)
+    await chooseTestOption(page, 'session-event-select', '222')
+    await sessionDialog.getByTestId('session-settings-done').click()
+    await expect(sessionDialog).toBeHidden()
+    await expect(page.locator('.scramble-badge')).toContainText('2×2')
+
+    await expect(page.locator('.scramble-text')).toBeVisible({
+      timeout: 30_000,
+    })
+    const scramble = (await page.locator('.scramble-text').innerText()).trim()
+    expect(isPlausibleScramble(scramble, '222')).toBe(true)
+    expect(workerRequests).toBeGreaterThanOrEqual(4)
+    await expect(
+      page.getByRole('button', { name: 'Generate a new scramble' }),
+    ).toBeEnabled({ timeout: 30_000 })
+
+    const stats = await scrambleWorkerStats(page)
+    expect(stats.live).toBe(0)
+    expect(stats.maxLive).toBeLessThanOrEqual(2)
+    expect(stats.terminated).toBe(stats.created)
+  })
 })
 
 test('installed app loads scrambles while completely offline', async ({

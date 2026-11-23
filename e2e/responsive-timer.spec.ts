@@ -63,12 +63,16 @@ test.describe('responsive timer layout', () => {
           stage: rect('.timer-stage'),
           display: rect('.timer-display'),
           side: rect('.side-column'),
+          settings: rect('.settings-button'),
           viewportWidth: window.innerWidth,
           viewportHeight: window.innerHeight,
           documentWidth: document.documentElement.scrollWidth,
         }
       })
 
+      expect(metrics.settings.right).toBeLessThanOrEqual(
+        metrics.viewportWidth + 1,
+      )
       expect(metrics.stage.bottom).toBeLessThanOrEqual(metrics.side.top + 1)
       expect(metrics.display.top).toBeGreaterThanOrEqual(metrics.stage.top)
       expect(metrics.display.bottom).toBeLessThanOrEqual(metrics.stage.bottom)

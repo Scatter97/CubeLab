@@ -365,6 +365,7 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
     scramble,
     isLoading: scrambleLoading,
     error: scrambleError,
+    recoveryRequired: scrambleRecoveryRequired,
     advance: advanceScramble,
     retry: retryScramble,
   } = useScramble(activeEvent, view === 'timer')
@@ -1107,7 +1108,8 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
       previous &&
       previous.id === latest.id &&
       !previous.complete &&
-      latest.complete
+      latest.complete &&
+      !latest.contested
     ) {
       setRoundSummary(latest)
     }
@@ -1157,21 +1159,29 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
     advanceScramble()
   }, [advanceScramble, scrambleLoading, timer.state.status])
 
+  const handleReloadScramble = useCallback(() => {
+    if (timer.state.status !== 'idle' || !storageHealthy) return
+    window.location.reload()
+  }, [storageHealthy, timer.state.status])
+
   const handleCancel = useCallback(() => {
     timerCancel()
   }, [timerCancel])
 
   const handleSetPenalty = useCallback(
     (id: string, penalty: Penalty) => {
-      setPenalty(id, penalty)
+      if (!setPenalty(id, penalty)) {
+        showToast({
+          message:
+            'The result change was not saved. Try again when browser storage is available.',
+        })
+      }
     },
-    [setPenalty],
+    [setPenalty, showToast],
   )
 
   const handleSetComment = useCallback(
-    (id: string, comment: string) => {
-      setComment(id, comment)
-    },
+    (id: string, comment: string) => setComment(id, comment),
     [setComment],
   )
 
@@ -1421,9 +1431,13 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
     const result = resetAllSolveData()
     setResetAllOpen(false)
     if (!result.ok) {
+      const revoked = sync.restoreDeletions(
+        removed.map(({ id }) => ({ kind: 'solve' as const, id })),
+      )
       showToast({
-        message:
-          'Solve data could not be saved after the reset. Deletion records are saved; retry after storage recovers.',
+        message: revoked
+          ? 'Solve data could not be saved after the reset. Nothing was removed; retry after storage recovers.'
+          : 'Solve data could not be saved and the deletion records could not be revoked. Synchronize carefully before retrying.',
       })
       return
     }
@@ -1616,9 +1630,17 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
 
     if (!deleteAllSessions()) {
       setDeleteAllOpen(false)
+      const revoked = sync.restoreDeletions(
+        sessions.map((session) => ({
+          kind: 'session' as const,
+          id: session.id,
+          knownSolveIds: session.solves.map((solve) => solve.id),
+        })),
+      )
       showToast({
-        message:
-          'Sessions could not be saved after deletion. Deletion records are saved; retry after storage recovers.',
+        message: revoked
+          ? 'Sessions could not be saved after deletion. Nothing was removed; retry after storage recovers.'
+          : 'Sessions could not be saved and the deletion records could not be revoked. Synchronize carefully before retrying.',
       })
       return
     }
@@ -2584,9 +2606,17 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (modalOpen || event.code !== 'Space') return
-      if (isTextEntryTarget(event.target)) return
-      if (isSpaceControlTarget(event.target)) return
+      if (event.code !== 'Space') return
+      // A keyboard hold must be releasable even if focus moved into a text
+      // field, a tool, or a modal while Space was down. Otherwise the timer
+      // stays armed but the next press is ignored.
+      const keyboardHold =
+        timer.state.status === 'holding' || timer.state.status === 'ready'
+      if (!keyboardHold) {
+        if (modalOpen) return
+        if (isTextEntryTarget(event.target)) return
+        if (isSpaceControlTarget(event.target)) return
+      }
       event.preventDefault()
       timerRelease('keyboard')
     }
@@ -2771,6 +2801,9 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
             }
             onRegenerate={handleRegenerate}
             onRetry={retryScramble}
+            showReload={scrambleRecoveryRequired}
+            canReload={timer.state.status === 'idle' && storageHealthy}
+            onReload={handleReloadScramble}
             onNotify={(message) => showToast({ message })}
             scrambleAction={effectiveSettings.scrambleAction}
             alignment={effectiveSettings.scrambleAlignment}

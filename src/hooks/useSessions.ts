@@ -63,8 +63,10 @@ export interface UseSessionsResult {
   activeSessionId: string
   storageOk: boolean
   addSolve: (input: NewSolve, event?: PuzzleEvent) => Solve
-  setPenalty: (id: string, penalty: Penalty) => void
-  setComment: (id: string, comment: string) => void
+  /** Returns whether the edited collection was actually persisted. */
+  setPenalty: (id: string, penalty: Penalty) => boolean
+  /** Returns whether the edited collection was actually persisted. */
+  setComment: (id: string, comment: string) => boolean
   setInspection: (id: string, enabled: boolean | undefined) => void
   setPreferences: (id: string, changes: Partial<SessionPreferences>) => void
   deleteSolve: (id: string) => RemovedSolve | null
@@ -137,22 +139,40 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     setData(next)
   }, [])
 
-  const persistSessions = useCallback((next: SessionsData): boolean => {
+  const persistSessions = useCallback((next: SessionsData, options: { requirePendingSolveId?: string; requireDirectWrite?: boolean } = {}): boolean => {
     const journal = loadReplacementJournal()
     const prepared =
       journal.status === 'invalid' ||
       (journal.status === 'ok' && journal.journal.phase === 'prepared')
     if (prepared) {
+      // The completion buffer can only replay added solves. Destructive or
+      // structural edits must not report success while a prepared candidate
+      // still owns the durable key.
+      if (options.requireDirectWrite) return false
       // Another tab's prepared candidate is still live. Keep this accepted
-      // completion in the local-only buffer instead of overwriting it.
-      return recordPendingCompletion(lastPersistedDataRef.current, next)
+      // completion in the local-only buffer instead of overwriting it. An edit
+      // that does not add its own solve cannot be reconstructed from that
+      // buffer, so callers can require the edited solve to be an addition
+      // before reporting success.
+      return recordPendingCompletion(
+        lastPersistedDataRef.current,
+        next,
+        undefined,
+        { requiredSolveId: options.requirePendingSolveId },
+      )
     }
     if (journal.status === 'ok') {
       const currentRaw = readSessionsRaw()
       if (currentRaw !== lastPersistedRawRef.current) {
+        if (options.requireDirectWrite) return false
         // A committed candidate (or a newer external collection) has not been
         // adopted yet. Do not publish this tab's older snapshot over it.
-        return recordPendingCompletion(lastPersistedDataRef.current, next)
+        return recordPendingCompletion(
+          lastPersistedDataRef.current,
+          next,
+          undefined,
+          { requiredSolveId: options.requirePendingSolveId },
+        )
       }
     }
     // Serialize once and reuse the exact bytes storage now holds; a second
@@ -239,18 +259,50 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     [commit, syncDeviceId],
   )
 
-    const setPenalty = useCallback(
-    (id: string, penalty: Penalty) => {
-      commit((current) => setSolvePenalty(current, id, penalty, undefined, syncDeviceId))
+  const setPenalty = useCallback(
+    (id: string, penalty: Penalty): boolean => {
+      const next = setSolvePenalty(
+        dataRef.current,
+        id,
+        penalty,
+        undefined,
+        syncDeviceId,
+      )
+      if (next === dataRef.current) return true
+      // Persist before publishing a result change so a prepared replacement,
+      // quota failure or other blocked write cannot present an unsaved penalty.
+      if (!persistSessions(next, { requirePendingSolveId: id })) {
+        setStorageOk(false)
+        return false
+      }
+      applyData(next)
+      return true
     },
-    [commit, syncDeviceId],
+    [applyData, persistSessions, syncDeviceId],
   )
 
   const setComment = useCallback(
-    (id: string, comment: string) => {
-      commit((current) => setSolveCommentInData(current, id, comment, undefined, syncDeviceId))
+    (id: string, comment: string): boolean => {
+      const next = setSolveCommentInData(
+        dataRef.current,
+        id,
+        comment,
+        undefined,
+        syncDeviceId,
+      )
+      if (next === dataRef.current) return true
+      // Do not report a saved comment before the edited collection is durable.
+      // A completion buffer entry for a different solve is not this comment.
+      if (
+        !persistSessions(next, { requirePendingSolveId: id })
+      ) {
+        setStorageOk(false)
+        return false
+      }
+      applyData(next)
+      return true
     },
-    [commit, syncDeviceId],
+    [applyData, persistSessions, syncDeviceId],
   )
 
   const setInspection = useCallback(
@@ -277,7 +329,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
       if (!result) return null
       // Persist before publishing so a failed write cannot hide a solve whose
       // deletion was never saved.
-      if (!persistSessions(result.data)) {
+      if (!persistSessions(result.data, { requireDirectWrite: true })) {
         setStorageOk(false)
         return null
       }
@@ -296,7 +348,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
         index,
       )
       if (!next) return false
-      if (!persistSessions(next)) {
+      if (!persistSessions(next, { requireDirectWrite: true })) {
         setStorageOk(false)
         return false
       }
@@ -309,7 +361,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
   const clearSolves = useCallback((): boolean => {
     const next = clearActiveSolves(dataRef.current)
     if (next === dataRef.current) return true
-    if (!persistSessions(next)) {
+    if (!persistSessions(next, { requireDirectWrite: true })) {
       setStorageOk(false)
       return false
     }
@@ -325,7 +377,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     if (result.removed.length === 0) return { ok: true, removed: [] }
     // Persist the cleared collection before publishing it so a failed write
     // cannot make the UI claim that every solve was removed.
-    if (!persistSessions(result.data)) {
+    if (!persistSessions(result.data, { requireDirectWrite: true })) {
       setStorageOk(false)
       return { ok: false, removed: [] }
     }
@@ -360,7 +412,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     const current = dataRef.current
     const next = convertSessionToPracticeInData(current, id)
     if (!next || next === current) return false
-    if (!persistSessions(next)) {
+    if (!persistSessions(next, { requireDirectWrite: true })) {
       setStorageOk(false)
       return false
     }
@@ -399,7 +451,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
       if (!next || next === current) return false
       // Persist before publishing so a failed write cannot remove a source
       // session in the interface while its solves were never saved.
-      if (!persistSessions(next)) {
+      if (!persistSessions(next, { requireDirectWrite: true })) {
         setStorageOk(false)
         return false
       }
@@ -424,7 +476,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
         { editorId: syncDeviceId, competitionFormat },
       )
       if (!result) return null
-      if (!persistSessions(result.data)) {
+      if (!persistSessions(result.data, { requireDirectWrite: true })) {
         setStorageOk(false)
         return null
       }
@@ -463,7 +515,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     if (!next) return false
     // Persist before publishing so a failed write cannot hide a session whose
     // deletion was never saved.
-    if (!persistSessions(next)) {
+    if (!persistSessions(next, { requireDirectWrite: true })) {
       setStorageOk(false)
       return false
     }
@@ -479,7 +531,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     )
     // Persist before publishing: a failed write must not make the interface
     // claim that every session was removed.
-    if (!persistSessions(next)) {
+    if (!persistSessions(next, { requireDirectWrite: true })) {
       setStorageOk(false)
       return false
     }
@@ -568,7 +620,7 @@ export function useSessions(initialSnapshot?: SessionsSnapshot): UseSessionsResu
     (id: string): { ok: true } | { ok: false; error: string } => {
       const result = deleteCustomEventInData(dataRef.current, id)
       if ('error' in result) return { ok: false, error: result.error }
-      if (!persistSessions(result.data)) {
+      if (!persistSessions(result.data, { requireDirectWrite: true })) {
         setStorageOk(false)
         return {
           ok: false,

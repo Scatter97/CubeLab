@@ -109,6 +109,17 @@ function valuesEqual(left: unknown, right: unknown): boolean {
   return false
 }
 
+/**
+ * Conflicts must survive JSON: `undefined` disappears from serialized ledger
+ * records. A cleared session override is stored as `null`, so match both
+ * representations when re-reading an approved conflict.
+ */
+function conflictValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === undefined && right === null) return true
+  if (left === null && right === undefined) return true
+  return valuesEqual(left, right)
+}
+
 function pickWinner(
   localUpdate: FieldUpdate,
   remoteUpdate: FieldUpdate,
@@ -191,10 +202,10 @@ function findResolvedConflict(
         // The reviewed pair can arrive in either orientation because remote
         // snapshots are merged one at a time. Match unordered and translate the
         // stored side when choosing the winner.
-        ((valuesEqual(conflict.localValue, localValue) &&
-          valuesEqual(conflict.remoteValue, remoteValue)) ||
-          (valuesEqual(conflict.localValue, remoteValue) &&
-            valuesEqual(conflict.remoteValue, localValue))) &&
+        ((conflictValuesEqual(conflict.localValue, localValue) &&
+          conflictValuesEqual(conflict.remoteValue, remoteValue)) ||
+          (conflictValuesEqual(conflict.localValue, remoteValue) &&
+            conflictValuesEqual(conflict.remoteValue, localValue))) &&
         // Approval applies only to the exact reviewed value/timestamp pair, or
         // to a side already stamped at the approval time. A field that changed
         // away and back with a new timestamp raises a fresh conflict.
@@ -217,8 +228,8 @@ function resolvedWinner(
   remoteValue: unknown,
 ): 'local' | 'remote' {
   const sameOrientation =
-    valuesEqual(localValue, conflict.localValue) &&
-    valuesEqual(remoteValue, conflict.remoteValue)
+    conflictValuesEqual(localValue, conflict.localValue) &&
+    conflictValuesEqual(remoteValue, conflict.remoteValue)
   if (sameOrientation) return conflict.resolution as 'local' | 'remote'
   return conflict.resolution === 'local' ? 'remote' : 'local'
 }
@@ -290,8 +301,9 @@ function mergeField(options: {
       kind: 'session',
       sessionId: local.id,
       field,
-      localValue,
-      remoteValue,
+      // `undefined` means "no override"; JSON must not drop the reviewed side.
+      localValue: localValue === undefined ? null : localValue,
+      remoteValue: remoteValue === undefined ? null : remoteValue,
       localUpdatedAt: localUpdate.updatedAt,
       remoteUpdatedAt: remoteUpdate.updatedAt,
       resolution: manualConflictReview ? 'manual-pending' : winner,

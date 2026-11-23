@@ -9,41 +9,61 @@ function validTimes(solves: readonly Solve[]): number[] {
     .filter((time): time is number => time !== null && Number.isFinite(time))
 }
 
+function minMax(values: readonly number[]): { min: number; max: number } | null {
+  if (values.length === 0) return null
+  let min = Number.POSITIVE_INFINITY
+  let max = Number.NEGATIVE_INFINITY
+  for (const value of values) {
+    if (value < min) min = value
+    if (value > max) max = value
+  }
+  return { min, max }
+}
+
 export function StatisticsTool({ solves }: { solves: readonly Solve[] }) {
   const values = useMemo(() => validTimes(solves), [solves])
   const stats = useMemo(() => {
-    if (values.length === 0) return null
+    if (solves.length === 0) return null
     const sorted = [...values].sort((a, b) => a - b)
-    const total = values.reduce((sum, value) => sum + value, 0)
+    let total = 0
+    for (const value of values) total += value
     const middle = Math.floor(sorted.length / 2)
     return {
       count: solves.length,
       valid: values.length,
       dnf: solves.length - values.length,
-      best: sorted[0]!,
-      worst: sorted[sorted.length - 1]!,
-      mean: total / values.length,
+      best: sorted[0] ?? null,
+      worst: sorted[sorted.length - 1] ?? null,
+      mean: values.length > 0 ? total / values.length : null,
       median:
-        sorted.length % 2 === 0
-          ? (sorted[middle - 1]! + sorted[middle]!) / 2
-          : sorted[middle]!,
-      total,
+        sorted.length === 0
+          ? null
+          : sorted.length % 2 === 0
+            ? (sorted[middle - 1]! + sorted[middle]!) / 2
+            : sorted[middle]!,
+      total: values.length > 0 ? total : null,
     }
   }, [solves.length, values])
 
   if (!stats) return <p className="tool-note">No solves in this session yet.</p>
+  const allDnf = stats.count > 0 && stats.valid === 0
   return (
     <div className="tool-scroll">
       <dl className="tool-stat-grid">
         <div><dt>Solves</dt><dd>{stats.count}</dd></div>
         <div><dt>Valid</dt><dd>{stats.valid}</dd></div>
         <div><dt>DNF</dt><dd>{stats.dnf}</dd></div>
-        <div><dt>Best</dt><dd>{formatTime(stats.best)}</dd></div>
-        <div><dt>Worst</dt><dd>{formatTime(stats.worst)}</dd></div>
-        <div><dt>Mean</dt><dd>{formatTime(stats.mean)}</dd></div>
-        <div><dt>Median</dt><dd>{formatTime(stats.median)}</dd></div>
-        <div><dt>Total</dt><dd>{formatTime(stats.total)}</dd></div>
+        <div><dt>Best</dt><dd>{stats.best === null ? '—' : formatTime(stats.best)}</dd></div>
+        <div><dt>Worst</dt><dd>{stats.worst === null ? '—' : formatTime(stats.worst)}</dd></div>
+        <div><dt>Mean</dt><dd>{stats.mean === null ? '—' : formatTime(stats.mean)}</dd></div>
+        <div><dt>Median</dt><dd>{stats.median === null ? '—' : formatTime(stats.median)}</dd></div>
+        <div><dt>Total</dt><dd>{stats.total === null ? '—' : formatTime(stats.total)}</dd></div>
       </dl>
+      {allDnf ? (
+        <p className="tool-note" data-testid="statistics-all-dnf">
+          100% DNF. That’s consistency.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -51,9 +71,9 @@ export function StatisticsTool({ solves }: { solves: readonly Solve[] }) {
 export function DistributionTool({ solves }: { solves: readonly Solve[] }) {
   const values = useMemo(() => validTimes(solves), [solves])
   const buckets = useMemo(() => {
-    if (values.length === 0) return []
-    const min = Math.min(...values)
-    const max = Math.max(...values)
+    const range = minMax(values)
+    if (!range) return []
+    const { min, max } = range
     const span = Math.max(1, max - min)
     const count = 8
     const step = span / count
@@ -91,28 +111,56 @@ export function DistributionTool({ solves }: { solves: readonly Solve[] }) {
   )
 }
 
+interface DailyGroup {
+  key: string
+  date: Date
+  year: number
+  count: number
+  total: number
+  validCount: number
+  best: number | null
+}
+
 export function DailyStatsTool({ solves }: { solves: readonly Solve[] }) {
   const days = useMemo(() => {
-    const formatter = new Intl.DateTimeFormat(undefined, {
-      month: 'short',
-      day: 'numeric',
-    })
-    const groups = new Map<string, { date: string; count: number; times: number[] }>()
+    const groups = new Map<string, DailyGroup>()
     for (const solve of solves) {
       const date = new Date(solve.createdAt)
       if (Number.isNaN(date.getTime())) continue
-      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const dayOfMonth = String(date.getDate()).padStart(2, '0')
+      const key = `${year}-${month}-${dayOfMonth}`
       const group = groups.get(key) ?? {
-        date: formatter.format(date),
+        key,
+        date,
+        year,
         count: 0,
-        times: [],
+        total: 0,
+        validCount: 0,
+        best: null,
       }
       group.count += 1
       const time = effectiveTimeMs(solve)
-      if (time !== null) group.times.push(time)
+      if (time !== null) {
+        group.total += time
+        group.validCount += 1
+        if (group.best === null || time < group.best) group.best = time
+      }
       groups.set(key, group)
     }
-    return [...groups.values()]
+    const values = [...groups.values()]
+    const spansYears = new Set(values.map((group) => group.year)).size > 1
+    const formatter = new Intl.DateTimeFormat(undefined, {
+      ...(spansYears ? { year: 'numeric' as const } : {}),
+      month: 'short',
+      day: 'numeric',
+    })
+    return values.map((group) => ({
+      ...group,
+      label: formatter.format(group.date),
+      mean: group.validCount > 0 ? group.total / group.validCount : null,
+    }))
   }, [solves])
 
   if (days.length === 0) return <p className="tool-note">No dated solves yet.</p>
@@ -129,18 +177,11 @@ export function DailyStatsTool({ solves }: { solves: readonly Solve[] }) {
         </thead>
         <tbody>
           {days.map((day) => (
-            <tr key={day.date}>
-              <th scope="row">{day.date}</th>
+            <tr key={day.key} data-date={day.key}>
+              <th scope="row">{day.label}</th>
               <td>{day.count}</td>
-              <td>{day.times.length ? formatTime(Math.min(...day.times)) : '—'}</td>
-              <td>
-                {day.times.length
-                  ? formatTime(
-                      day.times.reduce((sum, time) => sum + time, 0) /
-                        day.times.length,
-                    )
-                  : '—'}
-              </td>
+              <td>{day.best === null ? '—' : formatTime(day.best)}</td>
+              <td>{day.mean === null ? '—' : formatTime(day.mean)}</td>
             </tr>
           ))}
         </tbody>

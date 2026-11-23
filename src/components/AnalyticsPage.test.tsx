@@ -319,7 +319,7 @@ describe('AnalyticsPage', () => {
   it('updates the overview and selected analysis from global filters and resets them', () => {
     render(<Harness />)
     chooseOption('analytics-event', '222')
-    expect(screen.getByText('1 matching solves')).toBeVisible()
+    expect(screen.getByText('1 matching solve')).toBeVisible()
     expect(screen.getByTestId('analytics-overview')).toHaveTextContent(
       'Total solves1',
     )
@@ -333,7 +333,7 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('7 matching solves')).toBeVisible()
 
     chooseOption('analytics-penalty', 'dnf')
-    expect(screen.getByText('1 matching solves')).toBeVisible()
+    expect(screen.getByText('1 matching solve')).toBeVisible()
     expect(screen.getByTestId('analytics-overview')).toHaveTextContent(
       '100.0%',
     )
@@ -352,7 +352,7 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('8 matching solves')).toBeVisible()
 
     chooseOption('analytics-session-kind', 'competition')
-    expect(screen.getByText('1 matching solves')).toBeVisible()
+    expect(screen.getByText('1 matching solve')).toBeVisible()
     expect(screen.getByTestId('analytics-filters-toggle')).toHaveTextContent(
       '2 active',
     )

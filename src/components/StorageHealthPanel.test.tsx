@@ -54,6 +54,7 @@ describe('StorageHealthPanel', () => {
       expect(screen.getByText('Not granted')).toBeInTheDocument(),
     )
     expect(screen.getAllByText('Not recorded').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('Not reported')).toBeInTheDocument()
   })
 
   it('downloads a manifest recovery package from Settings', async () => {

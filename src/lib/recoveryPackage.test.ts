@@ -22,6 +22,8 @@ import {
 
 class MemoryStorage implements RecoveryStorage {
   readonly values = new Map<string, string>()
+  readonly failGetKeys = new Set<string>()
+  readonly removedKeys: string[] = []
   failRemove = false
   get length() {
     return this.values.size
@@ -30,6 +32,7 @@ class MemoryStorage implements RecoveryStorage {
     return [...this.values.keys()][index] ?? null
   }
   getItem(key: string): string | null {
+    if (this.failGetKeys.has(key)) throw new Error('synthetic read failure')
     return this.values.get(key) ?? null
   }
   setItem(key: string, value: string): void {
@@ -37,6 +40,7 @@ class MemoryStorage implements RecoveryStorage {
   }
   removeItem(key: string): void {
     if (this.failRemove) throw new Error('remove failed')
+    this.removedKeys.push(key)
     this.values.delete(key)
   }
   seed(key: string, value: string): void {
@@ -135,6 +139,18 @@ describe('emergency recovery package', () => {
     }
     expect(verifyRecoveryPackage(tampered)).toBe(false)
   })
+
+  it('marks a failed read as unreadable instead of treating it as absent', () => {
+    const storage = seeded()
+    storage.failGetKeys.add(SESSIONS_STORAGE_KEY)
+    const pkg = createRecoveryPackage(storage)
+
+    expect(pkg.unreadableKeys).toEqual([SESSIONS_STORAGE_KEY])
+    expect(
+      pkg.records.find((record) => record.key === SESSIONS_STORAGE_KEY),
+    ).toMatchObject({ present: false, raw: null, readError: true })
+    expect(verifyRecoveryPackage(pkg)).toBe(true)
+  })
 })
 
 describe('verified local archive restore', () => {
@@ -171,6 +187,39 @@ describe('verified local archive restore', () => {
     const records = await archiveStore.list()
     expect(records.some((record) => record.reason === 'pre-restore')).toBe(true)
     expect(records.find((record) => record.id === archive.id)).toBeTruthy()
+  })
+
+  it('refuses to restore when a current record cannot be read safely', async () => {
+    const storage = seeded()
+    storage.failGetKeys.add(SETTINGS_STORAGE_KEY)
+    const archiveStore = createMemoryUpgradeArchiveStore()
+    const archive = await createUpgradeArchive(
+      {
+        reason: 'schema-migration',
+        sources: [
+          { key: SESSIONS_STORAGE_KEY, raw: validSessions, sourceVersion: 7 },
+          {
+            key: SETTINGS_STORAGE_KEY,
+            raw: JSON.stringify({ version: 13, settings: DEFAULT_SETTINGS }),
+            sourceVersion: 13,
+          },
+        ],
+      },
+      archiveStore,
+    )
+    await markUpgradeArchiveStatus(archive.id, 'complete', archiveStore)
+    const before = storage.getItem(SESSIONS_STORAGE_KEY)
+
+    const result = await restoreVerifiedUpgradeArchive({
+      archive,
+      storage,
+      archiveStore,
+      now,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toMatch(/could not be read safely/i)
+    expect(storage.getItem(SESSIONS_STORAGE_KEY)).toBe(before)
   })
 
   it('rejects a tampered archive without changing any bytes', async () => {
@@ -252,5 +301,38 @@ describe('export and start fresh', () => {
     expect(result.ok).toBe(false)
     expect(result.failed.length).toBeGreaterThan(0)
     expect(storage.getItem(SESSIONS_STORAGE_KEY)).not.toBeNull()
+  })
+
+  it('leaves history intact when its only copy cannot be read', () => {
+    const storage = seeded()
+    storage.failGetKeys.add(SESSIONS_STORAGE_KEY)
+    const pkg = createRecoveryPackage(storage)
+
+    const result = resetLocalDataAfterRecoveryExport(storage, pkg)
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'unreadable',
+      failed: [SESSIONS_STORAGE_KEY],
+    })
+    expect(result.removed).toEqual([])
+    expect(storage.removedKeys).toEqual([])
+    expect(storage.values.get(SESSIONS_STORAGE_KEY)).toBe(validSessions)
+  })
+
+  it('blocks reset when local data changed after the acknowledged export', () => {
+    const storage = seeded()
+    const pkg = createRecoveryPackage(storage)
+    storage.seed(SESSIONS_STORAGE_KEY, `${validSessions} `)
+
+    const result = resetLocalDataAfterRecoveryExport(storage, pkg)
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'changed',
+      failed: [SESSIONS_STORAGE_KEY],
+    })
+    expect(result.removed).toEqual([])
+    expect(storage.values.get(SESSIONS_STORAGE_KEY)).toBe(`${validSessions} `)
   })
 })

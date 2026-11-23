@@ -3,6 +3,7 @@ import type { Session, Solve } from '../types'
 import {
   assignRoundMembership,
   competitionFormatLabel,
+  competitionRoundResultLabel,
   defaultCompetitionFormat,
   getCompetitionFormatById,
   getCompetitionRounds,
@@ -230,6 +231,138 @@ describe('round grouping and results', () => {
     })[0]
     expect(boRound?.result).toEqual({ status: 'value', ms: 10_000 })
     expect(boRound?.attempts.find((attempt) => attempt.solve.id === 'bo-0')?.best).toBe(true)
+  })
+
+  it('keeps a completed round scorable when two attempts claim the same slot', () => {
+    const shared = roundSolves('round-1', [10_000, 11_000, 12_000, 13_000])
+    const firstFifth = solve({
+      id: 'attempt-a',
+      rawMs: 14_000,
+      createdAt: CREATE_AT + 4_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const laterFifth = solve({
+      id: 'attempt-b',
+      rawMs: 15_000,
+      createdAt: CREATE_AT + 5_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const normalized = normalizeRoundMembership(
+      session({ solves: newestFirst([...shared, firstFifth, laterFifth]) }),
+    )
+
+    expect(normalized.solves).toHaveLength(6)
+    const rounds = getCompetitionRounds(normalized.solves, format)
+    const completed = rounds.find((round) => round.id === 'round-1')
+    const moved = rounds.find((round) => round.id !== 'round-1')
+    expect(completed).toMatchObject({
+      attemptCount: 5,
+      complete: true,
+      contested: false,
+      result: { status: 'value', ms: 12_000 },
+    })
+    expect(completed?.solves.map((entry) => entry.id)).not.toContain('attempt-b')
+    expect(moved).toMatchObject({
+      attemptCount: 1,
+      complete: false,
+      result: null,
+    })
+    expect(moved?.solves[0]?.id).toBe('attempt-b')
+  })
+
+  it('labels stored duplicate-slot rounds as contested instead of silently unscored', () => {
+    const duplicate = [
+      ...roundSolves('round-1', [10, 11, 12, 13, 14]),
+      solve({
+        id: 'duplicate-fifth',
+        rawMs: 15_000,
+        createdAt: CREATE_AT + 5_000,
+        roundId: 'round-1',
+        roundIndex: 4,
+      }),
+    ]
+    const [round] = getCompetitionRounds(newestFirst(duplicate), format)
+    expect(round).toMatchObject({
+      attemptCount: 6,
+      complete: false,
+      contested: true,
+      result: null,
+    })
+    expect(competitionRoundResultLabel(round!, format, 'centiseconds')).toBe(
+      'Contested · 6/5',
+    )
+  })
+
+  it('keeps an exact-size duplicate-slot round contested and unscored', () => {
+    const duplicate = [
+      ...roundSolves('round-1', [10, 11, 12, 13]),
+      solve({
+        id: 'duplicate-fourth',
+        rawMs: 14_000,
+        createdAt: CREATE_AT + 4_000,
+        roundId: 'round-1',
+        roundIndex: 3,
+      }),
+    ]
+    const [round] = getCompetitionRounds(newestFirst(duplicate), format)
+    expect(round).toMatchObject({
+      attemptCount: 5,
+      complete: true,
+      contested: true,
+      result: null,
+    })
+    expect(competitionRoundResultLabel(round!, format, 'centiseconds')).toBe(
+      'Contested · 5/5',
+    )
+    const summary = getCompetitionRoundSummary([round!])
+    expect(summary.best).toBeNull()
+    expect(summary.dnfRounds).toEqual([])
+  })
+
+  it('excludes a contested round from Best and DNF while keeping a valid round scorable', () => {
+    const contested = [
+      ...roundSolves('contested', [10, 11, 12], {
+        base: CREATE_AT + 300_000,
+      }),
+      solve({
+        id: 'contested-fourth-a',
+        rawMs: 14_000,
+        createdAt: CREATE_AT + 303_000,
+        roundId: 'contested',
+        roundIndex: 3,
+      }),
+      solve({
+        id: 'contested-fourth-b',
+        rawMs: 8_000,
+        createdAt: CREATE_AT + 304_000,
+        roundId: 'contested',
+        roundIndex: 3,
+      }),
+    ]
+    const best = roundSolves('best', [9_000, 9_000, 9_000, 9_000, 9_000], {
+      base: CREATE_AT + 100_000,
+    })
+    const dnf = roundSolves('dnf', [8, 8, 8, 8, 8], {
+      base: CREATE_AT + 200_000,
+      penalties: ['dnf', 'dnf', 'none', 'none', 'none'],
+    })
+    const rounds = getCompetitionRounds(
+      newestFirst([...best, ...dnf, ...contested]),
+      format,
+    )
+    const contestedRound = rounds.find((round) => round.id === 'contested')!
+    expect(contestedRound).toMatchObject({
+      attemptCount: 5,
+      complete: true,
+      contested: true,
+      result: null,
+    })
+    const summary = getCompetitionRoundSummary(rounds)
+    expect(summary.best?.id).toBe('best')
+    expect(summary.best?.result).toEqual({ status: 'value', ms: 9_000 })
+    expect(summary.dnfRounds.map((round) => round.id)).toEqual(['dnf'])
   })
 
   it('marks rounds incomplete after one attempt is deleted and removes empty rounds', () => {

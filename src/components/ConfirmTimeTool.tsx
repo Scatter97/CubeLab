@@ -19,7 +19,8 @@ interface Props {
   /** Mutations are locked while the timer or a pending save is active. */
   disabled?: boolean
   onSetPenalty?: (id: string, penalty: Penalty) => void
-  onSetComment?: (id: string, comment: string) => void
+  /** Returns whether the comment write reached durable storage. */
+  onSetComment?: (id: string, comment: string) => boolean
   onDeleteSolve?: (id: string) => void
   onNotify?: (message: string) => void
 }
@@ -69,10 +70,13 @@ export function ConfirmTimeTool({
   onNotify,
 }: Props) {
   const [commentDraft, setCommentDraft] = useState(solve?.comment ?? '')
+  const [commentError, setCommentError] = useState<string | null>(null)
 
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect
     setCommentDraft(solve?.comment ?? '')
+    // oxlint-disable-next-line react/set-state-in-effect
+    setCommentError(null)
   }, [solve?.id, solve?.comment])
 
   if (!solve) {
@@ -102,8 +106,18 @@ export function ConfirmTimeTool({
 
   const saveComment = () => {
     if (!commentDirty || commentDisabled) return
-    onSetComment?.(solve.id, normalizedComment)
+    const saved = onSetComment?.(solve.id, normalizedComment)
+    if (saved === false) {
+      // Keep the draft exactly as typed so the user can retry after storage
+      // recovers. The success toast is only emitted after a successful write.
+      setCommentError(
+        'The comment was not saved. Your draft is still here; retry when browser storage is available.',
+      )
+      onNotify?.('Could not save solve comment')
+      return
+    }
     setCommentDraft(normalizedComment)
+    setCommentError(null)
     onNotify?.('Solve comment saved')
   }
 
@@ -212,6 +226,11 @@ export function ConfirmTimeTool({
             Save
           </button>
         </div>
+        {commentError ? (
+          <p className="tool-note is-error" role="alert">
+            {commentError}
+          </p>
+        ) : null}
       </div>
 
       <dl className="confirm-time-meta">
@@ -268,7 +287,13 @@ export function ConfirmTimeTool({
           className="text-button danger-text"
           disabled={deleteDisabled}
           data-testid="confirm-time-delete"
-          onClick={() => onDeleteSolve?.(solve.id)}
+          onClick={(event) => {
+            onDeleteSolve?.(solve.id)
+            // The card advances to the next latest solve. Keeping focus here
+            // would let a following Space re-activate Delete instead of
+            // starting the timer, silently removing another solve.
+            event.currentTarget.blur()
+          }}
         >
           Delete solve
         </button>

@@ -357,6 +357,16 @@ function additionsBySession(
   return entries
 }
 
+export interface RecordPendingCompletionOptions {
+  /**
+   * Require this solve ID to be one of the additions that the buffer can
+   * actually store. Solves already in the baseline are not buffered by this
+   * function, so an edit to one of them must not inherit success from an
+   * unrelated completion that was buffered earlier.
+   */
+  requiredSolveId?: string
+}
+
 /**
  * Durably records solves accepted while a prepared/committed replacement has
  * not been reconciled. Existing buffered solves are retained and deduplicated
@@ -370,6 +380,7 @@ export function recordPendingCompletion(
   baseline: SessionsData,
   local: SessionsData,
   storage: StorageLike | null = getDefaultStorage(),
+  options: RecordPendingCompletionOptions = {},
 ): boolean {
   if (isSiteResetInProgress()) return false
   const existing = loadPendingCompletion(storage)
@@ -383,6 +394,14 @@ export function recordPendingCompletion(
     mergeCompletionEntries(entries, existing.completion)
   }
   const additions = additionsBySession(baseline, local)
+  if (
+    options.requiredSolveId &&
+    !additions.some((entry) =>
+      entry.solves.some((solve) => solve.id === options.requiredSolveId),
+    )
+  ) {
+    return false
+  }
   for (const entry of additions) {
     mergeCompletionEntries(entries, {
       version: PENDING_COMPLETION_VERSION,

@@ -102,7 +102,7 @@ describe('ConfirmTimeTool', () => {
   })
 
   it('saves a trimmed comment with the explicit action and with Enter', () => {
-    const onSetComment = vi.fn()
+    const onSetComment = vi.fn().mockReturnValue(true)
     const onNotify = vi.fn()
     render(
       <ConfirmTimeTool
@@ -127,6 +127,31 @@ describe('ConfirmTimeTool', () => {
     fireEvent.change(input, { target: { value: 'Enter note' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onSetComment).toHaveBeenLastCalledWith(solve.id, 'Enter note')
+  })
+
+  it('keeps the draft and does not claim success when the comment write fails', () => {
+    const onSetComment = vi.fn().mockReturnValue(false)
+    const onNotify = vi.fn()
+    render(
+      <ConfirmTimeTool
+        solve={solve}
+        number={1}
+        onSetComment={onSetComment}
+        onNotify={onNotify}
+      />,
+    )
+
+    const input = screen.getByTestId('confirm-time-comment')
+    fireEvent.change(input, { target: { value: 'Keep this draft' } })
+    fireEvent.click(screen.getByTestId('confirm-time-save-comment'))
+
+    expect(onSetComment).toHaveBeenCalledWith(solve.id, 'Keep this draft')
+    expect(onNotify).toHaveBeenCalledWith('Could not save solve comment')
+    expect(onNotify).not.toHaveBeenCalledWith('Solve comment saved')
+    expect(input).toHaveValue('Keep this draft')
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The comment was not saved',
+    )
   })
 
   it('resets the comment draft when the latest solve changes', () => {
@@ -197,8 +222,12 @@ describe('ConfirmTimeTool', () => {
       />,
     )
 
-    fireEvent.click(screen.getByTestId('confirm-time-delete'))
+    const button = screen.getByTestId('confirm-time-delete')
+    button.focus()
+    expect(button).toHaveFocus()
+    fireEvent.click(button)
     expect(onDeleteSolve).toHaveBeenCalledWith(solve.id)
+    expect(button).not.toHaveFocus()
   })
 
   it('locks mutations while timing', () => {

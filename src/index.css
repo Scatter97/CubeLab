@@ -3541,6 +3541,13 @@ kbd {
   justify-content: flex-end;
 }
 
+.solve-menu-comment-error {
+  margin: 0;
+  font-size: 0.58rem;
+  line-height: 1.45;
+  color: var(--danger);
+}
+
 .button-small {
   padding: 5px 9px;
   font-size: 0.62rem;
@@ -7124,6 +7131,29 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
   }
 }
 
+/* Keep the header controls inside the viewport on the smallest supported
+   width, and let the onboarding step labels wrap onto two compact rows. */
+@media (max-width: 370px) {
+  .app-header {
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .brand {
+    gap: 4px;
+  }
+
+  /* The full wordmark plus three navigation labels cannot fit at 320 px.
+     Keep the cube mark and let the labels own the remaining width. */
+  .app-header .brand-copy {
+    display: none;
+  }
+
+  .app-header .header-actions {
+    margin-inline-start: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .analytics-page *,
   .analytics-page *::before,
@@ -9366,6 +9396,27 @@ select option {
 
   .onboarding-cs-name {
     max-width: 150px;
+  }
+}
+
+/* Four labelled setup steps do not fit on one row at the smallest widths.
+   Use two compact rows so every label stays readable. */
+@media (max-width: 370px) {
+  .onboarding-progress ol {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 10px;
+  }
+
+  .onboarding-progress li {
+    flex: initial;
+  }
+
+  .onboarding-progress li > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

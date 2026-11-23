@@ -99,8 +99,7 @@ function formatConflictValue(field: string, value: unknown): string {
       return `${ids.length} older solve${ids.length === 1 ? '' : 's'}`
     }
   }
-  if (value === undefined) return 'not set'
-  if (value === null) return 'null'
+  if (value === undefined || value === null) return 'not set'
   if (typeof value === 'boolean') return value ? 'on' : 'off'
   if (field === 'rawMs' && typeof value === 'number') {
     return `${(value / 1000).toFixed(2)} s`
@@ -880,7 +879,8 @@ export function DriveBackupDialog({
                     data-testid="remote-snapshot-summary"
                   >
                     <span className="status-dot" aria-hidden="true" />
-                    {drive.snapshots?.length ?? 0} files ·{' '}
+                    {drive.snapshots?.length ?? 0}{' '}
+                    {(drive.snapshots?.length ?? 0) === 1 ? 'file' : 'files'} ·{' '}
                     {formatBytes(snapshotTotalBytes)}
                   </span>
                 ) : null}
@@ -1167,7 +1167,7 @@ export function DriveBackupDialog({
                   transport.
                 </p>
               ) : null}
-              {trainingDrive.uploadBlockedReason ? (
+              {trainingDrive.configured && trainingDrive.uploadBlockedReason ? (
                 <p
                   className="settings-note"
                   data-testid="training-upload-blocked"
@@ -1326,11 +1326,11 @@ export function DriveBackupDialog({
                       : ''}
                   </p>
                 </>
-              ) : (
+              ) : trainingDrive.configured ? (
                 <p className="settings-note">
                   Connect Google Drive to list and restore Training backups.
                 </p>
-              )}
+              ) : null}
             </section>
 
             <section

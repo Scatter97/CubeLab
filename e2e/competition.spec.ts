@@ -442,6 +442,78 @@ test('merges practice and competition sources, splits with a format and converts
   ).toBe(true)
 })
 
+test('keeps a contested round unscored in Statistics and Solve History', async ({
+  page,
+}) => {
+  const best = [0, 1, 2, 3, 4].map((index) =>
+    solve(`best-${index}`, 9_000, NOW - 50_000 + index * 1_000, {
+      roundId: 'best-round',
+      roundIndex: index,
+    }),
+  )
+  const dnf = [0, 1, 2, 3, 4].map((index) =>
+    solve(
+      `dnf-${index}`,
+      8_000,
+      NOW - 40_000 + index * 1_000,
+      {
+        roundId: 'dnf-round',
+        roundIndex: index,
+        penalty: index < 2 ? 'dnf' : 'none',
+      },
+    ),
+  )
+  const contested = [
+    ...[0, 1, 2, 3].map((index) =>
+      solve(`contested-${index}`, 10_000 + index * 500, NOW - 20_000 + index * 1_000, {
+        roundId: 'contested-round',
+        roundIndex: index,
+      }),
+    ),
+    solve('contested-duplicate', 12_000, NOW - 15_000, {
+      roundId: 'contested-round',
+      roundIndex: 3,
+    }),
+  ]
+  await seed(
+    page,
+    {
+      version: 7,
+      activeSessionId: 'contest-display',
+      sessions: [
+        competition('contest-display', 'Contest display', [
+          ...contested.slice().reverse(),
+          ...dnf.slice().reverse(),
+          ...best.slice().reverse(),
+        ]),
+      ],
+    },
+    'cubelab-competition-contested',
+  )
+  await page.goto('/')
+  await waitForApp(page)
+
+  const bestRow = page.getByTestId('competition-stat-round-1')
+  const dnfRow = page.getByTestId('competition-stat-round-2')
+  const contestedRow = page.getByTestId('competition-stat-round-3')
+  await expect(bestRow).toContainText('Best')
+  await expect(dnfRow).toContainText('DNF')
+  await expect(contestedRow).toContainText('Contested · 5/5')
+  await expect(contestedRow).not.toContainText('Best')
+  await expect(contestedRow).not.toContainText('DNF')
+
+  const contestedHeader = page.getByTestId('competition-round-header-3')
+  await expect(contestedHeader).toContainText('Contested · 5/5')
+  await expect(page.getByTestId('competition-round-summary')).toBeHidden()
+
+  await page.reload()
+  await waitForApp(page)
+  await expect(page.getByTestId('competition-round-header-3')).toContainText(
+    'Contested · 5/5',
+  )
+  await expect(page.getByTestId('competition-round-summary')).toBeHidden()
+})
+
 test('filters Analytics by competition and practice session type', async ({
   page,
 }) => {

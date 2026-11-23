@@ -71,6 +71,36 @@ it.each(['{broken json', JSON.stringify({ version: 999, ...data })])('keeps unsu
   expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBe(raw)
 })
 
+it('creates a fresh session only when both the current and legacy keys are absent', () => {
+  expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBeNull()
+  expect(localStorage.getItem(SOLVES_STORAGE_KEY)).toBeNull()
+  const snapshot = loadSessionsForStartup()
+  expect(snapshot.sourceVersion).toBeNull()
+  expect(snapshot.data.sessions).toHaveLength(1)
+  expect(snapshot.data.sessions[0]?.solves).toEqual([])
+})
+
+it('treats a genuinely empty valid legacy collection as a first install', () => {
+  const raw = JSON.stringify({ version: 1, solves: [] })
+  localStorage.setItem(SOLVES_STORAGE_KEY, raw)
+  const snapshot = loadSessionsForStartup()
+  expect(snapshot.data.sessions).toHaveLength(1)
+  expect(snapshot.data.sessions[0]?.solves).toEqual([])
+  expect(localStorage.getItem(SOLVES_STORAGE_KEY)).toBe(raw)
+  expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBeNull()
+})
+
+it('routes a nonempty legacy collection with zero usable solves to recovery', () => {
+  const raw = JSON.stringify({
+    version: 1,
+    solves: [{ ...solve, event: '222' }],
+  })
+  localStorage.setItem(SOLVES_STORAGE_KEY, raw)
+  expect(() => loadSessionsForStartup()).toThrow(/no usable solves.*kept/i)
+  expect(localStorage.getItem(SOLVES_STORAGE_KEY)).toBe(raw)
+  expect(localStorage.getItem(SESSIONS_STORAGE_KEY)).toBeNull()
+})
+
 it('keeps a readable legacy record untouched when the current collection read fails', () => {
   localStorage.setItem(SOLVES_STORAGE_KEY, JSON.stringify({ version: 1, solves: [solve] }))
   saveSessions(data)

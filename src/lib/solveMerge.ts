@@ -1,5 +1,5 @@
 import type { FieldUpdate, Solve } from '../types'
-import { isValidRoundId, isValidRoundIndex } from './competition'
+import { isContestedRoundId, isValidRoundId, isValidRoundIndex } from './competition'
 import type { SyncConflict } from './syncStorage'
 
 export function recordTime(item: { updatedAt?: number; createdAt?: number }): number {
@@ -215,6 +215,93 @@ export function resolveSolveEvent(
   }
 }
 
+export interface MergedRoundMembership {
+  roundId?: string
+  roundIndex?: number
+}
+
+type RoundMembershipSource = Pick<Solve, 'roundId' | 'roundIndex'>
+
+/**
+ * Round membership is immutable session structure, not a user-edited field.
+ * A stale assignment to the original round must not undo a contest that has
+ * already been resolved into a deterministic `contested:` round, regardless of
+ * which snapshot is the merge accumulator. Two unresolved ordinary assignments
+ * keep the existing local-first policy; two resolved contests choose the
+ * lexicographically earlier round ID so either merge direction converges.
+ */
+export function mergeRoundMembership(
+  local: RoundMembershipSource | undefined,
+  remote: RoundMembershipSource | undefined,
+): MergedRoundMembership {
+  const localRoundId = isValidRoundId(local?.roundId) ? local.roundId : undefined
+  const remoteRoundId = isValidRoundId(remote?.roundId) ? remote.roundId : undefined
+  if (!localRoundId) {
+    return remoteRoundId
+      ? {
+          roundId: remoteRoundId,
+          ...(isValidRoundIndex(remote!.roundIndex)
+            ? { roundIndex: remote!.roundIndex }
+            : {}),
+        }
+      : {}
+  }
+  if (!remoteRoundId) {
+    return {
+      roundId: localRoundId,
+      ...(isValidRoundIndex(local!.roundIndex)
+        ? { roundIndex: local!.roundIndex }
+        : {}),
+    }
+  }
+  if (localRoundId === remoteRoundId) {
+    return {
+      roundId: localRoundId,
+      ...(isValidRoundIndex(local!.roundIndex)
+        ? { roundIndex: local!.roundIndex }
+        : isValidRoundIndex(remote!.roundIndex)
+          ? { roundIndex: remote!.roundIndex }
+          : {}),
+    }
+  }
+
+  const localContested = isContestedRoundId(localRoundId)
+  const remoteContested = isContestedRoundId(remoteRoundId)
+  const useLocal =
+    localContested !== remoteContested
+      ? localContested
+      : localContested && remoteContested
+        ? localRoundId <= remoteRoundId
+        : true
+  const source = useLocal ? local! : remote!
+  return {
+    roundId: source.roundId!,
+    ...(isValidRoundIndex(source.roundIndex)
+      ? { roundIndex: source.roundIndex }
+      : {}),
+  }
+}
+
+/**
+ * Applies a resolved round assignment after a durable transfer has decided the
+ * destination session. An empty assignment removes stale source-round fields so
+ * the destination session can assign its own slots.
+ */
+export function applyRoundMembership(
+  solve: Solve,
+  round: MergedRoundMembership,
+): Solve {
+  const { roundId: _roundId, roundIndex: _roundIndex, ...rest } = solve
+  if (!isValidRoundId(round.roundId)) return rest
+  return {
+    ...rest,
+    roundId: round.roundId,
+    ...(isValidRoundIndex(round.roundIndex)
+      ? { roundIndex: round.roundIndex }
+      : {}),
+  }
+}
+
 export function mergeSolveFields(
   local: Solve,
   remote: Solve,
@@ -324,19 +411,7 @@ export function mergeSolveFields(
   }
 
   const importSource = local.importSource ?? remote.importSource
-  const localRoundId = isValidRoundId(local.roundId) ? local.roundId : undefined
-  const remoteRoundId = isValidRoundId(remote.roundId) ? remote.roundId : undefined
-  // Round membership is immutable session structure, not a user-edited field.
-  // Keep the local accumulator's assignment when both sides carry one; the
-  // session-level normalizer still flattens a converted practice session.
-  const roundId = localRoundId ?? remoteRoundId
-  const roundIndex = !roundId
-    ? undefined
-    : roundId === localRoundId && isValidRoundIndex(local.roundIndex)
-      ? local.roundIndex
-      : roundId === remoteRoundId && isValidRoundIndex(remote.roundIndex)
-        ? remote.roundIndex
-        : undefined
+  const round = mergeRoundMembership(local, remote)
 
   return {
     id: local.id,
@@ -349,8 +424,8 @@ export function mergeSolveFields(
     updatedAt: Math.max(recordTime(local), recordTime(remote), latestResolvedUpdate),
     ...(Object.keys(fieldUpdates).length > 0 ? { fieldUpdates } : {}),
     ...(importSource ? { importSource } : {}),
-    ...(roundId ? { roundId } : {}),
-    ...(roundIndex !== undefined ? { roundIndex } : {}),
+    ...(round.roundId ? { roundId: round.roundId } : {}),
+    ...(round.roundIndex !== undefined ? { roundIndex: round.roundIndex } : {}),
   }
 }
 

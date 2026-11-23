@@ -293,6 +293,27 @@ describe('mergeSessionMetadata', () => {
     expect(conflicts.every((conflict) => conflict.resolution === 'local')).toBe(
       true,
     )
+    // A cleared override must survive JSON as null, not as a missing property
+    // that would make the checked sync-ledger reader reject the record.
+    expect(
+      conflicts.every(
+        (conflict) =>
+          conflict.localValue === null && conflict.remoteValue === true,
+      ),
+    ).toBe(true)
+    const approved = JSON.parse(
+      JSON.stringify(
+        conflicts.map((conflict) => ({
+          ...conflict,
+          resolution: 'local' as const,
+          updatedAt: 400,
+        })),
+      ),
+    ) as SyncConflict[]
+    const applied = merge(local, remote, true, approved)
+    expect(applied.metadata.inspectionEnabled).toBeUndefined()
+    expect(applied.metadata.preferences?.inspectionEnabled).toBeUndefined()
+    expect(applied.conflicts).toHaveLength(0)
   })
 
   it('keeps an explicit removal when both sides have no override', () => {

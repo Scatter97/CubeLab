@@ -190,6 +190,51 @@ test('every tool reflows during a resize gesture before release', async ({ page 
   }
 })
 
+test('statistics keeps an all-DNF session visible and shows only valid distribution entries', async ({ page }) => {
+  const at = Date.UTC(2026, 10, 22, 12, 0, 0)
+  const dnfSolve = {
+    ...SEEDED_SOLVE,
+    createdAt: at,
+    penalty: 'dnf',
+  }
+  const data = {
+    version: 7,
+    activeSessionId: 'dnf-session',
+    sessions: [{
+      id: 'dnf-session',
+      name: 'DNF session',
+      event: '333',
+      createdAt: at,
+      updatedAt: at,
+      solves: [
+        { ...dnfSolve, id: 'dnf-1' },
+        { ...dnfSolve, id: 'dnf-2', createdAt: at - 1_000 },
+        { ...dnfSolve, id: 'dnf-3', createdAt: at - 2_000 },
+      ],
+    }],
+  }
+  await page.addInitScript(session => {
+    localStorage.setItem('cubelab:sessions:v1', JSON.stringify(session))
+  }, data)
+  await page.goto('/')
+  await expect(page.locator('.scramble-text')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('current-tool-button').click()
+  await selectTool(page, 'Statistics')
+
+  const panel = page.getByTestId('tool-panel')
+  const rows = panel.locator('.tool-stat-grid > div')
+  await expect(rows.nth(0)).toContainText('3')
+  await expect(rows.nth(1)).toContainText('0')
+  await expect(rows.nth(2)).toContainText('3')
+  await expect(panel.getByTestId('statistics-all-dnf')).toHaveText(
+    '100% DNF. That’s consistency.',
+  )
+
+  await selectTool(page, 'Time Distribution')
+  await expect(panel.getByText('No valid solves to distribute.')).toBeVisible()
+  await expect(panel.getByTestId('statistics-all-dnf')).toHaveCount(0)
+})
+
 test('online battle validates room credentials and invalid invitation codes without a backend', async ({ page }) => {
   await waitForApp(page)
   await selectTool(page, 'Online Battle')

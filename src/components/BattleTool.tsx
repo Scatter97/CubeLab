@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PuzzleEvent } from '../types'
 import { copyText } from '../lib/clipboard'
-import { generateScramble } from '../lib/scramble'
+import {
+  generateScramble,
+  SCRAMBLE_TIMEOUT_MESSAGE,
+} from '../lib/scramble'
 import { getEventLabel, isUnscrambledEvent } from '../lib/events'
 
 type BattlePhase =
@@ -24,10 +27,10 @@ interface InvitePayload {
 
 type BattleMessage =
   | { type: 'hello' }
-  | { type: 'scramble'; event: string; scramble: string }
-  | { type: 'start' }
-  | { type: 'result'; rawMs: number }
-  | { type: 'reset' }
+  | { type: 'scramble'; event: string; scramble: string; raceId: string }
+  | { type: 'start'; raceId: string }
+  | { type: 'result'; rawMs: number; raceId: string }
+  | { type: 'reset'; raceId: string }
 
 function encodePayload(payload: InvitePayload): string {
   const bytes = new TextEncoder().encode(JSON.stringify(payload))
@@ -67,6 +70,13 @@ function randomRoomId(): string {
 function randomPassword(): string {
   const values = crypto.getRandomValues(new Uint8Array(4))
   return [...values].map((value) => String(value % 10)).join('')
+}
+
+function randomRaceId(): string {
+  const values = crypto.getRandomValues(new Uint8Array(8))
+  return [...values]
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 function waitForIceGathering(pc: RTCPeerConnection): Promise<void> {
@@ -112,15 +122,20 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
   const [peerResult, setPeerResult] = useState<number | null>(null)
   const [countdown, setCountdown] = useState(0)
   const [copyStatus, setCopyStatus] = useState('')
+  const [channelOpen, setChannelOpen] = useState(false)
 
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const channelRef = useRef<RTCDataChannel | null>(null)
+  const connectionEpochRef = useRef(0)
+  const signalingRef = useRef(0)
+  const scrambleAbortRef = useRef<AbortController | null>(null)
+  const raceIdRef = useRef<string | null>(null)
   const [role, setRole] = useState<'host' | 'guest'>('host')
   const startedAtRef = useRef(0)
   const frameRef = useRef<number | null>(null)
   const countdownRef = useRef<number | null>(null)
 
-  const stopFrame = () => {
+  const stopFrame = useCallback(() => {
     if (frameRef.current !== null) {
       window.cancelAnimationFrame(frameRef.current)
       frameRef.current = null
@@ -129,15 +144,27 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
       window.clearInterval(countdownRef.current)
       countdownRef.current = null
     }
-  }
+  }, [])
+
+  const cancelPendingScramble = useCallback(() => {
+    scrambleAbortRef.current?.abort()
+    scrambleAbortRef.current = null
+  }, [])
 
   const closeConnection = useCallback(() => {
+    connectionEpochRef.current += 1
+    signalingRef.current += 1
+    raceIdRef.current = null
+    cancelPendingScramble()
+    setChannelOpen(false)
     stopFrame()
-    channelRef.current?.close()
+    const channel = channelRef.current
+    const pc = pcRef.current
     channelRef.current = null
-    void pcRef.current?.close()
     pcRef.current = null
-  }, [])
+    channel?.close()
+    void pc?.close()
+  }, [cancelPendingScramble, stopFrame])
 
   useEffect(() => () => closeConnection(), [closeConnection])
 
@@ -148,7 +175,8 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
     }
   }
 
-  const beginRace = useCallback(() => {
+  const beginRace = useCallback((raceId: string) => {
+    raceIdRef.current = raceId
     stopFrame()
     setMyResult(null)
     setPeerResult(null)
@@ -173,7 +201,7 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
       }
       frameRef.current = window.requestAnimationFrame(tick)
     }, 1000)
-  }, [])
+  }, [stopFrame])
 
   const handleMessage = useCallback(
     (message: BattleMessage) => {
@@ -182,6 +210,8 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
         return
       }
       if (message.type === 'scramble') {
+        stopFrame()
+        raceIdRef.current = message.raceId
         setScramble(message.scramble)
         setReceivedEvent(message.event)
         setMyResult(null)
@@ -192,15 +222,29 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
         return
       }
       if (message.type === 'start') {
-        beginRace()
+        if (message.raceId !== raceIdRef.current) return
+        beginRace(message.raceId)
         return
       }
       if (message.type === 'result') {
+        // A late result from an abandoned race must not appear in the current
+        // one after a reset or a new scramble.
+        if (message.raceId !== raceIdRef.current) return
         setPeerResult(message.rawMs)
         setStatus(`Opponent finished in ${formatBattleTime(message.rawMs)}.`)
         return
       }
       if (message.type === 'reset') {
+        if (
+          message.raceId &&
+          raceIdRef.current &&
+          message.raceId !== raceIdRef.current
+        ) {
+          return
+        }
+        stopFrame()
+        raceIdRef.current = null
+        setScramble('')
         setMyResult(null)
         setPeerResult(null)
         setElapsed(0)
@@ -208,20 +252,31 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
         setStatus('Race reset. Waiting for a scramble.')
       }
     },
-    [beginRace],
+    [beginRace, stopFrame],
   )
 
   const attachChannel = useCallback(
     (channel: RTCDataChannel) => {
       channelRef.current = channel
       channel.onopen = () => {
+        if (channelRef.current !== channel) return
+        setChannelOpen(true)
         setPhase('connected')
         setStatus('Opponent connected. Waiting for a scramble.')
         send({ type: 'hello' })
       }
       channel.onclose = () => {
-        setStatus('Opponent disconnected.')
+        if (channelRef.current !== channel) return
+        channelRef.current = null
+        connectionEpochRef.current += 1
+        raceIdRef.current = null
+        cancelPendingScramble()
+        stopFrame()
+        setChannelOpen(false)
         setPhase('failed')
+        setStatus(
+          'Opponent disconnected. The race was stopped; create or join a room to reconnect.',
+        )
       }
       channel.onmessage = (message) => {
         try {
@@ -232,7 +287,7 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
         }
       }
     },
-    [handleMessage],
+    [cancelPendingScramble, handleMessage, stopFrame],
   )
 
   const createPeerConnection = () => {
@@ -241,9 +296,18 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
     })
     pcRef.current = pc
     pc.onconnectionstatechange = () => {
+      if (pcRef.current !== pc) return
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        connectionEpochRef.current += 1
+        raceIdRef.current = null
+        cancelPendingScramble()
+        stopFrame()
+        channelRef.current = null
+        setChannelOpen(false)
         setPhase('failed')
-        setStatus('The peer connection closed.')
+        setStatus(
+          'The peer connection closed. Create or join a room to reconnect.',
+        )
       }
     }
     return pc
@@ -252,6 +316,7 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
   const createRoom = async () => {
     setError('')
     closeConnection()
+    const attempt = ++signalingRef.current
     setRole('host')
     try {
       const pc = createPeerConnection()
@@ -260,6 +325,9 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       await waitForIceGathering(pc)
+      // A second Create/Join click owns a newer attempt. Do not let this stale
+      // continuation overwrite the visible code after its peer was closed.
+      if (signalingRef.current !== attempt) return
       const code = encodePayload({
         v: 1,
         roomId: roomId.trim().toUpperCase(),
@@ -270,6 +338,7 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
       setPhase('host-offer')
       setStatus('Send the invitation code, then paste the answer code here.')
     } catch (caught) {
+      if (signalingRef.current !== attempt) return
       setError(caught instanceof Error ? caught.message : 'Could not create the room.')
       setPhase('failed')
     }
@@ -278,6 +347,7 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
   const joinRoom = async () => {
     setError('')
     closeConnection()
+    const attempt = ++signalingRef.current
     setRole('guest')
     const payload = decodePayload(joinCode)
     if (!payload) {
@@ -298,6 +368,7 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
       const joined = await pc.createAnswer()
       await pc.setLocalDescription(joined)
       await waitForIceGathering(pc)
+      if (signalingRef.current !== attempt) return
       setAnswer(
         encodePayload({
           v: 1,
@@ -309,6 +380,7 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
       setPhase('guest-answer')
       setStatus('Send this answer code back to the host.')
     } catch (caught) {
+      if (signalingRef.current !== attempt) return
       setError(caught instanceof Error ? caught.message : 'Could not join the room.')
       setPhase('failed')
     }
@@ -341,40 +413,76 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
       setError('Choose a generated-scramble event before starting a battle.')
       return
     }
+    const channel = channelRef.current
+    if (!channel || channel.readyState !== 'open') {
+      setError('Connect to the opponent before starting a race.')
+      return
+    }
     setError('')
+    const epoch = connectionEpochRef.current
+    cancelPendingScramble()
+    const controller = new AbortController()
+    scrambleAbortRef.current = controller
     try {
-      const next = await generateScramble(event)
+      const next = await generateScramble(event, {
+        signal: controller.signal,
+      })
+      // The channel can close while the worker is still preparing a scramble.
+      // Abandon that result instead of starting a local race with no peer.
+      if (
+        controller.signal.aborted ||
+        connectionEpochRef.current !== epoch ||
+        channelRef.current !== channel ||
+        channel.readyState !== 'open'
+      ) {
+        return
+      }
+      const raceId = randomRaceId()
+      raceIdRef.current = raceId
       setScramble(next)
       setReceivedEvent(event)
       setMyResult(null)
       setPeerResult(null)
-      send({ type: 'scramble', event, scramble: next })
+      send({ type: 'scramble', event, scramble: next, raceId })
       if (role === 'host') {
-        send({ type: 'start' })
-        beginRace()
+        send({ type: 'start', raceId })
+        beginRace(raceId)
       }
-    } catch {
-      setError('Could not generate a battle scramble.')
+    } catch (caught) {
+      if (!controller.signal.aborted) {
+        setError(
+          caught instanceof Error && caught.message === SCRAMBLE_TIMEOUT_MESSAGE
+            ? 'Battle scramble generation timed out. Try again on the same connection.'
+            : 'Could not generate a battle scramble.',
+        )
+      }
+    } finally {
+      if (scrambleAbortRef.current === controller) {
+        scrambleAbortRef.current = null
+      }
     }
   }
 
   const stopRace = () => {
     stopFrame()
     const rawMs = Math.max(0, Math.floor(performance.now() - startedAtRef.current))
+    const raceId = raceIdRef.current
     setElapsed(rawMs)
     setMyResult(rawMs)
     setPhase('finished')
-    send({ type: 'result', rawMs })
+    send({ type: 'result', rawMs, raceId: raceId ?? '' })
   }
 
   const resetRace = () => {
     stopFrame()
+    const raceId = raceIdRef.current
+    raceIdRef.current = null
     setMyResult(null)
     setPeerResult(null)
     setElapsed(0)
     setScramble('')
     setPhase('connected')
-    send({ type: 'reset' })
+    send({ type: 'reset', raceId: raceId ?? '' })
   }
 
   const copy = async (value: string, label: string) => {
@@ -391,7 +499,12 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
         : 'peer'
   }, [myResult, peerResult])
 
-  const connected = phase !== 'setup' && phase !== 'host-offer' && phase !== 'guest-answer' && phase !== 'failed'
+  const connected =
+    channelOpen &&
+    (phase === 'connected' ||
+      phase === 'countdown' ||
+      phase === 'racing' ||
+      phase === 'finished')
 
   return (
     <div className="tool-scroll battle-tool" data-timer-space-ignore>
@@ -504,7 +617,17 @@ export function BattleTool({ event }: { event: PuzzleEvent }) {
           </div>
           <div className="tool-actions">
             {role === 'host' ? (
-              <button type="button" className="button button-primary button-small" disabled={phase === 'racing' || phase === 'countdown'} onClick={() => void sendScramble()}>
+              <button
+                type="button"
+                className="button button-primary button-small"
+                data-testid="battle-start"
+                disabled={
+                  !channelOpen ||
+                  phase === 'racing' ||
+                  phase === 'countdown'
+                }
+                onClick={() => void sendScramble()}
+              >
                 New scramble + start
               </button>
             ) : null}

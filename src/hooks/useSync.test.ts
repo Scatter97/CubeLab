@@ -1020,6 +1020,63 @@ describe('useSync field-level conflict resolution', () => {
     expect(result.current.hasPendingChanges).toBe(false)
     expect(uploads).toBe(1)
   })
+
+  it('republishes after the newest own remote snapshot is deleted', async () => {
+    enableSync()
+    const memory = createMemoryDriveTransport()
+    await memory.connect()
+    let uploads = 0
+    const transport: DriveTransport = {
+      ...memory,
+      uploadDeviceBackup: async (content, deviceId) => {
+        uploads += 1
+        return memory.uploadDeviceBackup!(content, deviceId)
+      },
+    }
+    const initial = sessionsData()
+    const edited = sessionsData({
+      sessions: [session({ solves: [solve({ id: 'new-after-first-sync' })] })],
+    })
+    const { result, rerender } = renderHook(
+      ({ sessions }: { sessions: SessionsData }) =>
+        useSync({
+          transport,
+          sessions,
+          settings: DEFAULT_SETTINGS,
+          storageOk: true,
+          timerActive: false,
+          onReplaceSessions: vi.fn(),
+          onReplaceSettings: vi.fn(),
+          onNotify: vi.fn(),
+        }),
+      { initialProps: { sessions: initial } },
+    )
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(uploads).toBe(1)
+    await act(async () => {
+      rerender({ sessions: edited })
+    })
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(uploads).toBe(2)
+
+    const ownFiles = await memory.listBackups!()
+    expect(ownFiles.length).toBeGreaterThanOrEqual(2)
+    await memory.deleteBackup!(ownFiles[0]!.id)
+
+    await act(async () => {
+      await result.current.syncNow('manual')
+    })
+    expect(result.current.phase).toBe('synced')
+    expect(uploads).toBe(3)
+    const afterDeletion = await memory.listBackups!()
+    expect(afterDeletion.some((file) => file.id === ownFiles[0]!.id)).toBe(false)
+    expect(afterDeletion.length).toBeGreaterThanOrEqual(2)
+  })
 })
 
 describe('useSync deletion tombstones', () => {

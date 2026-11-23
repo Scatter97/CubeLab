@@ -159,6 +159,14 @@ export interface UseSyncResult {
     id: string,
     knownSolveIds?: readonly string[],
   ) => boolean
+  /** Revokes many deletion intents in one durable sync-storage write. */
+  restoreDeletions: (
+    entries: readonly {
+      kind: 'solve' | 'session' | 'event'
+      id: string
+      knownSolveIds?: readonly string[]
+    }[],
+  ) => boolean
   /**
    * Marks an additive import as a local change without clearing tombstones,
    * redirects, approvals, field metadata or other review state.
@@ -647,30 +655,38 @@ export function useSync({
    * published deletion cannot remove the solve again. A later deliberate
    * deletion gets a newer `deletedAt` and wins deterministically.
    */
-  const restoreDeletion = useCallback(
+  const restoreDeletions = useCallback(
     (
-      kind: 'solve' | 'session' | 'event',
-      id: string,
-      knownSolveIds?: readonly string[],
+      entries: readonly {
+        kind: 'solve' | 'session' | 'event'
+        id: string
+        knownSolveIds?: readonly string[]
+      }[],
     ): boolean => {
+      if (entries.length === 0) return true
       const now = Date.now()
+      const direct = new Set(
+        entries.map((entry) => `${entry.kind}\u0000${entry.id}`),
+      )
+      const sessionSolveIds = new Set<string>()
+      for (const entry of entries) {
+        if (entry.kind !== 'session') continue
+        for (const solveId of entry.knownSolveIds ?? []) {
+          sessionSolveIds.add(solveId)
+        }
+        const sessionTombstone = syncRef.current.runtime.tombstones.find(
+          (tombstone) =>
+            tombstone.kind === 'session' && tombstone.id === entry.id,
+        )
+        for (const solveId of sessionTombstone?.knownSolveIds ?? []) {
+          sessionSolveIds.add(solveId)
+        }
+      }
       let changed = false
-      const sessionTombstone =
-        kind === 'session'
-          ? syncRef.current.runtime.tombstones.find(
-              (tombstone) => tombstone.kind === 'session' && tombstone.id === id,
-            )
-          : undefined
-      const solveIds = new Set([
-        ...(knownSolveIds ?? []),
-        ...(sessionTombstone?.knownSolveIds ?? []),
-      ])
       const tombstones = syncRef.current.runtime.tombstones.map((tombstone) => {
         const matches =
-          (tombstone.kind === kind && tombstone.id === id) ||
-          (kind === 'session' &&
-            tombstone.kind === 'solve' &&
-            solveIds.has(tombstone.id))
+          direct.has(`${tombstone.kind}\u0000${tombstone.id}`) ||
+          (tombstone.kind === 'solve' && sessionSolveIds.has(tombstone.id))
         if (!matches) return tombstone
         if (tombstone.restoredAt !== undefined && tombstone.restoredAt >= now) {
           return tombstone
@@ -697,6 +713,15 @@ export function useSync({
       return true
     },
     [storageOk],
+  )
+
+  const restoreDeletion = useCallback(
+    (
+      kind: 'solve' | 'session' | 'event',
+      id: string,
+      knownSolveIds?: readonly string[],
+    ): boolean => restoreDeletions([{ kind, id, knownSolveIds }]),
+    [restoreDeletions],
   )
 
   const recordAdditiveImport = useCallback(
@@ -1435,9 +1460,28 @@ export function useSync({
 
           // Never publish a provisional resolution when the user requested
           // approval. Preserve local data and the conflict record for review.
+          const conflictsChangedDuringRun = () =>
+            JSON.stringify(syncRef.current.runtime.conflicts) !==
+            JSON.stringify(syncState.runtime.conflicts)
           const pendingConflicts = deduplicatedConflicts.filter(
             (conflict) => conflict.resolution === 'manual-pending',
           )
+          if (conflictsChangedDuringRun()) {
+            // A conflict decision landed while this run was downloading or
+            // merging. Discard this stale merge and let the next run start from
+            // the reviewed state instead of re-raising the old conflict.
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                lastSyncStatus: 'pending',
+                lastError:
+                  'A conflict decision changed during synchronization; another sync is needed.',
+              },
+            })
+            queueRetry(300)
+            return
+          }
           if (pendingConflicts.length > 0) {
             persist({
               ...syncRef.current,
@@ -1520,8 +1564,16 @@ export function useSync({
             JSON.stringify(mergedTombstones) === JSON.stringify(syncRef.current.runtime.tombstones) &&
             JSON.stringify(sessionRedirects) ===
               JSON.stringify(syncRef.current.runtime.sessionRedirects ?? [])
+          const lastKnownRevision =
+            syncRef.current.runtime.lastRemoteRevision ?? 0
+          // An older own snapshot is not proof that this device's current
+          // revision reached Drive. Deleting the newest own snapshot must make
+          // the next sync republish rather than reporting "up to date".
           const remoteStorePresent = perDeviceTransport
-            ? ownSnapshots.length > 0
+            ? ownSnapshots.some(
+                (snapshot) =>
+                  (snapshot.backup.sync?.revision ?? 0) >= lastKnownRevision,
+              )
             : remoteFiles.length > 0
 
           let updatedConflicts = mergeConflictRecords(
@@ -1767,6 +1819,19 @@ export function useSync({
               },
             })
             if (reason === 'manual') onNotify(message)
+            return
+          }
+          if (conflictsChangedDuringRun()) {
+            persist({
+              ...syncRef.current,
+              runtime: {
+                ...syncRef.current.runtime,
+                lastSyncStatus: 'pending',
+                lastError:
+                  'A conflict decision changed during synchronization; another sync is needed.',
+              },
+            })
+            queueRetry(300)
             return
           }
 
@@ -2517,6 +2582,7 @@ export function useSync({
     recordDeletions,
     recordAllSessionDeletions,
     restoreDeletion,
+    restoreDeletions,
     recordAdditiveImport,
     resetBase,
     isSyncRunning,

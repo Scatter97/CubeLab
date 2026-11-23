@@ -1,9 +1,424 @@
 # CubeLab status
 
-**Updated:** 2026-11-21. This is the current implementation/verification record
+**Updated:** 2026-11-23. This is the current implementation/verification record
 and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
+
+## Pre-beta capability audit — 2026-11-23
+
+Independent review of the uncommitted tree found and fixed defects across
+scramble recovery, timer input, destructive session actions, offline sync
+provenance, recovery and small-screen layout. No persisted solve/session/
+settings/Training schema version changed; native backup and Training formats are
+unchanged. Online Battle messages now carry a race ID, and cleared session
+overrides serialize a conflict side as `null` instead of dropping the property.
+
+- **Scramble Retry after an ordinary load failure.** A cached worker
+  instantiation error now releases the cached worker and moves the next request
+  to the supported fresh-worker path. Previously Retry could await the same
+  rejected `cubing.js` promise forever.
+- **Keyboard hold release.** A Space release is honored even when focus moved
+  into a text field, a tool, or a modal while the key was held, so the timer
+  cannot remain armed and ignore the next press.
+- **Confirm Time deletion.** Delete now drops focus after advancing the card, so
+  a following Space starts the timer instead of activating Delete again and
+  removing another solve.
+- **Battle race isolation.** Reset and new-scramble messages stop a running
+  clock on both peers. Race IDs reject late results and starts from an abandoned
+  race, and re-entrant Create/Join attempts cannot overwrite a newer room code.
+- **Durable penalty edits.** +2/DNF changes persist before publishing, report
+  failure instead of appearing saved, and can update a buffered newly timed
+  solve. Destructive solve/session mutations now refuse to use an unrelated
+  completion-buffer entry during a prepared replacement.
+- **Failed reset provenance.** If Reset All Solves or Delete All Sessions cannot
+  write the replacement collection, the just-recorded tombstones are revoked in
+  one durable write, matching the single-session failure path. Clear Session
+  retains its established queued-clear contract.
+- **Startup ordering.** Legacy schema migration and its pre-upgrade archive now
+  run before a pending-completion replay can write a current collection.
+- **Archive restore safety.** A current record that cannot be read aborts a
+  verified-archive restore before any write; it is no longer treated as absent
+  and removed during rollback.
+- **Cleared inspection conflicts.** A cleared override conflict records `null`
+  for the cleared side instead of omitting it from JSON, and matching treats
+  `null`/`undefined` equivalently. A checked sync ledger and uploaded envelopes
+  no longer become permanently invalid.
+- **Deleted newest snapshot.** A device republishes when no own remote snapshot
+  covers its last published revision, instead of reporting "up to date" from an
+  older file. Conflict decisions made during an in-flight run abort that run and
+  retry instead of being reverted.
+- **Small screens and copy.** At 320 px the header keeps the cube mark and
+  navigation with the Settings control inside the viewport, and onboarding
+  progress uses two labelled rows. Custom accent/background/timer hex values can
+  be typed one character at a time again. Singular counts and unavailable
+  storage/Drive states read correctly.
+
+Release record: `0.01.261123:1`.
+
+Verification before the requested stop:
+
+```bash
+npm run typecheck        # passed after the final changes
+npm run lint             # passed; pre-existing warnings only
+npm test                 # 133 files, 1742 tests passed
+npm run build            # passed; PWA 80 precache entries (4,073.86 KiB)
+git diff --check         # passed
+```
+
+Focused Chromium runs covered Battle, all tools including Confirm Time, the
+320/360/568/844 responsive layouts, delete-all failure provenance, pending
+comments and normal/retried scrambles, plus the new focus-move hold case. A full
+Chromium suite was started and stopped at the owner's request; before the stop,
+one established Clear Session case failed against a briefly changed revocation
+path, and that path was reverted. The final focused Clear Session case was not
+rerun after the revert. Firefox, WebKit, live Google Drive, physical devices and
+screen readers were not exercised; the remaining review items are recorded in
+KNOWN_LIMITATIONS.md.
+
+## Replacement scramble load failure — 2026-11-22
+
+Fixed the P3 follow-up to scramble recovery found in the review of `master` at
+`07224dd`. No persisted solve/session/settings/Training schema, sync wire format
+or native backup format changed.
+
+- **Prompt replacement failure.** Installed `cubing.js` follows its synchronous
+  `import.meta.resolve` worker attempt with an asynchronous esbuild fallback.
+  While a timed-out request is still unresolved, CubeLab cannot attribute that
+  fallback worker, so it terminates it and the library promise would otherwise
+  wait for another full deadline. Guarded recovery requests now disable
+  `cubing.js`'s legacy/asynchronous fallbacks, keeping construction inside the
+  owned entry call. The worker proxy records the replacement worker's explicit
+  script-load error, and the request rejects with that primary error instead of
+  the generic "no more fallbacks" failure.
+- **Preserved paths.** Ordinary cached-worker startup still allows the
+  esbuild-first fallback chain and explicitly restores its shared library flags.
+  The 20-second deadline remains for a worker that genuinely hangs. Request
+  ownership, bounded worker counts, late-result rejection, queued timer and
+  Online Battle progress, the visible scramble during recovery, Retry on the
+  same Battle connection and the **Reload to recover** safeguards are unchanged.
+- **Regressions.** Coordinator coverage pins the shared fallback flags to ordinary
+  versus guarded-recovery requests and verifies the primary worker-load error
+  reaches the caller. Production Chromium coverage stalls the original worker,
+  fails only the first replacement's script load, asserts the failure and Retry
+  return well inside another deadline, then verifies the next Retry produces a
+  valid scramble and refills both slots before further advances.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm test -- src/lib/scrambleCoordinator.test.ts src/hooks/useScramble.test.ts \
+  src/lib/scramble.test.ts
+# 3 files, 31 tests passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/timer.spec.ts e2e/battle.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "scramble failure disables|scramble Retry|replacement script load failure|failed replacement|puzzle switch|installed app loads scrambles|stalled battle scramble|two peers race"
+# 8 passed (load failure prompt/refill, genuine stall and Retry, failed
+# replacement, puzzle switch, offline installed app, stalled Battle retry,
+# two-peer race)
+npm run build            # passed; restores normal production output
+git diff --check         # passed
+```
+
+Firefox, WebKit, the full Playwright suite, live Google Drive, physical devices
+and screen readers were not run. Changes remain local for review.
+
+## Scramble deadline and generation ownership — 2026-11-22
+
+Fixed the two remaining scramble coordinator findings from the review of
+`master` at `07224dd`. No persisted solve/session/settings/Training schema, sync
+wire format or native backup format changed.
+
+- **Finite active-request deadline.** `src/lib/scramble.ts` owns
+  `DEFAULT_SCRAMBLE_TIMEOUT_MS` (20 seconds). Omitted, zero, negative, `NaN` or
+  infinite overrides fall back to that value, so every request is bounded. The
+  deadline starts only when the request becomes active; a queued request keeps
+  its own full deadline when it starts. A timeout releases the timed-out
+  generation (including its cached worker), enables the fresh-worker recovery
+  path, advances the queue and rejects with `Scramble generation timed out.`.
+- **Battle timeout recovery.** Online Battle relies on the shared default instead
+  of passing its own timeout. A timed-out preparation shows
+  **Battle scramble generation timed out. Try again on the same connection.**,
+  leaves the healthy data channel open, and keeps the start action available for
+  the host to retry. Disconnect, replacement and unmount cancellation remain in
+  place, and a late abandoned result cannot start a race.
+- **Request-owned worker generations.** Each request is now a disposable worker
+  generation. The `window.Worker` proxy claims a search worker only while that
+  request is synchronously entering `randomScrambleForEvent`; an abandoned
+  operation marks its unresolved construction window, and any worker that
+  appears later is terminated instead of joining the successor. Completing an
+  old request therefore cannot terminate or reuse the current request's worker.
+  Normal generation keeps the cached/esbuild loading path. Recovery uses the
+  synchronous `import.meta.resolve` path, with a Vite build plugin injecting the
+  emitted `search-worker-entry` chunk filename so construction is attributable.
+- **Regressions.** Coordinator coverage adds the default Battle-style deadline
+  with a queued timer request, invalid-override normalization, a queued request's
+  own full deadline, late construction after cancellation and timeout, and four
+  repeated cancellations. Battle component coverage adds the visible timeout
+  error and retry on the same open channel. Chromium coverage adds a stalled
+  Battle preparation recovered on the existing data channel; the existing timer
+  Retry, failed replacement, four/three ordinary advances after recovery, puzzle
+  switch and installed-PWA offline cases remain passing.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm test -- src/lib/scrambleCoordinator.test.ts src/hooks/useScramble.test.ts \
+  src/components/BattleTool.test.tsx src/lib/scramble.test.ts
+# 4 files, 33 tests passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/timer.spec.ts e2e/battle.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "scramble Retry|failed replacement|puzzle switch|installed app loads scrambles|stalled battle scramble|two peers race"
+# 6 passed (stalled Battle retry, two-peer race, timer Retry with four advances,
+# failed replacement with three advances, puzzle switch, offline installed app)
+npm run build            # passed; PWA 80 precache entries (4,069.84 KiB)
+git diff --check         # passed
+```
+
+The repeated-cancellation regression constructs four abandoned generations,
+then a current worker: peak live workers was 2 (the transient overlap while a
+late worker is terminated) and final live workers was 0. Firefox, WebKit, the
+full Playwright suite, live Google Drive, physical devices and screen readers
+were not run. Changes remain local for review.
+
+## Isolated scramble request cleanup — 2026-11-22
+
+Fixed overlapping scramble requests terminating each other's workers. No
+persisted solve/session/settings/Training schema, sync wire format or native
+backup format changed.
+
+- **Serialized worker ownership.** `generateScramble` now serves callers from a
+  shared queue and lets only the active request cross the `cubing.js` worker
+  boundary. Each request records the temporary workers it constructs; the
+  ordinary cached worker is tracked separately. Completing, failing or cancelling
+  a request releases only that request's temporary workers. A timeout releases
+  the poisoned cached worker and enables the existing fresh-worker recovery path;
+  cancellation of an active ordinary request also releases its cached worker and
+  moves later requests to the fresh-worker path so it cannot delay them.
+- **Cancellation and timeout.** The active request owns its timeout, so a queued
+  request does not start counting down before it can use a worker. The timer
+  aborts its request on timeout, retry, event switch, advance or unmount.
+  Online Battle aborts a pending scramble when its channel closes or it starts
+  another preparation. Late results from an abandoned request remain ignored.
+- **Preserved recovery.** Retry still bypasses a stalled cached worker through
+  `forceNewWorkerForEveryScramble`, temporary recovery workers stay bounded,
+  a usable scramble remains on screen during recovery, and **Reload to recover**
+  stays gated on an idle timer and healthy local storage.
+- **Regressions.** New unit cases reproduce overlapping completion, timeout and
+  cancellation, including a cancelled queued request, and verify worker
+  termination stays request-scoped. `useScramble` coverage adds a puzzle switch
+  during a pending recovery request; Battle coverage asserts channel close aborts
+  its pending request. The Chromium stall test now advances four ordinary
+  scrambles after recovery, and the no-service-worker recovery suite adds a
+  puzzle switch while the recovery worker is pending.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm test -- src/lib/scrambleCoordinator.test.ts src/hooks/useScramble.test.ts \
+  src/components/BattleTool.test.tsx src/lib/scramble.test.ts
+# 4 files, 23 tests passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/timer.spec.ts e2e/battle.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "scramble Retry|failed replacement|puzzle switch|installed app loads scrambles|two peers race"
+# 5 passed (stall/retry with four advances, failed recovery, puzzle switch,
+# offline production scramble, two-peer Battle). Worker accounting ended with
+# live 0, maxLive <= 2 and terminated === created throughout.
+npm run build            # passed; restores normal production output
+git diff --check         # passed
+```
+
+Firefox, WebKit, the full Playwright suite, live Google Drive, physical devices
+and screen readers were not run. Changes remain local for review.
+
+## Pre-beta audit fixes — 2026-11-22
+
+Implemented the ten pre-beta findings from the audit of `master` at `07224dd`.
+No persisted solve/session/settings/Training schema, sync wire format or native
+backup format changed.
+
+- **Recovery reset safety.** `createRecoveryPackage` now records unreadable keys
+  instead of treating a failed `getItem` as an absent key. Partial packages still
+  download but are labelled incomplete and cannot authorize reset. Reset compares
+  every data-bearing key with the acknowledged package, refuses to remove
+  anything when a read fails, and blocks if local bytes changed after export.
+- **Scramble timeout.** `useScramble` abandons a request after 20 seconds, exposes
+  Retry, and ignores late results from timed-out, retried or event-switched
+  requests. The initial failure renders one alert and one Retry action; a failed
+  queued scramble keeps the current scramble and its recovery footer.
+- **Competition slot contention.** Sync keeps both solves when two devices record
+  a different attempt in the same round slot. The earliest attempt keeps the
+  completed round scorable; the other moves to a deterministic `contested:` round.
+  Repeated merges converge, and stored overfull/duplicate rounds display as
+  Contested instead of silently unscored.
+- **Battle connection gating.** Start requires an open data channel. A disconnect
+  during scramble preparation or an active race cancels the pending work, stops
+  the race and returns to the recoverable create/join state. A two-context
+  Chromium race verifies both peers see the same two results.
+- **Legacy unreadable history.** A nonempty `cubelab:solves:v1` collection with
+  zero usable solves now fails the checked startup read into Recovery Center
+  instead of being treated as a fresh install. Genuinely absent and genuinely
+  empty legacy collections still start fresh.
+- **Large Time Distribution.** Minimum and maximum are single-pass, avoiding the
+  spread argument limit. A synthetic 150,000-solve regression renders all eight
+  buckets and counts every valid entry.
+- **All-DNF Statistics.** The Statistics tool shows real solves, zero valid, the
+  DNF count and dashes for unavailable time metrics, plus the Easter egg
+  “100% DNF. That’s consistency.” only for an all-DNF nonempty session. Mixed
+  sessions keep valid times in Statistics and Time Distribution.
+- **Daily Stats dates.** Rows use full `YYYY-MM-DD` local keys and labels include
+  the year when the history spans multiple years.
+- **Confirm Time comments.** The comment save path persists before publishing,
+  returns the actual write outcome, keeps the draft and shows an alert on failure,
+  and only reports success after the write succeeds.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm run check:data       # 17 files, 365 tests passed
+npm test                 # 130 files, 1699 tests passed
+npm run build            # passed; PWA 80 precache entries (4,064.49 KiB)
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/battle.spec.ts --project=chromium --workers=4 --retries=0
+# 1 passed (two-peer race and matching results)
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/tools.spec.ts e2e/storage-safety.spec.ts e2e/competition.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# 18 passed
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/timer.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "scramble failure"
+# 1 passed
+```
+
+Firefox and WebKit were not rerun; the previously recorded layout/touch failures
+remain context rather than results from this tree. Live Google Drive, physical
+devices and screen readers were not exercised. Changes remain local for review.
+
+## Independent review follow-up — 2026-11-22
+
+Fixed the four remaining findings from the independent review of the uncommitted
+pre-beta pass on `master` at `07224dd`. The first-pass recovery, all-DNF,
+large-history, Battle, tool-statistics and comment-failure behavior is preserved.
+No persisted solve/session/settings/Training schema, sync wire format or native
+backup format changed.
+
+- **Stale competition assignments.** A solve already moved to a deterministic
+  `contested:` round keeps that resolved assignment through later merges with a
+  stale device that still assigns it to the original slot. Both merge directions
+  and repeated merges now converge; deleting the winning attempt leaves the
+  survivor in its review round and the original round incomplete instead of
+  depending on merge order. Two different resolved contests use a deterministic
+  round-ID tiebreak. Serialize/reload coverage verifies the round fields.
+- **Contested rounds are unscored.** `getCompetitionRounds` publishes `null`
+  results for duplicate-slot and overfull rounds, and the round summary excludes
+  contested rounds from Best and DNF. Statistics and Solve History use the same
+  **Contested · n/size** label, and a contested round cannot open the completed-
+  round dialog. Every attempt remains visible; valid completed rounds still score.
+- **Comment durability.** A prepared/committed replacement may still buffer newly
+  timed solves, but a comment on an existing solve is no longer reported saved
+  because an unrelated solve is buffered. `setComment` requires either a durable
+  write or that the edited solve itself is present in the buffered additions
+  before publishing. Confirm Time and Solve History keep the typed draft, show
+  failure feedback and allow retry after quota or replacement blocks.
+- **Scramble worker recovery.** After the 20-second timeout, Retry asks
+  `cubing.js` to instantiate a fresh search worker through its supported
+  `forceNewWorkerForEveryScramble` debug path instead of reusing the stalled
+  cached one. Two failed attempts expose **Reload to recover**; the action is
+  disabled while timing. The current usable scramble stays queued, and late
+  results from an abandoned request are still ignored.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm run check:data       # 17 files, 366 tests passed
+npm test                 # 131 files, 1711 tests passed
+npm run build            # passed; PWA 80 precache entries (4,066.26 KiB)
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/competition.spec.ts e2e/tools.spec.ts e2e/statistics.spec.ts \
+  --project=chromium --workers=4 --retries=0
+# 22 passed (competition creation/sync display/contested/offline, tools,
+# all-DNF statistics)
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/timer.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "keyboard timing records|solve menu handles penalties|pending replacement keeps|scramble failure disables|scramble Retry starts|installed app loads scrambles while completely offline"
+# 6 passed (normal and pending-replacement comments, stalled-worker retry,
+# existing failure state, offline scramble generation)
+git diff --check         # passed
+```
+
+The mock-Drive browser build was replaced with normal production output after
+the runs. Firefox, WebKit, live Google Drive, physical devices and the full
+Playwright matrix were not run. Changes remain local for review.
+
+## Split round preservation and bounded scramble recovery — 2026-11-22
+
+Fixed the two reproduced follow-up issues on the uncommitted tree based on
+`master` at `07224dd`. No persisted solve/session/settings/Training schema, sync
+wire format or native backup format changed.
+
+- **Split destination round membership.** When a durable `sessionTransfers`
+  owner decides a solve's destination, synchronization now also takes the round
+  assignment from the snapshot that already carries that solve in the destination
+  session. A stale pre-split source copy, including a resolved `contested:` round,
+  can no longer override the destination's scored round. Independent field edits
+  still merge by their existing timestamps and approvals; a transfer with no
+  destination copy clears stale source membership so the destination assigns its
+  own slots. The existing rule that a stale same-session assignment cannot undo a
+  resolved contest, delete tombstones and solve ownership remain covered.
+- **Regression.** A new sync regression uses the real `splitSession` operation:
+  four shared attempts plus the moved fifth form a new competition ao5, then merge
+  in both directions and repeatedly with the stale pre-split snapshot. It asserts
+  the exact five solve IDs and destination slots, a single complete/scored 12.000
+  ao5, the retained source attempt, and the durable transfer. The existing
+  regression that deletes the original winning fifth and keeps the survivor in
+  its separate round still passes.
+- **Bounded scramble worker recovery.** A timeout releases the stalled search
+  worker immediately. Retry still uses `cubing.js`'s supported
+  `forceNewWorkerForEveryScramble` path, but every temporary recovery worker is
+  now tracked and terminated after its request settles, fails or times out instead
+  of accumulating for the rest of the page lifetime. Late results stay abandoned,
+  a usable scramble remains on screen during recovery, and two failed attempts
+  still expose **Reload to recover**. Reload is now gated on both an idle timer
+  and healthy local storage so an unsaved solve is not discarded.
+- **Browser regression.** The Chromium stall test now tracks search-worker
+  construction/termination. After a successful Retry it asserts zero live search
+  workers and `terminated === created`, then advances three ordinary scrambles and
+  asserts each is plausible and leaves zero live workers. A second case with the
+  service worker blocked fails the first recovery attempt, still exposes Retry and
+  Reload, succeeds on the next Retry, and repeats the three-advance worker bound.
+  The installed-PWA offline test verifies scramble generation from the production
+  build with the network disabled.
+
+Verification (final tree):
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm run check:data       # 17 files, 366 tests passed
+npm test                 # 131 files, 1712 tests passed
+npm run build            # passed; PWA 80 precache entries (4,067.17 KiB)
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/timer.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "scramble Retry|failed replacement|installed app loads scrambles"
+# 3 passed (successful recovery plus three advances, failed first recovery,
+# offline production scramble)
+git diff --check         # passed
+```
+
+The mock-Drive browser build was replaced with normal production output after
+the runs. Firefox, WebKit, live Google Drive, physical devices and the full
+Playwright matrix were not run. Changes remain local for review.
 
 ## Final data-safety audit and cross-browser verification — 2026-11-21
 

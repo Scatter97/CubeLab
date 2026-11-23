@@ -57,4 +57,81 @@ describe('ScramblePanel current tool', () => {
     )
     expect(button).toHaveAttribute('aria-expanded', 'true')
   })
+
+  it('shows one alert and one retry action when the initial scramble fails', () => {
+    const onRetry = vi.fn()
+    render(
+      <ScramblePanel
+        {...baseProps}
+        scramble={null}
+        error="Could not generate a scramble."
+        onRetry={onRetry}
+      />,
+    )
+
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      screen.getAllByRole('button', { name: 'Retry' }),
+    ).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps recovery available when the queued scramble fails but the current one is visible', () => {
+    render(
+      <ScramblePanel
+        {...baseProps}
+        error="Could not generate the next scramble."
+      />,
+    )
+
+    expect(screen.getByText(baseProps.scramble)).toBeInTheDocument()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      screen.getByRole('button', { name: 'Retry' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers an explicit reload only after retries cannot recover', () => {
+    const onReload = vi.fn()
+    const { rerender } = render(
+      <ScramblePanel
+        {...baseProps}
+        scramble={null}
+        error="Could not generate a scramble."
+        onReload={onReload}
+      />,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Reload to recover' }),
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <ScramblePanel
+        {...baseProps}
+        scramble={null}
+        error="Could not generate a scramble."
+        showReload
+        onReload={onReload}
+      />,
+    )
+    const reload = screen.getByRole('button', { name: 'Reload to recover' })
+    expect(reload).toBeEnabled()
+    fireEvent.click(reload)
+    expect(onReload).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <ScramblePanel
+        {...baseProps}
+        scramble={null}
+        error="Could not generate a scramble."
+        showReload
+        canReload={false}
+        onReload={onReload}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: 'Reload to recover' }),
+    ).toBeDisabled()
+  })
 })

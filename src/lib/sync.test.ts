@@ -9,7 +9,9 @@ import {
   mergeTombstones,
   resolveRedirectConflicts,
 } from './sync'
-import { DEFAULT_SESSION_NAME } from './sessions'
+import { DEFAULT_SESSION_NAME, splitSession } from './sessions'
+import { getCompetitionRounds } from './competition'
+import { parseSessionsData, serializeSessionsData } from './storage'
 import { reassignSessionsEvent } from './customEvents'
 import { mergeSolveFields } from './solveMerge'
 import { isActiveTombstone, type SyncConflict, type Tombstone } from './syncStorage'
@@ -517,6 +519,180 @@ describe('split session transfers during synchronization', () => {
       ),
     ).not.toContain('moved')
     expect(totalSolves(result.merged)).toBe(1)
+  })
+
+  it('keeps destination round slots after splitting a resolved contest and merging a stale pre-split snapshot', () => {
+    const format = { type: 'ao' as const, size: 5 as const }
+    const shared = [0, 1, 2, 3].map((index) =>
+      solve({
+        id: `shared-${index}`,
+        rawMs: 10_000 + index * 1_000,
+        createdAt: 1_700_000_000_000 + index * 1_000,
+        roundId: 'round-1',
+        roundIndex: index,
+      }),
+    )
+    const attemptA = solve({
+      id: 'attempt-a',
+      rawMs: 14_000,
+      createdAt: 1_700_000_004_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const attemptB = solve({
+      id: 'attempt-b',
+      rawMs: 15_000,
+      createdAt: 1_700_000_005_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const build = (fifth: Solve) =>
+      sessionsData({
+        sessions: [
+          session({
+            id: 'source',
+            name: 'Source',
+            kind: 'competition',
+            competitionFormat: format,
+            solves: [...shared, fifth],
+          }),
+        ],
+      })
+
+    const preSplit = mergeSessionsData({
+      local: build(attemptA),
+      remote: build(attemptB),
+      tombstones: [],
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    }).merged
+    const preSplitSource = preSplit.sessions[0]!
+    const contestedId = preSplitSource.solves.find(
+      (entry) => entry.id === 'attempt-b',
+    )!.roundId!
+    expect(contestedId).toMatch(/^contested:/)
+    expect(
+      getCompetitionRounds(preSplitSource.solves, format).find(
+        (round) => round.id === 'round-1',
+      )!.result,
+    ).toEqual({ status: 'value', ms: 12_000 })
+
+    const split = splitSession(
+      preSplit,
+      'source',
+      'Moved round',
+      [...shared.map((entry) => entry.id), 'attempt-b'],
+      {
+        id: 'split-session',
+        now: 1_700_000_010_000,
+        editorId: 'device-a',
+        competitionFormat: format,
+      },
+    )
+    expect(split).not.toBeNull()
+    const splitData = split!.data
+    const destination = splitData.sessions.find(
+      (entry) => entry.id === 'split-session',
+    )!
+    const destinationRoundId = destination.solves.find(
+      (entry) => entry.id === 'shared-0',
+    )!.roundId!
+    expect(destinationRoundId).not.toBe('round-1')
+    expect(destinationRoundId).not.toBe(contestedId)
+    const expectedSlots = [
+      ['shared-0', 0],
+      ['shared-1', 1],
+      ['shared-2', 2],
+      ['shared-3', 3],
+      ['attempt-b', 4],
+    ]
+    const destinationSlots = (data: SessionsData) =>
+      data.sessions
+        .find((entry) => entry.id === 'split-session')!
+        .solves.map((entry) => [entry.id, entry.roundIndex])
+        .sort((left, right) => Number(left[1]) - Number(right[1]))
+    expect(destinationSlots(splitData)).toEqual(expectedSlots)
+    expect(
+      getCompetitionRounds(destination.solves, format).map((round) => ({
+        id: round.id,
+        attemptCount: round.attemptCount,
+        complete: round.complete,
+        contested: round.contested,
+        result: round.result,
+      })),
+    ).toEqual([
+      {
+        id: destinationRoundId,
+        attemptCount: 5,
+        complete: true,
+        contested: false,
+        result: { status: 'value', ms: 12_000 },
+      },
+    ])
+
+    const stale = preSplit
+    const assertMerged = (data: SessionsData) => {
+      expect(destinationSlots(data)).toEqual(expectedSlots)
+      expect(
+        data.sessions
+          .find((entry) => entry.id === 'split-session')!
+          .solves.every((entry) => entry.roundId === destinationRoundId),
+      ).toBe(true)
+      const rounds = getCompetitionRounds(
+        data.sessions.find((entry) => entry.id === 'split-session')!.solves,
+        format,
+      )
+      expect(rounds).toHaveLength(1)
+      expect(rounds[0]).toMatchObject({
+        id: destinationRoundId,
+        attemptCount: 5,
+        complete: true,
+        contested: false,
+        result: { status: 'value', ms: 12_000 },
+      })
+      expect(
+        data.sessions
+          .find((entry) => entry.id === 'source')!
+          .solves.map((entry) => [entry.id, entry.roundId, entry.roundIndex]),
+      ).toEqual([['attempt-a', 'round-1', 4]])
+      expect(data.sessionTransfers).toHaveLength(1)
+    }
+
+    const forward = mergeSessionsData({
+      local: splitData,
+      remote: stale,
+      tombstones: [],
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    })
+    const reverse = mergeSessionsData({
+      local: stale,
+      remote: splitData,
+      tombstones: [],
+      deviceId: 'device-b',
+      manualConflictReview: false,
+    })
+    assertMerged(forward.merged)
+    assertMerged(reverse.merged)
+    expect(forward.merged.sessions).toEqual(reverse.merged.sessions)
+
+    const repeated = mergeSessionsData({
+      local: forward.merged,
+      remote: stale,
+      tombstones: forward.mergedTombstones,
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    })
+    const repeatedReverse = mergeSessionsData({
+      local: reverse.merged,
+      remote: stale,
+      tombstones: reverse.mergedTombstones,
+      deviceId: 'device-b',
+      manualConflictReview: false,
+    })
+    assertMerged(repeated.merged)
+    assertMerged(repeatedReverse.merged)
+    expect(repeated.merged.sessions).toEqual(repeatedReverse.merged.sessions)
   })
 })
 
@@ -2640,6 +2816,241 @@ describe('competition session synchronization', () => {
       roundId: 'round-1',
       roundIndex: 1,
     })
+  })
+
+  it('keeps both fifth attempts and converges when two devices contest one ao5 slot', () => {
+    const shared = [0, 1, 2, 3].map((index) =>
+      solve({
+        id: `shared-${index}`,
+        rawMs: 10_000 + index * 1_000,
+        createdAt: 1_700_000_000_000 + index * 1_000,
+        roundId: 'round-1',
+        roundIndex: index,
+      }),
+    )
+    const attemptA = solve({
+      id: 'attempt-a',
+      rawMs: 14_000,
+      createdAt: 1_700_000_004_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const attemptB = solve({
+      id: 'attempt-b',
+      rawMs: 15_000,
+      createdAt: 1_700_000_005_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const build = (fifth: Solve) =>
+      sessionsData({
+        sessions: [
+          session({
+            kind: 'competition',
+            competitionFormat: format,
+            solves: [...shared, fifth],
+          }),
+        ],
+      })
+
+    const forward = mergeSessionsData({
+      local: build(attemptA),
+      remote: build(attemptB),
+      tombstones: [],
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    })
+    const reverse = mergeSessionsData({
+      local: build(attemptB),
+      remote: build(attemptA),
+      tombstones: [],
+      deviceId: 'device-b',
+      manualConflictReview: false,
+    })
+
+    for (const result of [forward, reverse]) {
+      const merged = result.merged.sessions[0]!
+      expect(merged.solves.map((entry) => entry.id).sort()).toEqual([
+        'attempt-a',
+        'attempt-b',
+        'shared-0',
+        'shared-1',
+        'shared-2',
+        'shared-3',
+      ])
+      const rounds = getCompetitionRounds(merged.solves, format)
+      const completed = rounds.find((round) => round.id === 'round-1')!
+      expect(completed.attemptCount).toBe(5)
+      expect(completed.result).toEqual({ status: 'value', ms: 12_000 })
+      expect(completed.solves.map((entry) => entry.id)).not.toContain('attempt-b')
+      const moved = rounds.find((round) => round.id !== 'round-1')!
+      expect(moved.solves.map((entry) => entry.id)).toEqual(['attempt-b'])
+      expect(moved.result).toBeNull()
+    }
+    expect(forward.merged.sessions).toEqual(reverse.merged.sessions)
+
+    const repeated = mergeSessionsData({
+      local: forward.merged,
+      remote: forward.merged,
+      tombstones: forward.mergedTombstones,
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    })
+    const converged = mergeSessionsData({
+      local: repeated.merged,
+      remote: repeated.merged,
+      tombstones: repeated.mergedTombstones,
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    })
+    expect(converged.merged.sessions).toEqual(repeated.merged.sessions)
+    expect(
+      getCompetitionRounds(
+        repeated.merged.sessions[0]!.solves,
+        format,
+      ).map((round) => [round.id, round.attemptCount]),
+    ).toEqual(
+      getCompetitionRounds(
+        forward.merged.sessions[0]!.solves,
+        format,
+      ).map((round) => [round.id, round.attemptCount]),
+    )
+  })
+
+  it('keeps a resolved contest when its winner is deleted and a stale device still assigns the survivor to the original slot', () => {
+    const shared = [0, 1, 2, 3].map((index) =>
+      solve({
+        id: `shared-${index}`,
+        rawMs: 10_000 + index * 1_000,
+        createdAt: 1_700_000_000_000 + index * 1_000,
+        roundId: 'round-1',
+        roundIndex: index,
+      }),
+    )
+    const attemptA = solve({
+      id: 'attempt-a',
+      rawMs: 14_000,
+      createdAt: 1_700_000_004_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const attemptB = solve({
+      id: 'attempt-b',
+      rawMs: 15_000,
+      createdAt: 1_700_000_005_000,
+      roundId: 'round-1',
+      roundIndex: 4,
+    })
+    const build = (solves: Solve[]) =>
+      sessionsData({
+        sessions: [
+          session({
+            kind: 'competition',
+            competitionFormat: format,
+            solves,
+          }),
+        ],
+      })
+
+    const initiallyMerged = mergeSessionsData({
+      local: build([...shared, attemptA]),
+      remote: build([...shared, attemptB]),
+      tombstones: [],
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    }).merged
+    const contestedId = initiallyMerged.sessions[0]!.solves.find(
+      (entry) => entry.id === 'attempt-b',
+    )!.roundId
+    expect(contestedId).toMatch(/^contested:/)
+
+    const resolvedAfterDelete = sessionsData({
+      sessions: [
+        {
+          ...initiallyMerged.sessions[0]!,
+          solves: initiallyMerged.sessions[0]!.solves.filter(
+            (entry) => entry.id !== 'attempt-a',
+          ),
+        },
+      ],
+    })
+    // The stale device never adopted the contest and still has both attempts
+    // in the original fifth slot.
+    const stale = build([...shared, attemptA, attemptB])
+    const tombstones = [
+      createTombstone('solve', 'attempt-a', 'session-1', 'device-a'),
+    ]
+
+    const assertSurvivor = (result: SessionsData) => {
+      const mergedSession = result.sessions[0]!
+      expect(mergedSession.solves.map((entry) => entry.id).sort()).toEqual([
+        'attempt-b',
+        'shared-0',
+        'shared-1',
+        'shared-2',
+        'shared-3',
+      ])
+      expect(
+        mergedSession.solves.find((entry) => entry.id === 'attempt-b')
+          ?.roundId,
+      ).toBe(contestedId)
+      const rounds = getCompetitionRounds(mergedSession.solves, format)
+      const original = rounds.find((round) => round.id === 'round-1')!
+      expect(original).toMatchObject({
+        attemptCount: 4,
+        complete: false,
+        contested: false,
+        result: null,
+      })
+      const contested = rounds.find((round) => round.id === contestedId)!
+      expect(contested).toMatchObject({
+        attemptCount: 1,
+        complete: false,
+        contested: false,
+        result: null,
+      })
+    }
+
+    const forward = mergeSessionsData({
+      local: resolvedAfterDelete,
+      remote: stale,
+      tombstones,
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    })
+    const reverse = mergeSessionsData({
+      local: stale,
+      remote: resolvedAfterDelete,
+      tombstones,
+      deviceId: 'device-b',
+      manualConflictReview: false,
+    })
+    assertSurvivor(forward.merged)
+    assertSurvivor(reverse.merged)
+    expect(forward.merged.sessions).toEqual(reverse.merged.sessions)
+
+    const reloaded = parseSessionsData(
+      JSON.parse(serializeSessionsData(resolvedAfterDelete)),
+    )
+    expect(reloaded).not.toBeNull()
+    if (!reloaded) return
+    const afterReload = mergeSessionsData({
+      local: stale,
+      remote: reloaded,
+      tombstones,
+      deviceId: 'device-b',
+      manualConflictReview: false,
+    })
+    assertSurvivor(afterReload.merged)
+
+    const repeated = mergeSessionsData({
+      local: forward.merged,
+      remote: afterReload.merged,
+      tombstones: forward.mergedTombstones,
+      deviceId: 'device-a',
+      manualConflictReview: false,
+    })
+    assertSurvivor(repeated.merged)
   })
 
   it('lets a one-way practice conversion flatten stale competition metadata', () => {
