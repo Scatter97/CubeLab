@@ -15,6 +15,7 @@ function solve(
   roundIndex: number,
   penalty: Solve['penalty'] = 'none',
   base = BASE,
+  comment = '',
 ): Solve {
   return {
     id,
@@ -22,7 +23,7 @@ function solve(
     rawMs,
     penalty,
     scramble: `Scramble ${id}`,
-    comment: '',
+    comment,
     createdAt: base + roundIndex * 1_000,
     roundId,
     roundIndex,
@@ -45,6 +46,11 @@ const dnfRound = [0, 1, 2, 3, 4].map((index) =>
     index,
     index < 2 ? 'dnf' : 'none',
     BASE + 200_000,
+    index === 0
+      ? 'Corner lock'
+      : index === 2
+        ? 'Clean solve'
+        : '',
   ),
 )
 
@@ -118,9 +124,14 @@ describe('competition round presentation', () => {
     const dialog = screen.getByTestId('competition-round-summary')
     expect(dialog).toHaveTextContent('Round 3')
     expect(dialog).toHaveTextContent('DNF')
-    expect(within(dialog).getByTestId('competition-summary-attempt-1')).toHaveTextContent(
-      'Trimmed worst',
+    const trimmedWorst = within(dialog).getByTestId(
+      'competition-summary-attempt-1',
     )
+    expect(trimmedWorst).toHaveTextContent('Trimmed worst')
+    expect(trimmedWorst).toHaveTextContent('Corner lock')
+    const best = within(dialog).getByTestId('competition-summary-attempt-3')
+    expect(best).toHaveTextContent('Best')
+    expect(best).toHaveTextContent('Clean solve')
     expect(dialog).toHaveTextContent('Session best · Round 2')
   })
 

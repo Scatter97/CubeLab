@@ -128,8 +128,9 @@ assignRoundMembership(incomingSolves, session, format): Solve[]
     incomplete rounds marked. Reuse the existing row windowing.
   - *Statistics panel:* per-session round list (latest, best, DNF rounds)
     reusing the detailed-statistics presentation patterns; the round summary
-    after a round completes shows the attempt table with best/worst marked
-    trimmed, the result, and a comparison against the session's best round.
+    after a round completes shows the attempt table with each solve's comment,
+    best/worst marked trimmed, the result, and a comparison against the
+    session's best round.
   - Round cumulative displays must update through the existing post-paint
     scheduling pattern so stop latency is unaffected.
 - **Session switcher/list:** competition sessions carry a small format badge.

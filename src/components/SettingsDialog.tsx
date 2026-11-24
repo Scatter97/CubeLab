@@ -15,6 +15,7 @@ import {
 import { ChevronRightIcon, CloseIcon } from './Icons'
 import { BetaBadge } from './BetaBadge'
 import { AppearanceControls } from './AppearanceControls'
+import { LegalLinks } from './LegalLinks'
 import { Select } from './Select'
 import { StorageHealthPanel } from './StorageHealthPanel'
 import type { CustomAverageSetting, Settings } from '../types'
@@ -1064,6 +1065,7 @@ function SettingsContent({
                 <dd>12 WCA events · official scrambles</dd>
               </div>
             </dl>
+            <LegalLinks className="settings-legal-links" />
           </section>
         </div>
 

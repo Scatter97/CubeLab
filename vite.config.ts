@@ -1,10 +1,40 @@
 import react from '@vitejs/plugin-react'
-import type { Plugin } from 'vite'
+import type { Connect, Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { VitePWA } from 'vite-plugin-pwa'
 
 const SEARCH_WORKER_FILE_PLACEHOLDER = '__CUBELAB_SEARCH_WORKER_FILE__'
 const SEARCH_WORKER_FILE_MODULE = '/src/lib/searchWorkerFile.ts'
+
+/**
+ * Vercel's `cleanUrls` serves `privacy.html` and `terms.html` at extensionless
+ * paths. Mirror that rewrite in the Vite dev and preview servers so the public
+ * legal links work locally before deployment.
+ */
+function legalPagesPlugin(): Plugin {
+  const rewrite: Connect.NextHandleFunction = (request, _response, next) => {
+    const url = request.url
+    if (!url) return next()
+    const queryIndex = url.indexOf('?')
+    const pathname = queryIndex === -1 ? url : url.slice(0, queryIndex)
+    const query = queryIndex === -1 ? '' : url.slice(queryIndex)
+    if (pathname === '/privacy' || pathname === '/privacy/') {
+      request.url = `/privacy.html${query}`
+    } else if (pathname === '/terms' || pathname === '/terms/') {
+      request.url = `/terms.html${query}`
+    }
+    next()
+  }
+  return {
+    name: 'cubelab-legal-pages',
+    configureServer(server) {
+      server.middlewares.use(rewrite)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(rewrite)
+    },
+  }
+}
 
 /**
  * `cubing.js` resolves its worker entry with `import.meta.resolve`, which keeps
@@ -67,6 +97,7 @@ export default defineConfig({
     exclude: ['cubing'],
   },
   plugins: [
+    legalPagesPlugin(),
     scrambleWorkerUrlPlugin(),
     react(),
     VitePWA({
@@ -116,6 +147,12 @@ export default defineConfig({
         ],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallback: 'index.html',
+        // Legal pages are standalone HTML documents. Never substitute the app
+        // shell for a navigation to either page.
+        navigateFallbackDenylist: [
+          /^\/privacy(?:\.html)?\/?$/,
+          /^\/terms(?:\.html)?\/?$/,
+        ],
         cleanupOutdatedCaches: true,
       },
     }),

@@ -221,6 +221,28 @@ describe('About settings', () => {
     expect(screen.getByRole('heading', { name: 'About' })).toBeInTheDocument()
     expect(screen.getByText(/^\d+\.\d{2}\.\d{6}:\d+$/)).toBeInTheDocument()
   })
+
+  it('places legal links at the bottom of About with safe new-tab URLs', () => {
+    renderSettings()
+    const about = screen
+      .getByRole('heading', { name: 'About' })
+      .closest('section')
+    expect(about).not.toBeNull()
+    const legal = within(about!).getByRole('navigation', { name: 'Legal' })
+    expect(about!.lastElementChild).toBe(legal)
+
+    const privacy = within(legal).getByRole('link', { name: 'Privacy Policy' })
+    const terms = within(legal).getByRole('link', { name: 'Terms of Service' })
+    for (const [link, href] of [
+      [privacy, '/privacy'],
+      [terms, '/terms'],
+    ] as const) {
+      expect(link).toHaveAttribute('href', href)
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(link).not.toHaveAttribute('tabindex', '-1')
+    }
+  })
 })
 
 describe('Data settings', () => {

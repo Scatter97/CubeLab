@@ -637,6 +637,25 @@ These are current boundaries; dated repair details are in the
 - **Metronome timing is browser-scheduled.** It uses Web Audio oscillators with a
   browser interval and is intended for practice feel, not laboratory timing.
 
+## Legal and public deployment
+
+- **The legal pages are owner-review drafts.** They describe the implementation
+  as verified from source, but they are not a substitute for legal advice and
+  have not been reviewed by a lawyer. The operator, contact, Ontario governing
+  law, 13+ eligibility and no-public-licence statements need the owner’s
+  confirmation before release.
+- **No live Vercel or Google verification was performed.** The extensionless
+  `/privacy` and `/terms` URLs return the correct static pages in a local
+  production preview; Vercel’s clean-URL behavior still depends on the deployed
+  `vercel.json` and was not exercised against the live domain. Live deployment,
+  Google Search Console domain ownership, OAuth branding review and the
+  production consent screen remain owner actions. See
+  [README.md](README.md#public-legal-pages).
+- **Google brand review can change.** The current `drive.appdata` scope is
+  documented by Google as non-sensitive, but branding/logo review is still
+  required for an external production app. Google’s policies and console labels
+  can change; recheck them before publishing.
+
 ## External validation and build tooling
 
 - **Live Drive evidence is dated.** The October 28 harness used independent

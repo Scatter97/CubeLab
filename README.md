@@ -87,8 +87,9 @@ including interaction rules, settings defaults, session overrides and persistenc
   The session list shows a format badge; Attempts groups rows under expandable
   round headers and marks incomplete rounds; Statistics lists the session's
   latest, best, and DNF rounds. Completing a round opens a summary with trimmed
-  attempts, the result, and the session-best comparison. There is no manual
-  new-round action. Deleting one attempt leaves an incomplete round, deleting
+  attempts, each attempt's solve comment, the result, and the session-best
+  comparison. There is no manual new-round action. Deleting one attempt leaves
+  an incomplete round, deleting
   all of a round's attempts removes it, and Undo restores round fields intact.
   If two synced devices record different attempts in the same round slot, both
   solves are kept: the earliest attempt remains in the completed round and the
@@ -451,9 +452,10 @@ session type (All / Practice / Competition), session, date range,
 latest-solve count, and penalty filters apply to every analysis. A compact
 scope toolbar sits below the page title; choosing a **Custom** date range opens
 a themed floating range calendar instead of extra date dropdowns. Lazy loading
-shows structural skeletons rather than spinner-only text. and the statistics
-overview promotes the fastest single, current rolling averages, and total volume
-above a dense secondary metric grid. The dashboard shares WCA effective-time,
+shows a structural skeleton matching the filter toolbar, overview card, analysis
+rail and chart rather than spinner-only text. The statistics overview promotes
+the fastest single, current rolling averages, and total volume above a dense
+secondary metric grid. The dashboard shares WCA effective-time,
 +2/DNF, precision, and trimming rules with the timer statistics. The overview
 stays at the top; below it, a flat analysis list selects one of the remaining
 analyses at a time. The **Analysis** heading stays outside the bounded tab
@@ -1003,6 +1005,24 @@ branding or verification review Google requires, before expecting other users to
 sign in. The publishing state and authorized origins live in the Google Cloud
 project that owns the client; they are not controlled by the CubeLab build.
 
+For the public deployment, Google Auth Platform branding should use:
+
+- Homepage: `https://cubelab-beryl.vercel.app/`
+- Privacy Policy: `https://cubelab-beryl.vercel.app/privacy`
+- Terms of Service: `https://cubelab-beryl.vercel.app/terms`
+- Authorized JavaScript origin: `https://cubelab-beryl.vercel.app`
+- Authorized domain: `cubelab-beryl.vercel.app`
+
+Verify ownership of `cubelab-beryl.vercel.app` in Google Search Console before
+submitting branding. Keep the public verification file
+`public/google1c71cd06d7d4da3d.html` deployed with the site. The homepage
+includes the Privacy Policy link in the timer footer and first-run onboarding,
+and **Settings → About** has both legal links.
+`drive.appdata` is documented by Google as a non-sensitive Drive scope, but an
+external production app still needs brand verification to show its name and logo.
+Recheck the current Google Auth Platform classifications and requirements before
+publishing.
+
 ### Inspection rules
 
 When inspection is enabled, the first press starts the 15-second inspection.
@@ -1353,6 +1373,11 @@ src/
   components/            Timer, scramble, sessions, stats, history, and dialogs
   components/SettingsDialog.tsx  Timer, Alerts, Display, Appearance, Statistics,
                                  Scramble, Data, and About preferences
+  components/LegalLinks.tsx  Shared Privacy Policy and Terms of Service links
+  public/privacy.html    Standalone public Privacy Policy
+  public/terms.html      Standalone public Terms of Service
+  public/legal.css       Shared legal-page light/dark design system
+  vercel.json            Vercel clean URLs for /privacy and /terms
   components/SessionSettingsDialog.tsx  Per-session inspection, merge/split, clear, and delete
   components/SolveHistory.tsx  Solve row data and floating solve action menu
   components/{StatisticsPanel,HistoryPanel,SidebarSplit}.tsx  Shared Timer/Training sidebar
@@ -1368,6 +1393,7 @@ e2e/responsive-timer.spec.ts  Small portrait/landscape timer layout and touch ac
 e2e/training-backup.spec.ts  Training native backup/restore and compressed large-file coverage
 e2e/training-drive-backup.spec.ts  Manual Training cloud backup/restore and guards
 e2e/training-drive-sync.spec.ts  Two-device Training merge, deletion/Undo, conflict and large-file coverage
+e2e/legal.spec.ts        Public legal page URLs, content, links, themes and PWA navigation
 ```
 
 The timer is a pure state machine driven by timestamped events. The React layer
@@ -1513,6 +1539,30 @@ versioned snapshot to CubeLab's app-data folder in your own Drive account; there
 is no CubeLab account, backend, analytics, or telemetry. **Reset All Site Data**
 clears local CubeLab state and authorization but never deletes those Drive
 snapshots; using Drive again requires an explicit new connection.
+
+### Public legal pages
+
+The public legal pages are standalone HTML documents:
+
+- <https://cubelab-beryl.vercel.app/privacy>
+- <https://cubelab-beryl.vercel.app/terms>
+
+They live in [`public/privacy.html`](public/privacy.html) and
+[`public/terms.html`](public/terms.html), share
+[`public/legal.css`](public/legal.css), and do not load React, read application
+storage, or acquire the `cubelab-active-tab` lock. `vercel.json` enables
+`cleanUrls` so Vercel serves the extensionless URLs; the `legalPagesPlugin` in
+`vite.config.ts` mirrors the rewrite in Vite dev and preview. The PWA
+`navigateFallbackDenylist` prevents the service worker from replacing either
+page with the app shell.
+
+`LegalLinks` renders the Privacy Policy and Terms of Service links in the timer
+footer, the first-run onboarding welcome, and the bottom of **Settings → About**.
+All links use `/privacy` and `/terms` and open in a new tab with
+`noopener noreferrer`. To update the legal content, edit the two HTML files,
+change their `Last updated` dates and canonical URLs only if the deployment URL
+changes, and keep both pages linked to each other and back to `/`. No generated
+legal-content step exists.
 
 ## Scope
 

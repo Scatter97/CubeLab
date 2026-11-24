@@ -314,16 +314,18 @@ test('merges practice and competition sources, splits with a format and converts
     solve('c0', 13_000, NOW - 3_000, {
       roundId: 'target-round',
       roundIndex: 0,
+      comment: 'Wide turn',
     }),
   ])
   const practiceSource = practice('practice-source', 'Practice source', [
     solve('p1', 11_000, NOW - 1_000),
-    solve('p0', 10_000, NOW - 4_000),
+    solve('p0', 10_000, NOW - 4_000, { comment: 'Clean finish' }),
   ])
   const competitionSource = competition('competition-source', 'Other competition', [
     solve('q0', 9_000, NOW - 500, {
       roundId: 'other-round',
       roundIndex: 3,
+      comment: 'Lucky skip',
     }),
   ])
   await seed(
@@ -380,6 +382,20 @@ test('merges practice and competition sources, splits with a format and converts
   await expect(merge).toBeHidden()
   const completedRound = page.getByTestId('competition-round-summary')
   await expect(completedRound).toBeVisible()
+  const worstAttempt = completedRound.getByTestId(
+    'competition-summary-attempt-1',
+  )
+  await expect(worstAttempt).toContainText('Wide turn')
+  await expect(worstAttempt).toContainText('Trimmed worst')
+  const commentedAttempt = completedRound.getByTestId(
+    'competition-summary-attempt-3',
+  )
+  await expect(commentedAttempt).toContainText('Clean finish')
+  const bestAttempt = completedRound.getByTestId(
+    'competition-summary-attempt-5',
+  )
+  await expect(bestAttempt).toContainText('Lucky skip')
+  await expect(bestAttempt).toContainText('Best')
   await completedRound.getByRole('button', { name: 'Done' }).click()
   await expect(completedRound).toBeHidden()
 

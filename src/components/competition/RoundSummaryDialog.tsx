@@ -119,6 +119,7 @@ export function RoundSummaryDialog({
                       : attempt.trimmed === 'worse'
                         ? 'Trimmed worst'
                         : ''
+                  const comment = attempt.solve.comment
                   return (
                     <tr
                       key={attempt.solve.id}
@@ -135,7 +136,23 @@ export function RoundSummaryDialog({
                           <span className="time-suffix">{time.suffix}</span>
                         ) : null}
                       </td>
-                      <td>{note}</td>
+                      <td>
+                        <span className="competition-attempt-note">
+                          {comment ? (
+                            <span
+                              className="competition-attempt-comment"
+                              title={comment}
+                            >
+                              {comment}
+                            </span>
+                          ) : null}
+                          {note ? (
+                            <span className="competition-attempt-flag">
+                              {note}
+                            </span>
+                          ) : null}
+                        </span>
+                      </td>
                     </tr>
                   )
                 })}

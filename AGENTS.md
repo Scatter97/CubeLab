@@ -70,6 +70,7 @@ suffixes remain `v1`; do not confuse key names with payload schema versions.
 | OLL/PLL Training workspace, calibration, reports and persistence | `src/lib/training/`, `src/hooks/useTraining.ts`, `src/components/TrainingPage.tsx`, `src/components/training/` |
 | Events, official scrambles and visualizations | `src/lib/events.ts`, `src/lib/scramble.ts`, `src/components/ToolPanel.tsx`, `src/components/ConfirmTimeTool.tsx` |
 | Theme tokens/bootstrap and PWA/worker build | `src/index.css`, `index.html`, `vite.config.ts` |
+| Public legal pages, links and Vercel clean URLs | `public/privacy.html`, `public/terms.html`, `public/legal.css`, `src/components/LegalLinks.tsx`, `vercel.json` |
 
 Keep calculations/transitions in pure modules, side effects in hooks, and input
 adaptation/rendering in components. The architecture skill gives the fuller map.

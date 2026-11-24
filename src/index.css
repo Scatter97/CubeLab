@@ -1476,6 +1476,54 @@ kbd {
   white-space: nowrap;
 }
 
+.session-caption-legal {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.session-caption-legal .app-version {
+  margin-left: 0;
+}
+
+.legal-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  align-items: baseline;
+}
+
+.legal-links a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.legal-links a:hover {
+  color: var(--text);
+}
+
+.legal-links a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.legal-links-separator {
+  color: var(--text-faint);
+}
+
+.app-legal-links {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .quick-stats {
   display: flex;
   gap: 18px;
@@ -2904,6 +2952,15 @@ kbd {
   margin: 0;
   font-size: var(--type-body);
   color: var(--text-muted);
+}
+
+.settings-legal-links {
+  display: flex;
+  margin-top: 12px;
+  padding-top: 10px;
+  font-size: var(--type-body);
+  color: var(--text-muted);
+  border-top: 1px solid var(--line-soft);
 }
 
 .settings-footer {
@@ -4969,31 +5026,6 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
   padding: 14px 18px 12px;
   overflow-y: auto;
   background: var(--bg);
-}
-
-.analytics-loading {
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.analytics-loading::before {
-  width: 16px;
-  height: 16px;
-  content: '';
-  border: 2px solid var(--accent-line);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: analytics-spin 0.8s linear infinite;
-}
-
-@keyframes analytics-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Header */
@@ -7163,11 +7195,6 @@ body.cubelab-tool-menu-open .scramble-draw-3d-floating-host {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
-
-  .analytics-loading::before {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-  }
 }
 
 /* Custom events */
@@ -8873,6 +8900,17 @@ select option {
   color: var(--text);
 }
 
+.onboarding-legal-links {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  padding-top: 10px;
+  margin-top: 10px;
+  font-size: var(--type-body);
+  color: var(--text-muted);
+  border-top: 1px solid var(--line-soft);
+}
+
 .onboarding-step {
   margin-top: 22px;
 }
@@ -10434,6 +10472,26 @@ select option {
   color: var(--text-muted);
 }
 
+.competition-attempt-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.competition-attempt-comment {
+  min-width: 0;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.competition-attempt-flag {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
 .competition-round-comparison {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -11105,28 +11163,65 @@ select option {
   .skeleton-block { animation: none; }
 }
 
-.analytics-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+.skeleton-block.is-title { width: 150px; height: 26px; }
+.skeleton-block.is-count { width: 118px; height: 11px; margin-left: 2px; }
+
+.skeleton-action,
+.skeleton-filters-toggle,
+.skeleton-reset {
+  pointer-events: none;
 }
 
-.skeleton-heading {
+.skeleton-block.is-action-fill { width: 96px; height: 9px; }
+.skeleton-block.is-action-fill.is-short { width: 76px; }
+.skeleton-block.is-filters-fill { width: 82px; height: 9px; }
+
+.skeleton-filter.is-kind { flex: 0 1 126px; }
+.skeleton-filter .is-filter-label { width: 44%; max-width: 74px; height: 8px; }
+.skeleton-filter .is-filter-control { width: 100%; height: 32px; }
+.skeleton-block.is-reset { width: 104px; height: 9px; }
+
+.skeleton-block.is-section-title { width: 150px; height: 13px; }
+.skeleton-block.is-section-meta {
+  width: 260px;
+  max-width: 100%;
+  height: 9px;
+}
+.skeleton-stat .is-stat-label { width: 54%; max-width: 118px; height: 8px; }
+.skeleton-stat .is-stat-value {
+  width: 62%;
+  max-width: 132px;
+  height: 22px;
+  margin-top: 6px;
+}
+.skeleton-stat.is-detail .is-stat-label { width: 58%; max-width: 108px; height: 7px; }
+.skeleton-stat.is-detail .is-stat-value {
+  width: 46%;
+  max-width: 88px;
+  height: 14px;
+  margin-top: 4px;
+}
+
+.skeleton-block.is-nav-heading { width: 62px; height: 8px; }
+.analytics-analysis-mobile-select .is-filter-label { width: 86px; height: 8px; }
+.analytics-analysis-mobile-select .is-filter-control { width: 100%; height: 32px; }
+.skeleton-tab {
   display: flex;
-  gap: 12px;
   align-items: center;
-  justify-content: space-between;
+  width: 100%;
+  min-height: 29px;
+  padding: 5px 7px 5px 9px;
+  border-left: 2px solid transparent;
 }
+.skeleton-tab.is-selected { border-left-color: var(--accent); }
+.skeleton-tab .is-tab-label { width: 76%; height: 9px; }
+.skeleton-tab:nth-child(2n) .is-tab-label { width: 58%; }
+.skeleton-tab:nth-child(3n) .is-tab-label { width: 84%; }
 
-.skeleton-block.is-title { width: 180px; height: 30px; }
-.skeleton-block.is-action { width: 120px; height: 28px; }
-.skeleton-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
-}
-.skeleton-block.is-card { height: 86px; }
+.skeleton-chart-toolbar .is-chip { width: 46px; height: 18px; border-radius: 4px; }
+.skeleton-chart-toolbar .is-chip:nth-child(2n) { width: 54px; }
+.skeleton-chart-toolbar .is-chip:nth-child(3n) { width: 62px; }
+
 .skeleton-panel {
   flex: 1 1 auto;
   min-height: 240px;
@@ -11135,7 +11230,27 @@ select option {
   border: 1px solid var(--line);
   border-radius: 5px;
 }
+.skeleton-block.is-card { height: 86px; }
 .skeleton-block.is-chart { width: 100%; height: 100%; min-height: 180px; }
+.skeleton-block.is-chart.is-analytics-chart { height: 244px; margin-top: 2px; }
+
+@media (min-width: 901px) {
+  .skeleton-overview {
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+
+  .skeleton-block.is-chart.is-analytics-chart {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 180px;
+  }
+}
+
+@media (max-width: 680px) {
+  .analytics-skeleton .analytics-filters { display: none; }
+  .skeleton-block.is-chart.is-analytics-chart { height: 210px; }
+}
 
 .training-skeleton {
   display: grid;

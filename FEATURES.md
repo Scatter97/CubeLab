@@ -279,9 +279,9 @@ Owners: [events](src/lib/events.ts), [scramble queue](src/hooks/useScramble.ts),
   than stored entities. The session list shows a format badge, Attempts groups
   rows under expandable round headers, Statistics lists rounds with
   latest/best/DNF markers, and a completed round opens a summary with trimmed
-  attempts, result and session-best comparison. Deleting every attempt removes a
-  derived round; deleting one leaves an incomplete round with no average; Undo
-  restores round membership.
+  attempts, solve comments, result and session-best comparison. Deleting every
+  attempt removes a derived round; deleting one leaves an incomplete round with
+  no average; Undo restores round membership.
 - Competition to practice conversion is one-way and requires typed confirmation;
   it removes the format and flattens every solve's round fields. Practice to
   competition is never offered.
@@ -509,12 +509,30 @@ Owners: [tool panel](src/components/ToolPanel.tsx),
   details with event, session, effective/raw result, penalty, date, scramble and
   notes. Empty scope disables View solves.
 - Analytics and Training lazy-route loading uses structural skeletons, not
-  spinner-only loading text.
+  spinner-only loading text. The Analytics skeleton mirrors the heading, filter
+  toolbar, statistics overview, analysis rail and chart panel.
 - Compact empty charts avoid full-height blank plots and hide stale legends.
   Empty-to-populated charts reattach resize observation.
 - Desktop uses bounded internal scrolling; mobile, short viewports and increased
   interface zoom permit page scrolling. Tables and heatmaps remain scrollable
   within their bounded panels.
+
+### Legal pages
+
+- Standalone `Privacy Policy` and `Terms of Service` documents at `/privacy` and
+  `/terms` on `https://cubelab-beryl.vercel.app`. They are static HTML with a
+  shared light/dark stylesheet, no React, no JavaScript, no application-storage
+  access and no active-tab lock.
+- Both pages include the operator/contact details, last-updated date,
+  cross-links, a link back to CubeLab, semantic headings, skip links and visible
+  keyboard focus.
+- Legal links are at the bottom of **Settings → About**, in the timer footer, and
+  on the first-run onboarding welcome. They use `/privacy` and `/terms` and open
+  in a new tab with `noopener noreferrer`.
+- `vercel.json` clean URLs and the Vite dev/preview rewrite expose the
+  extensionless paths locally and on Vercel. The PWA
+  `navigateFallbackDenylist` prevents the service worker from serving the app
+  shell for either legal path.
 
 ### Reports and controls
 

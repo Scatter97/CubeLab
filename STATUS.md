@@ -5,6 +5,110 @@ and immediate work queue. [README.md](README.md) describes the product;
 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) records current boundaries;
 [ROADMAP.md](ROADMAP.md) lists the retained follow-ups alongside delivered work.
 
+## Analytics loading skeleton — 2026-11-23
+
+Reworked the lazy Analytics fallback so it mirrors the loaded dashboard instead
+of the previous generic card grid and centered spinner. The skeleton now uses the
+real dashboard layout classes for the heading and actions, expanded filter
+toolbar, statistics-overview card (five hero and ten detail metrics), analysis
+rail with nine section rows, mobile analysis selector, and chart panel with
+toolbar chips. It follows the desktop bounded-scroll layout, collapses the filter
+toolbar behind its mobile toggle, hides the rail behind the mobile selector, and
+fills the chart area at desktop sizes. `analytics-loading` and its spinner rules
+were removed. No data, storage, sync or backup format changed.
+
+Verification:
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm run build            # passed; PWA output
+```
+
+A temporary Chromium visual harness delayed the lazy `AnalyticsPage` and
+`AnalyticsCharts` chunks, then inspected the fallback at 1440×1000 and 390×844.
+Desktop layout measured 1408 px wide with a 582 px analysis area and a filled
+486 px chart; mobile showed the collapsed filter toggle, hidden rail and visible
+analysis selector. No unit or browser test suite was run for this
+presentation-only change.
+
+## Public legal pages and Vercel clean URLs — 2026-11-23
+
+Added standalone, publicly accessible Privacy Policy and Terms of Service pages
+at `/privacy` and `/terms`.
+
+- **Static documents:** `public/privacy.html`, `public/terms.html` and shared
+  `public/legal.css`. They load no React, JavaScript or application storage, do
+  not acquire `cubelab-active-tab`, and support system light/dark themes,
+  responsive layouts, skip links, visible focus and semantic headings.
+- **URLs:** `vercel.json` enables `cleanUrls`. The `legalPagesPlugin` in
+  `vite.config.ts` rewrites `/privacy` and `/terms` to the static HTML in Vite
+  dev and preview. The PWA `navigateFallbackDenylist` prevents the service
+  worker from substituting `index.html` for either legal path.
+- **Links:** `LegalLinks` renders the two extensionless destinations in the
+  timer footer, first-run onboarding welcome, and at the bottom of
+  **Settings → About**. Every app link opens a new tab with
+  `noopener noreferrer`.
+- **Legal content:** documents the local solve/session/settings/Training data,
+  local backups, optional `drive.appdata` Google Drive integration, memory-only
+  OAuth tokens, remote snapshot retention/deletion, Online Battle WebRTC/STUN,
+  Vercel hosting logs, cookies/browser storage, security limits, privacy rights,
+  and the Google API Services User Data Policy / Limited Use disclosure. Terms
+  cover acceptance, eligibility (13+), permitted use, local data, Drive, Battle,
+  backups, third parties, IP/no public source licence, availability, disclaimers,
+  liability, termination, Ontario governing law and contact.
+- **Owner details:** Joshua Wang, Toronto, Ontario, Canada;
+  `JoshHTML5@gmail.com`. These details, the Ontario governing-law choice and the
+  legal wording remain subject to owner/legal review.
+- **Verification file:** the untracked
+  `public/google1c71cd06d7d4da3d.html` is a Google Search Console verification
+  file. Preserve and deploy it if that property is used.
+
+Verification:
+
+```bash
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+npm run build            # passed; 84 PWA precache entries (4,146.75 KiB),
+                         # including privacy.html, terms.html, legal.css and
+                         # the service-worker denylist
+```
+
+A local production-preview smoke check returned HTTP 200 and the correct titles
+for `/privacy`, `/terms`, `/privacy.html`, `/terms.html` and `/legal.css`. No
+automated test suite was run, per the owner’s instruction for this work. Release
+record: `0.01.261123:2`.
+`e2e/legal.spec.ts` and the Settings About unit regression were added but not
+executed. Live Vercel deployment, Google Search Console ownership, OAuth
+branding review and production consent-screen behavior were not exercised.
+
+## Competition round summary comments — 2026-11-23
+
+The round-complete attempt table now shows each attempt's saved solve comment
+alongside the existing Best/Trimmed best/Trimmed worst note. Comments wrap in the
+Note column and keep a title for long text. The dialog remains presentation-only
+and writes nothing; no session, storage, sync or backup format changed.
+
+Verification was run before the owner's stop request (no further tests were run
+after it):
+
+```bash
+npm test -- src/components/competition/CompetitionRounds.test.tsx
+# 1 file, 3 tests passed
+npm run typecheck        # passed
+npm run lint             # passed; pre-existing warnings only
+CI=1 PLAYWRIGHT_WORKERS=4 VITE_DRIVE_MOCK=true npm run test:e2e -- \
+  e2e/competition.spec.ts --project=chromium --workers=4 --retries=0 \
+  --grep "merges practice and competition sources"
+# 1 passed
+npm run build            # passed; production/PWA output restored after mock Drive
+git diff --check         # passed
+```
+
+The dialog was also inspected in Chromium with a long comment and the five-attempt
+table at desktop width. Firefox, WebKit, live Google Drive, physical devices and
+screen readers were not exercised.
+
 ## Pre-beta capability audit — 2026-11-23
 
 Independent review of the uncommitted tree found and fixed defects across

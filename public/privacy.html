@@ -1,0 +1,739 @@
+<!doctype html>
+<!--
+  Public Privacy Policy. Keep legal links extensionless (/privacy, /terms) and
+  update the Last updated date when the content changes. See
+  README.md#public-legal-pages for deployment and maintenance notes.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — CubeLab</title>
+    <meta
+      name="description"
+      content="How CubeLab handles solves, sessions, Training history, local browser storage, optional Google Drive backups, Online Battle, and hosting data."
+    />
+    <meta name="robots" content="index,follow" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="theme-color"
+      content="#e9edf1"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#0d1218"
+      media="(prefers-color-scheme: dark)"
+    />
+    <link rel="canonical" href="https://cubelab-beryl.vercel.app/privacy" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/legal.css" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Privacy Policy — CubeLab" />
+    <meta
+      property="og:description"
+      content="How CubeLab handles local solve data, optional Google Drive backups, and hosting data."
+    />
+    <meta
+      property="og:url"
+      content="https://cubelab-beryl.vercel.app/privacy"
+    />
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand" href="/" aria-label="CubeLab home">
+          <svg
+            class="brand-mark"
+            viewBox="0 0 48 48"
+            fill="none"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path
+              d="M24 4.8 42 14.7v18.6L24 43.2 6 33.3V14.7L24 4.8Z"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M24 4.8v18.7M24 23.5 42 14.7M24 23.5 6 14.7M24 23.5v19.7"
+              stroke="currentColor"
+              stroke-width="1.2"
+              opacity=".55"
+            />
+            <path
+              d="m15 19.1 9-4.7 9 4.7-9 4.8-9-4.8Z"
+              fill="currentColor"
+              opacity=".92"
+            />
+            <path
+              d="m15 19.1 9 4.8v9.3l-9-4.7v-9.4Z"
+              fill="currentColor"
+              opacity=".3"
+            />
+            <path
+              d="m33 19.1-9 4.8v9.3l9-4.7v-9.4Z"
+              fill="currentColor"
+              opacity=".15"
+            />
+          </svg>
+          <span class="brand-name">Cube<span>Lab</span></span>
+          <span class="brand-beta">Beta</span>
+        </a>
+        <a class="header-link" href="/">Back to CubeLab</a>
+      </div>
+    </header>
+
+    <div class="page">
+      <aside class="toc">
+        <nav aria-label="On this page">
+          <p class="toc-label">On this page</p>
+          <ol>
+            <li><a href="#overview">Overview</a></li>
+            <li><a href="#data-we-store">Data CubeLab stores</a></li>
+            <li><a href="#local-storage">Local storage and backups</a></li>
+            <li><a href="#google-drive">Google Drive</a></li>
+            <li><a href="#online-battle">Online Battle</a></li>
+            <li><a href="#retention">Retention and deletion</a></li>
+            <li><a href="#third-parties">Third-party services</a></li>
+            <li><a href="#cookies">Cookies and browser storage</a></li>
+            <li><a href="#security">Security</a></li>
+            <li><a href="#rights">Your privacy rights</a></li>
+            <li><a href="#children">Children</a></li>
+            <li><a href="#changes">Changes</a></li>
+            <li><a href="#contact">Contact</a></li>
+          </ol>
+        </nav>
+      </aside>
+
+      <main class="article" id="content">
+        <header class="doc-header">
+          <p class="eyebrow">CubeLab legal</p>
+          <h1>Privacy Policy</h1>
+          <p class="lede">
+            CubeLab is a free, offline-first speedcubing timer. This policy
+            explains what data the app handles, where it is stored, when it can
+            leave your device, and the choices you have.
+          </p>
+          <p class="meta">
+            <span>Last updated: <time datetime="2026-11-23">November 23, 2026</time></span>
+            <span>Applies to the CubeLab website and installed PWA</span>
+          </p>
+        </header>
+
+        <div class="summary">
+          <div class="summary-item">
+            <strong>Local by default</strong>
+            <p>
+              Solves, sessions, settings, and Training history are stored in
+              your browser on your device.
+            </p>
+          </div>
+          <div class="summary-item">
+            <strong>No CubeLab account</strong>
+            <p>
+              CubeLab does not operate a user account system, advertising
+              service, or separate analytics or telemetry service.
+            </p>
+          </div>
+          <div class="summary-item">
+            <strong>Google Drive is optional</strong>
+            <p>
+              If you connect Google Drive, CubeLab can back up and synchronize
+              through your own Google account using the hidden app-data folder.
+            </p>
+          </div>
+          <div class="summary-item">
+            <strong>Hosting is separate</strong>
+            <p>
+              Vercel delivers the site and may process standard request and
+              security data under its own policies.
+            </p>
+          </div>
+        </div>
+
+        <section class="doc-section" id="overview" aria-labelledby="overview-title">
+          <h2 id="overview-title">1. Overview</h2>
+          <p>
+            CubeLab is operated by <strong>Joshua Wang</strong>, an individual
+            based in Toronto, Ontario, Canada. In this policy, “CubeLab,” “we,”
+            “us,” and “our” refer to that project and operator. “You” means the
+            person using CubeLab.
+          </p>
+          <p>
+            This policy applies to the CubeLab web application, its installable
+            Progressive Web App (PWA), and these legal pages. It does not apply
+            to third-party websites or services, including Google Drive, Google
+            sign-in, or Vercel hosting. Those services have their own privacy
+            policies.
+          </p>
+          <p>
+            CubeLab is designed to work without an account. You can use the
+            timer, sessions, statistics, Analytics, Training, imports, and local
+            backups without connecting Google Drive or sending your solve data
+            to CubeLab.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="data-we-store"
+          aria-labelledby="data-we-store-title"
+        >
+          <h2 id="data-we-store-title">2. Data CubeLab stores</h2>
+          <p>
+            CubeLab processes the information you create or import while using
+            the app. Depending on the features you use, this can include:
+          </p>
+          <ul>
+            <li>
+              Timer results, including raw times, +2 or DNF penalties, effective
+              times, inspection state, dates, and solve identifiers.
+            </li>
+            <li>
+              Scrambles, session names, comments, competition round membership,
+              event selections, and per-session preferences.
+            </li>
+            <li>
+              Statistics and Analytics data calculated from your solve history,
+              such as averages, personal bests, trends, distributions, and
+              activity summaries.
+            </li>
+            <li>
+              Training history, including OLL/PLL attempts, recognition results,
+              case selections, calibration snapshots, practice visits, timing
+              statistics, and Training preferences.
+            </li>
+            <li>
+              App settings, theme and appearance choices, tool-panel layout,
+              onboarding state, and local interface preferences.
+            </li>
+            <li>
+              Imported csTimer data, including session names, solve records,
+              scramble metadata, and import provenance.
+            </li>
+            <li>
+              Local synchronization metadata if you use Google Drive, such as a
+              random device identifier, field timestamps, deletion records,
+              conflict decisions, snapshot retention settings, and the last
+              remote file identity. OAuth access tokens are not included because
+              they are kept in memory only.
+            </li>
+            <li>
+              Local recovery and safety records used for Undo, replacement
+              recovery, storage upgrades, and reset coordination.
+            </li>
+          </ul>
+          <p>
+            CubeLab does not ask for your name, postal address, phone number, or
+            date of birth. It does not create a CubeLab account, and it does not
+            receive your Google account email or profile through the Drive
+            integration.
+          </p>
+          <p>
+            CubeLab uses this information only to provide the features you
+            request: timing, solve history, statistics, Analytics, training,
+            imports, local backups, optional Google Drive synchronization, and
+            optional Online Battle. It is not used for advertising, profiling,
+            credit decisions, or sale to third parties.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="local-storage"
+          aria-labelledby="local-storage-title"
+        >
+          <h2 id="local-storage-title">3. Local storage, processing, and backups</h2>
+          <p>
+            Your CubeLab data is processed in your browser. It is stored using
+            browser technologies such as <code>localStorage</code>,
+            <code>sessionStorage</code>, IndexedDB, and service-worker caches.
+            This storage belongs to the CubeLab origin in your browser profile.
+          </p>
+          <p>
+            By default, CubeLab does not transmit your application data to a
+            CubeLab server. CubeLab has no application backend, database, user
+            account, advertising network, or telemetry pipeline of its own.
+            Scrambles are generated locally by the bundled open-source
+            <code>cubing.js</code> library. Fonts and app assets are served by
+            the site or cached locally.
+          </p>
+          <h3>Local exports and imports</h3>
+          <p>
+            You can export your data as a native CubeLab backup (JSON, or checked
+            gzip for larger backups) and import it later. You can also import
+            compatible csTimer data. These files are created and read by your
+            browser at your request. They are not uploaded to CubeLab.
+          </p>
+          <p>
+            Backup files may contain your full solve and Training history,
+            comments, and settings. They are <strong>not encrypted</strong> by
+            CubeLab; gzip only reduces file size. Store them somewhere you trust
+            and delete copies you no longer need.
+          </p>
+          <p>
+            The CubeLab PWA uses a service worker to cache the application shell
+            and assets so the app can work offline. Those caches are stored on
+            your device and can be removed with your browser’s site-data
+            controls or CubeLab’s <strong>Reset All Site Data</strong> action.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="google-drive"
+          aria-labelledby="google-drive-title"
+        >
+          <h2 id="google-drive-title">4. Google Drive backup and synchronization</h2>
+          <p>
+            Google Drive backup and synchronization are optional. CubeLab does
+            not connect to Google Drive unless you choose
+            <strong>Connect Google Drive</strong> and complete Google’s
+            authorization flow.
+          </p>
+
+          <h3>What CubeLab accesses</h3>
+          <p>
+            CubeLab uses Google Identity Services and requests only this OAuth
+            scope:
+          </p>
+          <p>
+            <code>https://www.googleapis.com/auth/drive.appdata</code>
+          </p>
+          <p>
+            Google describes this scope as: “See, create, and delete its own
+            configuration data in your Google Drive.” It lets CubeLab list,
+            download, upload, and delete files that CubeLab created in its own
+            hidden <strong>app-data folder</strong>. It does not let CubeLab
+            browse your other Drive files, Gmail, Photos, contacts, calendar, or
+            Google profile.
+          </p>
+          <p>
+            CubeLab deliberately does not request email, profile, <code>openid</code>,
+            or other identity scopes. The connected account label stored in your
+            browser is a generic status (“Google Drive connected”), not your
+            Google email address.
+          </p>
+
+          <dl class="facts">
+            <dt>What is stored remotely</dt>
+            <dd>
+              Solve snapshots contain sessions, solves (including times,
+              penalties, scrambles, comments, dates, and competition fields),
+              settings, and synchronization metadata. Training snapshots contain
+              Training attempts, timing and recognition data, calibration
+              snapshots, practice visits, preferences, and Training sync metadata.
+            </dd>
+            <dt>File metadata</dt>
+            <dd>
+              CubeLab-created files use names such as
+              <code>cubelab-backup-&lt;device&gt;-&lt;random&gt;.json</code> and
+              <code>cubelab-training-&lt;device&gt;-&lt;random&gt;.json</code>.
+              CubeLab also stores app-private metadata such as the format,
+              version, and a sanitized device identifier.
+            </dd>
+            <dt>Purpose</dt>
+            <dd>
+              To provide the backup and multi-device synchronization features you
+              request. Google user data is not used for advertising, third-party
+              analytics, profiling, creditworthiness, or sale.
+            </dd>
+            <dt>Size limits</dt>
+            <dd>
+              Solve snapshots are capped at 10 MB. Training snapshots are capped
+              at 16 MB compact JSON. Oversized data is stopped before upload.
+            </dd>
+            <dt>Where it is held</dt>
+            <dd>
+              In your own Google Drive app-data folder under your Google
+              account. CubeLab does not operate a server that receives or stores
+              these snapshots. Your browser communicates with Google APIs
+              directly over HTTPS.
+            </dd>
+            <dt>Retention</dt>
+            <dd>
+              Remote snapshots remain until you delete them or CubeLab’s
+              retention cleanup removes superseded files. The default policy
+              keeps the newest snapshot of every device and up to 10 snapshots
+              per device for 30 days; either the count or age limit can trigger
+              cleanup. The legacy shared file is not removed by automatic
+              cleanup. Manual Training backup cleanup keeps the newest five of
+              this device.
+            </dd>
+          </dl>
+
+          <h3>Google API Limited Use disclosure</h3>
+          <div class="callout">
+            <p>
+              <strong>
+                CubeLab’s use and transfer to any other app of information
+                received from Google APIs will adhere to the
+                <a
+                  href="https://developers.google.com/terms/api-services-user-data-policy"
+                  rel="noopener noreferrer"
+                  >Google API Services User Data Policy</a
+                >, including the Limited Use requirements.
+              </strong>
+            </p>
+            <p>
+              In plain language: CubeLab uses Google Drive app-data only to
+              provide the backup and synchronization features you ask for. We do
+              not sell Google user data, use it for advertising, or transfer it
+              to data brokers or advertisers. We do not read your Google data
+              except as necessary to operate the feature you requested, secure
+              the service, comply with law, or with your direction.
+            </p>
+          </div>
+
+          <h3>Access tokens</h3>
+          <p>
+            Google returns an OAuth access token after you authorize CubeLab.
+            CubeLab keeps that token in memory for the current page session. It
+            is not written to <code>localStorage</code>, IndexedDB, native
+            backups, or Google Drive. CubeLab treats the token as valid for about
+            55 minutes, and it is cleared when you disconnect, reset site data,
+            or reload or close the page. CubeLab does not store a refresh token.
+            Local connection metadata (a generic connection label, the last file
+            identity, and synchronization preferences) may remain in your
+            browser.
+          </p>
+
+          <h3>Disconnecting and revoking access</h3>
+          <ul>
+            <li>
+              In CubeLab, open <strong>Settings → Data → Google Drive backup</strong>
+              and choose <strong>Disconnect</strong>. This ends the connection,
+              attempts to revoke the current access token, and turns automatic
+              synchronization off.
+            </li>
+            <li>
+              You can also revoke CubeLab’s access at any time from your
+              <a
+                href="https://myaccount.google.com/permissions"
+                rel="noopener noreferrer"
+                >Google Account permissions page</a
+              >. Revoking access does not automatically delete snapshots already
+              stored in your Google Drive app-data folder.
+            </li>
+          </ul>
+
+          <h3>Deleting remote backups</h3>
+          <p>
+            In <strong>Settings → Data → Google Drive backup</strong>, the
+            <strong>Remote snapshots</strong> section lets you delete individual
+            solve snapshots. <strong>Delete remote backup</strong> removes every
+            CubeLab solve snapshot, including the legacy
+            <code>cubelab-backup.json</code> file, but does not delete local data.
+            Training snapshots are a separate file family and can be deleted
+            individually in the Training Drive section. Automatic cleanup also
+            removes superseded snapshots according to your retention settings.
+          </p>
+          <p>
+            <strong>Reset All Site Data</strong> does not delete Google Drive
+            files. If you revoke or disconnect access before deleting remote
+            files, you may need to reconnect to remove them through CubeLab.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="online-battle"
+          aria-labelledby="online-battle-title"
+        >
+          <h2 id="online-battle-title">5. Online Battle</h2>
+          <p>
+            Online Battle is optional. It uses a serverless WebRTC data channel
+            between two browsers. You and the other participant manually
+            exchange an invitation code and an answer code; CubeLab does not
+            operate a signaling server, account, or battle relay.
+          </p>
+          <p>
+            During a battle, the two browsers exchange the event, scramble, race
+            start and reset signals, and each participant’s result directly. The
+            other participant’s browser and network may also receive technical
+            connection information, such as IP addresses, as part of establishing
+            the peer-to-peer connection. The room ID and password are access
+            gates, not a guarantee that the other participant is trustworthy.
+          </p>
+          <p>
+            CubeLab uses Google’s public STUN server
+            <code>stun.l.google.com:19302</code> for NAT discovery. That server
+            helps the browsers find a direct route; it does not relay your solve
+            history. Google may process network metadata under its own privacy
+            policy.
+          </p>
+          <p>
+            Battle results are shown for the race and are not added to your
+            solve history by the Battle tool. Do not use Online Battle to share
+            sensitive information, and only connect with people you trust.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="retention"
+          aria-labelledby="retention-title"
+        >
+          <h2 id="retention-title">6. Retention and deletion</h2>
+          <p>
+            CubeLab does not set an automatic expiry for local solve, settings,
+            or Training data. It remains in your browser until you delete it,
+            clear site data, reset CubeLab, or your browser removes it (for
+            example because of storage pressure or a private-browsing session).
+          </p>
+          <ul>
+            <li>
+              You can delete individual solves and comments, clear a session,
+              reset all solve data, or delete sessions using CubeLab’s controls.
+            </li>
+            <li>
+              <strong>Reset All Site Data</strong> clears CubeLab’s local and
+              session storage, CubeLab IndexedDB databases, CubeLab service-worker
+              caches and registrations, and CubeLab-prefixed cookies. It does not
+              delete unrelated browser data, browser HTTP caches managed outside
+              the page, or Google’s own cookies.
+            </li>
+            <li>
+              Native backup files and downloaded copies remain wherever you saved
+              them. Delete them with your file manager or cloud storage provider.
+            </li>
+            <li>
+              Google Drive snapshots are retained as described in the Google
+              Drive section above. Deleting local data or resetting CubeLab does
+              not delete remote snapshots.
+            </li>
+          </ul>
+          <p>
+            Because CubeLab is local-first, we generally cannot access or delete
+            data stored only in your browser. You control that data directly. If
+            you contact us about a privacy request, we may ask for enough
+            information to understand the request, but we cannot retrieve data
+            that never reached us.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="third-parties"
+          aria-labelledby="third-parties-title"
+        >
+          <h2 id="third-parties-title">7. Third-party services and hosting</h2>
+          <p>
+            CubeLab uses a small number of third-party services. It does not
+            include third-party advertising networks, analytics pixels, or data
+            brokers.
+          </p>
+          <dl class="facts">
+            <dt>Google</dt>
+            <dd>
+              Google Identity Services, Google Drive, and Google’s public STUN
+              server support optional sign-in, backup/synchronization, and
+              Online Battle. Google processes Google account, authorization, and
+              network data under the
+              <a href="https://policies.google.com/privacy" rel="noopener noreferrer"
+                >Google Privacy Policy</a
+              >
+              and
+              <a href="https://policies.google.com/terms" rel="noopener noreferrer"
+                >Google Terms of Service</a
+              >.
+            </dd>
+            <dt>Vercel</dt>
+            <dd>
+              CubeLab is hosted on Vercel. Vercel may process standard technical
+              request data such as IP address, browser or user-agent
+              information, requested URL, timestamps, and security or diagnostic
+              logs to deliver and protect the site. Vercel’s processing is
+              governed by the
+              <a href="https://vercel.com/legal/privacy-policy" rel="noopener noreferrer"
+                >Vercel Privacy Policy</a
+              >. CubeLab does not configure Vercel Analytics or other
+              third-party usage analytics.
+            </dd>
+            <dt>No CubeLab backend</dt>
+            <dd>
+              CubeLab does not operate a custom application server, user
+              database, payment processor, or advertising service. Optional
+              Google Drive data travels between your browser and Google.
+            </dd>
+          </dl>
+          <p>
+            Third-party services are outside CubeLab’s control. Their
+            availability, security, retention, and privacy practices may change.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="cookies"
+          aria-labelledby="cookies-title"
+        >
+          <h2 id="cookies-title">8. Cookies and browser storage</h2>
+          <p>
+            CubeLab does not set cookies of its own. It uses browser storage
+            (localStorage, sessionStorage, IndexedDB, and service-worker caches)
+            to keep your solves, settings, Training data, and app state on your
+            device.
+          </p>
+          <p>
+            When you choose to connect Google Drive, Google Identity Services
+            loads from Google and may use Google cookies or similar storage on
+            Google domains. Google controls that storage under its own policies.
+            Vercel may also use technically necessary cookies or similar storage
+            for hosting, security, or delivery; see Vercel’s policy.
+          </p>
+          <p>
+            You can manage or clear browser storage through your browser’s
+            site-data controls. Clearing CubeLab’s storage removes local app data
+            and may sign you out of the optional Drive connection. It does not
+            delete Google Drive snapshots.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="security"
+          aria-labelledby="security-title"
+        >
+          <h2 id="security-title">9. Security and its limits</h2>
+          <p>
+            CubeLab is served over HTTPS. Google Drive requests use Google’s
+            OAuth flow, the narrow app-data scope, and an access token held only
+            in memory. Google protects Google Drive data under its own security
+            terms.
+          </p>
+          <p>
+            CubeLab does not encrypt your local browser storage. Anyone with
+            access to your device, browser profile, or an unencrypted backup file
+            may be able to read your solve history and comments. Browser storage
+            can also be lost through device failure, browser cleanup, storage
+            pressure, private browsing, or accidental deletion. No method of
+            storage or transmission is completely secure, and CubeLab cannot
+            guarantee absolute security.
+          </p>
+          <p>
+            Use a device lock, keep your browser and Google account secure, use a
+            strong Google password and two-factor authentication, and keep
+            independent backups of important data. Do not use CubeLab for
+            highly sensitive information.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="rights"
+          aria-labelledby="rights-title"
+        >
+          <h2 id="rights-title">10. Your privacy rights</h2>
+          <p>
+            Depending on where you live, you may have rights under applicable
+            privacy law to access, correct, delete, export, restrict, or object
+            to the processing of personal information. CubeLab does not sell
+            personal information.
+          </p>
+          <p>
+            Because CubeLab stores most app data locally, you can exercise many
+            of these choices directly:
+          </p>
+          <ul>
+            <li>View and edit your solves, comments, sessions, and settings in the app.</li>
+            <li>Export a native backup to keep a portable copy.</li>
+            <li>Delete solves or sessions, or reset local site data.</li>
+            <li>Disconnect Google Drive or revoke access through Google.</li>
+            <li>Delete Google Drive snapshots through CubeLab’s Drive controls.</li>
+          </ul>
+          <p>
+            If you want to make a privacy request or ask a question, contact us
+            at the address below. We may need to verify your identity or ask for
+            more detail before responding. If your request concerns data held by
+            Google or Vercel, contact that provider directly; we cannot access
+            their records on your behalf.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="children"
+          aria-labelledby="children-title"
+        >
+          <h2 id="children-title">11. Children</h2>
+          <p>
+            CubeLab is not directed to children under 13, and the Terms of
+            Service require users to be at least 13 years old. We do not
+            knowingly collect personal information from children under 13. If
+            you are under 13, do not use CubeLab or connect Google Drive.
+          </p>
+          <p>
+            If you believe a child under 13 has used CubeLab or provided personal
+            information, contact us so we can help you remove local data and
+            address the situation. Google account age requirements also apply to
+            the optional Drive connection.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="changes"
+          aria-labelledby="changes-title"
+        >
+          <h2 id="changes-title">12. Changes to this policy</h2>
+          <p>
+            We may update this Privacy Policy as CubeLab changes. The revised
+            policy will show a new “Last updated” date. If a change materially
+            affects how CubeLab uses Google user data or other personal
+            information, we will provide additional notice in the app or obtain
+            consent where required before using the data for a new purpose.
+          </p>
+          <p>
+            Continuing to use CubeLab after a revised policy takes effect means
+            you acknowledge the updated policy.
+          </p>
+        </section>
+
+        <section
+          class="doc-section"
+          id="contact"
+          aria-labelledby="contact-title"
+        >
+          <h2 id="contact-title">13. Contact</h2>
+          <p>
+            Questions, privacy requests, and concerns about CubeLab can be sent
+            to the operator:
+          </p>
+          <div class="contact-card">
+            <strong>CubeLab operator</strong>
+            <span>Joshua Wang · Toronto, Ontario, Canada</span>
+            <a href="mailto:JoshHTML5@gmail.com">JoshHTML5@gmail.com</a>
+          </div>
+          <p>
+            Please include “CubeLab privacy” in the subject line so the request
+            can be identified. We will respond within a reasonable time.
+          </p>
+          <p>
+            These legal pages are static HTML. They do not load the CubeLab
+            application, access CubeLab storage, or acquire the app’s
+            single-active-tab lock.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <span>© 2026 Joshua Wang. CubeLab is an independent project.</span>
+        <nav class="footer-links" aria-label="Legal and CubeLab links">
+          <a href="/">CubeLab</a>
+          <a class="footer-current" href="/privacy" aria-current="page"
+            >Privacy Policy</a
+          >
+          <a href="/terms">Terms of Service</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

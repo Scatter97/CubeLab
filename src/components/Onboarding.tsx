@@ -40,6 +40,7 @@ import type { SessionsData, Settings } from '../types'
 import { loadSyncStorage } from '../lib/syncStorage'
 import { CheckIcon, ChevronRightIcon, CubeMark } from './Icons'
 import { AppearanceControls } from './AppearanceControls'
+import { LegalLinks } from './LegalLinks'
 
 const TIMER_UPDATE_OPTIONS = [
   { value: 'live', label: 'Live' },
@@ -1316,6 +1317,7 @@ export function Onboarding({
                   Return to CubeLab
                 </button>
               )}
+              <LegalLinks className="onboarding-legal-links" />
             </div>
           ) : null}
 

@@ -28,6 +28,7 @@ import { AnalyticsSkeleton, TrainingSkeleton } from './components/ContentSkeleto
 import { useDrawScrambleMode } from './hooks/useDrawScrambleMode'
 import { SessionPanel } from './components/SessionPanel'
 import { AppVersion } from './components/AppVersion'
+import { LegalLinks } from './components/LegalLinks'
 import { SessionSettingsDialog } from './components/SessionSettingsDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SolveHistory } from './components/SolveHistory'
@@ -2899,7 +2900,10 @@ export default function App({ initialSessions, initialSettings, initialOnboardin
                 ) : null}
               </span>
             ) : null}
-            <AppVersion />
+            <div className="session-caption-legal">
+              <AppVersion />
+              <LegalLinks className="app-legal-links" />
+            </div>
           </div>
         </div>
 
